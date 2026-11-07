@@ -54,7 +54,7 @@ launcher.cleanup_failed: {en: "Not everything was cleaned: %{what}", it: "Non tu
 launcher.club_server: {en: "Club server", it: "Server club", ja: "クラブサーバー"}
 launcher.club_server_hint: {en: "Leave it empty to use the server you play on.", it: "Lascia vuoto per usare il server su cui giochi.", ja: "空欄にすると、プレイ中のサーバーを使います。"}
 launcher.vs_link: {en: "Direct VS link", it: "Collegamento VS diretto", ja: "ダイレクトVSリンク"}
-launcher.vs_link_hint: {en: "VS match data goes straight between the two PCs, without the server.", it: "I dati di una sfida VS passano direttamente tra i due PC.", ja: "VS対戦の試合データは2台のPC間で直接やり取りされます。"}
+launcher.vs_link_hint: {en: "VS match data goes between the two PCs, not through the game server.", it: "I dati di una sfida VS passano tra i due PC, non dal server di gioco.", ja: "VS対戦の試合データはゲームサーバーを通さず、2台のPC間でやり取りされます。"}
 # messages: the status line, the questions, the output; the run's own lines stay English
 launcher.msg_starting: {en: "Starting the game…", it: "Avvio del gioco…", ja: "ゲームを起動しています…"}
 launcher.stage_server: {en: "Starting the server…", it: "Avvio del server…", ja: "サーバーを起動しています…"}
@@ -141,7 +141,7 @@ installer.need_iso: {en: "The disc image (.iso)", it: "L'immagine del disco (.is
 installer.need_iso_note: {en: "about 5–6 GB", it: "circa 5–6 GB", ja: "約5〜6 GB"}
 installer.need_key: {en: "The disc's key file", it: "Il file chiave del disco", ja: "ディスクのキーファイル"}
 installer.need_package: {en: "Forza-WCCF package", it: "Pacchetto Forza-WCCF", ja: "Forza-WCCF パッケージ"}
-installer.optional: {en: "optional, but needed to play", it: "facoltativo, ma serve per giocare", ja: "任意（ただしプレイに必要）"}
+installer.optional: {en: "needed to play; can be skipped now", it: "serve per giocare; si può saltare ora", ja: "プレイに必要（今は省略も可）"}
 installer.need_space: {en: "About 6 GB free", it: "Circa 6 GB liberi", ja: "約6 GBの空き容量"}
 installer.side_by_side: {en: "2010-11 and 2017-18 can be installed together.", it: "Puoi installare 2010-11 e 2017-18 insieme.", ja: "2010-11 と 2017-18 は両方インストールできます。"}
 installer.folder: {en: "FOLDER", it: "CARTELLA", ja: "フォルダー"}
@@ -181,7 +181,7 @@ installer.welcome_note: {en: "Without the package, only the original files are e
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
 installer.space_low: {en: "Only %{free} GB free: the install needs about 6 GB.", it: "Solo %{free} GB liberi: servono circa 6 GB.", ja: "空きは %{free} GB のみです（約6 GB必要）。"}
 installer.space_unknown: {en: "The install needs about 6 GB.", it: "Servono circa 6 GB.", ja: "約6 GBの空き容量が必要です。"}
-installer.ascii_tip: {en: "Use only English letters and digits in the folder name, like C:\\Games.", it: "Usa solo lettere inglesi e numeri nel nome della cartella, come C:\\Games.", ja: "C:\\Games のように、英数字だけのフォルダー名を使ってください。"}
+installer.ascii_tip: {en: "The folder name has letters outside English. Use a path like C:\\Games.", it: "Il nome della cartella contiene lettere non inglesi. Usa un percorso come C:\\Games.", ja: "フォルダー名に英語以外の文字があります。C:\\Games のようなパスを使ってください。"}
 installer.reuse: {en: "Use the game files already here", it: "Usa i file del gioco già presenti", ja: "ここにあるゲームファイルを使う"}
 installer.reusing: {en: "Using the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
 installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
@@ -289,7 +289,7 @@ board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja:
 board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 board.pop_out: {en: "POP OUT BOARD", it: "FORMAZIONE IN FINESTRA", ja: "別ウィンドウで表示"}
-board.dock: {en: "DOCK FORMATION BOARD", it: "RIPORTA LA FORMAZIONE", ja: "フォーメーションボードを戻す"}
+board.dock: {en: "DOCK BOARD", it: "RIPORTA NEL GIOCO", ja: "ボードを戻す"}
 board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
 cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
@@ -359,7 +359,7 @@ cat.msg_link_not_found: {en: "This link has no lineup on db.wccf.it. Copy the li
 cat.msg_link_not_lineup: {en: "The link did not give a lineup.", it: "Il link non ha restituito una formazione.", ja: "リンクから編成を読み込めませんでした。"}
 cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup's link again and retry.", it: "Impossibile leggere gli appunti. Copia di nuovo il link della formazione e riprova.", ja: "クリップボードを読めません。編成のリンクをもう一度コピーして再試行してください。"}
 cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
-cat.msg_import_match: {en: "A lineup cannot be imported during a match. Import it between matches.", it: "Non si può importare una formazione durante una partita. Importala tra una partita e l'altra.", ja: "試合中は読み込めません。試合の合間に読み込んでください。"}
+cat.msg_import_match: {en: "Not possible during a match. Try again between matches.", it: "Non si può fare durante una partita. Riprova tra una partita e l'altra.", ja: "試合中はできません。試合の合間にもう一度お試しください。"}
 cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
 cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の%{n}枚に置き換えますか？"}
 cat.ask_skipped: {en: "%{n} cards skipped (not usable in this game).", it: "%{n} carte saltate (non usabili in questo gioco).", ja: "%{n}枚はこのゲームで使えないため読み込みません。"}
@@ -449,7 +449,7 @@ settings.msg_compact: {en: "Compact view: the game picture is bigger.", it: "Vis
 settings.msg_cabinet: {en: "Cabinet view: all the buttons are shown.", it: "Vista cabinato: i pulsanti sono tutti visibili.", ja: "筐体表示：ボタンがすべて表示されます。"}
 settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
-settings.board_window: {en: "Pop out the formation board", it: "Formazione in pop-out", ja: "フォーメーションボードをポップアウト"}
+settings.board_window: {en: "Pop out the formation board", it: "Formazione in finestra", ja: "フォーメーションボードをポップアウト"}
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
@@ -683,7 +683,7 @@ launcher.run_vs_no_answer: {en: "The game server at %{host}:%{port} does not ans
 launcher.run_online_vs: {en: "Online: VS on the server at %{host}.", it: "Online: VS sul server %{host}.", ja: "オンライン: %{host} のサーバーで対戦します。"}
 launcher.run_bad_server: {en: "\"%{ip}\" is not a server address - playing on this PC. (Fix it under SETTINGS in the game.)", it: "\"%{ip}\" non è un indirizzo di server - si gioca su questo PC. (Correggilo in IMPOSTAZIONI nel gioco.)", ja: "\"%{ip}\" はサーバーのアドレスではありません - このPCでプレイします。(ゲーム内の「設定」で直してください。)"}
 launcher.run_server_no_answer: {en: "The server at %{ip} does not answer - playing on this PC. (ONLINE stays set; choose THIS PC in SETTINGS to stop trying.)", it: "Il server su %{ip} non risponde - si gioca su questo PC. (ONLINE resta impostato; scegli QUESTO PC in IMPOSTAZIONI per non riprovare.)", ja: "%{ip} のサーバーが応答しません - このPCでプレイします。(「オンライン」の設定は残ります。接続を試さないようにするには、「設定」で「このPC」を選んでください。)"}
-launcher.run_online: {en: "Online. (Launcher.exe local makes the game play on this PC.)", it: "Online. (Con Launcher.exe local il gioco gira su questo PC.)", ja: "オンラインです。(Launcher.exe local を使うと、このPCでプレイします。)"}
+launcher.run_online: {en: "Online. (To play on this PC only, run Launcher.exe local.)", it: "Online. (Per giocare solo su questo PC, esegui Launcher.exe local.)", ja: "オンラインです。(このPCだけでプレイするには Launcher.exe local を実行します。)"}
 launcher.run_pictures_busy: {en: "The game is running or starting. Close its window, then try again.", it: "Il gioco è in esecuzione o in avvio. Chiudi la sua finestra, poi riprova.", ja: "ゲームは実行中か起動中です。ウィンドウを閉じてから、もう一度お試しください。"}
 launcher.run_pictures_no_game: {en: "No game set up yet. Card pictures are made during setup.", it: "Nessun gioco ancora configurato. Le immagini delle carte vengono create durante la configurazione.", ja: "ゲームがまだセットアップされていません。カード画像はセットアップ中に作成されます。"}
 launcher.run_no_hq_pack: {en: "High-quality card pack not found. Using the game's own pictures.", it: "Pacchetto di immagini carte in alta qualità non trovato. Uso le immagini del gioco.", ja: "高画質カード画像パックが見つかりません。ゲーム本来の画像を使います。"}
@@ -731,7 +731,7 @@ launcher.run_scenes_shared: {en: "scene service (shared with the server)", it: "
 launcher.run_scenes: {en: "scene service", it: "servizio scene", ja: "シーンサービス"}
 launcher.run_scenes_failed: {en: "the scene service did not start (%{error}) - see data\\logs\\xscn_watch_log.txt", it: "il servizio scene non si è avviato (%{error}) - vedi data\\logs\\xscn_watch_log.txt", ja: "シーンサービスが起動しませんでした(%{error})- data\\logs\\xscn_watch_log.txt を確認してください"}
 launcher.run_not_found: {en: "\"%{entry}\" is not a server this PC can find", it: "\"%{entry}\" non è un server che questo PC riesce a trovare", ja: "\"%{entry}\" はこのPCから見つけられるサーバーではありません"}
-launcher.run_remote_no_answer: {en: "the server at %{entry} does not answer on port %{port}. Check that it is running and the port is open. (Launcher.exe local plays on this PC.)", it: "il server su %{entry} non risponde sulla porta %{port}. Controlla che sia in esecuzione e che la porta sia aperta. (Launcher.exe local gioca su questo PC.)", ja: "%{entry} のサーバーがポート %{port} で応答しません。サーバーが動いていて、ポートが開いているか確認してください。(Launcher.exe local でこのPCでプレイします。)"}
+launcher.run_remote_no_answer: {en: "the server at %{entry} does not answer on port %{port}. Check that it is running and the port is open. (To play on this PC only, run Launcher.exe local.)", it: "il server su %{entry} non risponde sulla porta %{port}. Controlla che sia in esecuzione e che la porta sia aperta. (Per giocare solo su questo PC, esegui Launcher.exe local.)", ja: "%{entry} のサーバーがポート %{port} で応答しません。サーバーが動いていて、ポートが開いているか確認してください。(このPCだけでプレイするには Launcher.exe local を実行します。)"}
 launcher.run_remote_seat: {en: "server %{ip}, port %{port}: seat %{seat}", it: "server %{ip}, porta %{port}: posto %{seat}", ja: "サーバー %{ip}、ポート %{port}: 席 %{seat}"}
 launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{seat}, projector", it: "server %{ip}, porta %{port}: posto %{seat}, proiettore", ja: "サーバー %{ip}、ポート %{port}: 席 %{seat}、プロジェクター"}
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla porta %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}

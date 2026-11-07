@@ -5745,7 +5745,7 @@ mod tests {
             (
                 text,
                 true,
-                "A lineup cannot be imported during a match. Import it between matches.",
+                "Not possible during a match. Try again between matches.",
             ),
             (
                 "game 1718\nP 1 50 90\n",
@@ -5777,7 +5777,7 @@ mod tests {
         assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "A lineup cannot be imported during a match. Import it between matches."
+            "Not possible during a match. Try again between matches."
         );
         let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
             assert_eq!(path, "/api/share/abcd123.txt");
@@ -6081,7 +6081,7 @@ mod tests {
         assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "A lineup cannot be imported during a match. Import it between matches."
+            "Not possible during a match. Try again between matches."
         );
         assert!(st.formations.is_some() && st.import_undo.is_none());
         // an empty slot loads nothing
