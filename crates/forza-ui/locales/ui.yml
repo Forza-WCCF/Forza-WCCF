@@ -619,18 +619,22 @@ lobby.list_arcade_off: {en: "Only players with the code can join.", it: "Entra s
 lobby.cup: {en: "Universal Cup", it: "Universal Cup", ja: "ユニバーサルカップ"}
 lobby.cup_game_times: {en: "Game times", it: "Orari del gioco", ja: "通常の時間"}
 lobby.cup_off: {en: "Off", it: "No", ja: "なし"}
-lobby.cup_in: {en: "In N min", it: "Tra N min", ja: "N分後"}
-lobby.cup_at: {en: "At HH:MM", it: "Alle HH:MM", ja: "時刻指定"}
-lobby.cup_min_unit: {en: " min", it: " min", ja: " 分後"}
+lobby.cup_in: {en: "In %{m} min", it: "Tra %{m} min", ja: "%{m}分後"}
+lobby.cup_at: {en: "At %{t}", it: "Alle %{t}", ja: "%{t}開始"}
+lobby.cup_minutes: {en: "%{m} min", it: "%{m} min", ja: "%{m}分"}
+lobby.cup_in_field: {en: "Opens in", it: "Apre tra", ja: "開始まで"}
+lobby.cup_at_field: {en: "Opens at", it: "Apre alle", ja: "開始時刻"}
+lobby.cup_earlier: {en: "5 min earlier", it: "5 min prima", ja: "5分早く"}
+lobby.cup_later: {en: "5 min later", it: "5 min dopo", ja: "5分遅く"}
 lobby.cup_off_line: {en: "No Universal Cup in this arcade.", it: "Nessuna Universal Cup in questa sala.", ja: "このゲームセンターではユニバーサルカップを開催しません。"}
 lobby.cup_game_times_line: {en: "Cups open at 12:00, 15:00, 18:00 and 21:00.", it: "Le cup aprono alle 12:00, 15:00, 18:00 e 21:00.", ja: "大会は12:00、15:00、18:00、21:00に開始します。"}
-lobby.cup_opens: {en: "Opens at about %{time}. Card in before then; entry closes about 1.5 min after it opens.", it: "Apre verso le %{time}. Inserisci la carta prima; le iscrizioni chiudono circa 1,5 min dopo l'apertura.", ja: "%{time}ごろ開始。それまでにカードを入れてください。エントリーは開始の約1分30秒後に締め切られます。"}
+lobby.cup_opens: {en: "Entries open at about %{time}. Insert your card before then and choose the Universal Cup in the game as soon as it can be selected; entries close about a minute and a half later.", it: "Le iscrizioni aprono verso le %{time}. Inserisci la carta prima di quell'ora e scegli la Universal Cup nel gioco appena è selezionabile; le iscrizioni chiudono circa un minuto e mezzo dopo.", ja: "%{time}ごろエントリー開始。それまでにカードを入れ、ゲームでユニバーサルカップが選べるようになったらすぐに選んでください。エントリーは約1分30秒後に締め切られます。"}
 lobby.cup_night: {en: "The cup and its championship must end before 05:00.", it: "La cup e il suo campionato devono finire prima delle 05:00.", ja: "大会と選手権は5:00までに終了する必要があります。"}
 lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m}分以上先にしてください。"}
 lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m}分以内にしてください。"}
 lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
 lobby.cup_off_local: {en: "No Universal Cup: normal play.", it: "Nessuna Universal Cup: gioco normale.", ja: "ユニバーサルカップなし：通常プレイ。"}
-lobby.cup_local: {en: "Your club and 7 CPU teams. Set at PLAY; to change it, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Si sceglie a GIOCA; per cambiarlo, ferma il gioco e riavvialo.", ja: "あなたのクラブとCPU 7チーム。プレイ開始時に決まります。変更するには、ゲームを終了して再度プレイしてください。"}
+lobby.cup_local: {en: "Your club and 7 CPU teams. To change the time, or if you missed the entries, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Per cambiare orario, o se hai perso le iscrizioni, ferma il gioco e riavvialo.", ja: "あなたのクラブとCPU 7チーム。時間を変えるときやエントリーに間に合わなかったときは、ゲームを終了して再度プレイしてください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
