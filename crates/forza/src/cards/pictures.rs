@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 /// The face: the left 88 columns of the game's 128x128 picture (what the original overlay showed).
 pub const FACE: (u32, u32) = (88, 128);
+/// `pack.txt` of a pack whose pictures outrank the game's album art (see [`from_prebuilt`]).
+pub const FORMAT_2: &str = "forza-wccf card pictures 2";
 /// The folder's note of what made it; another answer from [`wanted`] makes it again.
 const MARKER: &str = "source.txt";
 /// The files the pack wrote, one name a line: the next rebuild deletes these and nothing else (a picture a player put
@@ -378,9 +380,11 @@ fn db_picks(
     Ok((db, picks))
 }
 
-/// The pack as players get it (forza-wccf-card-pictures-hq-*.zip, no cards.db): each scan once in `pictures/`, and
-/// per edition `2017-2018/cards.tsv` / `2010-2011/cards.tsv` (`<number>\t<picture>`, one card a line) and the
-/// edition's hq_stats.tsv. The edition's cards go into `out` as `<number>.jpg`.
+/// The pack as players get it (no cards.db): each picture once in `pictures/`, and per edition
+/// `2017-2018/cards.tsv` / `2010-2011/cards.tsv` (`<number>\t<front>[\t<back>]`, one card a line) and the edition's
+/// hq_stats.tsv. Format 1 (no `pack.txt`): 180x254 scans, into `out` as `<number>.jpg`, after the game's album art.
+/// Format 2 (`pack.txt` says [`FORMAT_2`], `tools/card-pictures/build_pack.py`): the whole printed card at 664x911,
+/// front and back, as `<number>_hq.jpg` and `<number>_hq_b.jpg`, which the board takes before the album art.
 fn from_prebuilt(
     zip: &mut zip::ZipArchive<File>,
     edition: &str,
@@ -398,6 +402,11 @@ fn from_prebuilt(
         })?,
         &mut list,
     )?;
+    let mut head = String::new();
+    if let Ok(mut f) = zip.by_name("pack.txt") {
+        io::Read::read_to_string(&mut f, &mut head)?;
+    }
+    let format_2 = head.trim() == FORMAT_2;
     fs::create_dir_all(out)?;
     let mut listed = pack_list(out)?;
     let (mut done, mut fails) = (0, Vec::new());
@@ -412,15 +421,29 @@ fn from_prebuilt(
     if let Err(e) = copy(&format!("{top}/{}", super::hq::FILE), super::hq::FILE) {
         fails.push(format!("stats: {e}"));
     }
+    let plain = |p: &&str| !p.contains(['/', '\\']) && p.ends_with(".jpg");
     for line in list.lines() {
-        let Some((no, pic)) = line.split_once('\t').filter(|(n, p)| {
-            n.parse::<u32>().is_ok() && !p.contains(['/', '\\']) && p.ends_with(".jpg")
-        }) else {
+        let mut f = line.split('\t');
+        let (Some(no), Some(front)) = (
+            f.next().filter(|n| n.parse::<u32>().is_ok()),
+            f.next().filter(plain),
+        ) else {
             continue;
         };
-        match copy(&format!("pictures/{pic}"), &format!("{no}.jpg")) {
+        let back = f.next().filter(plain).filter(|_| format_2);
+        let (front_as, back_as) = if format_2 {
+            (format!("{no}_hq.jpg"), format!("{no}_hq_b.jpg"))
+        } else {
+            (format!("{no}.jpg"), String::new())
+        };
+        match copy(&format!("pictures/{front}"), &front_as) {
             Ok(()) => done += 1,
-            Err(e) => fails.push(format!("card {no} ({pic}): {e}")),
+            Err(e) => fails.push(format!("card {no} ({front}): {e}")),
+        }
+        if let Some(back) = back
+            && let Err(e) = copy(&format!("pictures/{back}"), &back_as)
+        {
+            fails.push(format!("card {no} ({back}): {e}"));
         }
     }
     Ok((done, fails))
@@ -1071,6 +1094,45 @@ mod tests {
         assert!(out.join("7049.jpg").is_file() && !out.join("7441.jpg").exists());
         let stats = super::super::hq::load(&out.join(super::super::hq::FILE));
         assert!(stats.contains_key(&7049) && !stats.contains_key(&7441));
+    }
+
+    #[test]
+    fn a_format_2_pack_writes_hq_fronts_and_backs_and_takes_them_away_again() {
+        let d = tempfile::tempdir().unwrap();
+        fake_game(d.path());
+        let pack = d.path().join("card-pictures-2017-18-1.zip");
+        zip_of(
+            &pack,
+            &[
+                ("pack.txt", b"forza-wccf card pictures 2\n"),
+                ("pictures/1_F.jpg", b"F"),
+                ("pictures/1_B.jpg", b"B"),
+                ("pictures/2_F.jpg", b"G"),
+                (
+                    "2017-2018/cards.tsv",
+                    b"7049\t1_F.jpg\t1_B.jpg\n7050\t2_F.jpg\t\n",
+                ),
+                ("2017-2018/hq_stats.tsv", b"7049\tFW\t1\t1\t1\t1\t1\t1\t6\n"),
+            ],
+        );
+        let out = d.path().join("cards");
+        ensure(d.path(), "1718", &out, Some(&pack), &|_, _| {}).unwrap();
+        assert_eq!(fs::read(out.join("7049_hq.jpg")).unwrap(), b"F");
+        assert_eq!(fs::read(out.join("7049_hq_b.jpg")).unwrap(), b"B");
+        assert_eq!(fs::read(out.join("7050_hq.jpg")).unwrap(), b"G");
+        assert!(!out.join("7049.jpg").exists() && !out.join("7050_hq_b.jpg").exists());
+        // the game's album art stays beside them
+        assert!(out.join("7049_f.jpg").is_file() && out.join("7049_b.jpg").is_file());
+        ensure(d.path(), "1718", &out, None, &|_, _| {}).unwrap();
+        for f in [
+            "7049_hq.jpg",
+            "7049_hq_b.jpg",
+            "7050_hq.jpg",
+            super::super::hq::FILE,
+        ] {
+            assert!(!out.join(f).exists(), "{f}");
+        }
+        assert!(out.join("7049_f.jpg").is_file());
     }
 
     /// The player's own game and, if given, the pack: `FORZA_PICTURES_GAME` (the game folder), `FORZA_PICTURES_OUT`

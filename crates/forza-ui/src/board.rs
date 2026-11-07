@@ -148,9 +148,11 @@ fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
         .flatten()
 }
 
-/// The card's picture files in the order the board takes them: the game's album art, the pack's scan, the game's face.
-fn picture_names(number: u32) -> [String; 3] {
+/// The card's picture files in the order the board takes them: the downloaded high-quality picture, the game's album
+/// art, the older pack's scan, the game's face.
+fn picture_names(number: u32) -> [String; 4] {
     [
+        format!("{number}_hq.jpg"),
         format!("{number}_f.jpg"),
         format!("{number}.jpg"),
         format!("{number}.png"),
@@ -261,8 +263,9 @@ fn keep_recent(ctx: &egui::Context, uri: &str) {
     }
 }
 
-/// A card's picture for the 1:1 views, at its own pixels: the front (the album's `<number>_f.jpg`, else the pack's scan
-/// `<number>.jpg`) or the back (the album's `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
+/// A card's picture for the 1:1 views, at its own pixels: the front (the downloaded `<number>_hq.jpg`, else the album's
+/// `<number>_f.jpg`, else the pack's scan `<number>.jpg`) or the back (`<number>_hq_b.jpg`, else the album's
+/// `<number>_b.jpg`). `nearest`: a texture filtered by nearest pixel, for
 /// whole multiples past 1x. `None` while it loads or when there is no file: the drawn face or back stands in.
 pub fn card_picture_px(
     ctx: &egui::Context,
@@ -277,9 +280,13 @@ pub fn card_picture_px(
         egui::TextureOptions::LINEAR
     };
     let names = if back {
-        vec![format!("{number}_b.jpg")]
+        vec![format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
     } else {
-        vec![format!("{number}_f.jpg"), format!("{number}.jpg")]
+        vec![
+            format!("{number}_hq.jpg"),
+            format!("{number}_f.jpg"),
+            format!("{number}.jpg"),
+        ]
     };
     for f in names {
         match load_picture(ctx, &dir, &f, options) {
@@ -451,7 +458,7 @@ pub struct Look {
 }
 
 /// The card face, upright at the real card's shape ([`CARD_ASPECT`]): the card's picture whole, never cut (the game's
-/// album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
+/// downloaded picture `<number>_hq.jpg`, else album art `<number>_f.jpg`, else the pack's scan `<number>.jpg`, else the game's face `<number>.png`, letterboxed on a dark ground when its shape differs),
 /// from the folder [`set_picture_dir`] names; else a drawn face: the position band with TOTAL, a stand-in, the name on
 /// its foot, and on large ones the club and the season. Returns the corner radius it drew with, for whatever a caller
 /// paints over the face (a square picture has none).
@@ -2586,8 +2593,11 @@ mod tests {
         let (uv, a) = face_uv(vec2(256.0, 357.0));
         assert_eq!((uv.min, uv.max), (pos2(0.0, 0.0), pos2(1.0, 1.0)));
         assert!((a / CARD_ASPECT - 1.0).abs() < 0.02, "{a}");
-        // the album art first, then the pack's scan, then the game's face
-        assert_eq!(picture_names(7049), ["7049_f.jpg", "7049.jpg", "7049.png"]);
+        // the downloaded picture first, then the album art, the older pack's scan, the game's face
+        assert_eq!(
+            picture_names(7049),
+            ["7049_hq.jpg", "7049_f.jpg", "7049.jpg", "7049.png"]
+        );
         let tile = card_size(400.0);
         assert!((tile.x / tile.y - CARD_ASPECT).abs() < 0.01, "{tile:?}");
         // the game's narrower face in a card tile: full height, bars at the sides, nothing cut
@@ -3640,10 +3650,10 @@ mod tests {
     fn card_pictures_stay_bounded() {
         let dir = tempfile::tempdir().unwrap();
         let n = PICTURES_KEPT as u32 + 40;
-        // the album name, tried first: no missed name leaves its error in the loaders
+        // the name tried first: no missed name leaves its error in the loaders
         let px = image::RgbImage::from_pixel(2, 2, image::Rgb([9, 9, 9]));
         for i in 0..=n {
-            px.save(dir.path().join(format!("{i}_f.jpg"))).unwrap();
+            px.save(dir.path().join(format!("{i}_hq.jpg"))).unwrap();
         }
         // as the panel's contexts: a picture's file and decoded pixels go once its texture exists
         let new_ctx = || {
@@ -3687,7 +3697,7 @@ mod tests {
             .unwrap()
             .0;
         assert!(kept.len() <= PICTURES_KEPT, "{} kept", kept.len());
-        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}_f.jpg"))));
+        assert!(kept.keys().any(|u| u.ends_with(&format!("{still}_hq.jpg"))));
         // the textures: the kept pictures and the font atlas
         let textures = ctx.tex_manager().read().num_allocated();
         assert!(textures <= PICTURES_KEPT + 1, "{textures} textures");
