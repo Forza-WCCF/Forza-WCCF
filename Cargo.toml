@@ -37,6 +37,9 @@ sha2 = "0.11.0"
 semver = "1.0.26"
 self-replace = "1.5.0"
 xshell = "0.2.7"
+# dev-dependency only, never in a shipped binary: the property tests (the log scrub, the access codes, the game
+# server's framing, the card reader's framing, xtask's name mask)
+proptest = "1.12.0"
 crc32fast = "1.5.2"
 fs4 = "1.1.0"
 ntfs = "0.4.0"

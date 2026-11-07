@@ -20,3 +20,7 @@ zip.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# the property tests of `mask` and `names_publisher`
+proptest.workspace = true
