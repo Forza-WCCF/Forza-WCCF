@@ -6,7 +6,7 @@ use forza_server::desk::{DeskConfig, start};
 use forza_server::{Edition, Handle};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn desk(tune: impl FnOnce(&mut DeskConfig)) -> Handle {
     let mut c = DeskConfig::new(Edition::E1718);
@@ -22,7 +22,11 @@ fn say(addr: SocketAddr, line: &str) -> String {
     let mut c = TcpStream::connect(addr).unwrap();
     c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     c.write_all(format!("{line}\n").as_bytes()).unwrap();
-    // one line (a seat answer is followed by a held connection, not a hang-up)
+    read_line(&mut c)
+}
+
+/// One line (a seat answer is followed by a held connection, not a hang-up).
+fn read_line(c: &mut TcpStream) -> String {
     let mut s = Vec::new();
     while !s.ends_with(b"\n") {
         let mut b = [0u8; 1];
@@ -203,6 +207,55 @@ fn per_address_connection_cap() {
     let _ = c.read_to_string(&mut s);
     assert!(s.is_empty(), "{s}");
     drop(held);
+}
+
+/// A PC that never reads our answer and never hangs up, but sends a byte now and then (well inside any per-read
+/// timeout), is cut off once the desk's hang-up deadline (3 s) has passed.
+#[test]
+fn a_client_that_never_reads_or_closes_is_dropped_after_the_deadline() {
+    let d = desk(|_| {});
+    let mut c = TcpStream::connect(d.addr()).unwrap();
+    c.write_all(b"REPORT\n").unwrap();
+    let t = Instant::now();
+    while c.write_all(b"x").is_ok() {
+        assert!(t.elapsed() < Duration::from_secs(8), "still held");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(t.elapsed() >= Duration::from_secs(2), "{:?}", t.elapsed());
+}
+
+/// Connections the desk is still hanging up on keep their slot until the hang-up ends, so one address cannot get
+/// past its 16 by sending a line and leaving the connection open; one already in keeps working meanwhile.
+#[test]
+fn connections_past_the_cap_are_refused_while_held_ones_keep_working() {
+    let d = desk(|_| {});
+    let mut live = TcpStream::connect(d.addr()).unwrap(); // silent: the desk waits for its line
+    live.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let hanging: Vec<TcpStream> = (0..15)
+        .map(|_| {
+            let mut c = TcpStream::connect(d.addr()).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            c.write_all(b"REPORT\n").unwrap();
+            assert!(read_line(&mut c).starts_with("NO logs"));
+            c // answered and left open: the desk is hanging up on it
+        })
+        .collect();
+    let t = Instant::now();
+    let mut over = TcpStream::connect(d.addr()).unwrap();
+    over.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let _ = over.write_all(b"LOBBY 2017-18\n");
+    let mut s = String::new();
+    let _ = over.read_to_string(&mut s);
+    assert!(s.is_empty(), "the 17th connection was served: {s}");
+    live.write_all(b"LOBBY 2017-18\n").unwrap();
+    assert!(
+        read_line(&mut live).starts_with('{'),
+        "the held one still works"
+    );
+    // the hang-ups end at their deadline and give the slots back
+    std::thread::sleep(Duration::from_millis(3500).saturating_sub(t.elapsed()));
+    assert!(say(d.addr(), "LOBBY 2017-18").starts_with('{'));
+    drop(hanging);
 }
 
 #[test]
