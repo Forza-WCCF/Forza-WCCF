@@ -267,7 +267,8 @@ extern "system" fn DllMain(inst: HINSTANCE, reason: u32, reserved: *mut c_void) 
         ));
         let _ = DLL_DIR.set(path.parent().map(Into::into).unwrap_or_default());
         // the device and the window are not ours to touch under the loader lock: a thread does it once we return
-        std::thread::spawn(init);
+        // Builder: a thread that cannot start is no panic here, where it would end the game
+        let _ = std::thread::Builder::new().spawn(init);
     } else if reason == DLL_PROCESS_DETACH && reserved.is_null() {
         unload(); // FreeLibrary; at process exit (`reserved` set) nothing needs putting back
     }
@@ -3345,7 +3346,31 @@ fn latch_up() {
     }
 }
 
+/// The game window's procedure. A panic unwinding out of it would end the game: the message goes to the game's own
+/// procedure instead and the panel stops, as after a panicked frame.
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    // SAFETY: the window's own message, on its thread
+    std::panic::catch_unwind(|| unsafe { panel_wndproc(h, m, wp, lp) }).unwrap_or_else(|_| {
+        DEAD.store(true, Relaxed);
+        log("window: a message panicked - the panel stops, the game gets its messages");
+        // SAFETY: the procedure we replaced, with the message as it came
+        unsafe {
+            CallWindowProcW(
+                std::mem::transmute::<isize, WNDPROC>(OLD_PROC.load(Relaxed)),
+                h,
+                m,
+                wp,
+                lp,
+            )
+        }
+    })
+}
+
+/// [`wndproc`]'s work.
+///
+/// # Safety
+/// The game window's own message, on its thread.
+unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     // the focus gone (or the window), also while paused: a latched button lets go, so its key cannot stay down
     if m == WM_KILLFOCUS || m == WM_DESTROY || (m == WM_ACTIVATEAPP && wp.0 == 0) {
         latch_up();
