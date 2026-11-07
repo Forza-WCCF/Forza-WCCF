@@ -159,13 +159,22 @@ pub fn dmath_token(game: &Path, seat: &Path) -> String {
         return hash;
     };
     let text = String::from_utf8_lossy(&text);
-    // engine starts only: the frame-log and its error lines also begin "det-math"
-    let last = text.lines().rev().find(|l| {
-        ["det-math NOT applied", "det-math off"]
-            .iter()
-            .any(|s| l.starts_with(s))
-            || l.starts_with("det-math ") && l.contains("/") && l.contains("atan2")
-    });
+    // engine starts only: the frame-log and its error lines also begin "det-math"; each line carries the DLL's
+    // "yyyy-mm-dd hh:mm:ss pid=N " prefix (native/detmath/src/dll.rs `log`)
+    let last = text
+        .lines()
+        .rev()
+        .map(|l| {
+            l.split_once(" pid=")
+                .and_then(|(_, r)| r.split_once(' '))
+                .map_or(l, |(_, m)| m)
+        })
+        .find(|l| {
+            ["det-math NOT applied", "det-math off"]
+                .iter()
+                .any(|s| l.starts_with(s))
+                || l.starts_with("det-math ") && l.contains("/") && l.contains("atan2")
+        });
     match last {
         // the DLL writes "det-math n/n" only when every site of its table was patched (140 today)
         Some(l) if !l.contains(", atan2 hooked") || l.starts_with("det-math NOT") => {
@@ -354,26 +363,31 @@ mod tests {
         std::fs::write(game.join("dmath.dll"), b"dll").unwrap();
         let patched = dmath_token(&game, &seat);
         assert_eq!(patched.len(), 16, "{patched}");
-        let ok = "det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F\n";
+        // the shape of native/detmath/src/dll.rs `log`: "{date} {time} pid={pid} {text}\r\n"
+        let at = |text: &str| format!("2026-11-06 22:44:17 pid=21684 {text}\r\n");
+        let ok = at("det-math 140/140, atan2 hooked, MXCSR 0x1F80, CW 0x027F");
         std::fs::write(
             seat.join("dmath.log"),
-            format!("{ok}det-math frame log on the sim thread: MXCSR 0x1F80\n"),
+            format!(
+                "{ok}{}",
+                at("det-math frame log on the sim thread: MXCSR 0x1F80")
+            ),
         )
         .unwrap();
         assert_eq!(dmath_token(&game, &seat), patched);
         let off = format!("{patched}-off");
         for bad in [
-            "det-math NOT applied, nothing patched: not the pinned original\n",
-            "det-math off (dmath.cfg): nothing patched\n",
-            "det-math 140/140, atan2 NOT hooked, MXCSR 0x1F80, CW 0x027F\n",
+            "det-math NOT applied, nothing patched: not the pinned original",
+            "det-math off (dmath.cfg): nothing patched",
+            "det-math 140/140, atan2 NOT hooked, MXCSR 0x1F80, CW 0x027F",
         ] {
-            std::fs::write(seat.join("dmath.log"), format!("{ok}{bad}")).unwrap();
+            std::fs::write(seat.join("dmath.log"), format!("{ok}{}", at(bad))).unwrap();
             assert_eq!(dmath_token(&game, &seat), off, "{bad}");
         }
         // a later good start counts again
         std::fs::write(
             seat.join("dmath.log"),
-            format!("det-math NOT applied, nothing patched: x\n{ok}"),
+            format!("{}{ok}", at("det-math NOT applied, nothing patched: x")),
         )
         .unwrap();
         assert_eq!(dmath_token(&game, &seat), patched);
