@@ -8331,9 +8331,9 @@ SYS_SYS_cloose_0010	Server maintenance starts soon, so the game will end
 SYS_CARDLIST_label_0009	Club
 SYS_CARDLIST_label_0010	Number
 SYS_CARDLIST_label_0011	Birth date
-SYS_CARDLIST_label_0012	Height
-SYS_CARDLIST_label_0013	Weight
-SYS_CARDLIST_label_0014	Nationality
+SYS_CARDLIST_label_0012	Ht
+SYS_CARDLIST_label_0013	Wt
+SYS_CARDLIST_label_0014	Nat.
 SYS_CARDLIST_label_0015	Version
 SYS_CARDLIST_label_0016	Card No.
 SYS_CARDLIST_search_0000	Show all
@@ -8668,7 +8668,7 @@ MAN_MENU_button_0038	Select player to train
 MAN_MENU_button_0039	Store
 MAN_MENU_button_0040	Buy
 MAN_MENU_button_0042	Listen
-SYS_QRSEQ_guidance_0000	Register / delete Player Card (2D code scan)
+SYS_QRSEQ_guidance_0000	Register / delete cards (2D code)
 SYS_QRSEQ_guidance_0001	Place the Player Card on the reading position
 SYS_QRSEQ_guidance_0002	- If several are registered, all will be deleted
 SYS_QRSEQ_guidance_0003	- A deleted digital card cannot be restored
