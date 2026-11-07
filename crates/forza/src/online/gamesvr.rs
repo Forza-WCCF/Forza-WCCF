@@ -1466,6 +1466,11 @@ fn answer(
         // above 1 MATCH SELECT greys the Universal Cup and says "Data match entry is in progress"
         // (SYS_ADV_normal_0037, client sub_795BC0), for the whole session (2026-11-02).
         body[354] = 1;
+        // +12 is dataVSWeek (s16). The client keeps it (client 0x805175) and sends a Universal Cup winner's
+        // DATA_VS_ENTRY only while it is not 0 (0x80EE60 "DVSES_DATA_VS_WEEK_IS_ZERO", 0x80EDF0). Without that entry
+        // the control's championship block has no hasDvs flag and the control swaps the winner for a CPU team
+        // ("change cpu!", control 0x47CA30; the entry sets it at 0x435960 -> 0x47C620)
+        body[12..14].copy_from_slice(&gt_week(now()).max(1).to_le_bytes());
     }
     if let Some((vs, peer)) = vs {
         vs.fill(cmd, payload, peer, &mut body);
@@ -3021,7 +3026,13 @@ mod tests {
         assert_eq!(body.len(), 504);
         assert_eq!(body[354], 1, "universalChamp nothingResult");
         assert_eq!(body[8], 0, "the CS rank stays 0");
-        let others: Vec<usize> = (4..504).filter(|i| *i != 354 && body[*i] != 0).collect();
+        // 2026-11-07: a data-match week, never 0, so a cup winner's DATA_VS_ENTRY goes out and keeps its place
+        let week = i16::from_le_bytes([body[12], body[13]]);
+        assert!(week > 0, "dataVSWeek {week}");
+        assert_eq!(week as u16, gt_week(now()).max(1));
+        let others: Vec<usize> = (4..504)
+            .filter(|i| ![12, 13, 354].contains(i) && body[*i] != 0)
+            .collect();
         assert!(others.is_empty(), "unexpected bytes at {others:?}");
     }
 
