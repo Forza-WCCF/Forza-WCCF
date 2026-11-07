@@ -638,8 +638,9 @@ pub struct PanelState {
     pub board_changed: bool,
     /// A cabinet button pressed this frame: its action's name in keys.txt (START, PRESS, SHOOT, UP, ...).
     pub pressed: Option<&'static str>,
-    /// The cabinet button whose key is down (lit until the key goes up).
-    pub held: Option<&'static str>,
+    /// The actions (by [`forza::keys::NAMES`] index) whose bound key is down this frame ([`keys_down`]): their
+    /// cabinet buttons draw pressed, as under a click.
+    pub down: [bool; forza::keys::COUNT],
     /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
     pub undo: Option<(board::Removed, f64)>,
     /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
@@ -770,7 +771,7 @@ impl PanelState {
             picture_rect: None,
             board_changed: false,
             pressed: None,
-            held: None,
+            down: [false; forza::keys::COUNT],
             latched: None,
             undo: None,
             add: None,
@@ -888,7 +889,6 @@ impl PanelState {
             },
             club: super::sample::club_view(),
             projector: (edition == Edition::E1718).then_some(true),
-            held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
                 lang,
@@ -2184,12 +2184,14 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32, stack: bool) {
-    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
+    // a press sends the action's key down (the panel DLL lets it up after the release); a button draws pressed while
+    // its key is down (st.down), whether a click or the hotkey put it down.
     // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    let down = st.down;
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -2198,8 +2200,21 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                    shape: Shape,
                    lit: bool,
                    inside: bool| {
+        // the action's key held (a hotkey, or the key a click sent) presses the button as the mouse does
+        let key_down = action
+            .and_then(|a| forza::keys::NAMES.iter().position(|n| *n == a))
+            .is_some_and(|i| down[i]);
         let resp = ui.put(r, |ui: &mut Ui| {
-            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit, inside)
+            cabinet_shaped(
+                ui,
+                r.size(),
+                &tr!(lang, key),
+                kind,
+                shape,
+                lit,
+                inside,
+                key_down,
+            )
         });
         let hit = |b| {
             ui.input(|i| {
@@ -2345,6 +2360,15 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     }
     st.pressed = st.pressed.or(pressed);
     st.latched = latch;
+}
+
+/// Which actions' bound keys are down, from `down` (the key's live state, polled every frame): a key let go reads up
+/// on the next frame wherever the focus went, so no button stays pressed. Unbound actions (key 0) are never down.
+pub fn keys_down(
+    keys: &[u32; forza::keys::COUNT],
+    down: impl Fn(u32) -> bool,
+) -> [bool; forza::keys::COUNT] {
+    keys.map(|vk| vk != 0 && down(vk))
 }
 
 /// The buttons a right-click holds down until the next click on them: one mouse cannot hold KEY PLAYER (or KEEPER)
@@ -5246,6 +5270,34 @@ mod tests {
         assert_eq!(latch_kept(on, false, true), on);
         assert_eq!(latch_kept(on, true, true), None);
         assert_eq!(latch_kept(on, false, false), None);
+    }
+
+    /// A held hotkey presses its button for exactly the frames the key is down: repeats change nothing, the release
+    /// (also one made while another window had the focus) reads up on the next poll; unbound actions never press.
+    #[test]
+    fn held_keys_press_their_buttons() {
+        let mut keys = [0u32; forza::keys::COUNT];
+        let shoot = forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "SHOOT")
+            .unwrap();
+        let up = forza::keys::NAMES.iter().position(|n| *n == "UP").unwrap();
+        keys[shoot] = 0x53; // S
+        keys[up] = 0x26; // arrow up (a tactic lamp: pressed the same way as a click)
+        let frame = |held: &[u32]| keys_down(&keys, |vk| held.contains(&vk));
+        let only = |i: usize| (0..forza::keys::COUNT).map(|j| j == i).collect::<Vec<_>>();
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot));
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot)); // still held (key repeat): still pressed
+        assert_eq!(frame(&[0x26]).to_vec(), only(up));
+        // S let go while the game window had the focus: the next poll reads it up, nothing stays pressed
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        // key 0 (unbound) is never down, even if a poll said so
+        assert!(
+            keys_down(&[0; forza::keys::COUNT], |_| true)
+                .iter()
+                .all(|d| !d)
+        );
     }
 
     /// The game window, the board popped out: the left part holds the picture (centred, 16:10) over the toast line and

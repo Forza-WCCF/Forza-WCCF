@@ -202,12 +202,13 @@ pub fn shape_contains(shape: Shape, r: Rect, p: Pos2) -> bool {
 /// `lit`, and a label in the condensed display face fitted to the width. Hold it: the response's
 /// `is_pointer_button_down_on()` is the key's down state.
 pub fn cabinet(ui: &mut Ui, size: egui::Vec2, label: &str, kind: Cab, lit: bool) -> Response {
-    cabinet_shaped(ui, size, label, kind, Shape::Key, lit, true)
+    cabinet_shaped(ui, size, label, kind, Shape::Key, lit, true, false)
 }
 
 /// `cabinet` in any shape. Only a key or a shape at least 50 px across prints its label inside, unless `inside` is
 /// false (the caller prints it beside); the caller prints the others' beside them. `label` is the accessible name
-/// either way.
+/// either way. `key_down`: its key is held, so it draws pressed as under the mouse.
+#[allow(clippy::too_many_arguments)]
 pub fn cabinet_shaped(
     ui: &mut Ui,
     size: egui::Vec2,
@@ -216,6 +217,7 @@ pub fn cabinet_shaped(
     shape: Shape,
     lit: bool,
     inside: bool,
+    key_down: bool,
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
@@ -224,7 +226,7 @@ pub fn cabinet_shaped(
         let ctx = ui.ctx();
         let press = ctx.animate_bool_with_time(
             resp.id.with("press"),
-            resp.is_pointer_button_down_on(),
+            resp.is_pointer_button_down_on() || key_down,
             0.06,
         );
         let glow = ctx.animate_bool_with_time(resp.id.with("lit"), lit, 0.16);
