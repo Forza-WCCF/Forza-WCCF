@@ -2327,6 +2327,7 @@ impl Run<'_> {
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
+        // (no window sets it now: seed-club.sh and the fixture use it, players play the tutorial)
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
         // guests' clubs a crashed arcade left here (online::club): their players keep their home copies
