@@ -2504,12 +2504,13 @@ impl Render {
         }
     }
 
-    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
-    /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
-    /// calm moment: no match on this seat and no other message on the line. The id is kept only after the line has
-    /// shown the text (a notice the panel could not show is offered again on the next start).
+    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, asked of the server every minute while
+    /// the game runs too, looked at here every 5 s), shown once per id (data\notice_seen.txt keeps the id shown last,
+    /// across runs) across the top of the game picture in the panel's language for [`panel::BANNER_SECS`], at a calm
+    /// moment: no match on this seat. A match that starts or a notice the server took back (the file gone) takes it
+    /// off at once. The id is kept only after a frame has drawn it (a notice never drawn is offered again on the next
+    /// start).
     fn notice_in(&mut self) {
-        use forza_ui::widgets::Tone;
         let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
             return;
         };
@@ -2518,7 +2519,7 @@ impl Render {
         // kept; a text the panel never got to draw stays pending and is not marked seen
         let painted = self.notice_pending.as_ref().is_some_and(|(_, text)| {
             self.st
-                .message
+                .banner
                 .as_ref()
                 .is_some_and(|m| m.started() && &m.text == text)
         });
@@ -2541,6 +2542,7 @@ impl Render {
             if st.is_none() {
                 self.notice_stamp = None;
                 self.notice = None;
+                self.st.banner = None;
             } else {
                 match read_notice(&path) {
                     // a file there but not read (held by a scanner, say): looked at again on the next tick
@@ -2563,13 +2565,20 @@ impl Render {
                 }
             }
         }
-        if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
+        if self.notice.is_none() && self.st.banner.is_none() {
+            return;
+        }
+        if match_check().0 {
+            // the top of a match screen is the score and the clock: the banner waits for the match's end
+            if self.st.banner.take().is_some() {
+                log("notice: off for the match");
+            }
             return;
         }
         let Some(n) = self.notice.take() else { return };
         log(&format!("notice: {} shown", n.id));
         let text = n.text(self.st.lang.code()).to_owned();
-        self.st.message = Some(panel::Note::long(Tone::Notice, text.clone()));
+        self.st.banner = Some(panel::Note::banner(text.clone()));
         self.notice_pending = Some((n.id, text));
     }
 
