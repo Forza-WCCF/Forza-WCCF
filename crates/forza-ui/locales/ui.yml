@@ -551,7 +551,7 @@ lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
 lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
-lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossima ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
+lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossima ENTRY tra %{t}.", ja: "次のエントリーまで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
 lobby.name: {en: "NAME", it: "NOME", ja: "名前"}
 lobby.code: {en: "CODE", it: "CODICE", ja: "コード"}
@@ -737,7 +737,7 @@ launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{sea
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla porta %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}
 launcher.run_projector: {en: "projector", it: "proiettore", ja: "プロジェクター"}
 launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own cabinet)", it: "nessun proiettore qui (ogni PC usa il proprio cabinato)", ja: "ここにはプロジェクターはありません (各PCがそれぞれの筐体を動かします)"}
-launcher.run_projector_off: {en: "no projector: CPU championship off", it: "nessun proiettore: campionato CPU disattivato", ja: "プロジェクターなし：CPU大会オフ"}
+launcher.run_projector_off: {en: "no projector: CPU championship off", it: "nessun proiettore: campionato CPU disattivato", ja: "プロジェクターなし：CPU選手権オフ"}
 launcher.run_projector_hidden: {en: "projector, its window hidden (Projector off)", it: "proiettore, finestra nascosta (Proiettore disattivato)", ja: "プロジェクター、ウィンドウ非表示 (プロジェクター オフ)"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
 launcher.run_money_by_game: {en: "projector: money overlay loaded by the game", it: "proiettore: overlay dei soldi caricato dal gioco", ja: "プロジェクター: 金額オーバーレイをゲームが読み込みました"}
