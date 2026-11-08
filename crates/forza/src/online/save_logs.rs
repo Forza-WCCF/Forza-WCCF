@@ -539,8 +539,8 @@ impl Scrub {
     fn text_pairs(&self) -> Vec<(Needle, &'static [u8], bool)> {
         let forward = self.home.replace('\\', "/");
         let names = [
-            (self.home.as_str(), &b"%USERPROFILE%"[..], false),
-            (forward.as_str(), b"%USERPROFILE%", false),
+            (self.home.as_str(), &b"%USERPROFILE%"[..], true),
+            (forward.as_str(), b"%USERPROFILE%", true),
             (self.user.as_str(), b"USER", true),
             (self.pc.as_str(), b"PC", true),
         ]
@@ -561,19 +561,19 @@ impl Scrub {
     /// Text: the names replaced (case-insensitively), the ASCII user and PC names only as whole words.
     pub fn scrub(&self, mut data: Vec<u8>) -> Vec<u8> {
         // this project writes UTF-8, where a Latin-1 or CP932 form's one byte cuts a character in half (`0xE7` leads
-        // 火 and 田, `0xB1` sits inside 米), so those forms run only on data that is not text. A log's tail can start
-        // inside a character: up to three of its continuation bytes come first.
-        let start = data
-            .iter()
-            .take(3)
-            .take_while(|&&b| matches!(b, 0x80..=0xBF))
-            .count();
-        let text = std::str::from_utf8(&data[start..]).is_ok();
+        // 火 and 田, `0xB1` sits inside 米), so those forms run only on data that is not text. A log read while it is
+        // written ends inside a character, and is still text.
+        let text = match std::str::from_utf8(&data) {
+            Ok(_) => true,
+            Err(e) => e.error_len().is_none(),
+        };
         for (needle, new, whole) in self.text_pairs() {
             if text && !needle.utf8 {
                 continue;
             }
-            data = replace(&data, &needle.bytes, &needle.fold, whole, |_| new.to_vec());
+            data = replace(&data, &needle.bytes, &needle.fold, whole, text, |_| {
+                new.to_vec()
+            });
         }
         if self.folders {
             data = user_folders(&data);
@@ -585,7 +585,9 @@ impl Scrub {
     pub fn blank(&self, mut data: Vec<u8>) -> Vec<u8> {
         for old in [&self.home, &self.user, &self.pc] {
             for n in Self::encodings(old, true, 3) {
-                data = replace(&data, &n.bytes, &n.fold, false, |m| vec![b'_'; m.len()]);
+                data = replace(&data, &n.bytes, &n.fold, false, false, |m| {
+                    vec![b'_'; m.len()]
+                });
             }
         }
         data
@@ -696,13 +698,15 @@ pub fn user_folders(data: &[u8]) -> Vec<u8> {
 }
 
 /// `data` with every non-overlapping match of `needle` (left to right) replaced, the bytes `fold` marks in either ASCII
-/// case (one past its end: exact); `whole`: only where no ASCII letter or digit sits on either side. In data that is
-/// not UTF-8, that letter or digit may be the second byte of a CP932 character (人 is `90 6C`), which is no word.
+/// case (one past its end: exact); `whole`: only where no ASCII letter or digit sits on either side. `text`: `data` is
+/// UTF-8, where a character never straddles bytes; in other data that letter or digit may be the second byte of a CP932
+/// character (人 is `90 6C`), and a match on one is no word either. Only a whole-word match reads `text`.
 fn replace(
     data: &[u8],
     needle: &[u8],
     fold: &[bool],
     whole: bool,
+    text: bool,
     with: impl Fn(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
     if needle.is_empty() {
@@ -711,7 +715,8 @@ fn replace(
     let alnum = |b: Option<&u8>| b.is_some_and(u8::is_ascii_alphanumeric);
     let mut out = Vec::with_capacity(data.len());
     let mut i = 0;
-    // whether the byte at `i` starts a CP932 character, and whether the one before it is the second byte of one
+    // whether the byte at `i` starts a CP932 character, and whether the one before it is the second byte of one; in
+    // text both stay as they are, so a whole-word match is refused only by a letter or digit of its own
     let (mut start, mut trail) = (true, false);
     while i < data.len() {
         let end = i + needle.len();
@@ -724,8 +729,9 @@ fn replace(
                     a == b || (fold.get(k) == Some(&true) && a.eq_ignore_ascii_case(b))
                 })
             && !(whole
-                && ((start && !trail && alnum(i.checked_sub(1).and_then(|p| data.get(p))))
-                    || (start && alnum(data.get(end)))));
+                && (!start
+                    || (!trail && alnum(i.checked_sub(1).and_then(|p| data.get(p))))
+                    || alnum(data.get(end))));
         if hit {
             out.extend(with(&data[i..end]));
             i = end;
@@ -734,8 +740,10 @@ fn replace(
             let (b, was) = (data[i], start);
             out.push(b);
             i += 1;
-            start = !(was && matches!(b, 0x81..=0x9F | 0xE0..=0xFC));
-            trail = !was;
+            if !text {
+                start = !(was && matches!(b, 0x81..=0x9F | 0xE0..=0xFC));
+                trail = !was;
+            }
         }
     }
     out
@@ -828,7 +836,7 @@ pub fn pack_within(
                 for code in &dump_codes {
                     // either case: a code may be written in lower or upper case, as the stand-in that logs it does
                     let fold = vec![true; code.len()];
-                    data = replace(&data, code, &fold, false, |m| vec![b'_'; m.len()]);
+                    data = replace(&data, code, &fold, false, false, |m| vec![b'_'; m.len()]);
                 }
                 z.write_all(&data)?;
                 n += 1;
@@ -849,26 +857,42 @@ pub fn pack_within(
             {
                 continue;
             }
-            // before the line that says what was left out goes in: a tail can start inside a character, and
-            // [`Scrub::scrub`] reads UTF-8 with such a start at the front as text
-            let mut data = scrub.scrub(data);
-            for code in &codes {
-                // either case: the aimedb stand-in logs its hex in lower case, a reading may be upper
-                let fold = vec![true; code.len()];
-                data = replace(&data, code.as_bytes(), &fold, false, |_| {
-                    b"ACCESS-CODE".to_vec()
-                });
-            }
             if size > tail {
+                // the cut can land inside a character: its remaining bytes come first, the tail starts after them
+                let cut = data
+                    .iter()
+                    .take(3)
+                    .take_while(|&&b| matches!(b, 0x80..=0xBF))
+                    .count();
+                data.drain(..cut);
                 let mut head = format!(
-                    "[... the first {} bytes left out - the last {tail} follow]\n",
-                    size - tail
+                    "[... the first {} bytes left out - the last {} follow]\n",
+                    size - data.len(),
+                    data.len()
                 )
                 .into_bytes();
                 head.append(&mut data);
                 data = head;
             }
+            // the championship's day files are binary: an underscore keeps a file's length and its layout
+            let keep = arc.ends_with("_uc.bin");
             z.start_file(arc, opts).map_err(zip_err)?;
+            let mut data = if keep {
+                scrub.blank(data)
+            } else {
+                scrub.scrub(data)
+            };
+            for code in &codes {
+                // either case: the aimedb stand-in logs its hex in lower case, a reading may be upper
+                let fold = vec![true; code.len()];
+                data = replace(&data, code.as_bytes(), &fold, false, !keep, |m| {
+                    if keep {
+                        vec![b'_'; m.len()]
+                    } else {
+                        b"ACCESS-CODE".to_vec()
+                    }
+                });
+            }
             z.write_all(&data)?;
             n += 1;
         }
@@ -1244,6 +1268,25 @@ mod tests {
     }
 
     #[test]
+    fn a_name_beside_a_multibyte_character_keeps_the_word_rule() {
+        // あ ends in E3 81 82, whose last byte is a CP932 lead byte: "Also" is a word, not the name "Al"
+        let al = Scrub {
+            pc: "Al".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            String::from_utf8(al.scrub("あAlso ミAlpha".as_bytes().to_vec())).unwrap(),
+            "あAlso ミAlpha"
+        );
+        // 伸 is 90 4C: a match starting on its second byte would rewrite the kanji
+        let lo = Scrub {
+            pc: "Lo".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(lo.scrub(sjis("伸o").unwrap()), sjis("伸o").unwrap());
+    }
+
+    #[test]
     fn one_byte_names_leave_utf8_text_whole() {
         // ç is E7 in Latin-1 and ｱ is B1 in CP932; in UTF-8 E7 leads 火 and 田, B1 is the middle of 米, so neither
         // form may touch text that decodes
@@ -1260,14 +1303,54 @@ mod tests {
                 "{user}"
             );
         }
-        // a tail that starts inside a character is still text
+        // a log torn while it is written ends inside a character: still text, its last character incomplete
+        let torn = ["私 ç ".as_bytes(), &[0xE7][..]].concat();
         let scrub = Scrub {
             user: "ç".into(),
             ..Scrub::default()
         };
-        let tail = &"生 私".as_bytes()[1..];
-        let out = scrub.scrub(tail.to_vec());
-        assert_eq!(out, tail, "a tail keeps its bytes");
+        assert_eq!(
+            scrub.scrub(torn.clone()),
+            ["私 USER ".as_bytes(), &[0xE7][..]].concat()
+        );
+    }
+
+    #[test]
+    fn a_tail_cut_inside_a_character_starts_at_the_next_one() {
+        let d = tempfile::tempdir().unwrap();
+        let logs = d.path().join("data/logs");
+        fs::create_dir_all(&logs).unwrap();
+        // 3 bytes each, so a tail of 8 starts on the second byte of one
+        let text = "あいう".repeat(100);
+        fs::write(logs.join("run.txt"), &text).unwrap();
+        let scrub = Scrub {
+            user: "ç".into(),
+            ..Scrub::default()
+        };
+        let (blob, _) = pack_within(d.path(), None, &scrub, 8, None, LIMIT).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "logs/run.txt");
+        let shown = String::from_utf8(out).unwrap();
+        // the two bytes left over from the cut character go, and the tail starts at the next one
+        assert_eq!(
+            shown,
+            "[... the first 894 bytes left out - the last 6 follow]\nいう"
+        );
+    }
+
+    #[test]
+    fn another_accounts_home_that_starts_with_this_one_is_not_split() {
+        let scrub = |folders| Scrub {
+            home: r"C:\Users\Al".into(),
+            user: "Al".into(),
+            folders,
+            ..Scrub::default()
+        };
+        assert_eq!(note(r"C:\Users\Alice\x", &scrub(true)), r"%USERPROFILE%\x");
+        assert_eq!(
+            note(r"C:\Users\Alice\x", &scrub(false)),
+            r"C:\Users\Alice\x"
+        );
     }
 
     #[test]
@@ -1466,6 +1549,50 @@ mod tests {
             "[SAVE LOGS] save/gamesvr/gamesvr.db left out: bigger than 3 MB\n"
         );
         drop(live);
+    }
+
+    #[test]
+    fn an_access_code_goes_in_either_case() {
+        let d = tempfile::tempdir().unwrap();
+        let (save, logs) = (d.path().join("data/save"), d.path().join("data/logs"));
+        fs::create_dir_all(&save).unwrap();
+        fs::create_dir_all(&logs).unwrap();
+        // a 20-character hex code: aimedb's stand-in writes it in lower case, a reading may hold upper
+        let code = "5ABCDEF0123456789ABC";
+        fs::write(save.join("aimedb.json"), format!(r#"{{"{code}": 1}}"#)).unwrap();
+        fs::write(
+            logs.join("run.log"),
+            format!("card {} read", code.to_lowercase()),
+        )
+        .unwrap();
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        assert_eq!(
+            read(&mut z, "logs/run.log"),
+            b"card ACCESS-CODE read".to_vec()
+        );
+    }
+
+    #[test]
+    fn a_championship_day_file_keeps_its_length() {
+        let d = tempfile::tempdir().unwrap();
+        let (game, logs) = (d.path().join("seat1"), d.path().join("data/logs"));
+        fs::create_dir_all(&logs).unwrap();
+        fs::create_dir_all(game.join("log")).unwrap();
+        let file = [b"\x01\x02".as_slice(), b"Alice", &[0x00, 0x02]].concat();
+        fs::write(game.join("log/20261108_uc.bin"), &file).unwrap();
+        let scrub = Scrub {
+            user: "Alice".into(),
+            ..Scrub::default()
+        };
+        let (blob, _) = pack(d.path(), Some(&game), &scrub, TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "game/log/20261108_uc.bin");
+        assert_eq!(out.len(), file.len());
+        assert_eq!(
+            out,
+            [b"\x01\x02".as_slice(), b"_____", &[0x00, 0x02]].concat()
+        );
     }
 
     #[test]
