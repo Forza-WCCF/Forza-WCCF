@@ -463,6 +463,21 @@ fn installer_files_rows_fit() {
             "{lang:?}: Add files at {add:?} under the footer"
         );
     }
+    // a refusal is at the top of the scrolled content, not laid out below the visible page: at the shortest window
+    // the rows scroll, and a line under the scroll area would be clipped
+    let refusal_text = forza_ui::text(Lang::En, "installer.err_iso", &[]);
+    let mut st = installer::InstallerState::sample(Lang::En, installer::Page::Files);
+    st.error = Some(refusal_text.clone());
+    let short = egui::vec2(installer::SIZE.x, 520.0);
+    let mut h = harness(short, 1.0, Edition::E1011, |ui| {
+        installer::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    let refusal = h.get_by_label(&refusal_text).rect();
+    assert!(
+        refusal.top() > 0.0 && refusal.bottom() < short.y - 64.0,
+        "the refusal at {refusal:?} is under the footer"
+    );
 }
 
 #[test]

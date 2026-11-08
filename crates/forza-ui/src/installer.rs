@@ -357,7 +357,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
                 Page::Installing => installing(ui, st, lang),
                 Page::Done => done(ui, st, lang, &mut out),
             }
-            if st.page != Page::Installing
+            if !matches!(st.page, Page::Installing | Page::Files)
                 && let Some(e) = &st.error
             {
                 status_line(ui, Tone::Refused, e);
@@ -782,8 +782,14 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
 }
 
 fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
-    // the hints and the per-row checks take room: a short window scrolls instead of hiding a row
-    egui::ScrollArea::vertical().show(ui, |ui| files_body(ui, st, lang, out));
+    // the hints and the per-row checks take room: a short window scrolls instead of hiding a row. The refusal goes
+    // in with them, at the top: below the scroll area a short window clips it.
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        if let Some(e) = &st.error {
+            status_line(ui, Tone::Refused, e);
+        }
+        files_body(ui, st, lang, out);
+    });
 }
 
 /// A line under a file row, lined up with its text box: the row's hint (no tone) or what its file was found to be.

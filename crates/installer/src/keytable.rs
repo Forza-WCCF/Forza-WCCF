@@ -5,9 +5,19 @@ use std::io::{Cursor, Read};
 /// The columns tried, in this order: the disc's keyfile is the `Keyfile` value; the AES columns are a fallback.
 const KEY_COLUMNS: [&str; 3] = ["Keyfile", "AES Key", "AES IV"];
 
+/// The total read from a ZIP's members: a key table is a few MB. The file's own size does not bound them (a small ZIP
+/// can inflate to gigabytes), so the read stops once this is spent.
+const ZIP_MAX: u64 = 64 << 20;
+
 /// The 16-byte values of `game_id`'s rows (all `Keyfile` values, then `AES Key`, then `AES IV`), duplicates removed.
 /// `None`: the input is no key table at all.
 pub fn candidates(raw: &[u8], game_id: &str) -> Option<Vec<[u8; 16]>> {
+    candidates_within(raw, game_id, ZIP_MAX)
+}
+
+/// [`candidates`] with a smaller read budget, to test the bound without gigabytes of input.
+fn candidates_within(raw: &[u8], game_id: &str, zip_left: u64) -> Option<Vec<[u8; 16]>> {
+    let mut zip_left = zip_left;
     let mut found = None;
     let mut add = |html: &str| {
         if let Some(p) = table_values(html, game_id) {
@@ -24,9 +34,16 @@ pub fn candidates(raw: &[u8], game_id: &str) -> Option<Vec<[u8; 16]>> {
         for i in 0..zip.len() {
             let Ok(f) = zip.by_index(i) else { continue };
             let name = f.name().map(|n| n.to_ascii_lowercase()).unwrap_or_default();
-            if name.ends_with(".html") || name.ends_with(".htm") {
+            if (name.ends_with(".html") || name.ends_with(".htm")) && zip_left > 0 {
                 let mut buf = Vec::new();
-                if f.take(256 << 20).read_to_end(&mut buf).is_ok() {
+                if f.take(zip_left + 1).read_to_end(&mut buf).is_err() {
+                    continue;
+                }
+                // a member that does not fit the rest is past the budget: no key table is this big
+                if buf.len() as u64 > zip_left {
+                    zip_left = 0;
+                } else {
+                    zip_left -= buf.len() as u64;
                     add(&String::from_utf8_lossy(&buf));
                 }
             }
@@ -39,8 +56,16 @@ pub fn candidates(raw: &[u8], game_id: &str) -> Option<Vec<[u8; 16]>> {
 
 /// Whether `raw` can hold a disc key: a key table (HTML or a ZIP with one), or one key, 16 bytes or 32 hex digits.
 pub fn is_key_list(raw: &[u8]) -> bool {
-    let text: String = String::from_utf8_lossy(raw).split_whitespace().collect();
-    raw.len() == 16 || hex16(&text).is_some() || candidates(raw, "").is_some()
+    candidates(raw, "").is_some() || is_key(raw)
+}
+
+/// Whether `raw` is one key: its 16 bytes, or their 32 hex digits as text, however spaced.
+pub fn is_key(raw: &[u8]) -> bool {
+    raw.len() == 16 || hex16(&strip(raw)).is_some()
+}
+
+fn strip(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw).split_whitespace().collect()
 }
 
 fn hex16(s: &str) -> Option<[u8; 16]> {
@@ -146,6 +171,29 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn a_zip_key_list_reads_no_more_than_one_budget() {
+        let page = |k: &str| {
+            format!(
+                "<table><tr><th>Game ID</th><th>AES Key</th></tr>\
+                 <tr><td>SDDY</td><td>{k}</td></tr></table>"
+            )
+        };
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let o = zip::write::SimpleFileOptions::default();
+        z.start_file("a.html", o).unwrap();
+        z.write_all(page(K1).as_bytes()).unwrap();
+        z.start_file("b.html", o).unwrap();
+        z.write_all(page(K2).as_bytes()).unwrap();
+        let raw = z.finish().unwrap().into_inner();
+        let (k1, k2) = (hex16(K1).unwrap(), hex16(K2).unwrap());
+        // the budget is for the whole ZIP: a per-member limit would read both
+        assert_eq!(candidates(&raw, "SDDY").unwrap(), [k1, k2]);
+        let one = page(K1).len() as u64;
+        assert_eq!(candidates_within(&raw, "SDDY", one).unwrap(), [k1]);
+        assert!(candidates_within(&raw, "SDDY", one - 1).is_none());
     }
 
     #[test]

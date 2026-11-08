@@ -51,9 +51,10 @@ struct App {
     /// animation) with the same inputs must not probe the disc, the folder and the drive again, where a drive that
     /// went away or a typed UNC path blocks the UI thread.
     refreshed: Option<String>,
-    /// The disc image, key list, package and edition the row checks last ran for: they read the files, so only a
-    /// change of these runs them again.
-    checked: Option<String>,
+    /// What the key row's check last ran for, and what the package row's did: each reads its own files, so editing one
+    /// row must not run the other's check again.
+    key_checked: Option<String>,
+    package_checked: Option<String>,
 }
 
 fn default_dest() -> String {
@@ -70,6 +71,15 @@ fn default_dest() -> String {
 /// Paths pasted from Explorer's "Copy as path" come with quotes.
 fn clean(s: &str) -> PathBuf {
     PathBuf::from(s.trim().trim_matches('"'))
+}
+
+/// A path with what the file at it is now: a file replaced in place (same path) is a new input, so a verdict on it is
+/// not kept.
+fn stamp(p: &Path) -> String {
+    match std::fs::metadata(p) {
+        Ok(m) => format!("{p:?}|{}|{:?}", m.len(), m.modified().ok()),
+        Err(_) => format!("{p:?}|-"),
+    }
 }
 
 fn gb(b: u64) -> String {
@@ -102,7 +112,8 @@ impl App {
             run: None,
             lookup: None,
             refreshed: None,
-            checked: None,
+            key_checked: None,
+            package_checked: None,
         }
     }
 
@@ -139,10 +150,24 @@ impl App {
         (!path.as_os_str().is_empty()).then_some(path)
     }
 
+    /// What the key row's check and the package row's check depend on: each runs again only when its own files
+    /// change, not when the other row is edited.
+    fn check_inputs(&self) -> (String, String) {
+        (
+            format!(
+                "{}|{}",
+                stamp(&clean(&self.st.iso)),
+                stamp(&clean(&self.st.key))
+            ),
+            format!("{}|{:?}", stamp(&clean(&self.st.package)), self.st.target()),
+        )
+    }
+
     /// What the folder, the disc image and the package say, for the screen to show. Runs when [`App::inputs`] changes
     /// (a text box, a drop, a page), not on every frame.
     fn refresh(&mut self) {
         let (dest, kit) = (self.dest(), self.kit());
+        let (key_inputs, package_inputs) = self.check_inputs();
         let st = &mut self.st;
         st.installed = disc::DISCS
             .iter()
@@ -178,14 +203,13 @@ impl App {
         });
         st.ascii_tip = !st.folder.is_ascii();
         let (iso, key, target) = (clean(&st.iso), clean(&st.key), st.target());
-        let files = format!(
-            "{iso:?}|{key:?}|{kit:?}|{target:?}|{found:?}",
-            found = found.map(|d| d.game_id)
-        );
-        if self.checked.as_deref() != Some(files.as_str()) {
+        if self.key_checked.as_deref() != Some(key_inputs.as_str()) {
             st.key_check = key_check(&iso, found, &key);
+            self.key_checked = Some(key_inputs);
+        }
+        if self.package_checked.as_deref() != Some(package_inputs.as_str()) {
             st.package_check = kit.and_then(|k| package_check(&k, target));
-            self.checked = Some(files);
+            self.package_checked = Some(package_inputs);
         }
     }
 
@@ -201,7 +225,13 @@ impl App {
 
     /// A dropped or added file, in the row [`row_for`] picks.
     fn place(&mut self, p: &Path) {
-        *self.slot(row_for(p)) = p.display().to_string();
+        self.set_file(row_for(p), p);
+    }
+
+    /// A picked file is a new input even when its row already names that path: the file at it may have been replaced.
+    fn set_file(&mut self, field: Field, p: &Path) {
+        *self.slot(field) = p.display().to_string();
+        self.refreshed = None;
     }
 
     /// "Add files…": several files at once, each sorted into its row as when dropped.
@@ -377,7 +407,7 @@ impl App {
                 Field::Folder => install::install_folder(&p),
                 _ => p,
             };
-            *self.slot(field) = p.display().to_string();
+            self.set_file(field, &p);
         }
     }
 
@@ -468,12 +498,14 @@ fn row_for(p: &Path) -> Field {
     }
 }
 
-/// A key list is a small file: a bigger one (a disc image in the wrong row) is never read whole to check it.
+/// A key list is a small file: a bigger one (a disc image in the wrong row) is never read whole to check it. A ZIP's
+/// members are bounded separately, when `keytable` reads them.
 const KEY_LIST_MAX: u64 = 64 << 20;
 
 /// What the key row's file is, as INSTALL would find it: the package by mistake, no key list, or whether a key in it
-/// opens the disc image (`disc`: the one `iso` is, by its size). `None`: nothing to say yet. Measured on a 2017-18
-/// image: 9-21 ms in a release build (it reads the slot's checksum table and tries each key), so it runs in place.
+/// opens the disc image (`disc`: the one `iso` is, by its size). `None`: nothing to say yet. It parses a key list once
+/// and reads the image's checksum table and tries each key: 27 ms in a release build for a 4000-row list (768 KB),
+/// 60 ms for 12000 rows, so it runs in place.
 fn key_check(iso: &Path, disc: Option<&disc::Disc>, key: &Path) -> Option<KeyCheck> {
     let len = std::fs::metadata(key).ok().filter(|m| m.is_file())?.len();
     if install::check_kit_zip(key).is_ok() {
@@ -483,15 +515,17 @@ fn key_check(iso: &Path, disc: Option<&disc::Disc>, key: &Path) -> Option<KeyChe
         return Some(KeyCheck::NotKeyList);
     }
     let raw = std::fs::read(key).ok()?;
-    if !keytable::is_key_list(&raw) {
+    // the table's rows for this disc, parsed once: the image probe below uses them instead of parsing again
+    let rows = keytable::candidates(&raw, disc.map_or("", |d| d.game_id));
+    if rows.is_none() && !keytable::is_key(&raw) {
         return Some(KeyCheck::NotKeyList);
     }
-    let disc = disc?;
+    disc?; // no disc image: nothing more to say about the key
     // a table without the disc's game id: no need to read the disc image
-    if keytable::candidates(&raw, disc.game_id).is_some_and(|c| c.is_empty()) {
+    if rows.as_ref().is_some_and(|r| r.is_empty()) {
         return Some(KeyCheck::NoKey);
     }
-    match disc::open(iso, &raw) {
+    match disc::open_with(iso, &raw, rows) {
         Ok(_) => Some(KeyCheck::Found),
         Err(e) => match e.downcast_ref::<err::InstallError>() {
             Some(err::InstallError::WrongKey | err::InstallError::NoKeyEntry { .. }) => {
@@ -847,6 +881,56 @@ mod tests {
             vec![Edition::E1011],
             "a typed path refreshes"
         );
+    }
+
+    /// Editing the package row must not run the key check again: that one reads the disc image, and only the key row's
+    /// own files decide it.
+    #[test]
+    fn a_package_edit_keeps_the_key_check() {
+        let mut app = App::new();
+        app.st.page = Page::Files;
+        app.refresh_if_changed();
+        // lies only a run of each check corrects
+        app.st.key_check = Some(KeyCheck::Found);
+        app.st.package_check = Some(PackageCheck::Ok(Edition::E1718));
+        app.st.package = r"D:\Images\kit.zip".into();
+        app.refresh_if_changed();
+        assert_eq!(
+            app.st.key_check,
+            Some(KeyCheck::Found),
+            "the package row re-ran the key check"
+        );
+        assert_eq!(app.st.package_check, None, "the package check did not run");
+        app.st.package_check = Some(PackageCheck::Ok(Edition::E1718));
+        app.st.key = r"D:\Images\keys.zip".into();
+        app.refresh_if_changed();
+        assert_eq!(
+            app.st.package_check,
+            Some(PackageCheck::Ok(Edition::E1718)),
+            "the key row re-ran the package check"
+        );
+    }
+
+    /// The same path again is a new input: a file replaced in place is read and checked again, not judged on the bytes
+    /// the last verdict saw.
+    #[test]
+    fn a_file_replaced_in_place_is_checked_again() {
+        let (dir, [_, package, _, _]) = sample_files("repick");
+        let mut app = App::new();
+        app.st.package = package.display().to_string();
+        app.refresh_if_changed();
+        assert_eq!(app.st.package_check, Some(PackageCheck::Ok(Edition::E1718)));
+        // the same path, written again: now the 2010-11 package
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
+        for name in ["Launcher.exe", "programs/x.dll"] {
+            z.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+        }
+        z.finish().unwrap();
+        app.place(&package); // dropped again
+        app.refresh_if_changed();
+        assert_eq!(app.st.package_check, Some(PackageCheck::Ok(Edition::E1011)));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A scratch folder with a package, a key list (as a ZIP and as a web page, rows for 2010-11 only) and an image.

@@ -47,11 +47,11 @@ Purpose: start and stop the game, set it up, update Forza-WCCF. One window; it s
 
 Purpose: make a game installation from the player's disc image, once per edition. A wizard with Back / Next.
 
-1. **Welcome**: what is needed (disc image `.iso` of about 5–6 GB, its key file, optionally the 2010–11 package),
+1. **Welcome**: what is needed (disc image `.iso` of about 5–6 GB, its key list, optionally the 2010–11 package),
    about 6 GB free.
 2. **Where**: install folder (typed or browsed; default `C:\Games\Forza-WCCF`), free space on that drive (warning
    below 6 GB). The two editions live side by side in `2010-2011` and `2017-2018`.
-3. **Files**: disc image and key file (browse or drop), or reuse an edition already installed there (no disc needed);
+3. **Files**: disc image and key list (browse or drop), or reuse an edition already installed there (no disc needed);
    the optional 2010–11 package. Shows the detected edition, or why the image is not supported.
 4. **Options**: check the disc image first; set up the game (2010–11 with the package); play in English; desktop
    shortcuts. The Next action reads Install.
