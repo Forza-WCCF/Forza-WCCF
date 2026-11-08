@@ -70,6 +70,9 @@ pub const CLOSE_NO_ANSWER: u8 = 5;
 /// again, in case the host comes back). Old peers: a 0.6.1 guest only acts on [`CLOSE_NOT_IN_ROOM`], so it takes this
 /// as any drop and dials again, as it did after a 0.6.1 host's plain endpoint close (code 0).
 pub const CLOSE_ARCADE_CLOSED: u8 = 6;
+/// Either side's close code when the other side's flow stream ([`ARCADE_ALPN_3`] only) ends, breaks or sends a bad
+/// frame: the join side dials again onto fresh streams, as after a host restart.
+pub const CLOSE_BAD_FLOWS: u8 = 7;
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -325,6 +328,8 @@ struct Sh {
     /// Guests being checked against the room now ([`MAX_ADMITTING`]).
     admitting: AtomicUsize,
     oversize: AtomicU64,
+    /// Times a flow producer waited for room on a stream link ([`feed`]).
+    waits: AtomicU64,
     flows: Arc<AtomicUsize>,
     streams: Arc<AtomicUsize>,
     admit: Option<Admit>,
@@ -340,12 +345,21 @@ fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
 
-/// [`ALPNS`] from `newest` down (all of them for `None`).
-fn alpns_up_to(newest: Option<&[u8]>) -> Vec<Vec<u8>> {
-    let from = newest.map_or(0, |a| {
-        ALPNS.iter().position(|&x| x == a).expect("one of ALPNS")
-    });
-    ALPNS[from..].iter().map(|a| a.to_vec()).collect()
+/// [`ALPNS`] from `newest` down (all of them for `None`); an ALPN not among them is an error.
+fn alpns_up_to(newest: Option<&[u8]>) -> io::Result<Vec<Vec<u8>>> {
+    let from = match newest {
+        None => 0,
+        Some(a) => ALPNS.iter().position(|&x| x == a).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "speak_up_to: {:?} is no arcade ALPN",
+                    String::from_utf8_lossy(a)
+                ),
+            )
+        })?,
+    };
+    Ok(ALPNS[from..].iter().map(|a| a.to_vec()).collect())
 }
 
 /// Does `conn` carry flows on streams ([`ARCADE_ALPN_3`])?
@@ -361,18 +375,24 @@ fn flow_frame(d: &[u8]) -> Option<Vec<u8>> {
     Some([&len.to_le_bytes()[..], d].concat())
 }
 
-/// The next frame's flow and datagram from a flow stream; `None` at its end, when it ends inside a frame, or for a
-/// frame over [`MAX_FLOW_PACKET`].
-async fn read_flow<R: AsyncRead + Unpin>(r: &mut R) -> Option<Vec<u8>> {
+/// The next frame's flow and datagram from a flow stream; an error, for the log, when the stream ends or breaks
+/// (between or inside frames) or sends a frame over [`MAX_FLOW_PACKET`].
+async fn read_flow<R: AsyncRead + Unpin>(r: &mut R) -> Result<Vec<u8>, String> {
     let mut len = [0u8; 2];
-    r.read_exact(&mut len).await.ok()?;
+    r.read_exact(&mut len)
+        .await
+        .map_err(|e| format!("between frames: {e}"))?;
     let n = usize::from(u16::from_le_bytes(len));
     if n > MAX_FLOW_PACKET {
-        return None;
+        return Err(format!(
+            "a {n}-byte frame, over the {MAX_FLOW_PACKET}-byte cap"
+        ));
     }
     let mut d = vec![0u8; n];
-    r.read_exact(&mut d).await.ok()?;
-    Some(d)
+    r.read_exact(&mut d)
+        .await
+        .map_err(|e| format!("inside a {n}-byte frame: {e}"))?;
+    Ok(d)
 }
 
 /// Sends flow datagrams on `conn` after the test delay, in order: on its stream ([`ARCADE_ALPN_3`]), where a stall
@@ -391,7 +411,9 @@ fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes
                         Err(_) => return,
                     });
                 }
-                // a loopback datagram and its flow always fit
+                // a loopback datagram and its flow always fit; shortcut: the queues count frames, not bytes, so a
+                // peer sending 64 KB frames to a stalled side may hold up to DGRAM_QUEUE x 64 KB here: bound by bytes if
+                // that ever shows
                 let Some(f) = flow_frame(&d) else {
                     continue;
                 };
@@ -421,19 +443,33 @@ fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes
 }
 
 /// Queues `item` on a [`datagram_line`] or [`udp_line`] of `conn`'s flows: on a stream it waits for room (a stall holds
-/// the sender, not drops); as datagrams a full queue drops it, as a lost datagram. `false`: the line is gone.
-async fn feed<T>(conn: &Connection, tx: &mpsc::Sender<T>, item: T) -> bool {
-    if on_streams(conn) {
-        tx.send(item).await.is_ok()
-    } else {
-        tx.try_send(item).is_ok() || !tx.is_closed()
+/// the sender, not drops; counted in `sh.waits` and logged at powers of two); as datagrams a full queue drops it, as a
+/// lost datagram. `false`: the line is gone.
+async fn feed<T>(sh: &Sh, conn: &Connection, tx: &mpsc::Sender<T>, item: T) -> bool {
+    match tx.try_send(item) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Full(item)) if on_streams(conn) => {
+            let n = sh.waits.fetch_add(1, Ordering::Relaxed) + 1;
+            if n.is_power_of_two() {
+                (sh.log)(&format!(
+                    "flows: a queue is full, waiting for room ({n} so far)"
+                ));
+            }
+            tx.send(item).await.is_ok()
+        }
+        Err(e) => matches!(e, mpsc::error::TrySendError::Full(_)),
     }
 }
 
 /// The next flow datagram from the other side: on its stream ([`ARCADE_ALPN_3`], `stream` holds it once it came), else
-/// as a datagram. `None`: the link is gone, or its flow stream ended, ended mid-frame or sent one over
-/// [`MAX_FLOW_PACKET`] (then stopped).
-async fn recv_flow(conn: &Connection, stream: &mut Option<RecvStream>) -> Option<Bytes> {
+/// as a datagram. `None`: the link is gone. A flow stream that ends, breaks or sends a bad frame while the link is up
+/// closes the link ([`CLOSE_BAD_FLOWS`], logged as `{who}: ...`), so the join side dials again onto fresh streams.
+async fn recv_flow(
+    sh: &Sh,
+    who: &str,
+    conn: &Connection,
+    stream: &mut Option<RecvStream>,
+) -> Option<Bytes> {
     if !on_streams(conn) {
         return conn.read_datagram().await.ok();
     }
@@ -441,11 +477,18 @@ async fn recv_flow(conn: &Connection, stream: &mut Option<RecvStream>) -> Option
         *stream = Some(conn.accept_uni().await.ok()?);
     }
     let s = stream.as_mut()?;
-    let d = read_flow(s).await;
-    if d.is_none() {
-        let _ = s.stop(0u32.into());
+    match read_flow(s).await {
+        Ok(d) => Some(d.into()),
+        Err(why) => {
+            if conn.close_reason().is_none() {
+                (sh.log)(&format!(
+                    "{who}: the flow stream failed ({why}), closing the link"
+                ));
+                conn.close(CLOSE_BAD_FLOWS.into(), b"bad flow stream");
+            }
+            None
+        }
     }
-    d.map(Bytes::from)
 }
 
 /// Sends datagrams from `sock` after the test delay, in order; full: dropped (callers on a stream wait instead).
@@ -830,7 +873,8 @@ impl Sh {
         let relay = loopback(self.ports.relay);
         let mut tick = 0u64;
         let mut inbound = None;
-        while let Some(d) = recv_flow(&conn, &mut inbound).await {
+        let guest = format!("guest {who}");
+        while let Some(d) = recv_flow(&self, &guest, &conn, &mut inbound).await {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
@@ -859,8 +903,13 @@ impl Sh {
                         relay.port()
                     ));
                 }
-                let (sock, tx, live, conn) =
-                    (s.clone(), out.clone(), Live::new(&self.flows), conn.clone());
+                let (sock, tx, live, conn, sh) = (
+                    s.clone(),
+                    out.clone(),
+                    Live::new(&self.flows),
+                    conn.clone(),
+                    self.clone(),
+                );
                 let task = tasks.spawn(async move {
                     let _live = live;
                     let mut buf = vec![0u8; 65536];
@@ -868,7 +917,7 @@ impl Sh {
                         match sock.recv_from(&mut buf).await {
                             Ok((n, src)) if src == relay => {
                                 let d = Bytes::from(encode_flow(flow, &buf[..n]));
-                                if !feed(&conn, &tx, (Instant::now(), d)).await {
+                                if !feed(&sh, &conn, &tx, (Instant::now(), d)).await {
                                     return flow;
                                 }
                             }
@@ -883,7 +932,13 @@ impl Sh {
             if let Some((line, _, used)) = flows.get_mut(&flow) {
                 *used = tick;
                 // on a stream: waits rather than drops, so a burst after a stall reaches the relay whole
-                feed(&conn, line, (Instant::now(), payload.to_vec(), relay)).await;
+                feed(
+                    &self,
+                    &conn,
+                    line,
+                    (Instant::now(), payload.to_vec(), relay),
+                )
+                .await;
             }
         }
     }
@@ -969,14 +1024,20 @@ impl Join {
     async fn from_host(self: Arc<Self>, conn: Connection) {
         let line = udp_line(self.udp.clone(), self.sh.delay);
         let mut inbound = None;
-        while let Some(d) = recv_flow(&conn, &mut inbound).await {
+        while let Some(d) = recv_flow(&self.sh, "arcade link", &conn, &mut inbound).await {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
             let Some(to) = self.flows().addr_of(flow) else {
                 continue;
             };
-            feed(&conn, &line, (Instant::now(), payload.to_vec(), to)).await;
+            feed(
+                &self.sh,
+                &conn,
+                &line,
+                (Instant::now(), payload.to_vec(), to),
+            )
+            .await;
         }
     }
 
@@ -1004,7 +1065,7 @@ impl Join {
             let flow = self.flows().flow_of(src);
             let d = Bytes::from(encode_flow(flow, &buf[..n]));
             if let Some((_, tx)) = &line {
-                feed(&conn, tx, (Instant::now(), d)).await;
+                feed(&self.sh, &conn, tx, (Instant::now(), d)).await;
             }
         }
     }
@@ -1057,7 +1118,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
         .build();
-    let alpns = alpns_up_to(cfg.speak_up_to);
+    let alpns = alpns_up_to(cfg.speak_up_to)?;
     let mut b = Endpoint::builder(presets::Minimal)
         .secret_key(load_key(&cfg.key)?)
         .relay_mode(RelayMode::Custom(cfg.relay.clone()))
@@ -1083,6 +1144,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         guests: Arc::default(),
         admitting: AtomicUsize::new(0),
         oversize: AtomicU64::new(0),
+        waits: AtomicU64::new(0),
         flows: Arc::default(),
         streams: Arc::default(),
         admit: cfg.admit,
@@ -1339,6 +1401,17 @@ mod tests {
     }
 
     #[test]
+    fn speak_up_to_takes_only_arcade_alpns() {
+        assert_eq!(alpns_up_to(None).unwrap().len(), 3);
+        assert_eq!(
+            alpns_up_to(Some(ARCADE_ALPN_LZ4)).unwrap(),
+            [ARCADE_ALPN_LZ4.to_vec(), ARCADE_ALPN.to_vec()]
+        );
+        let e = alpns_up_to(Some(b"forza-wccf/shop/9")).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
     fn flow_framing() {
         let d = encode_flow(0x0403_0201, b"ab");
         assert_eq!(d, [1, 2, 3, 4, b'a', b'b']);
@@ -1355,9 +1428,13 @@ mod tests {
         let mut wire = flow_frame(&big).expect("the largest frame");
         wire.extend(flow_frame(b"ab").unwrap());
         let mut r = &wire[..];
-        assert_eq!(read_flow(&mut r).await.as_deref(), Some(&big[..]));
-        assert_eq!(read_flow(&mut r).await.as_deref(), Some(&b"ab"[..]));
-        assert_eq!(read_flow(&mut r).await, None, "the stream's end");
+        assert_eq!(read_flow(&mut r).await.as_deref(), Ok(&big[..]));
+        assert_eq!(read_flow(&mut r).await.as_deref(), Ok(&b"ab"[..]));
+        let end = read_flow(&mut r).await.unwrap_err();
+        assert!(
+            end.starts_with("between frames: "),
+            "the stream's end: {end}"
+        );
 
         assert_eq!(
             flow_frame(&[0u8; MAX_FLOW_PACKET + 1]),
@@ -1371,17 +1448,20 @@ mod tests {
         over.extend([0u8; 64]);
         assert_eq!(
             read_flow(&mut &over[..]).await,
-            None,
-            "a length over the cap"
+            Err("a 65512-byte frame, over the 65511-byte cap".into())
         );
 
         let f = flow_frame(b"abcdef").unwrap();
-        assert_eq!(
-            read_flow(&mut &f[..f.len() - 1]).await,
-            None,
-            "cut in the body"
+        let cut = read_flow(&mut &f[..f.len() - 1]).await.unwrap_err();
+        assert!(
+            cut.starts_with("inside a 6-byte frame: "),
+            "cut in the body: {cut}"
         );
-        assert_eq!(read_flow(&mut &f[..1]).await, None, "cut in the length");
+        let cut = read_flow(&mut &f[..1]).await.unwrap_err();
+        assert!(
+            cut.starts_with("between frames: "),
+            "cut in the length: {cut}"
+        );
     }
 
     /// A socket keeps its number; past MAX_FLOWS the least recently used is forgotten, and no number comes back, so a
