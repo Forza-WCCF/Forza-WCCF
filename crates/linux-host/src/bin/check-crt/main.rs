@@ -1,4 +1,5 @@
 //! `check-crt.exe [fatal]`: the CRT check under Wine (32-bit Windows only; README.md).
+// A check program: it reports a failure by panicking, so the crate's no-panic lints stay off here
 #[cfg(all(windows, target_arch = "x86"))]
 mod check;
 

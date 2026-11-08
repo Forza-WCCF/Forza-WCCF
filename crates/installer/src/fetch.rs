@@ -62,7 +62,11 @@ pub fn pick(json: &str, prefix: &str) -> Result<Package> {
         let Some(sum_url) = https(sum) else { continue };
         let at = r["published_at"].as_str().unwrap_or("");
         if best.as_ref().is_none_or(|(b, _)| at > *b) {
-            let version = zip_name[prefix.len()..zip_name.len() - 4].to_owned();
+            let version = zip_name
+                .strip_prefix(prefix)
+                .and_then(|v| v.strip_suffix(".zip"))
+                .unwrap_or_default()
+                .to_owned();
             let zip_size = zip["size"].as_u64().unwrap_or(0);
             best = Some((
                 at,
@@ -125,7 +129,7 @@ pub fn sha256_of(path: &Path) -> std::io::Result<String> {
         if n == 0 {
             break;
         }
-        h.update(&buf[..n]);
+        h.update(buf.get(..n).unwrap_or_default());
     }
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }

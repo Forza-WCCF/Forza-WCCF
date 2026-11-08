@@ -142,7 +142,9 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
                 .map(|(s, _)| *s)
                 .collect();
             for seat in quiet {
-                let (a, _) = r.seats.remove(&seat).unwrap();
+                let Some((a, _)) = r.seats.remove(&seat) else {
+                    continue;
+                };
                 (r.log)(&format!(
                     "seat {seat} ({}:{}) not heard from for {} s - forgotten",
                     a.ip(),
@@ -155,7 +157,7 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
         let Ok((n, addr)) = sock.recv_from(&mut buf) else {
             continue;
         };
-        let (data, now) = (&buf[..n], Instant::now());
+        let (data, now) = (buf.get(..n).unwrap_or_default(), Instant::now());
         if let Some(f) = r.cfg.stall_file.as_ref().filter(|_| now >= stall_look) {
             stall_look = now + Duration::from_millis(100);
             if let Some(ms) = take_stall(f) {
@@ -165,24 +167,28 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
                 ));
             }
         }
-        if n < 6 || &data[..4] != MAGIC {
+        // MAGIC, the kind, then at least one byte
+        let Some((MAGIC, [kind, tail @ ..])) = data.split_first_chunk::<4>() else {
+            continue;
+        };
+        if tail.is_empty() {
             continue;
         }
-        match data[4] {
-            b'P' => {
+        match (*kind, tail) {
+            (b'P', _) => {
                 // a ping from a cabinet's meter: its bytes back, as "Q"
-                if n <= 64 {
-                    out[..4].copy_from_slice(MAGIC);
-                    out[4] = b'Q';
-                    out[5..n].copy_from_slice(&data[5..]);
-                    let _ = sock.send_to(&out[..n], addr);
+                if n <= 64
+                    && let Some(reply) = frame(&mut out, &[MAGIC, b"Q", tail])
+                {
+                    let _ = sock.send_to(reply, addr);
                 }
             }
-            b'R' if (1..=8).contains(&data[5]) => {
-                r.claim(data[5], addr, now);
+            (b'R', &[seat, ..]) if (1..=8).contains(&seat) => {
+                r.claim(seat, addr, now);
             }
-            b'D' if n >= 7 && (1..=8).contains(&data[5]) && (1..=8).contains(&data[6]) => {
-                let (to, from) = (data[5], data[6]);
+            (b'D', &[to, from, ref payload @ ..])
+                if (1..=8).contains(&to) && (1..=8).contains(&from) =>
+            {
                 if now < stall_until {
                     continue; // the test stall
                 }
@@ -194,23 +200,34 @@ fn run(cfg: RelayConfig, log: Log, sock: UdpSocket, stop: Arc<AtomicBool>) {
                     *drops.entry(to).or_default() += 1;
                     continue;
                 };
-                out[..4].copy_from_slice(MAGIC);
-                out[4..6].copy_from_slice(&[b'F', from]);
-                out[6..10].copy_from_slice(&src.ip().octets());
-                out[10..n + 3].copy_from_slice(&data[7..]);
-                match sock.send_to(&out[..n + 3], target) {
-                    Ok(_) => *counts.entry((from, to)).or_default() += 1,
-                    Err(_) => *drops.entry(to).or_default() += 1,
+                let sent = frame(
+                    &mut out,
+                    &[MAGIC, &[b'F', from], &src.ip().octets(), payload],
+                )
+                .map(|f| sock.send_to(f, target));
+                match sent {
+                    Some(Ok(_)) => *counts.entry((from, to)).or_default() += 1,
+                    _ => *drops.entry(to).or_default() += 1,
                 }
                 // after the send, so the watch never delays a packet
                 if let Some(w) = watch.as_mut() {
-                    w.packet(from, to, &data[7..], now, &*r.log);
+                    w.packet(from, to, payload, now, &*r.log);
                 }
             }
             _ => {}
         }
     }
     (r.log)("match relay: its time is up - stopping");
+}
+
+/// `parts` one after another at the start of `out`: the packet to send, or `None` when they do not fit.
+fn frame<'a>(out: &'a mut [u8], parts: &[&[u8]]) -> Option<&'a [u8]> {
+    let mut at = 0;
+    for p in parts {
+        out.get_mut(at..at + p.len())?.copy_from_slice(p);
+        at += p.len();
+    }
+    out.get(..at)
 }
 
 /// The test stall's milliseconds from `f`, which is removed; `None` while there is no file or no number in it yet.

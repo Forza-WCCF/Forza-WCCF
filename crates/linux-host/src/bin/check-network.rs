@@ -1,4 +1,15 @@
 //! Runs natively on Windows to check a Linux endpoint, without launching a game.
+// The checks' own asserts panic; every other failure is an error (tests may, crates/clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 use std::{
     io::{self, BufRead, BufReader, Write},
     net::{SocketAddr, TcpStream, UdpSocket},
@@ -38,8 +49,14 @@ fn main() -> io::Result<()> {
     );
     assert_eq!(request(&mut a, "PING\n")?, "PONG\n");
     assert_eq!(request(&mut b, "PING\n")?, "PONG\n");
-    let n: u8 = seat_a.split_whitespace().nth(1).unwrap().parse().unwrap();
-    let m: u8 = seat_b.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let seat = |answer: &str| {
+        answer
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u8>().ok())
+            .ok_or_else(|| io::Error::other(format!("no seat in {answer:?}")))
+    };
+    let (n, m) = (seat(&seat_a)?, seat(&seat_b)?);
     let mut taken = connect(address(20030)?)?;
     assert_eq!(
         request(&mut taken, &format!("WANT SEAT {n}\n"))?,
@@ -55,19 +72,22 @@ fn main() -> io::Result<()> {
     u.send(&[b'W', b'R', b'L', b'1', b'R', n])?;
     v.send(&[b'W', b'R', b'L', b'1', b'R', m])?;
     std::thread::sleep(Duration::from_millis(100));
-    let mut packet = vec![b'W', b'R', b'L', b'1', b'D', m, n];
-    packet.extend(b"windows-to-wsl");
-    u.send(&packet)?;
+    let packet = |to, from| {
+        [
+            &[b'W', b'R', b'L', b'1', b'D', to, from],
+            &b"windows-to-wsl"[..],
+        ]
+        .concat()
+    };
+    u.send(&packet(m, n))?;
     let mut buf = [0u8; 128];
     let got = v.recv(&mut buf)?;
     assert_eq!(&buf[..6], &[b'W', b'R', b'L', b'1', b'F', n]);
-    assert_eq!(&buf[10..got], b"windows-to-wsl");
-    packet[5] = n;
-    packet[6] = m;
-    v.send(&packet)?;
+    assert_eq!(buf.get(10..got), Some(&b"windows-to-wsl"[..]));
+    v.send(&packet(n, m))?;
     let got = u.recv(&mut buf)?;
     assert_eq!(&buf[..6], &[b'W', b'R', b'L', b'1', b'F', m]);
-    assert_eq!(&buf[10..got], b"windows-to-wsl");
+    assert_eq!(buf.get(10..got), Some(&b"windows-to-wsl"[..]));
     println!("PASS: native Windows <-> {host} UDP 20040, both relay directions");
     Ok(())
 }

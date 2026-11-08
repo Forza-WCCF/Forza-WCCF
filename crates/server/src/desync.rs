@@ -44,48 +44,46 @@ const MAX_GAP_LINES: u32 = 10;
 pub fn parse(p: &[u8]) -> Option<[Option<(u16, u32)>; RECORDS]> {
     // shortcut: the exact 2017-18 layout (one 72-byte field, 6 records); a different build logs "unexpected layout"
     if p.len() != SYNC_LEN
-        || p[..8] != MAGIC
-        || u16le(p, 8) != 10
-        || u32le(p, 16) as usize != SYNC_LEN
+        || p.first_chunk::<8>() != Some(&MAGIC)
+        || u16le(p, 8)? != 10
+        || u32le(p, 16)? as usize != SYNC_LEN
     {
         return None;
     }
-    let b = &p[HEADER..];
-    if u16le(b, 2) as usize != RECORDS {
+    let b = p.get(HEADER..)?;
+    if u16le(b, 2)? as usize != RECORDS {
         return None;
     }
-    let newest = u32le(b, 4) as i32;
+    let newest = u32le(b, 4)? as i32;
     let mut out = [None; RECORDS];
-    for (k, slot) in out.iter_mut().enumerate() {
-        let r = &b[12 + k * RECORD..12 + (k + 1) * RECORD];
-        let index = u32le(r, 0) as i32;
-        let d = &r[4..];
+    let records = b.get(12..)?.as_chunks::<RECORD>().0;
+    for ((k, slot), r) in out.iter_mut().enumerate().zip(records) {
+        let index = u32le(r, 0)? as i32;
+        // after the index: the channel and the field size at 8, the link counter, frame and value at 10
         if index > 0
             && Some(index) == newest.checked_sub((RECORDS - 1 - k) as i32)
-            && d[4] == GAME_IO
-            && d[5] == 64
+            && r.get(8..10) == Some(&[GAME_IO, 64])
         {
-            let m = &d[6..];
             *slot = Some((
-                u16::from_be_bytes([m[2], m[3]]),
-                u32::from_be_bytes([m[4], m[5], m[6], m[7]]),
+                u16::from_be_bytes(*r.get(12..)?.first_chunk()?),
+                u32::from_be_bytes(*r.get(14..)?.first_chunk()?),
             ));
         }
     }
     Some(out)
 }
 
-fn u16le(p: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([p[at], p[at + 1]])
+fn u16le(p: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(*p.get(at..)?.first_chunk()?))
 }
 
-fn u32le(p: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([p[at], p[at + 1], p[at + 2], p[at + 3]])
+fn u32le(p: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(*p.get(at..)?.first_chunk()?))
 }
 
 /// Whether `p` starts like a frame-sync datagram (to report a layout the parser does not know, once).
 fn looks_like_sync(p: &[u8]) -> bool {
-    p.len() >= HEADER && p[..8] == MAGIC && u16le(p, 8) == 10
+    p.len() >= HEADER && p.first_chunk::<8>() == Some(&MAGIC) && u16le(p, 8) == Some(10)
 }
 
 #[derive(Default)]
@@ -156,11 +154,13 @@ impl Watch {
             }
         });
         pair.last_packet = now;
+        let [lo, hi] = &mut pair.dirs;
+        let (mine, back) = if d == 0 { (lo, hi) } else { (hi, lo) };
         for (frame, value) in records.into_iter().flatten() {
-            if pair.dirs[d].find(frame, now).is_some() {
+            if mine.find(frame, now).is_some() {
                 continue; // resent: each packet repeats the last 6 records
             }
-            if let Some(last) = pair.dirs[d].last_new
+            if let Some(last) = mine.last_new
                 && now - last > GAP
             {
                 let (len, at) = (now - last, last - pair.start);
@@ -181,8 +181,8 @@ impl Watch {
                     ));
                 }
             }
-            pair.dirs[d].last_new = Some(now);
-            if let Some((other, _)) = pair.dirs[1 - d].find(frame, now) {
+            mine.last_new = Some(now);
+            if let Some((other, _)) = back.find(frame, now) {
                 pair.compared += 1;
                 if other != value {
                     pair.mismatches += 1;
@@ -196,11 +196,10 @@ impl Watch {
                     }
                 }
             }
-            let dir = &mut pair.dirs[d];
-            if dir.frames.len() == KEEP {
-                dir.frames.pop_front();
+            if mine.frames.len() == KEEP {
+                mine.frames.pop_front();
             }
-            dir.frames.push_back((frame, value, now));
+            mine.frames.push_back((frame, value, now));
         }
     }
 
@@ -228,7 +227,7 @@ impl Watch {
                 ),
                 None => "no gap over 0.4 s".into(),
             };
-            let last = |d: usize| match p.dirs[d].last_new {
+            let last = |d: usize, dir: &Dir| match dir.last_new {
                 Some(t) => format!("{} +{:.2} s", name(d), (t - p.start).as_secs_f64()),
                 None => format!("{} none", name(d)),
             };
@@ -236,8 +235,8 @@ impl Watch {
                 "desync watch: seats {a}-{b} ended after {:.1} s: {} frames compared, {mism}, {gap}; last new frame {}, {}",
                 (p.last_packet - p.start).as_secs_f64(),
                 p.compared,
-                last(0),
-                last(1)
+                last(0, &p.dirs[0]),
+                last(1, &p.dirs[1])
             ));
             false
         });

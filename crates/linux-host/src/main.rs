@@ -1,4 +1,15 @@
 //! `wccf-linux-server start|stop|status|serve [--edition 2010-11|2017-18]`: the arcades' supervisor (Linux only; README.md).
+// The arcades' supervisor: no call that can panic (tests may, crates/clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 #[cfg(target_os = "linux")]
 mod supervisor;
 

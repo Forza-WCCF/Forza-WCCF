@@ -2,6 +2,18 @@
 //! `server/seat_desk.py` and `relay.py` (and the 2017-18 `_seat_broker.py`, `_relay.py`). Std threads
 //! and blocking I/O; builds for Windows and Linux. Ports, timers and paths are parameters of each service's config
 //! (the binary fills them from the Python's environment variables); tests bind `127.0.0.1:0`.
+// A failure in one relay, desk or room thread drops that packet or connection, never the server: no call that
+// can panic (tests may, crates/clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 pub mod arcade_room;
 pub mod cli;

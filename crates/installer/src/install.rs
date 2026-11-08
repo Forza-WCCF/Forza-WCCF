@@ -123,7 +123,9 @@ fn kit_prefix(zip: &mut zip::ZipArchive<File>) -> Result<(Edition, String)> {
             .any(|n| n == p || n.starts_with(&format!("{p}/")))
     };
     for n in names.iter().filter(|n| n.ends_with("Launcher.exe")) {
-        let prefix = &n[..n.len() - "Launcher.exe".len()];
+        let Some(prefix) = n.strip_suffix("Launcher.exe") else {
+            continue;
+        };
         if !(prefix.is_empty() || prefix.ends_with('/')) {
             continue;
         }
@@ -189,13 +191,17 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         })?);
         emit(Event::Log("Package checked against its SHA-256".into()));
     }
-    let setup = plan.setup && kit.is_some();
-    ensure!(!plan.english || setup, E::EnglishNeedsSetup);
+    // the package to set up and its edition, both known before anything is written
+    let setup = match kit.as_ref().filter(|_| plan.setup) {
+        Some(k) => Some((k, edition_of(id).ok_or(E::UnknownEdition)?)),
+        None => None,
+    };
+    ensure!(!plan.english || setup.is_some(), E::EnglishNeedsSetup);
     let opened = if let Some(iso) = &plan.iso {
         let key = fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
             detail: e.to_string(),
         })?;
-        Some(disc::open(iso, &key)?)
+        Some((iso, disc::open(iso, &key)?))
     } else {
         ensure!(
             game_present(&plan.dest, id),
@@ -205,17 +211,17 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         );
         None
     };
-    if setup {
-        check_setup(Some(id), check_kit_zip(kit.as_ref().unwrap())?)?;
+    if let Some((kit, _)) = setup {
+        check_setup(Some(id), check_kit_zip(kit)?)?;
     }
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
         detail: e.to_string(),
     })?;
-    if setup {
+    if setup.is_some() {
         probe_links(&dest)?;
     }
-    if let Some((mut vol, table)) = opened {
+    if let Some((iso, (mut vol, table))) = opened {
         emit(Event::Log(format!(
             "Detected {} ({})",
             vol.disc.name, vol.disc.game_id
@@ -224,7 +230,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
             emit(Event::Stage(Step::Verify));
             let total = (table.len() - 1) as u64 * 0x40000;
             disc::verify_blocks(
-                plan.iso.as_ref().unwrap(),
+                iso,
                 vol.disc,
                 &table,
                 |d| {
@@ -239,9 +245,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         );
         extract(&mut vol, &dest, cancel, emit)?;
     }
-    if setup {
-        let kit = kit.as_ref().unwrap();
-        let edition = edition_of(id).unwrap();
+    if let Some((kit, edition)) = setup {
         emit(Event::Stage(Step::Setup));
         unpack_kit(kit, &dest, emit)?;
         check(cancel)?;
@@ -403,7 +407,7 @@ fn extract(
                     if n == 0 {
                         break;
                     }
-                    out.write_all(&buf[..n])?;
+                    out.write_all(buf.get(..n).unwrap_or_default())?;
                     done += n as u64;
                     emit(Event::Progress(done, total));
                 }
