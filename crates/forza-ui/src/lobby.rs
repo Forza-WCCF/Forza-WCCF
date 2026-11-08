@@ -6,7 +6,7 @@ use super::Lang;
 use super::theme;
 use super::widgets::{
     Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
-    status_line, text_w, toggle_row,
+    status_line, stepper, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
@@ -1436,6 +1436,9 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     });
 }
 
+/// The cup time's [`stepper`] width.
+pub const CUP_STEPPER_W: f32 = 190.0;
+
 /// The Universal Cup rows (mode, time, the line it gives): the host dialog's and, `local`, the PLAY tab's for a cup on
 /// this PC alone. True when the time is refused (the caller greys its start).
 pub fn cup_rows(
@@ -1456,13 +1459,14 @@ pub fn cup_rows(
     const MODES: [CupMode; 4] = [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "lobby.cup"), label_w);
+        let at = clock_text(u32::from(cup.at) * 60);
+        // the chosen time in its segment, so it reads before the row under it
         let labels = [
-            "lobby.cup_off",
-            "lobby.cup_game_times",
-            "lobby.cup_in",
-            "lobby.cup_at",
-        ]
-        .map(|k| tr!(lang, k));
+            tr!(lang, "lobby.cup_off"),
+            tr!(lang, "lobby.cup_game_times"),
+            tr!(lang, "lobby.cup_in", m = cup.minutes),
+            tr!(lang, "lobby.cup_at", t = at.as_str()),
+        ];
         let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
         let mut i = MODES.iter().position(|&m| m == cup.mode).unwrap_or(1);
         if segmented(ui, &mut i, &labels, ui.available_width()) {
@@ -1471,30 +1475,35 @@ pub fn cup_rows(
     });
     if matches!(cup.mode, CupMode::In | CupMode::At) {
         ui.horizontal(|ui| {
-            field(ui, "", label_w);
+            let names = [tr!(lang, "lobby.cup_earlier"), tr!(lang, "lobby.cup_later")];
+            let names = [names[0].as_str(), names[1].as_str()];
             if cup.mode == CupMode::In {
-                ui.add(
-                    egui::DragValue::new(&mut cup.minutes)
-                        .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
-                        .suffix(tr!(lang, "lobby.cup_min_unit")),
+                field(ui, &tr!(lang, "lobby.cup_in_field"), label_w);
+                let text = tr!(lang, "lobby.cup_minutes", m = cup.minutes);
+                let range = CUP_MIN_MINUTES..=CUP_MAX_MINUTES;
+                stepper(
+                    ui,
+                    &mut cup.minutes,
+                    range,
+                    5,
+                    false,
+                    &text,
+                    names,
+                    CUP_STEPPER_W,
                 );
             } else {
-                let (mut h, mut m) = (cup.at / 60, cup.at % 60);
-                let two = |n: f64, _| format!("{n:02.0}");
-                let a = ui.add(
-                    egui::DragValue::new(&mut h)
-                        .range(0..=23)
-                        .custom_formatter(two),
+                field(ui, &tr!(lang, "lobby.cup_at_field"), label_w);
+                let text = clock_text(u32::from(cup.at) * 60);
+                stepper(
+                    ui,
+                    &mut cup.at,
+                    0..=24 * 60 - 1,
+                    5,
+                    true,
+                    &text,
+                    names,
+                    CUP_STEPPER_W,
                 );
-                ui.label(":");
-                let b = ui.add(
-                    egui::DragValue::new(&mut m)
-                        .range(0..=59)
-                        .custom_formatter(two),
-                );
-                if a.changed() || b.changed() {
-                    cup.at = h * 60 + m;
-                }
             }
         });
     }
@@ -1541,7 +1550,8 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 .inner_margin(20),
         )
         .show(ui.ctx(), |ui| {
-            ui.set_width(440.0);
+            // 480: the cup's four segments fit in Italian (cup_rows_fit_the_launcher)
+            ui.set_width(480.0);
             ui.label(
                 egui::RichText::new(tr!(lang, "lobby.host_title"))
                     .font(theme::display(26.0))

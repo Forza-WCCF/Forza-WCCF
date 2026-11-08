@@ -290,6 +290,81 @@ fn launcher_play_cup() {
     all.unwrap();
 }
 
+/// The cup rows fit the Launcher (its width is fixed; 700 tall is its smallest) in every language, on the PLAY tab and
+/// in the host dialog: the four segments and the stepper inside the window, each segment's label no wider than its
+/// segment at the 70 % `fit` floor.
+#[test]
+fn cup_rows_fit_the_launcher() {
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        for (mode, dialog) in [
+            (lobby::CupMode::In, false),
+            (lobby::CupMode::At, false),
+            (lobby::CupMode::In, true),
+            (lobby::CupMode::At, true),
+        ] {
+            let scenario = if dialog {
+                launcher::Scenario::Online
+            } else {
+                launcher::Scenario::Ready
+            };
+            let mut st = launcher::LauncherState::sample(Edition::E1718, lang, scenario);
+            let v = &mut st.lobby;
+            (v.cup.mode, v.cup.minutes, v.cup.at, v.clock) =
+                (mode, 150, 23 * 60 + 55, Some(14 * 3600));
+            if dialog {
+                (v.arcade_rooms, v.kind) = (true, lobby::Kind::Arcades);
+                v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
+            }
+            let cup = v.cup;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let tag = format!("{lang:?} {mode:?} dialog={dialog}");
+            let t = |k: &str| forza_ui::text(lang, k, &[]);
+            let at = lobby::clock_text(u32::from(cup.at) * 60);
+            let m = cup.minutes.to_string();
+            let segs = [
+                t("lobby.cup_off"),
+                t("lobby.cup_game_times"),
+                forza_ui::text(lang, "lobby.cup_in", &[("m", &m)]),
+                forza_ui::text(lang, "lobby.cup_at", &[("t", &at)]),
+            ];
+            let names = [t("lobby.cup_earlier"), t("lobby.cup_later")];
+            let mut right = 0f32;
+            for s in &segs {
+                let r = h.get_by_label(s).rect();
+                // the segment's own fit (down to 70 %) into its label room: wider still is an overflow
+                let room = r.width() - 12.0;
+                let painter = h.ctx.layer_painter(egui::LayerId::background());
+                let w = widgets::fit(&painter, s, theme::bold(14.0), egui::Color32::WHITE, room)
+                    .size()
+                    .x;
+                assert!(
+                    w <= room,
+                    "{tag}: {s:?} is {w} wide in a {} segment",
+                    r.width()
+                );
+                right = right.max(r.right());
+            }
+            for n in &names {
+                right = right.max(h.get_by_label(n).rect().right());
+            }
+            // the dialog is 480 wide plus its 20 px margins, centred
+            let edge = if dialog {
+                (size.x + 480.0) / 2.0
+            } else {
+                size.x - 14.0
+            };
+            assert!(
+                right <= edge,
+                "{tag}: the cup rows end at {right}, past {edge}"
+            );
+        }
+    }
+}
+
 /// The ONLINE tab on 2017-18 with the Direct address fold open (the club server and the VS link switch live there),
 /// then closed.
 #[test]
@@ -1934,9 +2009,14 @@ fn lobby_arcade_rooms() {
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("In N min").click();
+    h.get_by_label("In 10 min").click();
     h.run_steps(2);
     assert_eq!(v.borrow().cup.mode, lobby::CupMode::In);
+    // the stepper under it: + steps 10 -> 15 and the segment shows it
+    h.get_by_label("5 min later").click();
+    h.run_steps(2);
+    assert_eq!(v.borrow().cup.minutes, 15);
+    h.get_by_label("In 15 min");
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
@@ -1957,7 +2037,7 @@ fn lobby_arcade_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("At HH:MM").click();
+    h.get_by_label("At 21:00").click();
     // a cup whose championship would still run at 05:00: refused, HOST does nothing
     let cup_at = |clock, at| {
         let mut b = v.borrow_mut();
@@ -1972,7 +2052,8 @@ fn lobby_arcade_rooms() {
     cup_at(22 * 3600, 23 * 60 + 30);
     h.run_steps(2);
     h.get_by_label(
-        "Opens at about 23:30. Insert your card before then; entries close about a minute and a half after it opens.",
+        "Entries open at about 23:30. Insert your card before then and choose the Universal Cup in the game as soon \
+as it can be selected; entries close about a minute and a half later.",
     );
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();

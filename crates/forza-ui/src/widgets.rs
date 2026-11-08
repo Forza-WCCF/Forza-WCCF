@@ -9,6 +9,7 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Role, Sense,
     Shadow, Stroke, StrokeKind, Ui, ViewportCommand, WidgetInfo, pos2, vec2,
 };
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 // ---- painting helpers ----
@@ -527,6 +528,138 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
         StrokeKind::Inside,
     );
     changed
+}
+
+/// One step of [`stepper`]: `up` or down to the next multiple of `step` (8 -> 10 -> 15, 10 -> 8), kept in `range`;
+/// `wrap` goes round to the other end instead (a clock: 23:55 -> 00:00).
+pub fn step_value(v: u16, up: bool, range: &RangeInclusive<u16>, step: u16, wrap: bool) -> u16 {
+    let (lo, hi, s) = (
+        i32::from(*range.start()),
+        i32::from(*range.end()),
+        i32::from(step),
+    );
+    let v = i32::from(v);
+    let n = if up {
+        (v.div_euclid(s) + 1) * s
+    } else {
+        (v - 1).div_euclid(s) * s
+    };
+    let n = match (n < lo, n > hi, wrap) {
+        (true, _, true) => hi.div_euclid(s) * s,
+        (_, true, true) => lo,
+        _ => n.clamp(lo, hi),
+    };
+    n as u16
+}
+
+/// Hold an end of a [`stepper`] this long before it repeats, then repeat this often (seconds).
+const STEP_HOLD: f64 = 0.4;
+const STEP_REPEAT: f64 = 0.1;
+
+/// A number with − and + at its ends, in the [`segmented`] well: a click steps once, holding an end repeats. `text`
+/// is the value as shown, `names` the ends' spoken names. True when the value changed.
+#[allow(clippy::too_many_arguments)]
+pub fn stepper(
+    ui: &mut Ui,
+    value: &mut u16,
+    range: RangeInclusive<u16>,
+    step: u16,
+    wrap: bool,
+    text: &str,
+    names: [&str; 2],
+    width: f32,
+) -> bool {
+    let h = 34.0;
+    let (rect, mid) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    let old = *value;
+    mid.widget_info(|| WidgetInfo::slider(true, f64::from(old), text));
+    ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
+    let now = ui.input(|i| i.time);
+    for (up, r, glyph, name) in [
+        (
+            false,
+            Rect::from_min_size(rect.min, vec2(h, h)),
+            "−",
+            names[0],
+        ),
+        (
+            true,
+            Rect::from_min_size(rect.right_top() - vec2(h, 0.0), vec2(h, h)),
+            "+",
+            names[1],
+        ),
+    ] {
+        let r = r.shrink(2.0);
+        let live = wrap || step_value(*value, up, &range, step, wrap) != *value;
+        let resp = ui.interact(r, mid.id.with(up), Sense::click());
+        resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, live, name));
+        // (press time, repeats so far) while held: a release after a repeat is not one more step
+        let key = resp.id.with("held");
+        let held = live && resp.is_pointer_button_down_on();
+        let mut stepped = false;
+        if held {
+            let (t0, n) = ui
+                .data(|d| d.get_temp::<(f64, u32)>(key))
+                .unwrap_or((now, 0));
+            let due = t0 + STEP_HOLD + f64::from(n) * STEP_REPEAT;
+            let n = if now >= due {
+                stepped = true;
+                n + 1
+            } else {
+                n
+            };
+            ui.data_mut(|d| d.insert_temp(key, (t0, n)));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64((due - now).max(0.0)));
+        } else {
+            let n = ui
+                .data_mut(|d| d.remove_temp::<(f64, u32)>(key))
+                .map_or(0, |s| s.1);
+            stepped = live && resp.clicked() && n == 0;
+        }
+        if stepped {
+            *value = step_value(*value, up, &range, step, wrap);
+        }
+        let p = ui.painter();
+        if held {
+            gradient(
+                p,
+                r,
+                3,
+                theme::AMBER.lerp_to_gamma(Color32::WHITE, 0.2),
+                theme::AMBER,
+                true,
+            );
+        } else {
+            let fill = if live && resp.hovered() {
+                theme::RAISED_HI
+            } else {
+                theme::RAISED
+            };
+            p.rect_filled(r, 3, fill);
+        }
+        let ink = match (live, held) {
+            (false, _) => theme::TEXT_FAINT,
+            (_, true) => theme::INK,
+            _ => theme::TEXT,
+        };
+        p.text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            glyph,
+            theme::bold(18.0),
+            ink,
+        );
+    }
+    let shown = rect.shrink2(vec2(h + 4.0, 0.0));
+    centered_text(ui.painter(), shown, text, theme::bold(15.0), theme::TEXT);
+    ui.painter().rect_stroke(
+        rect,
+        theme::RADIUS,
+        Stroke::new(1.0, theme::RIM),
+        StrokeKind::Inside,
+    );
+    *value != old
 }
 
 /// A filter chip: a pill that toggles. `color` marks a position chip (GK yellow, DF blue ...).
@@ -1337,6 +1470,92 @@ mod shape_tests {
         let a = start_fraction(1, 1000.0);
         assert!(a < start_fraction(2, 0.0) && a > start_fraction(1, 5.0));
         assert_eq!(start_fraction(6, 0.0), 1.0);
+    }
+
+    #[test]
+    fn stepper_steps_snap_clamp_and_wrap() {
+        let min = 8..=150;
+        let walk = |mut v, up, n| {
+            (0..n)
+                .map(|_| {
+                    v = step_value(v, up, &min, 5, false);
+                    v
+                })
+                .collect::<Vec<u16>>()
+        };
+        assert_eq!(walk(8, true, 3), [10, 15, 20]);
+        assert_eq!(walk(15, false, 3), [10, 8, 8]);
+        // a hand-edited 12 snaps to the 5s; the top holds
+        assert_eq!(walk(12, true, 1), [15]);
+        assert_eq!(walk(12, false, 1), [10]);
+        assert_eq!(walk(145, true, 2), [150, 150]);
+        let day = 0..=24 * 60 - 1;
+        assert_eq!(step_value(23 * 60 + 55, true, &day, 5, true), 0);
+        assert_eq!(step_value(0, false, &day, 5, true), 23 * 60 + 55);
+        assert_eq!(step_value(21 * 60 + 2, true, &day, 5, true), 21 * 60 + 5);
+    }
+
+    /// A click steps once; holding + repeats after the hold delay and the release adds nothing.
+    #[test]
+    fn stepper_click_and_hold() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let v = std::cell::Cell::new(8u16);
+        let mut fresh = true;
+        let mut h = Harness::builder().with_step_dt(0.05).build_ui(|ui| {
+            if fresh {
+                // the bold face is ours: it takes effect from the next frame
+                crate::theme::install(ui.ctx(), Edition::E1718, &crate::theme::font_dir()).unwrap();
+                fresh = false;
+                return;
+            }
+            let mut x = v.get();
+            let text = format!("{x} min");
+            stepper(
+                ui,
+                &mut x,
+                8..=150,
+                5,
+                false,
+                &text,
+                ["earlier", "later"],
+                190.0,
+            );
+            v.set(x);
+        });
+        h.run();
+        h.get_by_label("later").click();
+        h.run();
+        assert_eq!(v.get(), 10);
+        h.get_by_label("earlier").click();
+        h.run();
+        assert_eq!(v.get(), 8);
+        // at the floor − does nothing
+        h.get_by_label("earlier").click();
+        h.run();
+        assert_eq!(v.get(), 8);
+        let at = h.get_by_label("later").rect().center();
+        h.hover_at(at);
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        // about 1 s held (frames of 0.05 s): repeats from 0.4 s, every 0.1 s, so several steps but not the whole range
+        for _ in 0..20 {
+            h.step();
+        }
+        let held = v.get();
+        assert!((20..=45).contains(&held), "{held}");
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        h.run();
+        assert_eq!(v.get(), held, "the release after a hold is no extra step");
     }
 
     #[test]
