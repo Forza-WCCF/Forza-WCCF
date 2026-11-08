@@ -415,7 +415,7 @@ pub(crate) fn code(n: usize) -> String {
         let mut b = [0u8; 1];
         #[allow(
             clippy::expect_used,
-            reason = "no OS randomness: drop the connection, never hand out a guessable code"
+            reason = "no OS randomness: panics the session thread; the connection closes and no code is issued"
         )]
         getrandom::fill(&mut b).expect("the OS random source");
         // 248 = 8 * 31: no modulo bias
@@ -432,7 +432,7 @@ fn random_hex(n: usize) -> String {
     let mut b = vec![0u8; n];
     #[allow(
         clippy::expect_used,
-        reason = "no OS randomness: drop the connection, never hand out a guessable ticket"
+        reason = "no OS randomness: panics the session thread; the connection closes and no ticket is issued"
     )]
     getrandom::fill(&mut b).expect("the OS has randomness");
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -1094,7 +1094,7 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     let s = sitter(sh, now);
     #[allow(
         clippy::expect_used,
-        reason = "no OS randomness: drop the connection, never hand out a guessable key"
+        reason = "no OS randomness: panics the session thread; the connection closes and no key is issued"
     )]
     let key = getrandom::u64().expect("the OS has randomness");
     sh.bind(&s.ticket, Some(key));
