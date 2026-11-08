@@ -140,16 +140,13 @@ pub fn apply(span: &mut [u8], span_at: usize, thunk: usize) -> Result<(), usize>
     let mut call = [0x90; 7];
     call[0] = 0xE8;
     call[1..5].copy_from_slice(&rel.to_le_bytes());
-    // both sites passed the check above, so both are in `span`; Err before any write all the same
-    if span.get(IMM).is_none() || span.get(at..at + 7).is_none() {
+    // both sites passed the check above, so both are in `span`; both are written or neither
+    let (head, tail) = span.split_at_mut(at.min(span.len()));
+    let (Some(imm), Some(site)) = (head.get_mut(IMM), tail.get_mut(..7)) else {
         return Err(UC);
-    }
-    if let Some(b) = span.get_mut(IMM) {
-        *b = 0;
-    }
-    if let Some(site) = span.get_mut(at..at + 7) {
-        site.copy_from_slice(&call);
-    }
+    };
+    *imm = 0;
+    site.copy_from_slice(&call);
     Ok(())
 }
 
