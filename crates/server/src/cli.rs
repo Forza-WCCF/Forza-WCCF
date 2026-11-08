@@ -180,7 +180,7 @@ fn start_desk(
     port: Option<u16>,
     log_file: Option<&Path>,
     vs: Option<Arc<vs::Matcher>>,
-    club: Option<PathBuf>,
+    club: Option<(PathBuf, Option<desk::Allow>)>,
     sessions: Option<Arc<Sessions>>,
     store: Option<&Path>,
     log: Log,
@@ -195,9 +195,11 @@ fn start_desk(
                 .join("notice.json"),
         )
     });
-    if let Some(db) = club {
+    if let Some((db, allow)) = club {
         c.club_db = Some(db);
         c.club_public = true;
+        c.club_allow = allow;
+        c.club_cards = None; // a server has no cards of its own
     }
     c.bind = bind();
     c.port = port.unwrap_or_else(|| env("WCCF_BROKER_PORT", c.port));
@@ -279,6 +281,13 @@ fn allowlist(
         c.as_ref()
             .is_some_and(|(_, v)| v.iter().any(|n| n.contains(&ip)))
     })
+}
+
+/// The game server's store for the clubs players bring (`all`), with its allowlist unless `--allow-any`.
+fn club_store(g: &GmsvrOpts) -> (PathBuf, Option<desk::Allow>) {
+    let allow =
+        (!g.allow_any).then(|| desk::Allow(allowlist(g.allow.clone(), g.allow_file.clone())));
+    (g.store.join("gamesvr.db"), allow)
 }
 
 /// Binds and starts the reflect service on `host:port`.
@@ -409,9 +418,8 @@ where
             // and one view of who is on the game server: the desk's lobby row counts its cards
             let sessions = gmsvr.then(Arc::<Sessions>::default);
             // players bring their clubs to the game server beside the desk (forza::online::club), unless
-            // WCCF_CLUB_DB names another store
-            let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none())
-                .then(|| g.store.join("gamesvr.db"));
+            // WCCF_CLUB_DB names another store; the game server's allowlist holds there too
+            let club = (gmsvr && std::env::var_os("WCCF_CLUB_DB").is_none()).then(|| club_store(g));
             let services = vec![
                 start_desk(
                     ed,
@@ -497,5 +505,24 @@ mod tests {
             "empty list refuses"
         );
         let _ = std::fs::remove_file(f);
+    }
+
+    /// `all`'s club store takes the game server's real allowlist: a stranger is refused, a listed address and
+    /// loopback are let in, and only `--allow-any` leaves it open.
+    #[test]
+    fn the_club_store_follows_the_game_servers_allowlist() {
+        #[derive(clap::Parser)]
+        struct T {
+            #[command(flatten)]
+            g: GmsvrOpts,
+        }
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        let opts = |args: &[&str]| <T as clap::Parser>::parse_from([&["t"][..], args].concat()).g;
+        let (db, allow) = club_store(&opts(&["--store", "s", "--allow", "203.0.113.7/32"]));
+        assert_eq!(db, Path::new("s").join("gamesvr.db"));
+        let allow = allow.expect("an allowlist");
+        assert!(allow.0(ip("203.0.113.7")) && allow.0(ip("127.0.0.1")));
+        assert!(!allow.0(ip("203.0.113.8")), "a stranger is refused");
+        assert!(club_store(&opts(&["--allow-any"])).1.is_none());
     }
 }

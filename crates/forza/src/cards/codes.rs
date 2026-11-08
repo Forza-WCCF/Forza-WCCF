@@ -242,9 +242,13 @@ pub fn name_for(table: &[(u8, &'static str, Conf)], code: u8) -> &'static str {
     }
 }
 
-/// client_Release.exe 2017-18: the two tables of pointers to the club names then the nationality names
-/// ([`CLUBS_1718`], [`NATIONS_1718`] in order), as addresses at the image base 0x400000.
-pub const NAME_TABLES_1718: [u32; 2] = [0x0154_C428, 0x0154_C8A8];
+/// client_Release.exe 2017-18: the pointer table to the club names then the nationality names ([`CLUBS_1718`],
+/// [`NATIONS_1718`] in order), as an address at the image base 0x400000. The program holds 353 copies of it, one per
+/// source file; this is the copy the player directory reads (sub_65A910: club at 0x65AA7F, nationality at
+/// 0x65ABB8), as do the coach details, the training bonus plate, the bonus line of the tournament data and the
+/// directory's sort by club and by nationality. Those six readers only show or sort the names. The copies at
+/// 0x154C428 and 0x154C8A8, used before, are read by no code.
+pub const NAME_TABLES_1718: [u32; 1] = [0x015B_56D0];
 
 /// What the game shows for each entry of [`NAME_TABLES_1718`]: the original's Shift-JIS bytes and our name, Italian
 /// or English. `None` keeps the original: the unused entries and the publisher's own club.
@@ -615,6 +619,53 @@ pub const NATIONS_1718: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `WCCF_CLIENT_EXE` = the original 2017-18 client_Release.exe (never in the tree): each table holds the original
+    /// names in order and some instruction reads it as `[reg*4 + table]` (clubs) and `[reg*4 + table + 0x2F8]`
+    /// (nationalities). A table no code reads would leave the names Japanese.
+    #[test]
+    #[ignore = "needs the original client_Release.exe"]
+    fn name_tables_are_the_ones_the_game_reads() {
+        let exe = std::fs::read(std::env::var_os("WCCF_CLIENT_EXE").unwrap()).unwrap();
+        let u32at = |o: usize| u32::from_le_bytes(exe[o..o + 4].try_into().unwrap()) as usize;
+        let u16at = |o: usize| u16::from_le_bytes(exe[o..o + 2].try_into().unwrap()) as usize;
+        let pe = u32at(0x3C);
+        let sections = pe + 24 + u16at(pe + 20);
+        // virtual address -> file offset
+        let at = |va: usize| {
+            (0..u16at(pe + 6))
+                .map(|i| sections + 40 * i)
+                .find_map(|s| {
+                    let (start, size, raw) =
+                        (0x40_0000 + u32at(s + 12), u32at(s + 16), u32at(s + 20));
+                    (start..start + size)
+                        .contains(&va)
+                        .then(|| raw + va - start)
+                })
+                .unwrap()
+        };
+        let names: Vec<_> = CLUBS_1718.iter().chain(NATIONS_1718).collect();
+        for table in NAME_TABLES_1718 {
+            let table = table as usize;
+            for (i, (jp, ..)) in names.iter().enumerate() {
+                let p = at(u32at(at(table + 4 * i)));
+                let want = encoding_rs::SHIFT_JIS.encode(jp).0;
+                assert_eq!(
+                    &exe[p..p + want.len() + 1],
+                    [&want[..], &[0]].concat(),
+                    "{jp}"
+                );
+            }
+            for va in [table, table + 4 * CLUBS_1718.len()] {
+                let disp = (va as u32).to_le_bytes();
+                // SIB byte: scale 4, no base register
+                let read = exe
+                    .windows(5)
+                    .any(|w| w[0] & 0xC7 == 0x85 && w[1..] == disp);
+                assert!(read, "no instruction reads the table at {va:#X}");
+            }
+        }
+    }
 
     /// Every club and nationality the game names has an English and an Italian name it can show; a new entry
     /// without them fails here.

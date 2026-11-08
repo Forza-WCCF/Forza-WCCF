@@ -86,6 +86,10 @@ fn gamesvr_replay() {
         if resp.len() >= 40 + 16 + 7_622 && resp[8..10] == 238u16.to_le_bytes() {
             resp[40 + 16 + 7_620..40 + 16 + 7_622].fill(0);
         }
+        // 250's dataVSWeek (+12) is the same clock's week; the recording holds 0
+        if resp.len() >= 40 + 504 && resp[8..10] == 250u16.to_le_bytes() {
+            resp[40 + 12..40 + 14].fill(0);
+        }
         assert_eq!(
             resp.len() as u64,
             r["resp_len"].as_u64().unwrap(),
@@ -164,11 +168,14 @@ fn new_club(c: &mut TcpStream) -> (u32, u32) {
     (word(&a, 8), word(&a, 12))
 }
 
-/// A synthetic save block: word i = i * 0x9E37_79B9 (non-zero, wraps).
+/// A synthetic save block: word i = i * 0x9E37_79B9 (non-zero, wraps), but no Universal Championship entry date
+/// (bytes 2,883..2,886), which the stand-in's SAVE_DATA always answers as 0.
 fn block() -> Vec<u8> {
-    (0..768u32)
+    let mut b: Vec<u8> = (0..768u32)
         .flat_map(|i| i.wrapping_mul(0x9E37_79B9).wrapping_add(7).to_le_bytes())
-        .collect()
+        .collect();
+    b[2883..2887].fill(0);
+    b
 }
 
 /// SAVE_DATA_SET of `blk` for a club, with the client's block sum at +5,236 (`bad` spoils it).

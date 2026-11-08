@@ -162,11 +162,12 @@ impl Kit {
     }
 }
 
-/// settings.json "projector" (2017-18, default on): the projector's window shown. Off hides it, at once, while its
-/// CPU championship plays on (the panel in the projector reads it each second).
+/// settings.json "projector" (2017-18, default on): the projector's window shown. Off hides it, at once (the panel in
+/// the projector reads it each second); with the CPU championship off too, a run on this PC starts no projector.
 pub const PROJECTOR: &str = "projector";
-/// settings.json "cpu_championship" (2017-18): the projector program runs, and with it the CPU championship it plays.
-/// Read at the start of a run on this PC. Missing: what the old "projector" switch said, as it turned both off.
+/// settings.json "cpu_championship" (2017-18, default off): the control's all-CPU Universal Championship plays on the
+/// projector. Off, the control keeps it off the projector (WCCF_UCLIVE=on). Read at the start of a run on this PC.
+/// Missing means off, the old "projector" switch included: its off was off, and its on was the old default.
 pub const CPU_CHAMPIONSHIP: &str = "cpu_championship";
 /// The start of the projector window's title (the panel writes it): a hidden window with it is still the projector's.
 pub const PROJECTOR_TITLE: &str = "Projector - Forza-WCCF";
@@ -176,9 +177,7 @@ pub fn projector_shown(settings: &serde_json::Value) -> bool {
 }
 
 pub fn cpu_championship_on(settings: &serde_json::Value) -> bool {
-    settings[CPU_CHAMPIONSHIP]
-        .as_bool()
-        .unwrap_or_else(|| projector_shown(settings))
+    settings[CPU_CHAMPIONSHIP].as_bool() == Some(true)
 }
 
 /// The game's three programs, as find_game looks for them.
@@ -221,21 +220,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn projector_and_cpu_championship_are_separate_and_the_old_switch_migrates() {
+    fn the_cpu_championship_is_off_unless_saved_on_and_apart_from_the_projector() {
         use serde_json::json;
         let both = |v: serde_json::Value| (projector_shown(&v), cpu_championship_on(&v));
-        assert_eq!(both(json!({})), (true, true));
-        // the old "Projector and CPU championship" switch: its choice holds for both until the new key is written
+        assert_eq!(both(json!({})), (true, false));
+        // the old "Projector and CPU championship" switch no longer decides the championship
         assert_eq!(both(json!({"projector": false})), (false, false));
-        assert_eq!(both(json!({"projector": true})), (true, true));
-        // apart: the window hidden with the championship on, and the other way round
+        assert_eq!(both(json!({"projector": true})), (true, false));
+        // a saved choice stays, whatever the window
         assert_eq!(
             both(json!({"projector": false, "cpu_championship": true})),
             (false, true)
         );
         assert_eq!(
+            both(json!({"projector": true, "cpu_championship": true})),
+            (true, true)
+        );
+        assert_eq!(
             both(json!({"projector": true, "cpu_championship": false})),
             (true, false)
+        );
+        assert_eq!(
+            both(json!({"cpu_championship": "yes"})),
+            (true, false),
+            "not a bool"
         );
     }
 

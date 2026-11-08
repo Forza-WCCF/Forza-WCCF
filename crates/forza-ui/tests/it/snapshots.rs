@@ -2,11 +2,11 @@
 //! (`UPDATE_SNAPSHOTS=1` writes new ones). Rendered with wgpu on the machine's GPU.
 
 use egui::{Ui, Vec2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
-use forza_ui::{installer, launcher, lobby, panel, widgets};
+use forza_ui::{installer, launcher, lobby, panel, sizing, widgets};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -50,7 +50,20 @@ fn snap(
     edition: Edition,
     show: impl FnMut(&mut Ui),
 ) {
-    let mut h = harness(size, 1.0, edition, show);
+    snap_at(all, name, size, 1.0, edition, show);
+}
+
+/// [`snap`] on a screen of another density: Windows at 125, 150 or 200 %, where the panel's own rounding and
+/// letterboxing bite and at 100 % they do not.
+fn snap_at(
+    all: &mut SnapshotResults,
+    name: &str,
+    size: Vec2,
+    pixels_per_point: f32,
+    edition: Edition,
+    show: impl FnMut(&mut Ui),
+) {
+    let mut h = harness(size, pixels_per_point, edition, show);
     h.run_steps(8);
     h.snapshot(name);
     all.extend_harness(&mut h);
@@ -85,6 +98,32 @@ fn launcher_screens() {
         }
     }
     all.unwrap();
+}
+
+/// 2010-11 keeps its pack choice (From the game | High-quality pack, Choose pack…); 2017-18 has the one download button.
+#[test]
+fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_18() {
+    let _gpu = gpu();
+    for (ed, has, lacks) in [
+        (
+            Edition::E1011,
+            "Choose pack…",
+            "Download high-quality pictures",
+        ),
+        (
+            Edition::E1718,
+            "Download high-quality pictures",
+            "Choose pack…",
+        ),
+    ] {
+        let mut st = launcher::LauncherState::sample(ed, Lang::En, launcher::Scenario::NotSetUp);
+        let mut h = harness(launcher::SIZE, 1.0, ed, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(8);
+        assert!(h.query_by_label(has).is_some(), "{ed:?}: {has}");
+        assert!(h.query_by_label(lacks).is_none(), "{ed:?}: {lacks}");
+    }
 }
 
 /// A setup that reports a percentage keeps its bar; the working band is for a job that reports none.
@@ -251,6 +290,81 @@ fn launcher_play_cup() {
     all.unwrap();
 }
 
+/// The cup rows fit the Launcher (its width is fixed; 700 tall is its smallest) in every language, on the PLAY tab and
+/// in the host dialog: the four segments and the stepper inside the window, each segment's label no wider than its
+/// segment at the 70 % `fit` floor.
+#[test]
+fn cup_rows_fit_the_launcher() {
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        for (mode, dialog) in [
+            (lobby::CupMode::In, false),
+            (lobby::CupMode::At, false),
+            (lobby::CupMode::In, true),
+            (lobby::CupMode::At, true),
+        ] {
+            let scenario = if dialog {
+                launcher::Scenario::Online
+            } else {
+                launcher::Scenario::Ready
+            };
+            let mut st = launcher::LauncherState::sample(Edition::E1718, lang, scenario);
+            let v = &mut st.lobby;
+            (v.cup.mode, v.cup.minutes, v.cup.at, v.clock) =
+                (mode, 150, 23 * 60 + 55, Some(14 * 3600));
+            if dialog {
+                (v.arcade_rooms, v.kind) = (true, lobby::Kind::Arcades);
+                v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
+            }
+            let cup = v.cup;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let tag = format!("{lang:?} {mode:?} dialog={dialog}");
+            let t = |k: &str| forza_ui::text(lang, k, &[]);
+            let at = lobby::clock_text(u32::from(cup.at) * 60);
+            let m = cup.minutes.to_string();
+            let segs = [
+                t("lobby.cup_off"),
+                t("lobby.cup_game_times"),
+                forza_ui::text(lang, "lobby.cup_in", &[("m", &m)]),
+                forza_ui::text(lang, "lobby.cup_at", &[("t", &at)]),
+            ];
+            let names = [t("lobby.cup_earlier"), t("lobby.cup_later")];
+            let mut right = 0f32;
+            for s in &segs {
+                let r = h.get_by_label(s).rect();
+                // the segment's own fit (down to 70 %) into its label room: wider still is an overflow
+                let room = r.width() - 12.0;
+                let painter = h.ctx.layer_painter(egui::LayerId::background());
+                let w = widgets::fit(&painter, s, theme::bold(14.0), egui::Color32::WHITE, room)
+                    .size()
+                    .x;
+                assert!(
+                    w <= room,
+                    "{tag}: {s:?} is {w} wide in a {} segment",
+                    r.width()
+                );
+                right = right.max(r.right());
+            }
+            for n in &names {
+                right = right.max(h.get_by_label(n).rect().right());
+            }
+            // the dialog is 480 wide plus its 20 px margins, centred
+            let edge = if dialog {
+                (size.x + 480.0) / 2.0
+            } else {
+                size.x - 14.0
+            };
+            assert!(
+                right <= edge,
+                "{tag}: the cup rows end at {right}, past {edge}"
+            );
+        }
+    }
+}
+
 /// The ONLINE tab on 2017-18 with the Direct address fold open (the club server and the VS link switch live there),
 /// then closed.
 #[test]
@@ -310,23 +424,59 @@ fn panel_pages() {
                 panel::show(ui, &mut st)
             });
         }
+        // the pages the 2010-11 shots above cover, as 2017-18 draws them: its arcade line on the game page, its
+        // own filters in the catalogue, the club card's share code
+        for page in [
+            panel::Page::Game,
+            panel::Page::Catalogue,
+            panel::Page::ClubCard,
+        ] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, page);
+            let name = format!("panel_{}_1718_{}", page.tag(), lang.code());
+            snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
+                panel::show(ui, &mut st)
+            });
+        }
     }
     all.unwrap();
 }
 
+/// Windows at 150 % and 200 %: the Launcher on a 1.5 screen and the 2017-18 panel on a 2.0 one. The panel's sheet
+/// scales by `min(H/900, W/1440)` through `pixels_per_point`, so a fraction of a point shows here first.
 #[test]
-fn panel_2017_18_and_compact() {
+fn scaled_screens() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
-    snap(
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    snap_at(
         &mut all,
-        "panel_game_1718_en",
+        "launcher_ready_15x_en",
+        launcher::SIZE,
+        1.5,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    snap_at(
+        &mut all,
+        "panel_game_2x_en",
         panel::SIZE,
+        2.0,
         Edition::E1718,
         |ui| panel::show(ui, &mut st),
     );
-    st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
+    all.unwrap();
+}
+
+/// COMPACT: the sheet folded down for a small window.
+#[test]
+fn panel_compact() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
     st.file.compact = true;
     snap(
         &mut all,
@@ -338,24 +488,32 @@ fn panel_2017_18_and_compact() {
     all.unwrap();
 }
 
-/// The server's notice: on the panel's message line (2017-18 game page) and under the Launcher's status line.
+/// The server's notice: across the top of the game picture (2017-18 game page) and under the Launcher's status line.
 #[test]
 fn server_notice() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for (lang, text) in [
         (Lang::En, "Server update at 23:00 CET, about 10 minutes."),
+        (
+            Lang::It,
+            "Aggiornamento del server alle 23:00 CET, circa 10 minuti. Così è.",
+        ),
         (Lang::Ja, "23:00(CET)にサーバーを更新します。約10分。"),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
-        st.message = Some(panel::Note::long(widgets::Tone::Notice, text.into()));
-        snap(
-            &mut all,
-            &format!("panel_notice_1718_{}", lang.code()),
-            panel::SIZE,
-            Edition::E1718,
-            |ui| panel::show(ui, &mut st),
+        st.banner = Some(panel::Note::banner(text.into()));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(8);
+        let banner = h.get_by_label(text).rect();
+        assert!(
+            banner.top() < 120.0,
+            "{lang:?}: the notice sits at the top of the picture, not at {banner:?}"
         );
+        h.snapshot(format!("panel_notice_1718_{}", lang.code()));
+        all.extend_harness(&mut h);
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
         st.server_notice = Some(text.into());
@@ -699,7 +857,8 @@ fn board_mat() {
 }
 
 /// Links on the board (synthetic): every stage between pitch cards at rest; a click on card 8 (slot 7) brings its group
-/// forward with its partner list; the catalogue's stats pane lists the same card's affinity, ticks on the team.
+/// forward with its partner list; the catalogue's detail pane shows the same card, its picture in the room the board's
+/// lists take.
 #[test]
 fn board_links() {
     let _gpu = gpu();
@@ -728,10 +887,101 @@ fn board_links() {
     }
     h.hover_at(egui::pos2(500.0, 440.0));
     h.run_steps(4);
-    h.snapshot("panel_catalogue_affinity_en");
+    h.snapshot("panel_catalogue_focus_en");
 }
 
-/// 2017-18: RESET LINEUP under the board, lit after a match when the table changed, greyed out in a match.
+/// The 2017-18 catalogue at 1920x1080 points, x1 and 125 % in English and at 125 % in Japanese: the grid fills its
+/// width (6 cards a row and more), the detail pane draws the focused card's picture at whole pixels (a made-up
+/// 256x357 pattern of single-pixel lines, blurred if ever scaled by a fraction) at its album art's own size, larger
+/// than a grid card, and its stat labels beside their values at the narrow pane (the Japanese ones are the widest).
+#[test]
+fn catalogue_1080() {
+    let _gpu = gpu();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let ci = 7;
+    let no = forza_ui::sample::cards()[ci].number;
+    image::RgbaImage::from_fn(256, 357, |x, y| {
+        if (x + y) % 2 == 0 || x % 32 == 0 || y % 32 == 0 {
+            image::Rgba([200, 60, 40, 255])
+        } else {
+            image::Rgba([235, 235, 225, 255])
+        }
+    })
+    .save_with_format(
+        dir.path().join(format!("{no}_f.jpg")),
+        image::ImageFormat::Png,
+    )
+    .expect("a picture written");
+    let mut all = SnapshotResults::new();
+    let (wide, small) = (Vec2::new(1920.0, 1080.0), panel::SIZE);
+    // (window in points, scale, language, snapshot): at 1920x1080 the pane shows the picture at the album art's own
+    // points and ADD without scrolling; at 1440x900 it shows ADD
+    for (size, ppp, lang, name) in [
+        (wide, 1.0, Lang::En, Some("panel_catalogue_1080_en")),
+        (wide, 1.25, Lang::En, Some("panel_catalogue_1080_125_en")),
+        (wide, 1.25, Lang::Ja, Some("panel_catalogue_1080_125_ja")),
+        (wide, 1.0, Lang::It, None),
+        (wide, 1.0, Lang::Ja, None),
+        (wide, 1.25, Lang::It, None),
+        (small, 1.0, Lang::En, None),
+        (small, 1.0, Lang::It, None),
+        (small, 1.0, Lang::Ja, None),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.links = forza_ui::sample::links();
+        st.catalogue.filter = Default::default();
+        st.catalogue.focus = Some(ci);
+        let path = dir.path().to_owned();
+        let mut first = true;
+        let mut h = harness(size, ppp, Edition::E1718, |ui| {
+            if first {
+                forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+                first = false;
+            }
+            panel::show(ui, &mut st)
+        });
+        // the file loads on a thread: step until it shows
+        for _ in 0..40 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let seen = panel::catalogue_detail_rect(&h.ctx).expect("the detail pane drawn");
+        let add = match lang {
+            Lang::En => "+ ADD",
+            Lang::It => "+ AGGIUNGI",
+            Lang::Ja => "＋追加",
+        };
+        let add = h.get_by_label(add).rect();
+        assert!(
+            add.bottom() <= seen.bottom(),
+            "{size:?} {ppp} {lang:?}: ADD at {add:?}, the pane shows {seen:?}"
+        );
+        // the detail pane lists no affinity: the card's partners and their "+N more" chip are gone (the board's
+        // lists stay; players read affinity in their own tool)
+        assert!(
+            h.query_by_label("+1 more").is_none(),
+            "{size:?} {ppp} {lang:?}: the pane still lists the card's partners"
+        );
+        if size == wide {
+            // the detail picture's slot: the album art at its own pixels, and never under them, so larger than a grid
+            // card (at most 170 points wide, its scan some 240 tall)
+            let pic = panel::catalogue_picture_rect(&h.ctx).expect("the picture drawn");
+            assert!(
+                pic.width() * ppp >= sizing::ALBUM.x - 1.0
+                    && pic.height() * ppp >= sizing::ALBUM.y - 1.0,
+                "{size:?} {ppp} {lang:?}: the picture {pic:?}, the album art {}",
+                sizing::ALBUM / ppp
+            );
+        }
+        if let Some(name) = name {
+            h.snapshot(name);
+            all.extend_harness(&mut h);
+        }
+    }
+    all.unwrap();
+}
+
+/// 2017-18: RESET LINEUP under the board, lit while a kept table differs from the board, greyed out in a match.
 #[test]
 fn board_reset_lineup() {
     let _gpu = gpu();
@@ -741,6 +991,9 @@ fn board_reset_lineup() {
         ("board_reset_lineup_in_match_en", true, true),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        if ready {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
         st.reset_ready = ready;
         st.in_match = in_match;
         snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
@@ -748,6 +1001,106 @@ fn board_reset_lineup() {
         });
     }
     all.unwrap();
+}
+
+/// RESET LINEUP is offered outside a match with a table kept, also while the board holds that table (the club office
+/// between matches), and greyed out in a match or before any table was kept.
+#[test]
+fn board_reset_lineup_offered_outside_a_match() {
+    let _gpu = gpu();
+    for (in_match, kept, disabled) in [
+        (false, true, false),
+        (true, true, true),
+        (false, false, true),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.in_match = in_match;
+        if kept {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        }
+        assert!(!st.reset_ready, "the table is the one the match began with");
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(4);
+        let button = h.get_by_label("RESET LINEUP");
+        assert_eq!(button.accesskit_node().is_disabled(), disabled);
+    }
+}
+
+/// The board's foot inside the board's own margin at the narrowest and widest panel the tests draw: the buttons and
+/// the hint keep clear of the pitch's border, in English, Italian and Japanese (whose labels are the longest).
+#[test]
+fn board_foot_inside_the_board() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for (size, tag) in [
+        (panel::SIZE, "1440x900"),
+        (Vec2::new(2560.0, 1440.0), "2560x1440"),
+    ] {
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            snap(
+                &mut all,
+                &format!("board_foot_{tag}_{}", lang.code()),
+                size,
+                Edition::E1718,
+                |ui| panel::show(ui, &mut st),
+            );
+        }
+    }
+    all.unwrap();
+}
+
+/// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
+/// the windows the panel's layout test covers and the game window players run (1972x1080), in English, Italian and
+/// Japanese. Laid out only: no GPU.
+#[test]
+fn board_hint_clear_of_the_buttons() {
+    const GAP: f32 = 8.0;
+    for (w, h) in [
+        (1440.0, 900.0),
+        (1600.0, 900.0),
+        (1280.0, 800.0),
+        (1920.0, 1049.0),
+        (1920.0, 1080.0),
+        (1972.0, 1080.0),
+        (2560.0, 1369.0),
+        (2560.0, 1440.0),
+        (3440.0, 1440.0),
+    ] {
+        // the sheet such a window shows, in points
+        let size = Vec2::new(w, h) / panel::scale(w, h, 96.0);
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(8);
+            let at = |key: &str| h.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let buttons = ["board.pop_out", "board.reset", "form.open"]
+                .map(|k| at(k).bottom())
+                .into_iter()
+                .fold(f32::MIN, f32::max);
+            let hint = at("board.hint");
+            // the board strip keeps a 16-point margin inside the board's column
+            let board =
+                panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
+            let case = format!("{size:?} {}", lang.code());
+            assert!(
+                hint.top() >= buttons + GAP - 0.5,
+                "{case}: the hint at {} sits {} under the buttons",
+                hint.top(),
+                hint.top() - buttons
+            );
+            assert!(
+                hint.bottom() <= board.bottom() - 16.0 + 0.5,
+                "{case}: the hint ends at {}, the board at {}",
+                hint.bottom(),
+                board.bottom()
+            );
+        }
+    }
 }
 
 /// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
@@ -782,6 +1135,66 @@ fn board_reset_lineup_hint_and_undo() {
             Edition::E1718,
             |ui| panel::show(ui, &mut st),
         );
+    }
+    all.unwrap();
+}
+
+/// A table kept by an earlier run (no match in this one) that differs from the board: RESET LINEUP is lit and asks
+/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone.
+#[test]
+fn board_reset_lineup_asks_first() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for confirm in [true, false] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        let now = forza::cards::table_after(&[], &st.board);
+        // the kept table: the first pitch card and the first sub trade places
+        let mut kept = now.clone();
+        let p = kept.iter().position(|c| !c.on_bench()).unwrap();
+        let b = kept.iter().position(|c| c.on_bench()).unwrap();
+        (kept[p].no, kept[b].no) = (kept[b].no, kept[p].no);
+        panel::keep_saved(&mut st, kept.clone(), std::time::SystemTime::now());
+        st.before_match_at = Some("21:40".into()); // a fixed time for the picture
+        panel::lineup_tick(&mut st, None, Some((false, false)), &now);
+        assert!(st.reset_ready && !st.in_match && !st.match_seen);
+        let shown = |b: &forza::board::Board| (0..16).map(|i| b.number(i)).collect::<Vec<_>>();
+        let before = shown(&st.board);
+        let after = shown(&forza::cards::board(&kept, &st.cards));
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        // lit: a greyed-out button would not take the click
+        h.get_by_label("RESET LINEUP").click();
+        h.run_steps(8);
+        assert_eq!(st.borrow().reset_ask, Some(false));
+        assert!(!st.borrow().reset_lineup, "nothing replaced before CONFIRM");
+        if confirm {
+            h.snapshot("board_reset_ask_en");
+            all.extend_harness(&mut h);
+        }
+        h.get_by_label(if confirm { "CONFIRM" } else { "CANCEL" })
+            .click();
+        h.run_steps(4);
+        {
+            let mut s = st.borrow_mut();
+            assert!(s.reset_ask.is_none());
+            assert_eq!(s.reset_lineup, confirm);
+            // the panel DLL's step after the frame
+            let new = panel::take_reset(&mut s, &now, false);
+            if confirm {
+                assert_eq!(new.as_ref(), Some(&kept));
+                assert_eq!(shown(&s.board), after);
+                assert_eq!(s.import_undo.as_ref().map(|u| &u.0), Some(&now));
+            } else {
+                assert_eq!(new, None);
+                assert_eq!(shown(&s.board), before);
+                assert!(s.import_undo.is_none());
+            }
+        }
+        h.run_steps(4);
+        assert_eq!(h.query_by_label("UNDO").is_some(), confirm);
     }
     all.unwrap();
 }
@@ -1686,9 +2099,14 @@ fn lobby_arcade_rooms() {
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_some());
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("In N min").click();
+    h.get_by_label("In 10 min").click();
     h.run_steps(2);
     assert_eq!(v.borrow().cup.mode, lobby::CupMode::In);
+    // the stepper under it: + steps 10 -> 15 and the segment shows it
+    h.get_by_label("5 min later").click();
+    h.run_steps(2);
+    assert_eq!(v.borrow().cup.minutes, 15);
+    h.get_by_label("In 15 min");
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
@@ -1709,7 +2127,7 @@ fn lobby_arcade_rooms() {
     h.key_press(egui::Key::H);
     h.run_steps(2);
     h.get_by_label("List my arcade when I host").click();
-    h.get_by_label("At HH:MM").click();
+    h.get_by_label("At 21:00").click();
     // a cup whose championship would still run at 05:00: refused, HOST does nothing
     let cup_at = |clock, at| {
         let mut b = v.borrow_mut();
@@ -1724,7 +2142,8 @@ fn lobby_arcade_rooms() {
     cup_at(22 * 3600, 23 * 60 + 30);
     h.run_steps(2);
     h.get_by_label(
-        "Opens at about 23:30. Card in before then; entry closes about 1.5 min after it opens.",
+        "Entries open at about 23:30. Insert your card before then and choose the Universal Cup in the game as soon \
+as it can be selected; entries close about a minute and a half later.",
     );
     // the tab's HOST ARCADE, then the dialog's
     h.get_all_by_label("HOST ARCADE").last().unwrap().click();

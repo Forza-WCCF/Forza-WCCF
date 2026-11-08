@@ -109,8 +109,27 @@ const MOVIE_ASYNC_DEPTH: Patch = Patch {
     what: "movie decoder AsyncDepth 0 -> 1 (VA 0x00DE991B)",
 };
 
+/// The screens before a match (sub_9D8540, sub_9DC040, sub_9E3280, the GT intro among them) write a club's arcade as
+/// "<name> [<region>]" (key GAM_COMMON_round_0062, "%s [%s]") and the own region as "[<region>]" (key
+/// PRO_PRO_battlelist_0035, sub_848C90); nothing else uses the two keys. Forza-WCCF clubs have no region
+/// (PREFECTURE_ID -1, a blank from sub_854AC0), so the brackets showed empty: "Play [ ]". The text lookup (sub_462600)
+/// returns a key it does not know as it is, so each key becomes "%s", the format in every language: the name alone,
+/// and a blank for the region.
+const ARCADE_NAME_ALONE: Patch = Patch {
+    at: 0x1033904,
+    old: b"GAM_COMMON_round_0062\0",
+    new: b"%s\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
+    what: "arcade name without its region brackets (VA 0x01434504, key GAM_COMMON_round_0062 -> %s)",
+};
+const REGION_ALONE_BLANK: Patch = Patch {
+    at: 0xffdce4,
+    old: b"PRO_PRO_battlelist_0035\0",
+    new: b"%s\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
+    what: "region without brackets (VA 0x013FE8E4, key PRO_PRO_battlelist_0035 -> %s)",
+};
+
 /// Seat 1's client_Release.exe (the 2010-11 kit's patches as each proved needed).
-static SEAT: [Patch; 16] = [
+static SEAT: [Patch; 18] = [
     Patch {
         at: 0x1db8a0,
         old: &[0x6a, 0xff, 0x68],
@@ -191,11 +210,13 @@ static SEAT: [Patch; 16] = [
     ALLNET_BILLING_IDLE,
     AIMEDB_LOCAL,
     MOVIE_ASYNC_DEPTH,
+    ARCADE_NAME_ALONE,
+    REGION_ALONE_BLANK,
 ];
 
 /// The projector (game\\client_Release.exe, its own copy: seat 1 has another): the two ALL.Net answers, so its corner
 /// status icon agrees with seat 1's, its title movie counted as over and its AiMeDB host this PC.
-static PROJECTOR: [Patch; 5] = [
+static PROJECTOR: [Patch; 7] = [
     ALLNET_AUTHORIZED,
     ALLNET_BILLING_IDLE,
     // Stopgap: the title movie stalls in Sofdec PREP, so the projector never sent GAME_READY. sub_88A230: call
@@ -209,6 +230,8 @@ static PROJECTOR: [Patch; 5] = [
     },
     MOVIE_ASYNC_DEPTH,
     AIMEDB_LOCAL,
+    ARCADE_NAME_ALONE,
+    REGION_ALONE_BLANK,
 ];
 
 /// The server (control_Release.exe): its ALL.Net library's "network up" check answers yes, so it connects to the local
@@ -267,8 +290,8 @@ const SEAT_MARK: &str = ".forza-seat";
 
 /// Setup's version, in setup-hashes.json as "setup-version": raise it when [`setup_game`] makes something new (a patch, a
 /// file; the Launcher's run again is that function alone) and the Launcher sets up again a runtime an older setup made
-/// ([`stale`]). 2: det-math (dmath.dll, the engine's copy).
-pub const VERSION: u32 = 2;
+/// ([`stale`]). 2: det-math (dmath.dll, the engine's copy). 3: the arcade name without region brackets.
+pub const VERSION: u32 = 3;
 const VERSION_KEY: &str = "setup-version";
 /// The kit's DLLs setup copies into the game folder (seat 1 links to them), each recorded in setup-hashes.json.
 const KIT_DLLS: [(&str, &str); 3] = [
@@ -632,6 +655,18 @@ mod tests {
         assert!(p.new.starts_with(b"localhost\0"));
         let both = SEAT.iter().chain(&PROJECTOR).filter(|q| q.at == p.at);
         assert_eq!(both.count(), 2); // seat 1 and the projector
+    }
+
+    #[test]
+    fn both_clients_drop_the_region_brackets() {
+        for p in [&ARCADE_NAME_ALONE, &REGION_ALONE_BLANK] {
+            // the whole key and its NUL become "%s" and zeros, so the lookup misses and hands back "%s"
+            assert_eq!(p.old.len(), p.new.len(), "{}", p.what);
+            assert!(p.old.ends_with(b"\0") && !p.old[..p.old.len() - 1].contains(&0));
+            assert!(p.new.starts_with(b"%s\0") && p.new[2..].iter().all(|&b| b == 0));
+            let both = SEAT.iter().chain(&PROJECTOR).filter(|q| q.at == p.at);
+            assert_eq!(both.count(), 2, "{}", p.what); // seat 1 and the projector
+        }
     }
 
     #[test]

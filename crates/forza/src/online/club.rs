@@ -11,8 +11,11 @@
 //! `CLUB DONE aime token` -> `OK 0` | `NO why`.
 //! The host is a trust boundary: sizes and every record are checked, the first PUT for an Aime id binds its
 //! [`token`] (a hash of the card's access code, which never leaves the guest), other tokens are refused, and an Aime
-//! id that holds a club the desk did not import (the host's own, or one from before) is never read, replaced or
-//! dropped.
+//! id that holds a club the desk did not import is never read or dropped. Such a club is replaced (kept in `backups`
+//! first) only when it is not the arcade's own: a club of one of the host's cards ([`serve`]'s `own`) refuses the
+//! bring, so the host's card on a second PC plays the arcade's club as it is. The guest is a trust boundary too: a
+//! copy-back that fails [`Club::check`], holds another Aime id or lost a club the guest brought is set aside in
+//! `backups`, never written home.
 //!
 //! The guest's side keeps `club_out.json` (the marker: in which arcade since when, the id map, the home club's stamp)
 //! beside its store while the club is out, and `club_last.json`, the last copy pulled. A marker found at the next
@@ -21,7 +24,8 @@
 //!
 //! Online on a server's own arcade (`forza-server all`, its game server beside the desk) the trip is the same, to
 //! that server's store; there no seat is needed and the brought club replaces what the server kept for the card
-//! ([`Store::import_public`]).
+//! ([`Store::import_public`]). Past [`MAX_PUBLIC_GUESTS`] the oldest copy whose card is not on the game server makes
+//! room, so asking for copies keeps none of them: only players logged in there are never evicted.
 
 use super::gamesvr::{BLOCK, Store, TAIL, get_bits, next_id, now, put, put_bits, u32_at};
 use crate::service::{Handle, Log};
@@ -43,10 +47,15 @@ pub const MAX_BYTES: usize = 2 << 20;
 pub const POLL: Duration = Duration::from_secs(10);
 /// Guest clubs a host holds at once (one per seat): a guest cannot fill the host's store.
 const MAX_GUESTS: usize = 8;
-/// Guest clubs a public server's store holds ([`Store::import_public`]); the oldest copy makes room for a new one.
+/// Guest clubs a public server's store holds ([`Store::import_public`]); the oldest copy not in play makes room.
 const MAX_PUBLIC_GUESTS: usize = 256;
 /// Backups of each kind kept in `backups` (oldest go first).
 const KEEP_BACKUPS: usize = 30;
+/// Clubs the host set aside ([`set_aside`]) kept in `backups` per kind across all Aime ids: evictions a stranger can
+/// drive stop filling the disk there.
+const KEEP_SET_ASIDE: usize = 100;
+/// Why a bring for an Aime id another token holds is refused.
+const ANOTHER: &str = "another player's club for this card is in this arcade";
 /// A stored request the copy carries: SAVE_DATA_SET 277, whole.
 const SAVE_SET: u16 = 277;
 const SAVE_SET_LEN: usize = 8572;
@@ -470,6 +479,25 @@ fn has_rows(db: &Connection, aime: u32) -> rusqlite::Result<bool> {
     )
 }
 
+/// Writes every row of `aime` to `backups\<what>-<aime>-<time>.json` beside the store; [`KEEP_SET_ASIDE`] of `what`.
+fn set_aside(tx: &Connection, aime: u32, what: &str) -> Result<(), String> {
+    let old = serde_json::to_vec(&export(tx, aime).map_err(db_err)?).map_err(|e| e.to_string())?;
+    // a store in memory (tests) has nothing on disk to keep the club beside
+    let Some(dir) = tx
+        .path()
+        .filter(|p| !p.is_empty())
+        .and_then(|p| Path::new(p).parent())
+    else {
+        return Ok(());
+    };
+    backup(dir, &format!("{what}-{aime}"), &old).map_err(|e| format!("backup: {e}"))?;
+    let kind = format!("{what}-");
+    prune(&dir.join("backups"), KEEP_SET_ASIDE, |name| {
+        name.starts_with(&kind)
+    })
+    .map_err(|e| format!("backup: {e}"))
+}
+
 /// The rows of `aime` the desk imported for the guest holding `token`; `Err` for any other Aime id or token.
 fn owned(db: &Connection, aime: u32, token: &str) -> Result<(), String> {
     match guest_token(db, aime).map_err(db_err)? {
@@ -491,20 +519,22 @@ impl Store {
         seat: u8,
         token: &str,
     ) -> Result<Link, String> {
-        self.import(club, aime, seat, token, false)
+        self.import(club, aime, seat, token, None)
     }
 
     /// A public server's desk beside its own game server (`forza-server all`): no host club to keep, so the
     /// brought club replaces whatever the server kept for the card (a copy that never went home, a club made
-    /// there), and the oldest guest copy makes room past [`MAX_PUBLIC_GUESTS`]. Another token's copy is still refused.
+    /// there), and past [`MAX_PUBLIC_GUESTS`] the oldest guest copy whose card is not `playing` on the game server
+    /// makes room. Another token's copy is still refused.
     pub fn import_public(
         &mut self,
         club: &Club,
         aime: u32,
         seat: u8,
         token: &str,
+        playing: &dyn Fn(u32) -> bool,
     ) -> Result<Link, String> {
-        self.import(club, aime, seat, token, true)
+        self.import(club, aime, seat, token, Some(playing))
     }
 
     fn import(
@@ -513,43 +543,39 @@ impl Store {
         aime: u32,
         seat: u8,
         token: &str,
-        public: bool,
+        public: Option<&dyn Fn(u32) -> bool>,
     ) -> Result<Link, String> {
         club.check()?;
         let tx = self.0.transaction().map_err(db_err)?;
         match guest_token(&tx, aime).map_err(db_err)? {
-            Some(t) if t != token => {
-                return Err("another player's club for this card is in this arcade".into());
-            }
-            Some(_) => {}
+            Some(t) if t != token => return Err(ANOTHER.into()),
+            // a rejoin: the arcade's copy may be newer than the home club brought again (a Launcher killed mid-run)
+            Some(_) => set_aside(&tx, aime, "rejoined")?,
             None => {
                 if has_rows(&tx, aime).map_err(db_err)? {
                     // the club the arcade kept for this card is replaced: kept in `backups` beside the store first
-                    let old = serde_json::to_vec(&export(&tx, aime).map_err(db_err)?)
-                        .map_err(|e| e.to_string())?;
-                    let dir = tx.path().and_then(|p| Path::new(p).parent());
-                    backup(
-                        dir.unwrap_or(Path::new(".")),
-                        &format!("replaced-{aime}"),
-                        &old,
-                    )
-                    .map_err(|e| format!("backup: {e}"))?;
+                    set_aside(&tx, aime, "replaced")?;
                 }
                 let n: u32 = tx
                     .query_row("SELECT count(*) FROM guests", [], |r| r.get(0))
                     .map_err(db_err)?;
-                if public && n as usize >= MAX_PUBLIC_GUESTS {
-                    let oldest: u32 = tx
-                        .query_row(
-                            "SELECT aime_id FROM guests ORDER BY since LIMIT 1",
-                            [],
-                            |r| r.get(0),
-                        )
+                if let Some(playing) = public
+                    && n as usize >= MAX_PUBLIC_GUESTS
+                {
+                    let by_age: Vec<u32> = tx
+                        .prepare("SELECT aime_id FROM guests ORDER BY since, aime_id")
+                        .and_then(|mut q| q.query_map([], |r| r.get(0))?.collect())
                         .map_err(db_err)?;
+                    let Some(oldest) = by_age.into_iter().find(|&a| !playing(a)) else {
+                        return Err(format!(
+                            "this server holds {MAX_PUBLIC_GUESTS} clubs in play already"
+                        ));
+                    };
+                    set_aside(&tx, oldest, "evicted")?;
                     delete(&tx, oldest).map_err(db_err)?;
                     tx.execute("DELETE FROM guests WHERE aime_id = ?1", [oldest])
                         .map_err(db_err)?;
-                } else if !public && n as usize >= MAX_GUESTS {
+                } else if public.is_none() && n as usize >= MAX_GUESTS {
                     return Err(format!(
                         "this arcade holds {MAX_GUESTS} guests' clubs already"
                     ));
@@ -708,7 +734,9 @@ impl Ask {
 }
 
 /// Host: answers one `CLUB` request. `head` is the line, `rest` what came after it, `held` says whether a seat is
-/// leased on the desk now; `public`: a public server's store, which needs no seat ([`Store::import_public`]).
+/// leased on the desk now, `own` whether an Aime id is one of the host's own cards (`aimedb::Db::holds`); `public`:
+/// a public server's store, which needs no seat and has no own cards, with whether a card is on its game server now
+/// ([`Store::import_public`]). A PUT is refused from its line when it can be, before its upload is read.
 /// Returns the line for the desk's log.
 pub fn serve(
     db: &Path,
@@ -716,7 +744,8 @@ pub fn serve(
     rest: Vec<u8>,
     conn: &mut TcpStream,
     held: &dyn Fn(u8) -> bool,
-    public: bool,
+    own: &dyn Fn(u32) -> bool,
+    public: Option<&dyn Fn(u32) -> bool>,
 ) -> io::Result<String> {
     fn no(conn: &mut TcpStream, why: &str) -> io::Result<String> {
         conn.write_all(format!("NO {why}\n").as_bytes())?;
@@ -736,17 +765,32 @@ pub fn serve(
             token,
             size,
         } => {
-            // read first: a refusal with the upload unread would reset the connection before the answer arrives
-            let body = read_body(conn, rest, size)?;
-            if !public && !held(seat) {
+            // refused from the line, the upload unread: the desk's hang-up reads it off, so no reset loses the answer
+            if public.is_none() && !held(seat) {
                 return no(conn, &format!("seat {seat} is not taken"));
             }
+            // the arcade's own club for one of its cards (its host's card on a second PC, or a guest naming that
+            // id) stays: the player plays it here as it is, and the next start's purge never sees it
+            let kept = || -> rusqlite::Result<bool> {
+                Ok(guest_token(&store.0, aime)?.is_none() && has_rows(&store.0, aime)?)
+            };
+            if public.is_none() && own(aime) && kept().unwrap_or(true) {
+                return no(conn, "this card's own club is in this arcade");
+            }
+            if guest_token(&store.0, aime)
+                .ok()
+                .flatten()
+                .is_some_and(|t| t != token)
+            {
+                return no(conn, ANOTHER);
+            }
+            let body = read_body(conn, rest, size)?;
             let club: Club = match serde_json::from_slice(&body) {
                 Ok(c) => c,
                 Err(e) => return no(conn, &format!("not a club ({e})")),
             };
-            let imported = if public {
-                store.import_public(&club, aime, seat, &token)
+            let imported = if let Some(playing) = public {
+                store.import_public(&club, aime, seat, &token, playing)
             } else {
                 store.import_guest(&club, aime, seat, &token)
             };
@@ -941,19 +985,27 @@ fn backup(dir: &Path, what: &str, bytes: &[u8]) -> io::Result<PathBuf> {
         path = b.join(format!("{what}-{}-{n}.json", time_name()));
     }
     write_atomic(&path, bytes)?;
-    let mut all: Vec<_> = std::fs::read_dir(&b)?
+    prune(&b, KEEP_BACKUPS, |name| {
+        name.strip_prefix(what).is_some_and(|r| r.starts_with('-'))
+    })?;
+    Ok(path)
+}
+
+/// Keeps the newest `keep` of the `.json` files in `b` whose name passes `kind`.
+fn prune(b: &Path, keep: usize, kind: impl Fn(&str) -> bool) -> io::Result<()> {
+    let mut all: Vec<_> = std::fs::read_dir(b)?
         .flatten()
         .filter(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            name.ends_with(".json") && name.strip_prefix(what).is_some_and(|r| r.starts_with('-'))
+            name.ends_with(".json") && kind(&name)
         })
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
     all.sort();
-    for (_, old) in all.iter().rev().skip(KEEP_BACKUPS) {
+    for (_, old) in all.iter().rev().skip(keep) {
         let _ = std::fs::remove_file(old);
     }
-    Ok(path)
+    Ok(())
 }
 
 /// CLEAR BAD ENDINGS (2017-18), at a restart asked by the panel: the improper-end counters (INJUSTICE_COUNT 289; the
@@ -1170,6 +1222,23 @@ impl Guest {
         }
     }
 
+    /// Whether the host's copy `host` may be written home: a sound club under this arcade's Aime id that still
+    /// holds every club the guest brought or made there (`link`; nothing deletes a club in the game).
+    fn sound(&self, link: &Link, host: &Club) -> Result<(), String> {
+        host.check()?;
+        if host.aime != self.arcade_aime {
+            return Err(format!("the copy is of Aime id {}", host.aime));
+        }
+        match link
+            .coaches
+            .iter()
+            .find(|(_, there)| !host.coaches.iter().any(|k| k.coach == *there))
+        {
+            Some((_, lost)) => Err(format!("coach {lost} is missing from the copy")),
+            None => Ok(()),
+        }
+    }
+
     /// One copy-back; true when the home club now matches the host's (or nothing changed). `all`: ask even when
     /// the stamp is the same (the last one).
     fn pull(
@@ -1190,7 +1259,8 @@ impl Guest {
         }
         let (stamp, host) = match got {
             Ok(Some(got)) => got,
-            Ok(None) => return true,
+            // unchanged: home only if the copy last seen went home (not a refused or set-aside one)
+            Ok(None) => return out.host_stamp == out.back_stamp,
             Err(e) => {
                 log(&format!("club copy-back failed: {e}"));
                 return false;
@@ -1200,6 +1270,21 @@ impl Guest {
             return true;
         }
         let pulled = serde_json::to_vec(&(&out.link, &host)).unwrap_or_default();
+        if let Err(why) = self.sound(&out.link, &host) {
+            // asked again only once the host's copy changes; the home club and the last good copy stay
+            out.host_stamp = stamp;
+            let _ = self.mark(out);
+            match backup(&self.dir, "club-refused", &pulled) {
+                Ok(p) => log(&format!(
+                    "club copy-back refused ({why}): the home club stays; the arcade's copy is {}",
+                    p.display()
+                )),
+                Err(e) => log(&format!(
+                    "club copy-back refused ({why}): the home club stays; backup failed ({e})"
+                )),
+            }
+            return false;
+        }
         if let Err(e) = write_atomic(&last_file(&self.dir), &pulled) {
             log(&format!(
                 "club copy-back: cannot keep the pulled copy ({e})"
@@ -1303,6 +1388,8 @@ mod tests {
     use std::sync::Mutex;
 
     const CODE: &str = "50123456789012345678";
+    /// The Aime id of the test desk's own card ([`desk`]): its host's club.
+    const OWN: u32 = 9;
 
     fn sum32(b: &[u8]) -> u32 {
         b.as_chunks::<4>()
@@ -1704,11 +1791,19 @@ mod tests {
         host.import_guest(&club(1, &[(1, 1), (2, 2)]), 300, 2, &b)
             .unwrap();
         assert_eq!(host.guest_club(300, &b).unwrap().coaches.len(), 2);
+        let kept = |kind: &str| {
+            std::fs::read_dir(d.path().join("backups"))
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with(kind))
+                .count()
+        };
         assert_eq!(
-            std::fs::read_dir(d.path().join("backups")).unwrap().count(),
+            kept("replaced-300-"),
             1,
             "the club left behind is in backups"
         );
+        assert_eq!(kept("rejoined-"), 2, "and the copies the rejoins replaced");
     }
 
     /// A public server: the brought club replaces what the server kept for the card (a club made there, a copy
@@ -1719,7 +1814,7 @@ mod tests {
         let mut srv = store_with(&d.path().join("srv.db"), &club(50, &[(1, 1), (2, 2)]));
         let (a, b) = (token(CODE), token("50123456789012345679"));
         let mine = club(1, &[(1, 1)]);
-        srv.import_public(&mine, 50, 1, &a).unwrap();
+        srv.import_public(&mine, 50, 1, &a, &|_| false).unwrap();
         assert_eq!(
             srv.guest_club(50, &a).unwrap().coaches.len(),
             1,
@@ -1728,23 +1823,194 @@ mod tests {
         let kept = std::fs::read_dir(d.path().join("backups")).unwrap().count();
         assert_eq!(kept, 1, "the made-there club is in backups");
         assert!(
-            srv.import_public(&mine, 50, 1, &b)
+            srv.import_public(&mine, 50, 1, &b, &|_| false)
                 .unwrap_err()
                 .contains("another player")
         );
         // a newer home club replaces the copy left from an earlier session
-        srv.import_public(&club(1, &[(1, 1), (2, 2), (3, 3)]), 50, 1, &a)
+        srv.import_public(&club(1, &[(1, 1), (2, 2), (3, 3)]), 50, 1, &a, &|_| false)
             .unwrap();
         assert_eq!(srv.guest_club(50, &a).unwrap().coaches.len(), 3);
         srv.0
             .execute("UPDATE guests SET since = 0 WHERE aime_id = 50", [])
             .unwrap();
         for aime in 1000..1000 + MAX_PUBLIC_GUESTS as u32 {
-            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a).unwrap();
+            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a, &|_| false)
+                .unwrap();
         }
         assert!(srv.guest_club(50, &a).is_err(), "the oldest copy made room");
         assert!(!has_rows(&srv.0, 50).unwrap());
         assert!(srv.guest_club(1000, &a).is_ok());
+    }
+
+    /// A public server never makes room from a copy in play: past the cap a bring is refused while every card is
+    /// on the game server; otherwise the oldest copy not in play makes room, set aside in `backups` first.
+    #[test]
+    fn a_public_server_never_evicts_a_club_in_play() {
+        let d = tempfile::tempdir().unwrap();
+        let mut srv = store_with(&d.path().join("srv.db"), &club(7, &[(1, 1)]));
+        let a = token(CODE);
+        for aime in 1000..1000 + MAX_PUBLIC_GUESTS as u32 {
+            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a, &|_| true)
+                .unwrap();
+        }
+        let more = |srv: &mut Store, playing: &dyn Fn(u32) -> bool| {
+            srv.import_public(&club(1, &[(1, 1)]), 5000, 1, &a, playing)
+        };
+        assert!(more(&mut srv, &|_| true).unwrap_err().contains("in play"));
+        assert!(srv.guest_club(1000, &a).is_ok(), "nobody evicted");
+        // the two oldest copies; only the older one's card is on the game server
+        srv.0
+            .execute(
+                "UPDATE guests SET since = 0 WHERE aime_id IN (1000, 1001)",
+                [],
+            )
+            .unwrap();
+        more(&mut srv, &|a| a == 1000).unwrap();
+        assert!(srv.guest_club(1000, &a).is_ok(), "in play: kept");
+        assert!(srv.guest_club(1001, &a).is_err(), "not in play: made room");
+        let set_aside = std::fs::read_dir(d.path().join("backups"))
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with("evicted-1001-"));
+        assert!(set_aside, "the evicted copy is in backups");
+    }
+
+    /// Strangers that fill a public server with fresh copies and keep asking for them (256 PUTs, then GETs) lock
+    /// no player out: a copy whose card is not on the game server always makes room for a real bring.
+    #[test]
+    fn strangers_asking_for_their_copies_cannot_lock_players_out() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("srv.db");
+        let mut srv = store_with(&db, &club(7, &[(1, 1)]));
+        let a = token(CODE);
+        for aime in 1000..1000 + MAX_PUBLIC_GUESTS as u32 {
+            srv.import_public(&club(1, &[(1, 1)]), aime, 1, &a, &|_| false)
+                .unwrap();
+        }
+        let since = |srv: &Store| -> i64 {
+            srv.0
+                .query_row("SELECT sum(since) FROM guests", [], |r| r.get(0))
+                .unwrap()
+        };
+        let before = since(&srv);
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = l.local_addr().unwrap();
+        thread::spawn(move || {
+            for c in l.incoming() {
+                let mut c = c.unwrap();
+                let mut line = String::new();
+                let _ = io::BufRead::read_line(&mut io::BufReader::new(&c), &mut line);
+                let _ = serve(
+                    &db,
+                    line.trim(),
+                    Vec::new(),
+                    &mut c,
+                    &|_| false,
+                    &|_| false,
+                    Some(&|_| false),
+                );
+            }
+        });
+        thread::sleep(Duration::from_millis(1100)); // so a refreshed since would differ
+        for aime in [1000, 1100, 1255] {
+            assert!(fetch(at, aime, CODE, "").unwrap().is_some());
+        }
+        assert_eq!(since(&srv), before, "asking keeps no copy");
+        let player = token("50123456789012345679");
+        srv.import_public(&club(1, &[(1, 1)]), 6000, 1, &player, &|_| false)
+            .unwrap();
+        assert_eq!(srv.guest_club(6000, &player).unwrap().coaches.len(), 1);
+    }
+
+    /// A same-token rejoin (a Launcher killed mid-run brings its older home club again) replaces the arcade's copy
+    /// only once that copy is in `backups`.
+    #[test]
+    fn a_rejoin_keeps_the_arcades_copy_in_backups() {
+        let d = tempfile::tempdir().unwrap();
+        let mut host = store_with(&d.path().join("host.db"), &club(7, &[(1, 1)]));
+        let a = token(CODE);
+        host.import_guest(&club(1, &[(1, 1), (2, 2)]), 50, 2, &a)
+            .unwrap();
+        assert!(!d.path().join("backups").exists());
+        host.import_guest(&club(1, &[(1, 1)]), 50, 2, &a).unwrap();
+        let kept: Vec<_> = std::fs::read_dir(d.path().join("backups"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("rejoined-50-")
+            })
+            .collect();
+        assert_eq!(kept.len(), 1, "the arcade's copy is in backups");
+        let copy: Club = serde_json::from_slice(&std::fs::read(&kept[0]).unwrap()).unwrap();
+        assert_eq!(copy.coaches.len(), 2, "with both clubs");
+    }
+
+    /// Clubs set aside for many Aime ids (evictions a stranger drives) stop at [`KEEP_SET_ASIDE`] of each kind in
+    /// all; the newest stays, and other kinds are left alone.
+    #[test]
+    fn set_aside_clubs_stop_at_a_cap_across_aime_ids() {
+        let d = tempfile::tempdir().unwrap();
+        let srv = store_with(&d.path().join("srv.db"), &club(7, &[(1, 1)]));
+        let b = d.path().join("backups");
+        std::fs::create_dir_all(&b).unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for n in 0..KEEP_SET_ASIDE + 5 {
+            let f =
+                std::fs::File::create(b.join(format!("evicted-{}-x.json", 10_000 + n))).unwrap();
+            f.set_modified(old).unwrap();
+        }
+        std::fs::write(b.join("club-1-x.json"), b"{}").unwrap();
+        set_aside(&srv.0, 7, "evicted").unwrap();
+        let names: Vec<String> = std::fs::read_dir(&b)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let evicted = names.iter().filter(|n| n.starts_with("evicted-")).count();
+        assert_eq!(evicted, KEEP_SET_ASIDE);
+        assert!(
+            names.iter().any(|n| n.starts_with("evicted-7-")),
+            "the newest stays"
+        );
+        assert!(
+            names.iter().any(|n| n == "club-1-x.json"),
+            "another kind stays"
+        );
+    }
+
+    /// A PUT the desk can refuse from its line (a seat not taken, the host's own card, another token's copy) is
+    /// answered at once, its upload unread: a stranger cannot hold the connection for the upload's 60 s.
+    #[test]
+    fn a_put_is_refused_from_its_line_before_the_upload() {
+        let d = tempfile::tempdir().unwrap();
+        let host_db = d.path().join("host.db");
+        let mut host = store_with(&host_db, &club(OWN, &[(1, 1)]));
+        host.import_guest(&club(1, &[(1, 1)]), 50, 2, &token(CODE))
+            .unwrap();
+        drop(host);
+        let (at, _down, _) = desk(host_db);
+        let other = token("50123456789012345679");
+        for (head, why) in [
+            (format!("CLUB PUT 3 60 {other} {MAX_BYTES}\n"), "not taken"),
+            (
+                format!("CLUB PUT 2 {OWN} {other} {MAX_BYTES}\n"),
+                "own club",
+            ),
+            (
+                format!("CLUB PUT 2 50 {other} {MAX_BYTES}\n"),
+                "another player",
+            ),
+        ] {
+            let t = Instant::now();
+            let got = ask(at, &head, &[]).unwrap_err();
+            assert!(got.contains(why), "{got}");
+            assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        }
     }
 
     /// The host's desk for tests: `serve` on every connection, seat 2 taken; `down` closes connections unanswered;
@@ -1779,8 +2045,11 @@ mod tests {
                 };
                 let rest = buf.split_off(at + 1);
                 let line = String::from_utf8_lossy(&buf).trim().to_owned();
-                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2, false);
+                let _ = serve(&db, &line, rest, &mut c, &|s| s == 2, &|a| a == OWN, None);
+                // like the desk's hang-up: read off an upload refused unread, so no reset loses the answer
                 let _ = c.shutdown(std::net::Shutdown::Write);
+                let _ = c.set_read_timeout(Some(Duration::from_secs(2)));
+                let _ = io::copy(&mut (&c).take(MAX_BYTES as u64), &mut io::sink());
             }
         });
         (at, down, closed)
@@ -1985,6 +2254,138 @@ mod tests {
         let other = "50123456789012345679";
         assert_eq!(db.home_id(other), crate::standins::aimedb::hash_id(other));
         assert_eq!(db.len(), 1, "read only");
+        // this PC's card under its old id and under its hash; another card under neither
+        let hash = |c: &str| crate::standins::aimedb::hash_id(c) as u32;
+        assert!(db.holds(1) && db.holds(hash(CODE)));
+        assert!(!db.holds(hash(other)) && !db.holds(2));
+    }
+
+    /// A guest that names one of the host's cards in its PUT (an old card's id is easy to guess) is refused, and
+    /// the host's club stays as it was.
+    #[test]
+    fn a_guest_cannot_replace_the_hosts_own_club() {
+        let d = tempfile::tempdir().unwrap();
+        let host_db = d.path().join("host.db");
+        drop(store_with(&host_db, &club(OWN, &[(1, 1), (2, 2)])));
+        let own = Store::open(&host_db).unwrap().club(OWN).unwrap();
+        let (at, _down, _) = desk(host_db.clone());
+        let body = serde_json::to_vec(&club(1, &[(1, 1)])).unwrap();
+        let other = token("50123456789012345679");
+        let head = format!("CLUB PUT 2 {OWN} {other} {}\n", body.len());
+        let why = ask(at, &head, &body).unwrap_err();
+        assert!(why.contains("own club"), "{why}");
+        assert_eq!(Store::open(&host_db).unwrap().club(OWN).unwrap(), own);
+        assert!(!d.path().join("backups").exists(), "nothing replaced");
+    }
+
+    /// The host's own card on a second PC joins the host's arcade: the bring is refused (that PC plays the
+    /// arcade's club as it is), and the arcade's club survives the next start's purge.
+    #[test]
+    fn the_arcades_own_club_survives_a_bring_and_a_restart() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        std::fs::create_dir_all(&dir).unwrap();
+        drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
+        let host_db = d.path().join("host.db");
+        drop(store_with(&host_db, &club(OWN, &[(1, 1), (2, 2)])));
+        let own = Store::open(&host_db).unwrap().club(OWN).unwrap();
+        let (at, _down, _) = desk(host_db.clone());
+        let mut second = guest(at, &dir, 2);
+        second.arcade_aime = OWN;
+        let why = second.bring(Arc::new(|_: &str| {})).err().unwrap();
+        assert!(why.contains("own club"), "{why}");
+        assert!(!out_file(&dir).exists(), "not marked out");
+        let mut host = Store::open(&host_db).unwrap();
+        assert_eq!(host.purge_guests().unwrap(), 0);
+        assert_eq!(host.club(OWN).unwrap(), own);
+    }
+
+    /// A host's copy that lost a club the guest brought (or fails the check, or holds another Aime id) is set aside
+    /// in `backups`, never written home; the marker stays at the end.
+    #[test]
+    fn a_bad_copy_back_is_never_written_home() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        std::fs::create_dir_all(&dir).unwrap();
+        drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
+        let host_db = d.path().join("host.db");
+        let (at, _down, _) = desk(host_db.clone());
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = said.clone();
+        let log: Log = Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned()));
+        let g = guest(at, &dir, 2);
+        let trip = guest(at, &dir, 2).bring(log).unwrap();
+        let progress = trip.progress();
+        wait("a good copy-back", || {
+            progress.lock().unwrap().last_ok.is_some()
+        });
+        let home = Store::open(&dir.join("gamesvr.db")).unwrap();
+        let before = home.club(1).unwrap();
+        let link = Link {
+            coaches: vec![(1, 70)],
+            cards: vec![(1, 71)],
+        };
+        let there = club(50, &[(70, 71)]);
+        assert!(g.sound(&link, &there).is_ok());
+        assert!(
+            g.sound(&link, &club(51, &[(70, 71)])).is_err(),
+            "another Aime id"
+        );
+        assert!(
+            g.sound(&link, &club(50, &[(72, 71)])).is_err(),
+            "a club lost"
+        );
+        let mut bad = there.clone();
+        bad.coaches[0].save.as_mut().unwrap().block.pop();
+        assert!(g.sound(&link, &bad).is_err(), "a short block");
+        // the host's copy loses the club (an empty answer from a broken or modified host)
+        delete(&Store::open(&host_db).unwrap().0, 50).unwrap();
+        wait("the copy refused", || {
+            said.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.starts_with("club copy-back refused ("))
+        });
+        drop(trip);
+        assert_eq!(home.club(1).unwrap(), before, "the home club stays");
+        assert!(out_file(&dir).exists(), "not home: still marked out");
+        let refused = std::fs::read_dir(dir.join("backups"))
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with("club-refused-"));
+        assert!(refused, "the arcade's copy is in backups");
+    }
+
+    /// After a refused copy-back the host's copy stays the same, and the desk answers `SAME` from then on: that is
+    /// not a copy-back that brought the club home, so the last good one keeps its time.
+    #[test]
+    fn a_refused_copy_back_is_not_counted_as_home() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        std::fs::create_dir_all(&dir).unwrap();
+        drop(store_with(&dir.join("gamesvr.db"), &club(1, &[(1, 1)])));
+        let host_db = d.path().join("host.db");
+        let (at, _down, _) = desk(host_db.clone());
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = said.clone();
+        let log: Log = Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned()));
+        let trip = guest(at, &dir, 2).bring(log).unwrap();
+        let progress = trip.progress();
+        wait("a good copy-back", || {
+            progress.lock().unwrap().last_ok.is_some()
+        });
+        delete(&Store::open(&host_db).unwrap().0, 50).unwrap();
+        wait("the copy refused", || {
+            said.lock()
+                .unwrap()
+                .iter()
+                .any(|l| l.starts_with("club copy-back refused ("))
+        });
+        let ok = progress.lock().unwrap().last_ok;
+        thread::sleep(Duration::from_secs(1)); // five more polls, each answered SAME
+        assert_eq!(progress.lock().unwrap().last_ok, ok, "SAME is not home");
+        drop(trip);
+        assert!(!progress.lock().unwrap().home);
     }
 
     #[test]

@@ -456,6 +456,7 @@ pub fn limiter_start(e1718: bool, dll_dir: &Path, log: fn(&str)) {
     limiter_install(dll_dir, log);
     if e1718 && crate::is_projector() {
         prj_gate_install(log); // here because both roles call limiter_start and lib.rs is not ours to change
+        prj_league_install(log);
     }
     if e1718 && is_client(&exe_name()) {
         crate::probe::install(log); // WCCF_PROBE_GAMEREADY=1 only; projector and seat
@@ -805,6 +806,48 @@ fn prj_gate_install(log: fn(&str)) {
         log(&format!(
             "projector gate: sub_88B1B0 at {:08X} -> the schedule after the warning, whatever the control's state - no \"Synchronizing with the Control\" wait",
             at + 10
+        ));
+    }
+}
+
+// The projector's live-match intro with no league data (2026-11-07). With no live match (the CPU championship kept
+// off, control 0x433D00), the control sends its own demo pair (CoLiveManage sub_4394E0: two CPU teams, randseed 5151),
+// and the projector's team window lays it out as a regular league (sub_8B48F0, from sub_888C90). Its DivisionPanels
+// (+0x50..) exist only for divisions with teams (sub_8B5580 > 0); with none it still calls sub_894C80(+0x50 = NULL),
+// a caught access violation at msvcp90+0x58D3 every frame and a black screen. The `jle` that skips the panels'
+// allocation now also skips that call, to 0x008B4A4F (sub_894C80 pops its own 2 arguments, ebx stays -1 as on the
+// original path); the division-less window goes on to its DivisionPositionPanel and the match. One rel8 byte.
+const PRJ_LEAGUE: usize = 0x008B_49C6;
+/// 0x008B49C6: mov ecx,edi / call sub_8B5580 / xor ebp,ebp / mov [edi+13Ch],eax / test eax,eax / jle 0x008B4A40.
+const PRJ_LEAGUE_SIG: [u8; 19] = [
+    0x8B, 0xCF, 0xE8, 0xB3, 0x0B, 0x00, 0x00, 0x33, 0xED, 0x89, 0x87, 0x3C, 0x01, 0x00, 0x00, 0x85,
+    0xC0, 0x7E, 0x67,
+];
+/// 0x008B4A40: mov eax,[edi+50h] / push ebx / push eax / mov eax, (the scene name, relocated); 0x008B4A4A: call
+/// sub_894C80 / push 7Ch, the next panel's allocation.
+const PRJ_LEAGUE_CALL: [u8; 6] = [0x8B, 0x47, 0x50, 0x53, 0x50, 0xB8];
+const PRJ_LEAGUE_NEXT: [u8; 7] = [0xE8, 0x31, 0x02, 0xFE, 0xFF, 0x6A, 0x7C];
+/// The new `jle` displacement (sig byte 18): from 0x008B49D9 to 0x008B4A4F.
+const PRJ_LEAGUE_SKIP: u8 = 0x76;
+
+/// 2017-18 projector only: a live match without league data no longer leaves it black. Called from `limiter_start`.
+fn prj_league_install(log: fn(&str)) {
+    let at = PRJ_LEAGUE - BASE_1718 + exe_base();
+    if read::<19>(at) != Some(PRJ_LEAGUE_SIG)
+        || read::<6>(at + 0x7A) != Some(PRJ_LEAGUE_CALL)
+        || read::<7>(at + 0x84) != Some(PRJ_LEAGUE_NEXT)
+    {
+        log(
+            "projector league: not the code studied - nothing changed (a match without league data stays black)",
+        );
+    } else if !patch_code(at + 18, &[PRJ_LEAGUE_SKIP]) {
+        log(
+            "projector league: code not writable - nothing changed (a match without league data stays black)",
+        );
+    } else {
+        log(&format!(
+            "projector league: sub_8B48F0 at {:08X} -> no division, no sub_894C80(NULL) - the demo match shows",
+            at + 17
         ));
     }
 }
@@ -1222,6 +1265,20 @@ mod tests {
         assert_eq!(new[15..19], [0xC7, 0x40, 0x60, 0xFF]); // scheduler +0x60 (entry seconds) and +0x64 (its high half)
         assert_eq!(new[22..26], [0xC7, 0x40, 0x64, 0xFF]);
         assert_eq!(new[..10], PRJ_GATE_SIG[..10]); // the call and the state read stay
+    }
+
+    #[test]
+    fn projector_league_skips_only_the_null_call() {
+        // the original jle (sig byte 17) lands on the call's setup at 0x008B4A40; the new one on the next panel
+        let target = |d: u8| PRJ_LEAGUE + 19 + d as usize;
+        assert_eq!(PRJ_LEAGUE_SIG[17], 0x7E);
+        assert_eq!(target(PRJ_LEAGUE_SIG[18]), 0x008B_4A40);
+        assert_eq!(PRJ_LEAGUE + 0x7A, 0x008B_4A40);
+        assert_eq!(target(PRJ_LEAGUE_SKIP), 0x008B_4A4F);
+        // skipped: the 2 pushes, the relocated mov (5 bytes) and the call (5); landing on push 7Ch
+        assert_eq!(0x008B_4A40 + PRJ_LEAGUE_CALL.len() + 4 + 5, 0x008B_4A4F);
+        assert_eq!(PRJ_LEAGUE + 0x84 + 5, 0x008B_4A4F);
+        assert_eq!(PRJ_LEAGUE_NEXT[5..], [0x6A, 0x7C]);
     }
 
     #[test]

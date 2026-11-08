@@ -6,9 +6,10 @@ use super::theme::{self, Edition};
 use crate::theme::Accent;
 use egui::epaint::{Mesh, RectShape, TessellationOptions, Tessellator};
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
-    Shadow, Stroke, StrokeKind, Ui, ViewportCommand, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, CornerRadius, FontId, Galley, Id, Painter, Pos2, Rect, Response, Role, Sense,
+    Shadow, Stroke, StrokeKind, Ui, ViewportCommand, WidgetInfo, pos2, vec2,
 };
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 // ---- painting helpers ----
@@ -202,12 +203,13 @@ pub fn shape_contains(shape: Shape, r: Rect, p: Pos2) -> bool {
 /// `lit`, and a label in the condensed display face fitted to the width. Hold it: the response's
 /// `is_pointer_button_down_on()` is the key's down state.
 pub fn cabinet(ui: &mut Ui, size: egui::Vec2, label: &str, kind: Cab, lit: bool) -> Response {
-    cabinet_shaped(ui, size, label, kind, Shape::Key, lit, true)
+    cabinet_shaped(ui, size, label, kind, Shape::Key, lit, true, false)
 }
 
 /// `cabinet` in any shape. Only a key or a shape at least 50 px across prints its label inside, unless `inside` is
 /// false (the caller prints it beside); the caller prints the others' beside them. `label` is the accessible name
-/// either way.
+/// either way. `key_down`: its key is held, so it draws pressed as under the mouse.
+#[allow(clippy::too_many_arguments)]
 pub fn cabinet_shaped(
     ui: &mut Ui,
     size: egui::Vec2,
@@ -216,15 +218,16 @@ pub fn cabinet_shaped(
     shape: Shape,
     lit: bool,
     inside: bool,
+    key_down: bool,
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, lit, label));
+    resp.widget_info(|| WidgetInfo::selected(Role::Button, enabled, lit, label));
     if ui.is_rect_visible(rect) {
         let ctx = ui.ctx();
         let press = ctx.animate_bool_with_time(
             resp.id.with("press"),
-            resp.is_pointer_button_down_on(),
+            resp.is_pointer_button_down_on() || key_down,
             0.06,
         );
         let glow = ctx.animate_bool_with_time(resp.id.with("lit"), lit, 0.16);
@@ -273,7 +276,8 @@ pub fn cabinet_face(p: &Painter, rect: Rect, label: &str, kind: Cab, f: Face) {
     cabinet_shape_face(p, rect, label, kind, Shape::Key, f)
 }
 
-/// `cabinet_face` in any shape. The cabinet's shapes are solid colour on a darker skirt, with no lamp window.
+/// `cabinet_face` in any shape. The deck's shapes show the cabinet art in `assets/panel`; others are solid colour on
+/// a darker skirt, with no lamp window.
 pub fn cabinet_shape_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
     if shape != Shape::Key {
         return solid_face(p, rect, label, kind, shape, f);
@@ -361,7 +365,63 @@ pub fn cabinet_shape_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape
     );
 }
 
+/// The cabinet art for a deck button (`assets/panel`, cut from the project's button drawings), if it has one.
+fn art(kind: Cab, shape: Shape) -> Option<egui::ImageSource<'static>> {
+    use egui::include_image as img;
+    Some(match (kind, shape) {
+        (Cab::Tactic, Shape::Tri(Dir::Up)) => img!("../assets/panel/arrow_up.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Down)) => img!("../assets/panel/arrow_down.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Left)) => img!("../assets/panel/arrow_left.png"),
+        (Cab::Tactic, Shape::Tri(Dir::Right)) => img!("../assets/panel/arrow_right.png"),
+        (Cab::Press, Shape::Square) => img!("../assets/panel/press.png"),
+        (Cab::Shoot, Shape::Round) => img!("../assets/panel/shoot.png"),
+        (Cab::Keeper, Shape::Round) => img!("../assets/panel/keeper.png"),
+        (Cab::KeyPlayer, Shape::Round) => img!("../assets/panel/key_player.png"),
+        (Cab::Go, Shape::Round) => img!("../assets/panel/start.png"),
+        (Cab::Data, Shape::Square) => img!("../assets/panel/data.png"),
+        _ => return None,
+    })
+}
+
+/// How much a deck button's art is brightened (0..1) and its tint: the toggle lamps (arrows, PRESS) dim when off and
+/// show full colour when lit; the action buttons rest at full colour and brighten while pressed or held.
+fn art_light(kind: Cab, f: Face) -> (Color32, f32) {
+    if !f.enabled {
+        return (Color32::from_gray(0x60), 0.0);
+    }
+    if matches!(kind, Cab::Tactic | Cab::Press) {
+        let tint = Color32::from_gray(0x55).lerp_to_gamma(Color32::WHITE, f.glow);
+        (tint, 0.1 * f.hover)
+    } else {
+        let up = (0.6 * f.press).max(0.35 * f.glow) + 0.1 * f.hover;
+        (Color32::WHITE, up.min(1.0))
+    }
+}
+
 fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
+    // the art, once its loader has it (the first frames draw the plain shape); it carries no label
+    if let Some(src) = art(kind, shape)
+        && let Ok(egui::load::TexturePoll::Ready { texture }) = src.load(
+            p.ctx(),
+            egui::TextureOptions::LINEAR,
+            egui::SizeHint::default(),
+        )
+    {
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        let (tint, up) = art_light(kind, f);
+        p.image(texture.id, rect, uv, tint);
+        if up > 0.0 {
+            // the art again with zero alpha: premultiplied blending adds it, so the face brightens inside its outline
+            let k = (255.0 * up) as u8;
+            p.image(
+                texture.id,
+                rect,
+                uv,
+                Color32::from_rgba_premultiplied(k, k, k, 0),
+            );
+        }
+        return;
+    }
     let base = if f.enabled {
         kind.color()
     } else {
@@ -373,12 +433,16 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
         rect.min + vec2(0.0, f.press * travel),
         rect.size() - vec2(0.0, travel),
     );
-    let fill = if f.lit {
-        base.lerp_to_gamma(Color32::WHITE, 0.3)
+    // only the tactic lamps grey out when off (lit = full colour); the action buttons keep their colour at rest
+    let lamp = matches!(kind, Cab::Tactic | Cab::Press);
+    let tone = if lamp && !f.lit {
+        base.lerp_to_gamma(Color32::from_gray(0x80), 0.65)
     } else {
-        base.lerp_to_gamma(Color32::WHITE, 0.1 * f.hover)
+        base
     };
-    let rim = Stroke::new(1.0, base.lerp_to_gamma(Color32::BLACK, 0.4));
+    let wash = if !lamp && f.lit { 0.3 } else { 0.1 * f.hover };
+    let fill = tone.lerp_to_gamma(Color32::WHITE, wash);
+    let rim = Stroke::new(1.0, tone.lerp_to_gamma(Color32::BLACK, 0.4));
     let draw = |r: Rect, fill: Color32, stroke: Stroke| match shape {
         Shape::Round => {
             p.circle(r.center(), r.width().min(r.height()) / 2.0, fill, stroke);
@@ -396,7 +460,7 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
     };
     draw(
         skirt,
-        base.lerp_to_gamma(Color32::BLACK, 0.55),
+        tone.lerp_to_gamma(Color32::BLACK, 0.55),
         Stroke::NONE,
     );
     draw(face, fill, rim);
@@ -428,9 +492,9 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
     ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
     for (i, label) in labels.iter().enumerate() {
         let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
-        let resp = ui.interact(r, ui.id().with(("seg", label)), Sense::click());
+        let resp = ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click());
         let on = *selected == i;
-        resp.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, on, *label));
+        resp.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, on, *label));
         if resp.clicked() && !on {
             *selected = i;
             changed = true;
@@ -466,6 +530,138 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
     changed
 }
 
+/// One step of [`stepper`]: `up` or down to the next multiple of `step` (8 -> 10 -> 15, 10 -> 8), kept in `range`;
+/// `wrap` goes round to the other end instead (a clock: 23:55 -> 00:00).
+pub fn step_value(v: u16, up: bool, range: &RangeInclusive<u16>, step: u16, wrap: bool) -> u16 {
+    let (lo, hi, s) = (
+        i32::from(*range.start()),
+        i32::from(*range.end()),
+        i32::from(step),
+    );
+    let v = i32::from(v);
+    let n = if up {
+        (v.div_euclid(s) + 1) * s
+    } else {
+        (v - 1).div_euclid(s) * s
+    };
+    let n = match (n < lo, n > hi, wrap) {
+        (true, _, true) => hi.div_euclid(s) * s,
+        (_, true, true) => lo,
+        _ => n.clamp(lo, hi),
+    };
+    n as u16
+}
+
+/// Hold an end of a [`stepper`] this long before it repeats, then repeat this often (seconds).
+const STEP_HOLD: f64 = 0.4;
+const STEP_REPEAT: f64 = 0.1;
+
+/// A number with − and + at its ends, in the [`segmented`] well: a click steps once, holding an end repeats. `text`
+/// is the value as shown, `names` the ends' spoken names. True when the value changed.
+#[allow(clippy::too_many_arguments)]
+pub fn stepper(
+    ui: &mut Ui,
+    value: &mut u16,
+    range: RangeInclusive<u16>,
+    step: u16,
+    wrap: bool,
+    text: &str,
+    names: [&str; 2],
+    width: f32,
+) -> bool {
+    let h = 34.0;
+    let (rect, mid) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    let old = *value;
+    mid.widget_info(|| WidgetInfo::slider(true, f64::from(old), text));
+    ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
+    let now = ui.input(|i| i.time);
+    for (up, r, glyph, name) in [
+        (
+            false,
+            Rect::from_min_size(rect.min, vec2(h, h)),
+            "−",
+            names[0],
+        ),
+        (
+            true,
+            Rect::from_min_size(rect.right_top() - vec2(h, 0.0), vec2(h, h)),
+            "+",
+            names[1],
+        ),
+    ] {
+        let r = r.shrink(2.0);
+        let live = wrap || step_value(*value, up, &range, step, wrap) != *value;
+        let resp = ui.interact(r, mid.id.with(up), Sense::click());
+        resp.widget_info(|| WidgetInfo::labeled(Role::Button, live, name));
+        // (press time, repeats so far) while held: a release after a repeat is not one more step
+        let key = resp.id.with("held");
+        let held = live && resp.is_pointer_button_down_on();
+        let mut stepped = false;
+        if held {
+            let (t0, n) = ui
+                .data(|d| d.get_temp::<(f64, u32)>(key))
+                .unwrap_or((now, 0));
+            let due = t0 + STEP_HOLD + f64::from(n) * STEP_REPEAT;
+            let n = if now >= due {
+                stepped = true;
+                n + 1
+            } else {
+                n
+            };
+            ui.data_mut(|d| d.insert_temp(key, (t0, n)));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64((due - now).max(0.0)));
+        } else {
+            let n = ui
+                .data_mut(|d| d.remove_temp::<(f64, u32)>(key))
+                .map_or(0, |s| s.1);
+            stepped = live && resp.clicked() && n == 0;
+        }
+        if stepped {
+            *value = step_value(*value, up, &range, step, wrap);
+        }
+        let p = ui.painter();
+        if held {
+            gradient(
+                p,
+                r,
+                3,
+                theme::AMBER.lerp_to_gamma(Color32::WHITE, 0.2),
+                theme::AMBER,
+                true,
+            );
+        } else {
+            let fill = if live && resp.hovered() {
+                theme::RAISED_HI
+            } else {
+                theme::RAISED
+            };
+            p.rect_filled(r, 3, fill);
+        }
+        let ink = match (live, held) {
+            (false, _) => theme::TEXT_FAINT,
+            (_, true) => theme::INK,
+            _ => theme::TEXT,
+        };
+        p.text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            glyph,
+            theme::bold(18.0),
+            ink,
+        );
+    }
+    let shown = rect.shrink2(vec2(h + 4.0, 0.0));
+    centered_text(ui.painter(), shown, text, theme::bold(15.0), theme::TEXT);
+    ui.painter().rect_stroke(
+        rect,
+        theme::RADIUS,
+        Stroke::new(1.0, theme::RIM),
+        StrokeKind::Inside,
+    );
+    *value != old
+}
+
 /// A filter chip: a pill that toggles. `color` marks a position chip (GK yellow, DF blue ...).
 pub fn chip(ui: &mut Ui, text: &str, on: bool, color: Option<Color32>) -> Response {
     let font = theme::display(15.0);
@@ -474,7 +670,7 @@ pub fn chip(ui: &mut Ui, text: &str, on: bool, color: Option<Color32>) -> Respon
         .layout_no_wrap(text.to_owned(), font, theme::TEXT);
     let size = vec2(g.size().x + 22.0, 26.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, on, text));
+    resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, on, text));
     let p = ui.painter();
     let c = color.unwrap_or(theme::AMBER);
     let (fill, rim, ink) = if on {
@@ -506,9 +702,9 @@ pub fn check_chip(ui: &mut Ui, text: &str, on: bool, radio: bool) -> Response {
     let size = vec2(g.size().x + 40.0, 26.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let kind = if radio {
-        WidgetType::RadioButton
+        Role::RadioButton
     } else {
-        WidgetType::Checkbox
+        Role::CheckBox
     };
     resp.widget_info(|| WidgetInfo::selected(kind, true, on, text));
     let p = ui.painter();
@@ -928,7 +1124,13 @@ pub enum KeyState {
 /// A keycap: the bound key, "press a key" while capturing (an amber pulsing rim), a dash when cleared.
 pub fn key_cell(ui: &mut Ui, text: &str, state: KeyState, width: f32, lang: Lang) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, text));
+    let drawn = match state {
+        KeyState::Capturing => tr!(lang, "keys.press_a_key"),
+        KeyState::Empty => "—".to_owned(),
+        _ => text.to_owned(),
+    };
+    // the name a screen reader reads is the cell's own drawn text ("press a key", "—"), not the empty binding
+    resp.widget_info(|| WidgetInfo::labeled(Role::Button, true, &drawn));
     let p = ui.painter();
     p.rect_filled(rect, 5, theme::WELL);
     let cap = rect.shrink(2.0).with_max_y(rect.bottom() - 4.0);
@@ -995,7 +1197,7 @@ pub enum TitleAction {
 /// launcher language, minimize and close. Dragging the bar moves the window.
 pub fn title_bar(ui: &mut Ui, edition: Edition, version: &str, lang: &mut Lang) -> TitleAction {
     let rect = ui.max_rect().with_max_y(ui.max_rect().top() + 44.0);
-    let drag = ui.interact(rect, Id::new("title-drag"), Sense::click_and_drag());
+    let drag = ui.interact(rect, Id::unique("title-drag"), Sense::click_and_drag());
     if drag.drag_started_by(egui::PointerButton::Primary) {
         ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
     }
@@ -1126,9 +1328,7 @@ pub fn fold(
             ui.set_width(ui.available_width());
             let (rect, resp) =
                 ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-            resp.widget_info(|| {
-                WidgetInfo::selected(WidgetType::CollapsingHeader, true, *open, title)
-            });
+            resp.widget_info(|| WidgetInfo::selected(Role::DisclosureTriangle, true, *open, title));
             if resp.clicked() {
                 *open = !*open;
             }
@@ -1201,9 +1401,11 @@ pub fn text_w(ui: &Ui, text: &str) -> f32 {
         .x
 }
 
-/// A field label of a fixed width in front of a control, so the controls of a section line up.
-pub fn field(ui: &mut Ui, label: &str, width: f32) {
-    let (r, _) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
+/// A field label of a fixed width in front of a control, so the controls of a section line up; the response names
+/// that control for screen readers (`labelled_by`).
+pub fn field(ui: &mut Ui, label: &str, width: f32) -> Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
+    resp.widget_info(|| WidgetInfo::labeled(Role::Label, true, label));
     let g = fit(
         ui.painter(),
         label,
@@ -1216,13 +1418,20 @@ pub fn field(ui: &mut Ui, label: &str, width: f32) {
         g,
         theme::TEXT_DIM,
     );
+    resp
 }
 
-/// An option as a row: a painted switch, a title and a one-line hint. The whole row toggles.
+/// An option as a row: a painted switch, a title and a hint, wrapped onto more lines when it needs them (the row grows).
+/// The whole row toggles.
 pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Response {
     let w = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click());
-    resp.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, true, *on, title));
+    let x = 6.0 + 38.0 + 12.0; // the switch's margin, its width, the gap
+    let hint = ui
+        .painter()
+        .layout(hint.to_owned(), theme::body(12.0), theme::TEXT_DIM, w - x);
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(w, (27.0 + hint.size().y).max(44.0)), Sense::click());
+    resp.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, *on, title));
     if resp.clicked() {
         *on = !*on;
     }
@@ -1231,10 +1440,7 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
     if resp.hovered() {
         p.rect_filled(rect, theme::RADIUS, theme::RAISED.gamma_multiply(0.6));
     }
-    let sw = Rect::from_min_size(
-        pos2(rect.left() + 6.0, rect.center().y - 10.0),
-        vec2(38.0, 20.0),
-    );
+    let sw = Rect::from_min_size(pos2(rect.left() + 6.0, rect.top() + 12.0), vec2(38.0, 20.0));
     p.rect_filled(sw, 10, theme::RAISED.lerp_to_gamma(theme::GREEN, t));
     p.rect_stroke(
         sw,
@@ -1247,17 +1453,10 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
         7.0,
         Color32::WHITE,
     );
-    let x = sw.right() + 12.0;
+    let x = rect.left() + x;
     let g = fit(p, title, theme::bold(14.0), theme::TEXT, rect.right() - x);
     p.galley(pos2(x, rect.top() + 3.0), g, theme::TEXT);
-    let g = fit(
-        p,
-        hint,
-        theme::body(12.0),
-        theme::TEXT_DIM,
-        rect.right() - x,
-    );
-    p.galley(pos2(x, rect.top() + 23.0), g, theme::TEXT_DIM);
+    p.galley(pos2(x, rect.top() + 23.0), hint, theme::TEXT_DIM);
     resp
 }
 
@@ -1274,6 +1473,92 @@ mod shape_tests {
     }
 
     #[test]
+    fn stepper_steps_snap_clamp_and_wrap() {
+        let min = 8..=150;
+        let walk = |mut v, up, n| {
+            (0..n)
+                .map(|_| {
+                    v = step_value(v, up, &min, 5, false);
+                    v
+                })
+                .collect::<Vec<u16>>()
+        };
+        assert_eq!(walk(8, true, 3), [10, 15, 20]);
+        assert_eq!(walk(15, false, 3), [10, 8, 8]);
+        // a hand-edited 12 snaps to the 5s; the top holds
+        assert_eq!(walk(12, true, 1), [15]);
+        assert_eq!(walk(12, false, 1), [10]);
+        assert_eq!(walk(145, true, 2), [150, 150]);
+        let day = 0..=24 * 60 - 1;
+        assert_eq!(step_value(23 * 60 + 55, true, &day, 5, true), 0);
+        assert_eq!(step_value(0, false, &day, 5, true), 23 * 60 + 55);
+        assert_eq!(step_value(21 * 60 + 2, true, &day, 5, true), 21 * 60 + 5);
+    }
+
+    /// A click steps once; holding + repeats after the hold delay and the release adds nothing.
+    #[test]
+    fn stepper_click_and_hold() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let v = std::cell::Cell::new(8u16);
+        let mut fresh = true;
+        let mut h = Harness::builder().with_step_dt(0.05).build_ui(|ui| {
+            if fresh {
+                // the bold face is ours: it takes effect from the next frame
+                crate::theme::install(ui.ctx(), Edition::E1718, &crate::theme::font_dir()).unwrap();
+                fresh = false;
+                return;
+            }
+            let mut x = v.get();
+            let text = format!("{x} min");
+            stepper(
+                ui,
+                &mut x,
+                8..=150,
+                5,
+                false,
+                &text,
+                ["earlier", "later"],
+                190.0,
+            );
+            v.set(x);
+        });
+        h.run();
+        h.get_by_label("later").click();
+        h.run();
+        assert_eq!(v.get(), 10);
+        h.get_by_label("earlier").click();
+        h.run();
+        assert_eq!(v.get(), 8);
+        // at the floor − does nothing
+        h.get_by_label("earlier").click();
+        h.run();
+        assert_eq!(v.get(), 8);
+        let at = h.get_by_label("later").rect().center();
+        h.hover_at(at);
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        // about 1 s held (frames of 0.05 s): repeats from 0.4 s, every 0.1 s, so several steps but not the whole range
+        for _ in 0..20 {
+            h.step();
+        }
+        let held = v.get();
+        assert!((20..=45).contains(&held), "{held}");
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        h.run();
+        assert_eq!(v.get(), held, "the release after a hold is no extra step");
+    }
+
+    #[test]
     fn hit_test_follows_the_shape() {
         let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(40.0, 40.0));
         let corner = pos2(1.0, 1.0);
@@ -1287,5 +1572,40 @@ mod shape_tests {
         // a left triangle: apex at the left middle
         assert!(!shape_contains(Shape::Tri(Dir::Left), r, corner));
         assert!(shape_contains(Shape::Tri(Dir::Left), r, pos2(39.0, 1.0)));
+    }
+
+    #[test]
+    fn art_lamps_dim_and_actions_brighten() {
+        let f = |lit: bool, press: f32| Face {
+            lit,
+            glow: if lit { 1.0 } else { 0.0 },
+            press,
+            hover: 0.0,
+            enabled: true,
+        };
+        // a toggle lamp off is darker than lit; pressing it does not brighten it
+        let (off, _) = art_light(Cab::Tactic, f(false, 0.0));
+        let (on, up) = art_light(Cab::Press, f(true, 1.0));
+        assert!(off.r() < on.r() && up == 0.0);
+        // an action button rests at full colour and brightens while pressed
+        for kind in [Cab::Shoot, Cab::Keeper, Cab::KeyPlayer, Cab::Go, Cab::Data] {
+            let (rest, still) = art_light(kind, f(false, 0.0));
+            let (_, pressed) = art_light(kind, f(false, 1.0));
+            assert!(
+                rest == Color32::WHITE && still == 0.0 && pressed > 0.3,
+                "{kind:?}"
+            );
+            assert!(
+                art(
+                    kind,
+                    if kind == Cab::Data {
+                        Shape::Square
+                    } else {
+                        Shape::Round
+                    }
+                )
+                .is_some()
+            );
+        }
     }
 }

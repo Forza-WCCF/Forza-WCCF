@@ -560,6 +560,18 @@ fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
     put(body, 3088, c2);
 }
 
+/// COACH_UNIVERSAL_CHAMPIONSHIP_ENTRY_DATE (client parameter #3676), YYYYMMDD in 25 bits of the save block. A Universal
+/// Cup win sets it (client sub_8277A0, 0x828183) and MATCH SELECT greys the cup while it is not 0 (sub_7983F0 at
+/// 0x798573, sub_795BC0 at 0x796455: "Data match entry is in progress", SYS_ADV_normal_0037). Only a championship
+/// result clears it. Seen on 2026-11-06: a club that won on 11-01 held 20261101 at block bytes 2,883..2,886 (its 249
+/// sent the same value at +32), and 0 there in the save after a play with the +354 RANK answer.
+const UC_ENTRY_DATE_BIT: usize = 23_071;
+
+/// Clears that date (25 bits) in a stored save block: what a 276 answer sends, so MATCH SELECT offers the cup again.
+pub fn clear_uc_entry_date(block: &mut [u8]) {
+    put_bits(block, UC_ENTRY_DATE_BIT, 25, 0);
+}
+
 /// Record +124 of a skip club: bit 4 (TitleHolder) of the mask `sub_792740` reads; with none of 1..8, 19, 21 set the
 /// club list shows "tutorial in progress".
 const SKIP_TITLES: u32 = 1 << 4;
@@ -1304,13 +1316,16 @@ fn club(
             put(body, 8, coach);
         }
         275 => {
-            let (block, version, size, tail, saved_at) = st
+            let (mut block, version, size, tail, saved_at) = st
                 .save(aime, coach, card)
                 .map_err(db)?
                 .ok_or(format!("no save for aime {aime} coach {coach} card {card}"))?;
             if block.len() != BLOCK {
                 return Err(format!("stored block of {} bytes", block.len()));
             }
+            // no championship runs here, so no club is entered in one: the client reads this at MATCH SELECT, before
+            // the RANK answer's reset (+354) runs at the play's start
+            clear_uc_entry_date(&mut block);
             restore_tail(body, &tail);
             let week = gt_week(now());
             if gt {
@@ -1460,12 +1475,21 @@ fn answer(
     }
     if cmd == 249 {
         // GMSVR_RANK: the whole answer is copied into the game state and drives the result and prize screens
-        // (docs/research/ONLINE-2017-18.md, "GMSVR_RANK"); +354 is `universalChamp nothingResult`. Left at zero the
-        // cabinet had no Universal Championship result either way, and a club whose best eleven went up at card-in
-        // (309, answered 0) stayed entered in the championship: the client mirrors that in #1085, and while it is
-        // above 1 MATCH SELECT greys the Universal Cup and says "Data match entry is in progress"
-        // (SYS_ADV_normal_0037, client sub_795BC0), for the whole session (2026-11-02).
+        // (docs/research/ONLINE-2017-18.md, "GMSVR_RANK"); +354 is `universalChamp nothingResult`. At 1 the play's
+        // start (client sub_60C9C0 at 0x60ed96, "UCSEntryReset") clears a Universal Cup winner's championship entry
+        // (UC_ENTRY_DATE_BIT) and the end-of-play save keeps it cleared; the 276 clears it for MATCH SELECT, which
+        // comes before that reset.
         body[354] = 1;
+        // +12 is dataVSWeek (s16). The client keeps it (client 0x805175) and sends a Universal Cup winner's
+        // DATA_VS_ENTRY only while it is not 0 (0x80EE60 "DVSES_DATA_VS_WEEK_IS_ZERO", 0x80EDF0). Without that entry
+        // the control's championship block has no hasDvs flag and the control swaps the winner for a CPU team
+        // ("change cpu!", control 0x47CA30; the entry sets it at 0x435960 -> 0x47C620)
+        let week = gt_week(now()).max(1);
+        body[12..14].copy_from_slice(&week.to_le_bytes());
+        // one line per card-in: a player's logs then show the week the cup winner's entry depends on
+        log(&format!(
+            "rank answer (250): dataVSWeek {week} - a Universal Cup winner's client sends DATA_VS_ENTRY to the control"
+        ));
     }
     if let Some((vs, peer)) = vs {
         vs.fill(cmd, payload, peer, &mut body);
@@ -1783,7 +1807,7 @@ pub fn spawn_opts(
     ));
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    accept_loop(listener, stop, move |mut conn, peer| {
+    accept_loop(listener, stop, log.clone(), move |mut conn, peer| {
         if allow.as_ref().is_some_and(|f| !f(peer.ip())) {
             log(&format!("refused {peer}: not on the allowlist"));
             return;
@@ -2734,7 +2758,7 @@ mod tests {
         let rejoin = || {
             let mut st = store.lock().unwrap();
             let c = st.club(20).unwrap();
-            let link = st.import_public(&c, 20, 1, "t").unwrap();
+            let link = st.import_public(&c, 20, 1, "t", &|_| false).unwrap();
             (link.coaches[0].1, link.cards[0].1)
         };
         let again = rejoin();
@@ -3055,19 +3079,59 @@ mod tests {
         eprintln!("pending: {}", pending.join(", "));
     }
 
-    /// 2026-11-02: the RANK answer says "no Universal Championship result" (+354) instead of all zeros, so a club
-    /// whose best eleven went up at card-in does not stay entered in the championship, where that entry greys the
-    /// Universal Cup for the whole session.
+    /// 2026-11-06: a Universal Cup winner's saved championship entry date comes back as 0 in the 276, so MATCH
+    /// SELECT offers the cup again at the first card-in; the bits around it and both sums stay right.
+    #[test]
+    fn the_save_answer_clears_the_championship_entry() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let b = ask_store(&store, 279, &fixture(279, [5, 0, 0])).0;
+        let (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+        let mut save = fixture(277, [5, club, card]);
+        save[28..28 + BLOCK].fill(0xFF);
+        // block bytes 2,883..2,886 of the 11-01 winner's save: 01 35 28 ED
+        put_bits(&mut save[28..], UC_ENTRY_DATE_BIT - 7, 32, 20_261_101);
+        assert_eq!(&save[28 + 2883..28 + 2887], &[0x01, 0x35, 0x28, 0xED]);
+        let sum = sum32(&save[28..28 + BLOCK]);
+        put(&mut save, 5236, sum);
+        assert_eq!(u32_at(&ask_store(&store, 277, &save).0, 4), 0);
+        let a = ask_store(&store, 275, &req(275, [5, club, card])).0;
+        let block = &a[8..8 + BLOCK];
+        assert_eq!(get_bits(block, UC_ENTRY_DATE_BIT, 25), 0);
+        let mut want = save[28..28 + BLOCK].to_vec();
+        put_bits(&mut want, UC_ENTRY_DATE_BIT, 25, 0);
+        assert_eq!(block, &want[..], "only the date changes");
+        assert_eq!(u32_at(&a, 3084), sum32(block), "C1");
+        let mut z = a.clone();
+        put(&mut z, 3088, 0);
+        assert_eq!(u32_at(&a, 3088), sum32(&z), "C2");
+    }
+
+    /// 2026-11-02: the RANK answer says "no Universal Championship result" (+354) instead of all zeros, so the
+    /// client clears a Universal Cup winner's championship entry at the play's start.
     #[test]
     fn the_rank_answer_says_no_championship_result() {
         let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
-        let log: Log = Arc::new(|_: &str| {});
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = lines.clone();
+        let log: Log = Arc::new(move |l: &str| seen.lock().unwrap().push(l.to_owned()));
         let (body, refused) = ask_for_test(&store, 249, &fixture(249, [5, 0, 0]), &log);
         assert_eq!(refused, None);
         assert_eq!(body.len(), 504);
         assert_eq!(body[354], 1, "universalChamp nothingResult");
         assert_eq!(body[8], 0, "the CS rank stays 0");
-        let others: Vec<usize> = (4..504).filter(|i| *i != 354 && body[*i] != 0).collect();
+        // 2026-11-07: a data-match week, never 0, so a cup winner's DATA_VS_ENTRY goes out and keeps its place
+        let week = i16::from_le_bytes([body[12], body[13]]);
+        assert!(week > 0, "dataVSWeek {week}");
+        assert_eq!(week as u16, gt_week(now()).max(1));
+        assert!(
+            lines.lock().unwrap().iter().any(|l| l
+                == &format!("rank answer (250): dataVSWeek {week} - a Universal Cup winner's client sends DATA_VS_ENTRY to the control")),
+            "{:?}",
+            lines.lock().unwrap()
+        );
+        let others: Vec<usize> = (4..504)
+            .filter(|i| ![12, 13, 354].contains(i) && body[*i] != 0)
+            .collect();
         assert!(others.is_empty(), "unexpected bytes at {others:?}");
     }
 
@@ -3131,6 +3195,7 @@ mod tests {
             (22221, 6, 13),
             (18752, 32, 20120221),
             (1504, 25, 20000101),
+            (UC_ENTRY_DATE_BIT, 25, 0),
         ] {
             let at = |b: &[u8]| get_bits(b, bit, width);
             put_bits(&mut want, bit, width, value);
