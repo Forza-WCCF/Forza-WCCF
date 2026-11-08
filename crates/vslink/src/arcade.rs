@@ -15,7 +15,10 @@
 //! that opens nothing usable within [`GUEST_GRACE`].
 //! Join side ports: the arcade's own where free, else any free one ([`ArcadeLink::ports`] says which).
 //! Between two ends newer than 0.6.3 the streams cross in lz4 frames (`crate::pack`, negotiated by ALPN:
-//! [`ARCADE_ALPN_LZ4`]); with an older end they stay as they are. Datagrams are never compressed.
+//! [`ARCADE_ALPN_LZ4`]); with an older end they stay as they are.
+//! Between two ends newer than 0.7.1 ([`ARCADE_ALPN_3`]) the flows also cross on one ordered stream each way instead
+//! of datagrams: the lockstep needs every frame in order, so a stall pauses the match and loses nothing. With an older
+//! end the flows stay datagrams, as before.
 //! The test-only delay ([`ArcadeConfig::delay`], the Launcher's `VSLINK_DELAY_MS` / 2) holds everything this side
 //! sends and receives that much longer.
 
@@ -27,7 +30,9 @@ use crate::net::{
 use crate::pack::{Packer, Unpacker, size};
 use bytes::Bytes;
 use forza::service::{Handle, Log};
-use iroh::endpoint::{ConnectOptions, Connection, IdleTimeout, QuicTransportConfig, presets};
+use iroh::endpoint::{
+    ConnectOptions, Connection, IdleTimeout, QuicTransportConfig, RecvStream, presets,
+};
 use iroh::tls::CaTlsConfig;
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayMode};
 use std::collections::HashMap;
@@ -44,10 +49,15 @@ use tokio::task::JoinSet;
 use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 
 // the ALPN keeps "shop" from before the arcade rename: both tunnel ends must agree on it
+/// Streams uncompressed, flows as datagrams (0.6.3 and older).
 pub const ARCADE_ALPN: &[u8] = b"forza-wccf/shop/1";
-/// The same tunnel with its streams in lz4 frames (`crate::pack`). Both ends offer it first and [`ARCADE_ALPN`] too, so
-/// a link with an older peer (0.6.3 and before: only [`ARCADE_ALPN`]) stays uncompressed; the datagrams never change.
+/// The same tunnel with its streams in lz4 frames (`crate::pack`); the flows stay datagrams (0.7.0 and 0.7.1).
 pub const ARCADE_ALPN_LZ4: &[u8] = b"forza-wccf/shop/2";
+/// [`ARCADE_ALPN_LZ4`], and the flows on one ordered stream each way, as `[len u16 LE][flow u32 LE][datagram]`.
+pub const ARCADE_ALPN_3: &[u8] = b"forza-wccf/shop/3";
+/// Newest first: the host takes the first of these the guest offers, the guest offers them all. A link with an older
+/// peer gets exactly what that peer speaks.
+const ALPNS: [&[u8]; 3] = [ARCADE_ALPN_3, ARCADE_ALPN_LZ4, ARCADE_ALPN];
 /// The first byte of a stream: what the host dials for it.
 pub const KIND_CONTROL: u8 = 1;
 pub const KIND_DESK: u8 = 2;
@@ -71,8 +81,10 @@ const MAX_GUESTS: usize = 8;
 /// Guests checked against the room at once; more at the door are told to come back without a check.
 pub const MAX_ADMITTING: usize = MAX_GUESTS * 2;
 const MAX_FLOWS: usize = 32;
-/// Datagrams queued per direction before new ones are dropped.
+/// Flow datagrams queued per direction: then datagram flows drop new ones, stream flows wait.
 const DGRAM_QUEUE: usize = 1024;
+/// The largest flow packet a side sends: a flow number and a loopback UDP datagram (65,507 bytes).
+const MAX_FLOW_PACKET: usize = 4 + 65_507;
 const KEEP_ALIVE: Duration = Duration::from_secs(5);
 /// Above the game's 30 s silence error (2001).
 const IDLE: Duration = Duration::from_secs(60);
@@ -138,6 +150,9 @@ pub struct ArcadeConfig {
     pub delay: Duration,
     /// Host: who may come in ([`Admit`]).
     pub admit: Option<Admit>,
+    /// Test only: speak this ALPN and the older ones alone, as the Forza-WCCF whose newest it was; `None`: up to
+    /// [`ARCADE_ALPN_3`].
+    pub speak_up_to: Option<&'static [u8]>,
 }
 
 impl ArcadeConfig {
@@ -153,6 +168,7 @@ impl ArcadeConfig {
             log,
             delay: Duration::ZERO,
             admit: None,
+            speak_up_to: None,
         }
     }
 
@@ -316,19 +332,75 @@ struct Sh {
     conns: Mutex<Vec<Connection>>,
     /// Join: [`ArcadeLink::host_closed`].
     host_closed: Arc<AtomicBool>,
+    /// What this side speaks, newest first ([`ALPNS`], or fewer as [`ArcadeConfig::speak_up_to`] says).
+    alpns: Vec<Vec<u8>>,
 }
 
 fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
 
-/// Sends datagrams on `conn` after the test delay, in order; full or too big: dropped (the big ones logged).
+/// [`ALPNS`] from `newest` down (all of them for `None`).
+fn alpns_up_to(newest: Option<&[u8]>) -> Vec<Vec<u8>> {
+    let from = newest.map_or(0, |a| {
+        ALPNS.iter().position(|&x| x == a).expect("one of ALPNS")
+    });
+    ALPNS[from..].iter().map(|a| a.to_vec()).collect()
+}
+
+/// Does `conn` carry flows on streams ([`ARCADE_ALPN_3`])?
+fn on_streams(conn: &Connection) -> bool {
+    conn.alpn() == ARCADE_ALPN_3
+}
+
+/// `d` (a flow and its datagram) as a frame on the flow stream; `None` over [`MAX_FLOW_PACKET`].
+fn flow_frame(d: &[u8]) -> Option<Vec<u8>> {
+    let len = u16::try_from(d.len())
+        .ok()
+        .filter(|&n| usize::from(n) <= MAX_FLOW_PACKET)?;
+    Some([&len.to_le_bytes()[..], d].concat())
+}
+
+/// The next frame's flow and datagram from a flow stream; `None` at its end, when it ends inside a frame, or for a
+/// frame over [`MAX_FLOW_PACKET`].
+async fn read_flow<R: AsyncRead + Unpin>(r: &mut R) -> Option<Vec<u8>> {
+    let mut len = [0u8; 2];
+    r.read_exact(&mut len).await.ok()?;
+    let n = usize::from(u16::from_le_bytes(len));
+    if n > MAX_FLOW_PACKET {
+        return None;
+    }
+    let mut d = vec![0u8; n];
+    r.read_exact(&mut d).await.ok()?;
+    Some(d)
+}
+
+/// Sends flow datagrams on `conn` after the test delay, in order: on its stream ([`ARCADE_ALPN_3`]), where a stall
+/// holds them (feed it with [`feed`]); else as datagrams, where too big drops them (logged).
 fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes)> {
     let (tx, mut rx) = mpsc::channel::<(Instant, Bytes)>(DGRAM_QUEUE);
     let sh = sh.clone();
     tokio::spawn(async move {
+        let mut stream = None; // opened with the first datagram
         while let Some((at, d)) = rx.recv().await {
             sleep_until(at + sh.delay).await;
+            if on_streams(&conn) {
+                if stream.is_none() {
+                    stream = Some(match conn.open_uni().await {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    });
+                }
+                // a loopback datagram and its flow always fit
+                let Some(f) = flow_frame(&d) else {
+                    continue;
+                };
+                let s = stream.as_mut().expect("opened above");
+                if s.write_all(&f).await.is_err() {
+                    return;
+                }
+                continue;
+            }
             let max = conn.max_datagram_size().unwrap_or(0);
             if d.len() > max {
                 let n = sh.oversize.fetch_add(1, Ordering::Relaxed) + 1;
@@ -348,7 +420,35 @@ fn datagram_line(sh: &Arc<Sh>, conn: Connection) -> mpsc::Sender<(Instant, Bytes
     tx
 }
 
-/// Sends datagrams from `sock` after the test delay, in order; full: dropped.
+/// Queues `item` on a [`datagram_line`] or [`udp_line`] of `conn`'s flows: on a stream it waits for room (a stall holds
+/// the sender, not drops); as datagrams a full queue drops it, as a lost datagram. `false`: the line is gone.
+async fn feed<T>(conn: &Connection, tx: &mpsc::Sender<T>, item: T) -> bool {
+    if on_streams(conn) {
+        tx.send(item).await.is_ok()
+    } else {
+        tx.try_send(item).is_ok() || !tx.is_closed()
+    }
+}
+
+/// The next flow datagram from the other side: on its stream ([`ARCADE_ALPN_3`], `stream` holds it once it came), else
+/// as a datagram. `None`: the link is gone, or its flow stream ended, ended mid-frame or sent one over
+/// [`MAX_FLOW_PACKET`] (then stopped).
+async fn recv_flow(conn: &Connection, stream: &mut Option<RecvStream>) -> Option<Bytes> {
+    if !on_streams(conn) {
+        return conn.read_datagram().await.ok();
+    }
+    if stream.is_none() {
+        *stream = Some(conn.accept_uni().await.ok()?);
+    }
+    let s = stream.as_mut()?;
+    let d = read_flow(s).await;
+    if d.is_none() {
+        let _ = s.stop(0u32.into());
+    }
+    d.map(Bytes::from)
+}
+
+/// Sends datagrams from `sock` after the test delay, in order; full: dropped (callers on a stream wait instead).
 fn udp_line(sock: Arc<UdpSocket>, delay: Duration) -> mpsc::Sender<(Instant, Vec<u8>, SocketAddr)> {
     let (tx, mut rx) = mpsc::channel::<(Instant, Vec<u8>, SocketAddr)>(DGRAM_QUEUE);
     tokio::spawn(async move {
@@ -555,17 +655,19 @@ fn packed_line(what: &str, out: (u64, u64), inn: (u64, u64)) -> String {
     )
 }
 
-/// Whether the link's streams are in lz4 frames: both ends offered [`ARCADE_ALPN_LZ4`].
+/// Whether the link's streams are in lz4 frames: both ends offered [`ARCADE_ALPN_LZ4`] or [`ARCADE_ALPN_3`].
 fn packs(conn: &Connection) -> bool {
-    conn.alpn() == ARCADE_ALPN_LZ4
+    conn.alpn() == ARCADE_ALPN_LZ4 || on_streams(conn)
 }
 
-/// What a link's streams carry, for its "joined" / "up" line.
-fn streams_text(conn: &Connection) -> &'static str {
-    if packs(conn) {
-        "streams in lz4"
+/// What a link carries, for its "joined" / "up" line.
+fn link_text(conn: &Connection) -> &'static str {
+    if on_streams(conn) {
+        "streams in lz4, flows on a stream"
+    } else if packs(conn) {
+        "streams in lz4, flows as datagrams (the other PC runs Forza-WCCF 0.7.1 or older)"
     } else {
-        "streams uncompressed: the other side runs an older Forza-WCCF"
+        "streams uncompressed, flows as datagrams (the other PC runs Forza-WCCF 0.6.3 or older)"
     }
 }
 
@@ -631,7 +733,7 @@ impl Sh {
             conn.close(1u8.into(), b"full");
             return;
         }
-        (self.log)(&format!("guest {who} joined ({})", streams_text(&conn)));
+        (self.log)(&format!("guest {who} joined ({})", link_text(&conn)));
         {
             let mut conns = self.conns.lock().unwrap_or_else(PoisonError::into_inner);
             conns.retain(|c| c.close_reason().is_none());
@@ -727,7 +829,8 @@ impl Sh {
         let mut flows: HashMap<u32, (Line, tokio::task::AbortHandle, u64)> = HashMap::new();
         let relay = loopback(self.ports.relay);
         let mut tick = 0u64;
-        while let Ok(d) = conn.read_datagram().await {
+        let mut inbound = None;
+        while let Some(d) = recv_flow(&conn, &mut inbound).await {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
@@ -756,7 +859,8 @@ impl Sh {
                         relay.port()
                     ));
                 }
-                let (sock, tx, live) = (s.clone(), out.clone(), Live::new(&self.flows));
+                let (sock, tx, live, conn) =
+                    (s.clone(), out.clone(), Live::new(&self.flows), conn.clone());
                 let task = tasks.spawn(async move {
                     let _live = live;
                     let mut buf = vec![0u8; 65536];
@@ -764,7 +868,7 @@ impl Sh {
                         match sock.recv_from(&mut buf).await {
                             Ok((n, src)) if src == relay => {
                                 let d = Bytes::from(encode_flow(flow, &buf[..n]));
-                                if tx.try_send((Instant::now(), d)).is_err() && tx.is_closed() {
+                                if !feed(&conn, &tx, (Instant::now(), d)).await {
                                     return flow;
                                 }
                             }
@@ -778,7 +882,8 @@ impl Sh {
             }
             if let Some((line, _, used)) = flows.get_mut(&flow) {
                 *used = tick;
-                let _ = line.try_send((Instant::now(), payload.to_vec(), relay));
+                // on a stream: waits rather than drops, so a burst after a stall reaches the relay whole
+                feed(&conn, line, (Instant::now(), payload.to_vec(), relay)).await;
             }
         }
     }
@@ -801,13 +906,14 @@ impl Join {
         self.flows.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Offers every ALPN this side speaks: the host picks the newest it knows.
     async fn dial(&self) -> Result<Connection, String> {
-        let opts = ConnectOptions::new().with_additional_alpns(vec![ARCADE_ALPN.to_vec()]);
+        let opts = ConnectOptions::new().with_additional_alpns(self.sh.alpns[1..].to_vec());
         let dial = async {
             let connecting = self
                 .sh
                 .ep
-                .connect_with_opts(self.host.clone(), ARCADE_ALPN_LZ4, opts)
+                .connect_with_opts(self.host.clone(), &self.sh.alpns[0], opts)
                 .await
                 .map_err(|e| e.to_string())?;
             connecting.await.map_err(|e| e.to_string())
@@ -854,7 +960,7 @@ impl Join {
             self.sh.host_closed.store(false, Ordering::Relaxed);
             (self.sh.log)(&format!(
                 "link to the arcade up again ({})",
-                streams_text(&conn)
+                link_text(&conn)
             ));
         }
     }
@@ -862,14 +968,15 @@ impl Join {
     /// The relay's answers, to the local socket of their flow, from the relay port.
     async fn from_host(self: Arc<Self>, conn: Connection) {
         let line = udp_line(self.udp.clone(), self.sh.delay);
-        while let Ok(d) = conn.read_datagram().await {
+        let mut inbound = None;
+        while let Some(d) = recv_flow(&conn, &mut inbound).await {
             let Some((flow, payload)) = decode_flow(&d) else {
                 continue;
             };
             let Some(to) = self.flows().addr_of(flow) else {
                 continue;
             };
-            let _ = line.try_send((Instant::now(), payload.to_vec(), to));
+            feed(&conn, &line, (Instant::now(), payload.to_vec(), to)).await;
         }
     }
 
@@ -892,12 +999,12 @@ impl Join {
             };
             let id = conn.stable_id();
             if line.as_ref().is_none_or(|(i, _)| *i != id) {
-                line = Some((id, datagram_line(&self.sh, conn)));
+                line = Some((id, datagram_line(&self.sh, conn.clone())));
             }
             let flow = self.flows().flow_of(src);
             let d = Bytes::from(encode_flow(flow, &buf[..n]));
             if let Some((_, tx)) = &line {
-                let _ = tx.try_send((Instant::now(), d));
+                feed(&conn, tx, (Instant::now(), d)).await;
             }
         }
     }
@@ -950,13 +1057,15 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::try_from(IDLE).expect("60 s fits")))
         .build();
+    let alpns = alpns_up_to(cfg.speak_up_to);
     let mut b = Endpoint::builder(presets::Minimal)
         .secret_key(load_key(&cfg.key)?)
         .relay_mode(RelayMode::Custom(cfg.relay.clone()))
         .clear_address_lookup()
         .transport_config(transport);
     if cfg.role == Role::Host {
-        b = b.alpns(vec![ARCADE_ALPN_LZ4.to_vec(), ARCADE_ALPN.to_vec()]);
+        // the first of these the guest offers wins
+        b = b.alpns(alpns.clone());
     }
     if let Some(ca) = cfg.ca {
         b = b.ca_tls_config(ca);
@@ -979,6 +1088,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
         admit: cfg.admit,
         conns: Mutex::default(),
         host_closed: Arc::default(),
+        alpns,
     });
     let fallback = fallback_for(&cfg.relay);
     let only = format!(
@@ -1046,7 +1156,7 @@ async fn start(cfg: ArcadeConfig) -> io::Result<(Arc<Sh>, Option<Joined>)> {
             id_short(&host)
         ))
     })?;
-    (sh.log)(&format!("link to the arcade up ({})", streams_text(&first)));
+    (sh.log)(&format!("link to the arcade up ({})", link_text(&first)));
     Ok((sh, Some((join, first, [control, desk], p))))
 }
 
@@ -1235,6 +1345,43 @@ mod tests {
         assert_eq!(decode_flow(&d), Some((0x0403_0201, &b"ab"[..])));
         assert_eq!(decode_flow(&[7, 0, 0, 0]), Some((7, &[][..])));
         assert_eq!(decode_flow(&[7, 0, 0]), None);
+    }
+
+    /// The flow stream's frames: the largest crosses whole and the next one after it, one over the cap is not sent, and
+    /// a frame whose length is over the cap or that the stream's end cuts gives nothing (the caller stops the stream).
+    #[tokio::test]
+    async fn flow_stream_frames() {
+        let big = vec![7u8; MAX_FLOW_PACKET];
+        let mut wire = flow_frame(&big).expect("the largest frame");
+        wire.extend(flow_frame(b"ab").unwrap());
+        let mut r = &wire[..];
+        assert_eq!(read_flow(&mut r).await.as_deref(), Some(&big[..]));
+        assert_eq!(read_flow(&mut r).await.as_deref(), Some(&b"ab"[..]));
+        assert_eq!(read_flow(&mut r).await, None, "the stream's end");
+
+        assert_eq!(
+            flow_frame(&[0u8; MAX_FLOW_PACKET + 1]),
+            None,
+            "over the cap"
+        );
+        let mut over = u16::try_from(MAX_FLOW_PACKET + 1)
+            .unwrap()
+            .to_le_bytes()
+            .to_vec();
+        over.extend([0u8; 64]);
+        assert_eq!(
+            read_flow(&mut &over[..]).await,
+            None,
+            "a length over the cap"
+        );
+
+        let f = flow_frame(b"abcdef").unwrap();
+        assert_eq!(
+            read_flow(&mut &f[..f.len() - 1]).await,
+            None,
+            "cut in the body"
+        );
+        assert_eq!(read_flow(&mut &f[..1]).await, None, "cut in the length");
     }
 
     /// A socket keeps its number; past MAX_FLOWS the least recently used is forgotten, and no number comes back, so a

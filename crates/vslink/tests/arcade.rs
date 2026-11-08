@@ -131,6 +131,7 @@ impl Pair {
             log,
             delay,
             admit: None,
+            speak_up_to: None,
         }
     }
 
@@ -179,6 +180,7 @@ fn pair(name: &str, knob_ms: u64, relay_only: bool) -> Pair {
         log: host_log,
         delay: Duration::ZERO,
         admit: None,
+        speak_up_to: None,
     })
     .unwrap();
     let mut p = Pair {
@@ -379,6 +381,7 @@ fn a_join_without_a_host_fails_at_start() {
         log,
         delay: Duration::ZERO,
         admit: None,
+        speak_up_to: None,
     });
     let e = r.err().expect("no host: an error");
     assert!(e.to_string().contains("did not answer"), "{e}");
@@ -635,9 +638,9 @@ fn new_and_new_compress() {
     let p = pair("lz4", 0, false);
     assert!(logged(
         &p.join_log,
-        "link to the arcade up (streams in lz4)"
+        "link to the arcade up (streams in lz4, flows on a stream)"
     ));
-    wait_logged(&p.host_log, "joined (streams in lz4)");
+    wait_logged(&p.host_log, "joined (streams in lz4, flows on a stream)");
     feed_round_trip(p.join_ports.control);
     control_rtt(&p);
     // 260 KB each way through the echo: the guest's line shows them shrunk, its own bytes the same as the plain line
@@ -709,7 +712,7 @@ fn new_host_old_guest_stays_plain() {
     assert!(back[..3000].iter().all(|&b| b == 0));
     wait_logged(
         &p.host_log,
-        "streams uncompressed: the other side runs an older Forza-WCCF",
+        "streams uncompressed, flows as datagrams (the other PC runs Forza-WCCF 0.6.3 or older)",
     );
     wait_logged(
         &p.host_log,
@@ -766,7 +769,7 @@ fn old_host_new_guest_stays_plain() {
     let join = arcade::spawn(cfg).unwrap();
     assert!(logged(
         &lines,
-        "link to the arcade up (streams uncompressed: the other side runs an older Forza-WCCF)"
+        "link to the arcade up (streams uncompressed, flows as datagrams (the other PC runs Forza-WCCF 0.6.3 or older))"
     ));
     feed_round_trip(join.ports.control);
     wait_logged(
