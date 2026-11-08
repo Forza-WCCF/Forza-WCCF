@@ -38,6 +38,9 @@ sha2 = "0.11.0"
 semver = "1.0.26"
 self-replace = "1.5.0"
 xshell = "0.2.7"
+# dev-dependency only, never in a shipped binary: the property tests (the log scrub, the access codes, the game
+# server's framing, the card reader's framing, xtask's name mask)
+proptest = "1.12.0"
 crc32fast = "1.5.2"
 fs4 = "1.1.0"
 ntfs = "0.4.0"
@@ -68,6 +71,11 @@ unsafe_op_in_unsafe_fn = "deny"
 all = { level = "warn", priority = -1 }
 undocumented_unsafe_blocks = "warn"
 dbg_macro = "warn"
+
+[workspace.metadata.cargo-shear]
+# no code names it: launcher and installer depend on it for eframe's wgpu fallback, so feature unification leaves that
+# renderer with its DX12 backend only (the `wgpu` entry above)
+ignored = ["wgpu"]
 
 [profile.release]
 opt-level = 3

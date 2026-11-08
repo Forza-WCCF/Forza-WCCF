@@ -1920,6 +1920,52 @@ pub fn spawn_opts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    // The framing rule on any header: a length between the 40-byte header and the cap, or the oversized length it
+    // refused (`fill` sizes its buffer from the first, closes on the second). And a header `header` writes is one the
+    // reader reads back: the size it claims, its fields and its checksum.
+    proptest! {
+        #[test]
+        fn frame_len_stays_within_40_and_the_cap(
+            raw in prop::collection::vec(any::<u8>(), 40),
+            // the sizes that matter: the 40-byte floor, the cap, and whatever a peer sends
+            size in prop_oneof![
+                0u32..64,
+                (MAX_FRAME as u32 - 32)..(MAX_FRAME as u32 + 32),
+                any::<u32>(),
+            ],
+        ) {
+            let mut h = raw;
+            h[16..20].copy_from_slice(&size.to_le_bytes());
+            match frame_len(&h) {
+                Ok(n) => prop_assert!((40..=MAX_FRAME).contains(&n), "{} of {h:02x?}", n),
+                Err(n) => prop_assert!(n > MAX_FRAME, "{} of {h:02x?}", n),
+            }
+            // and the rule the reader follows, from the field alone
+            let claim = (size as usize).max(40);
+            let want = if claim > MAX_FRAME { Err(claim) } else { Ok(claim) };
+            prop_assert_eq!(frame_len(&h), want);
+        }
+
+        #[test]
+        fn a_written_header_reads_back_whole(
+            cmd in any::<u16>(),
+            seq in any::<u16>(),
+            status in any::<u32>(),
+            size in 0..=(MAX_FRAME - 40),
+            id in any::<u32>(),
+        ) {
+            let h = header(cmd, seq, status, size, id);
+            prop_assert_eq!(frame_len(&h), Ok(40 + size));
+            prop_assert_eq!(&h[..8], &MAGIC);
+            prop_assert_eq!(u16::from_le_bytes([h[8], h[9]]), cmd);
+            prop_assert_eq!(u16::from_le_bytes([h[10], h[11]]), seq);
+            prop_assert_eq!(u32_at(&h, 12), status);
+            prop_assert_eq!(u32_at(&h, 20), id);
+            prop_assert_eq!(checksum(&h), h[24]);
+        }
+    }
 
     #[test]
     fn live_download_chunks_fill_the_buffer_exactly() {

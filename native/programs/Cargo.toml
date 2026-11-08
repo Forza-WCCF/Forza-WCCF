@@ -112,5 +112,9 @@ required-features = ["programs"]
 name = "sddy_maps"
 required-features = ["programs"]
 
+[package.metadata.cargo-shear]
+# shared by the test programs through #[path = "../check.rs"], which shear cannot follow
+ignored-paths = ["src/check.rs"]
+
 [lints]
 workspace = true
