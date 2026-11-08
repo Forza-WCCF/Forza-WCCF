@@ -64,23 +64,31 @@ impl Idle {
 
     /// Whether egui runs this frame, and why (`events`: input for it is waiting). When it does, the request it serves
     /// is taken and `look` kept; requests made from then on (during the pass, or from another thread) wake a later
-    /// frame.
+    /// frame, and one that is not due yet is kept for the frame that serves it.
     pub fn pass(&mut self, now: Instant, events: bool, look: Look) -> Option<Wake> {
         let now = now.saturating_duration_since(self.epoch).as_micros() as u64;
+        // taken in one step: a request from another thread (a picture that finished decoding) landing between a read
+        // and a reset would be thrown away, and the picture would wait for the player's next input
+        let due = self.due.swap(u64::MAX, Ordering::AcqRel);
         let why = if events {
-            Wake::Input
+            Some(Wake::Input)
         } else if self.seen.is_none_or(|s| s.state != look.state) {
-            Wake::State
+            Some(Wake::State)
         } else if self.seen != Some(look) {
-            Wake::Window
-        } else if self.due.load(Ordering::Acquire) <= now {
-            Wake::Repaint
+            Some(Wake::Window)
+        } else if due <= now {
+            Some(Wake::Repaint)
         } else {
-            return None;
+            None
         };
-        self.due.store(u64::MAX, Ordering::Release);
-        self.seen = Some(look);
-        Some(why)
+        if due > now {
+            // not due: kept for the frame that serves it, whichever pass this is (min: one asked for meanwhile too)
+            self.due.fetch_min(due, Ordering::AcqRel);
+        }
+        if why.is_some() {
+            self.seen = Some(look);
+        }
+        why
     }
 
     /// The next frame runs a pass whatever it sees (a device reset dropped what the painter held).
@@ -122,10 +130,14 @@ mod tests {
             let ctx = egui::Context::default();
             theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
             let idle = Idle::new(&ctx);
+            let mut st = PanelState::sample(Edition::E1718, Lang::En, page);
+            // the sample's notice has a wall-clock deadline that fires under a slow machine: it would wake a frame these
+            // tests count as idle. A test that wants one sets it and moves the pass's clock with the gate's.
+            st.message = None;
             Panel {
                 ctx,
                 idle,
-                st: PanelState::sample(Edition::E1718, Lang::En, page),
+                st,
                 t: 0.0,
                 passes: 0,
                 mods: egui::Modifiers::NONE,
@@ -141,9 +153,15 @@ mod tests {
             }
         }
 
-        /// One frame 1/30 s after the last, as the panel DLL runs it: `true` when egui ran.
-        fn frame_at(&mut self, now: Instant, mut events: Vec<Event>, size: [u32; 2]) -> bool {
-            self.t += 1.0 / 30.0;
+        /// One frame `step` after the last on the pass's clock, at `now` on the gate's: `true` when egui ran.
+        fn frame_at(
+            &mut self,
+            now: Instant,
+            step: f64,
+            mut events: Vec<Event>,
+            size: [u32; 2],
+        ) -> bool {
+            self.t += step;
             let look = self.look(size);
             if self.idle.pass(now, !events.is_empty(), look).is_none() {
                 return false;
@@ -167,7 +185,18 @@ mod tests {
         }
 
         fn frame(&mut self, events: Vec<Event>) -> bool {
-            self.frame_at(Instant::now(), events, [W as u32, H as u32])
+            self.frame_at(Instant::now(), 1.0 / 30.0, events, [W as u32, H as u32])
+        }
+
+        /// A frame `after` from the last on both clocks, as a deadline passes in the game: its pass's `time` moves
+        /// with the gate's `now`.
+        fn frame_later(&mut self, after: Duration, events: Vec<Event>) -> bool {
+            self.frame_at(
+                Instant::now() + after,
+                after.as_secs_f64(),
+                events,
+                [W as u32, H as u32],
+            )
         }
 
         /// Frames until one skips the pass (at most 20): how many passes ran.
@@ -276,10 +305,10 @@ mod tests {
     fn a_new_size_forces_a_pass() {
         let mut p = Panel::new(Page::Game);
         p.settle();
-        assert!(p.frame_at(Instant::now(), vec![], [1280, 800]));
+        assert!(p.frame_at(Instant::now(), 1.0 / 30.0, vec![], [1280, 800]));
         p.idle.forget();
         assert!(
-            p.frame_at(Instant::now(), vec![], [1280, 800]),
+            p.frame_at(Instant::now(), 1.0 / 30.0, vec![], [1280, 800]),
             "after a device reset"
         );
     }
@@ -298,12 +327,12 @@ mod tests {
         p.settle();
         assert!(p.st.message.as_ref().is_some_and(|m| m.started()));
         assert!(!p.frame(vec![]), "shown, then idle");
-        // the toast's time: egui asked for a pass then; a frame after it runs one without input
-        assert!(p.frame_at(
-            Instant::now() + Duration::from_secs(120),
-            vec![],
-            [W as u32, H as u32]
+        // the toast's time: egui asked for a pass at its deadline; that pass finds it past its secs and drops it
+        assert!(p.frame_later(
+            Duration::from_secs_f64(panel::IMPORT_UNDO_SECS + 0.5),
+            vec![]
         ));
+        assert!(p.st.message.is_none(), "gone at its deadline, no input");
     }
 
     /// The card dealt after a match: its countdown wakes the pass that closes it.
@@ -314,11 +343,24 @@ mod tests {
         p.st.deal = Some(panel::Deal::new(0));
         assert!(p.frame(vec![]));
         p.settle();
-        assert!(!p.frame_at(Instant::now(), vec![], [W as u32, H as u32]));
-        assert!(p.frame_at(
-            Instant::now() + Duration::from_secs(60),
-            vec![],
-            [W as u32, H as u32]
-        ));
+        assert!(!p.frame(vec![]));
+        assert!(p.frame_later(Duration::from_secs_f64(panel::DEAL_SECS + 0.5), vec![]));
+        assert!(p.st.deal.is_none(), "closed at its deadline");
+    }
+
+    /// A request for later survives a pass that runs for another reason: the gate puts it back.
+    #[test]
+    fn a_request_for_later_survives_another_wakes_pass() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        let later = Duration::from_secs(60);
+        p.ctx.request_repaint_after(later);
+        p.st.ping_ms += 40;
+        assert!(p.frame(vec![]), "the ping meter");
+        p.settle();
+        assert!(
+            p.frame_later(later + Duration::from_secs(1), vec![]),
+            "due: the pass still runs"
+        );
     }
 }
