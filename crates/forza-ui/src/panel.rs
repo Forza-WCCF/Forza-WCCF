@@ -3748,7 +3748,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         if let Some(card) = shown {
-                            let (added, opened) = stats_pane(ui, card, back, lang, seen.bottom());
+                            let (added, opened) =
+                                stats_pane(ui, card, back, lang, seen.bottom(), e1718);
                             if added {
                                 add = Some(card.number);
                             }
@@ -4003,7 +4004,14 @@ fn combo(
 /// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
 /// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
 /// clicked: the card view asked for).
-fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32) -> (bool, bool) {
+fn stats_pane(
+    ui: &mut Ui,
+    card: &Card,
+    back: &mut bool,
+    lang: Lang,
+    bottom: f32,
+    coloured: bool,
+) -> (bool, bool) {
     use egui::emath::GuiRounding as _;
     let ppp = ui.ctx().pixels_per_point();
     egui::Frame::new()
@@ -4107,7 +4115,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 );
             }
             ui.add_space(4.0);
-            stat_column(ui, card, lang, w);
+            stat_column(ui, card, lang, w, coloured);
             ui.add_space(6.0);
             let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true);
             let under = add.rect.bottom() - slot.bottom();
@@ -4131,9 +4139,9 @@ const STAT_NAMES: [&str; 6] = [
     "cat.stamina",
 ];
 
-/// The six stats one a row as on the card, the full name at the left and the value at the right; SECRET across the
-/// column for a secret card.
-fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
+/// The six stats one a row as on the card, the full name at the left and the value at the right in its colour
+/// (2017-18, `coloured`: [`widgets::stat_color`], as the board's card backs; 2010-11 stays white); SECRET across the column for a secret card.
+fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32, coloured: bool) {
     const SIDE: f32 = 8.0;
     const ROW: f32 = 20.0;
     let p = ui.painter().clone();
@@ -4167,7 +4175,11 @@ fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
             egui::Align2::RIGHT_CENTER,
             stat.to_string(),
             theme::display(18.0),
-            theme::TEXT,
+            if coloured {
+                widgets::stat_color(stat)
+            } else {
+                theme::TEXT
+            },
         );
     }
 }
