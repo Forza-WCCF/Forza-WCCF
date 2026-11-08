@@ -156,29 +156,106 @@ fn use_sccache() {
 
 /// Cargo's output folder: `CARGO_TARGET_DIR` (one folder shared by several worktrees), else `target/`.
 fn target_dir(root: &Path) -> PathBuf {
-    std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
+    shared_dir().unwrap_or_else(|| root.join("target"))
+}
+
+/// `CARGO_TARGET_DIR` without a trailing separator: `remap_config` replaces it as a literal prefix.
+fn shared_dir() -> Option<PathBuf> {
+    std::env::var_os("CARGO_TARGET_DIR").map(|t| Path::new(&t).components().collect())
+}
+
+/// What a run in worktree `here` (an xtask.exe built from `root`) does to a shared folder last built from `last`.
+#[derive(Debug, PartialEq, Eq)]
+enum Switch {
+    /// the folder holds this worktree's build
+    Same,
+    /// another worktree built last: mark this one's files new, then build
+    Touch,
+    /// this xtask.exe comes from another worktree: mark the files new and stop, the next `cargo run` rebuilds it
+    TouchAndRerun,
+}
+
+fn switch(here: &str, root: &str, last: &str) -> Switch {
+    let (here, root, last) = (norm_path(here), norm_path(root), norm_path(last.trim()));
+    if here != root {
+        Switch::TouchAndRerun
+    } else if last != here {
+        Switch::Touch
+    } else {
+        Switch::Same
+    }
+}
+
+/// A shared folder serves one `cargo xtask` run at a time (held until dropped): another worktree's cargo writing there
+/// after this worktree marked its files new would leave artifacts newer than them, which cargo calls fresh.
+fn target_lock(dir: &Path) -> Result<std::fs::File> {
+    fs::create_dir_all(dir)?;
+    let path = dir.join(".forza-worktree.lock");
+    let lock = std::fs::File::options()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| path.display().to_string())?;
+    if lock.try_lock().is_err() {
+        let last = std::fs::read_to_string(dir.join(".forza-worktree")).unwrap_or_default();
+        println!(
+            "waiting for the `cargo xtask` run in {} (shared CARGO_TARGET_DIR {}) ...",
+            last.trim(),
+            dir.display()
+        );
+        lock.lock()?;
+    }
+    Ok(lock)
 }
 
 /// A `CARGO_TARGET_DIR` shared by several worktrees holds one copy of each workspace crate: cargo names the artifacts by
 /// the crate's path inside the workspace and calls them fresh when the sources are older, so a worktree with older files
-/// would get the last worktree's code (cargo 1.99, tried 2026-11-07). On a change of worktree (`.forza-worktree` in that
-/// folder) every tracked file gets the current time, and cargo rebuilds the workspace crates; dependencies stay.
-fn shared_target(root: &Path) -> Result<()> {
-    let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from) else {
-        return Ok(());
+/// would get the last worktree's code (cargo 1.99, tried 2026-11-07 and 2026-11-08). The run holds `target_lock`; on a
+/// change of worktree (`.forza-worktree` in that folder) every tracked file gets the current time, and cargo rebuilds
+/// the workspace crates; dependencies stay.
+fn shared_target(root: &Path) -> Result<Option<std::fs::File>> {
+    let Some(dir) = shared_dir() else {
+        return Ok(None);
     };
-    // `cargo run` names the worktree it runs in; this xtask.exe may have been built from another one
+    ensure!(
+        dir.is_absolute(),
+        "CARGO_TARGET_DIR must be a full path, not {}",
+        dir.display()
+    );
+    // `cargo run` names the worktree it runs in; this xtask.exe may have been built from another one, so the root it
+    // was built with is no fallback
     let here = std::env::var_os("CARGO_MANIFEST_DIR")
         .and_then(|m| Path::new(&m).parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| root.to_owned());
+        .context("CARGO_MANIFEST_DIR is not set: with a shared CARGO_TARGET_DIR start xtask with `cargo xtask`")?;
+    let lock = target_lock(&dir)?;
     let marker = dir.join(".forza-worktree");
     let last = std::fs::read_to_string(&marker).unwrap_or_default();
-    if here == root && Path::new(last.trim()) == here {
-        return Ok(());
+    let todo = switch(
+        &here.display().to_string(),
+        &root.display().to_string(),
+        &last,
+    );
+    if todo == Switch::Same {
+        return Ok(Some(lock));
     }
+    touch_tracked(&here)?;
+    // the marker is written only by a run that goes on to build this worktree
+    ensure!(
+        todo == Switch::Touch,
+        "this xtask.exe was built from {} (shared CARGO_TARGET_DIR); {} is marked newer now: run the command again",
+        root.display(),
+        here.display()
+    );
+    fs::write(&marker, here.display().to_string())?;
+    Ok(Some(lock))
+}
+
+/// Sets every tracked file of the worktree to the current time.
+fn touch_tracked(here: &Path) -> Result<()> {
     let o = Command::new("git")
         .args(["ls-files", "-z"])
-        .current_dir(&here)
+        .current_dir(here)
         .output()?;
     ensure!(
         o.status.success(),
@@ -186,23 +263,24 @@ fn shared_target(root: &Path) -> Result<()> {
         here.display()
     );
     let now = std::time::SystemTime::now();
+    let mut skipped = Vec::new();
     for f in o.stdout.split(|b| *b == 0).filter(|f| !f.is_empty()) {
-        // a tracked file deleted or read-only in the working tree is skipped
-        if let Ok(file) = std::fs::File::options()
-            .write(true)
-            .open(here.join(String::from_utf8_lossy(f).as_ref()))
-        {
-            file.set_modified(now)?;
+        let path = here.join(String::from_utf8_lossy(f).as_ref());
+        match std::fs::File::options().write(true).open(&path) {
+            Ok(file) => file
+                .set_modified(now)
+                .with_context(|| format!("cannot mark {} new", path.display()))?,
+            // deleted in the working tree: nothing to build
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => skipped.push(format!("{} ({e})", path.display())),
         }
     }
-    fs::create_dir_all(&dir)?;
-    fs::write(&marker, here.display().to_string())?;
-    ensure!(
-        here == root,
-        "this xtask.exe was built from {} (shared CARGO_TARGET_DIR); {} is marked newer now: run the command again",
-        root.display(),
-        here.display()
-    );
+    if !skipped.is_empty() {
+        eprintln!(
+            "warning: not marked new, so cargo may use another worktree's build of them:\n  {}",
+            skipped.join("\n  ")
+        );
+    }
     Ok(())
 }
 
@@ -458,7 +536,8 @@ fn main() -> Result<()> {
     if !text && !matches!(task, Task::Stage { .. }) {
         use_sccache();
     }
-    shared_target(&root)?;
+    // held until `main` returns
+    let _shared = shared_target(&root)?;
     let stage_root = stage_root(&root);
     let kit = stage_root.join("kit/2010-11");
     let kit_1718 = stage_root.join("kit/2017-18");
@@ -551,8 +630,8 @@ fn remap_config(root: &Path) -> Vec<String> {
     // the build scripts' OUT_DIR is the only path of the worktree left in the programs (cargo passes the workspace crates'
     // sources as relative paths); a shared CARGO_TARGET_DIR is mapped to where `target\` would be, so the bytes stay the
     // same and the flags name no worktree (they are part of every crate's hash: one copy of the dependencies per slot)
-    let local = match std::env::var_os("CARGO_TARGET_DIR") {
-        Some(t) => (PathBuf::from(t), Path::new("forza-wccf").join("target")),
+    let local = match shared_dir() {
+        Some(t) => (t, Path::new("forza-wccf").join("target")),
         None => (root.to_owned(), PathBuf::from("forza-wccf")),
     };
     let flags: Vec<String> = [
@@ -1055,19 +1134,21 @@ fn check_lock() -> Result<std::fs::File> {
     Ok(lock)
 }
 
+/// A Windows path spelled one way: `/`, lower case, no `\\?\` prefix, no trailing separator.
+fn norm_path(p: &str) -> String {
+    let p = p.replace('\\', "/").to_lowercase();
+    let p = match p.strip_prefix("//?/unc/") {
+        Some(unc) => format!("//{unc}"),
+        None => p.trim_start_matches("//?/").to_owned(),
+    };
+    p.trim_end_matches('/').to_owned()
+}
+
 /// A package's directory relative to the repository root, written the way git prints paths (`/`, no `\\?\` prefix) and
 /// in lower case (Windows ignores case; `changed_packages` lower-cases the files too). Cargo prints `\` on Windows, git
 /// `/` everywhere: compared raw they matched no file, so `check quick` ran fmt only.
 fn package_dir(root: &str, manifest: &str) -> Result<String> {
-    let norm = |p: &str| {
-        let p = p.replace('\\', "/").to_lowercase();
-        let p = match p.strip_prefix("//?/unc/") {
-            Some(unc) => format!("//{unc}"),
-            None => p.trim_start_matches("//?/").to_owned(),
-        };
-        p.trim_end_matches('/').to_owned()
-    };
-    let (root, manifest) = (norm(root), norm(manifest));
+    let (root, manifest) = (norm_path(root), norm_path(manifest));
     let dir = manifest.rsplit_once('/').map_or("", |(d, _)| d);
     // the next character must end a folder name (not e:/r vs e:/rr)
     dir.strip_prefix(&root)
@@ -2940,6 +3021,36 @@ mod tests {
         assert_eq!(hooks(false).count(), 2);
         assert!(hooks(false).all(|(f, _, _)| f.contains("e1718")));
         assert_eq!(hooks(true).count(), HOOKS.len());
+    }
+
+    #[test]
+    fn a_shared_target_is_touched_only_on_a_worktree_switch() {
+        let w1 = r"E:\wccf\forza-wccf-w1";
+        assert_eq!(switch(w1, w1, w1), Switch::Same);
+        // another spelling of the same folder (a shell's case, cargo's `\\?\`, a newline) is no switch
+        assert_eq!(
+            switch(w1, r"\\?\E:\wccf\forza-wccf-w1\", "e:/WCCF/forza-wccf-w1\n"),
+            Switch::Same
+        );
+        assert_eq!(switch(w1, w1, r"E:\wccf\forza-wccf-w2"), Switch::Touch);
+        assert_eq!(switch(w1, w1, ""), Switch::Touch);
+        // an xtask.exe built from w2 run in w1 builds nothing, whatever the marker says
+        assert_eq!(
+            switch(w1, r"E:\wccf\forza-wccf-w2", w1),
+            Switch::TouchAndRerun
+        );
+    }
+
+    #[test]
+    fn a_shared_target_serves_one_run_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("forza-xtask-lock-{}", std::process::id()));
+        let held = target_lock(&dir.join("t")).unwrap();
+        let other = std::fs::File::open(dir.join("t/.forza-worktree.lock")).unwrap();
+        assert!(other.try_lock().is_err());
+        drop(held);
+        assert!(other.try_lock().is_ok());
+        drop(other);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
