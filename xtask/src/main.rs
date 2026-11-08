@@ -199,10 +199,11 @@ fn target_lock(dir: &Path) -> Result<std::fs::File> {
         .with_context(|| path.display().to_string())?;
     if lock.try_lock().is_err() {
         let last = std::fs::read_to_string(dir.join(".forza-worktree")).unwrap_or_default();
+        // the holder writes the marker only once it has marked its files new, so name the folder's last worktree
         println!(
-            "waiting for the `cargo xtask` run in {} (shared CARGO_TARGET_DIR {}) ...",
-            last.trim(),
-            dir.display()
+            "waiting for another `cargo xtask` run on the shared CARGO_TARGET_DIR {} (last built from {}) ...",
+            dir.display(),
+            last.trim()
         );
         lock.lock()?;
     }

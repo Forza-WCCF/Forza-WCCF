@@ -72,7 +72,7 @@ builds on plain Linux (`cargo build --release -p forza-server`).
      one copy of each workspace crate there, and cargo would take another worktree's copy for yours when your files
      are older: `cargo xtask` marks every tracked file new when the folder's last worktree (`.forza-worktree`) was
      another one, so the workspace crates rebuild once per switch, and one `cargo xtask` run uses the folder at a
-     time (a second one prints `waiting for the cargo xtask run in <worktree>` and starts when the first ends). Give
+     time (a second one prints `waiting for another cargo xtask run` and starts when the first ends). Give
      the folder as a full path. Plain `cargo` takes no part in this: run it after a `cargo xtask` command following
      a switch, and not while another worktree builds. Copy built programs from the worktree's `target\kit\`, not
      from the shared folder, which the next build replaces.
