@@ -24,7 +24,8 @@
 //!
 //! Test switches: `FORZA_PANEL_DUMP=1` writes `wccfpanel_frame.bmp` beside the program every 10 frames once a window
 //! size has held for 10 (fakegame.exe's `size:` and `copy:` steps); `WCCFPANEL_DRYKEYS=1` logs the keys instead of
-//! pressing them.
+//! pressing them; `WCCFPANEL_IDLE=0` runs egui on every frame, as before the idle frames ([`forza_ui::idle`]): the
+//! `frame split` lines then compare the two.
 #![cfg(target_arch = "x86")]
 // This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
 #![deny(
@@ -38,6 +39,7 @@
     clippy::string_slice
 )]
 
+mod cost;
 mod exe_text;
 mod fullscreen;
 mod kit;
@@ -1434,12 +1436,21 @@ struct Render {
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
     max_tex: usize,
     dump: bool,
+    /// WCCFPANEL_IDLE=0: egui runs on every frame.
+    busy: bool,
     size: (u32, u32),
     held: u32,
     frames: u32,
     hooks: String,
     spent: Duration,
     worst: Duration,
+    /// The frame's parts as timed (forza_panel.log's `frame split`).
+    split: cost::Split,
+    /// Each window's idle gate and its last pass's meshes at their pixels per point, drawn again while nothing changes.
+    idle: forza_ui::idle::Idle,
+    prims: (Vec<egui::epaint::ClippedPrimitive>, f32),
+    board_idle: forza_ui::idle::Idle,
+    board_prims: (Vec<egui::epaint::ClippedPrimitive>, f32),
 }
 
 // SAFETY: the Direct3D objects are used only on the game's render thread (behind RENDER's lock); Reset and unload,
@@ -1529,8 +1540,6 @@ impl Render {
             st.hover_delay.map_or("off".into(), |s| format!("{s} s"))
         ));
         Render {
-            ctx,
-            board_ctx,
             board_painter: painter::Painter::default(),
             st,
             table,
@@ -1573,12 +1582,20 @@ impl Render {
             game: None,
             max_tex: 2048,
             dump: std::env::var_os("FORZA_PANEL_DUMP").is_some_and(|v| v == "1"),
+            busy: std::env::var("WCCFPANEL_IDLE").is_ok_and(|v| v == "0"),
             size: (0, 0),
             held: 0,
             frames: 0,
             hooks: String::new(),
             spent: Duration::ZERO,
             worst: Duration::ZERO,
+            split: cost::Split::default(),
+            idle: forza_ui::idle::Idle::new(&ctx),
+            prims: (Vec::new(), 1.0),
+            board_idle: forza_ui::idle::Idle::new(&board_ctx),
+            board_prims: (Vec::new(), 1.0),
+            ctx,
+            board_ctx,
         }
     }
 
@@ -1590,6 +1607,8 @@ impl Render {
         self.game = None;
         self.painter.reset();
         self.board_painter.reset();
+        self.idle.forget();
+        self.board_idle.forget();
     }
 
     /// One frame on our swap chain; `None` = not shown, the game's own Present runs.
@@ -1597,6 +1616,7 @@ impl Render {
         let t0 = Instant::now();
         // the board window's close, dock and start first: served even while the game's window is not drawn
         let board = self.board_window();
+        self.split.start();
         // SAFETY: device calls with out-parameters we own
         unsafe {
             let target = if wnd.is_invalid() {
@@ -1633,6 +1653,7 @@ impl Render {
             let sb = dev.CreateStateBlock(D3DSBT_ALL).ok()?;
             let mut vp = D3DVIEWPORT9::default();
             let _ = dev.GetViewport(&mut vp);
+            self.split.mark(cost::Part::State);
             // popped out: the board in its own window, the game's window the picture, the pages and the buttons; a board
             // window that could not be drawn (minimized, tiny, no swap chain) gives the board back to the game's window
             // for the frame
@@ -1642,13 +1663,22 @@ impl Render {
             let drawn = self.compose(dev, &sc, w, h, true);
             let _ = dev.SetViewport(&vp);
             let _ = sb.Apply();
+            self.split.mark(cost::Part::Restore);
             drawn?;
             let spent = t0.elapsed();
+            if let Some(line) = self.split.end(spent, self.frames + 1) {
+                log(&line);
+            }
             self.spent += spent;
             self.worst = self.worst.max(spent);
             self.frames += 1;
             if self.frames == 1 {
                 log(&format!("first frame shown ({w}x{h})"));
+                log(if self.busy {
+                    "idle frames: off (WCCFPANEL_IDLE=0) - egui runs on every frame"
+                } else {
+                    "idle frames: on - egui runs when something changed"
+                });
                 SHOWN.store(true, Relaxed);
                 // shown at the window's own size, so a bigger window is safe: maximized once, at the start
                 // (WCCFPANEL_FULLSCREEN=0 keeps the game's size: the tests)
@@ -1661,6 +1691,9 @@ impl Render {
             }
             if self.frames.is_multiple_of(600) {
                 self.cost(false);
+                for line in self.split.lines() {
+                    log(&line);
+                }
             }
             if self.frames == 1 || self.frames.is_multiple_of(600) {
                 let hooks = foreign_hooks();
@@ -1803,13 +1836,16 @@ impl Render {
             if self.compose(dev, &sc, w, h, false).is_none() {
                 return false;
             }
-            if let Err(e) = sc.Present(
+            let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
                 HWND::default(),
                 std::ptr::null(),
                 0,
-            ) && !std::mem::replace(&mut self.board_warned, true)
+            );
+            self.split.mark(cost::Part::Present);
+            if let Err(e) = shown
+                && !std::mem::replace(&mut self.board_warned, true)
             {
                 log(&format!("board window: present failed ({e})"));
             }
@@ -1946,7 +1982,9 @@ impl Render {
                 1.0,
                 0,
             );
-            let painted = dev.BeginScene().is_ok() && {
+            let begun = dev.BeginScene().is_ok();
+            self.split.mark(cost::Part::Copy);
+            let painted = begun && {
                 // no copy: the board window's frame
                 let ok = if copy {
                     self.paint(dev, w, h)
@@ -1985,14 +2023,12 @@ impl Render {
             ..Default::default()
         };
         // Alt shows the deck's keycaps and has no event of its own: polled here, as the render thread is not the
-        // window's (GetKeyState would be stale); first, so the events after it keep their own modifiers
-        raw.events.insert(
-            0,
-            Event::ModifiersChanged(modifiers_with(|vk| {
-                // SAFETY: a plain key state query
-                (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
-            })),
-        );
+        // window's (GetKeyState would be stale); first in a pass's events, so the events after it keep their own
+        // modifiers
+        let mods = modifiers_with(|vk| {
+            // SAFETY: a plain key state query
+            (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
+        });
         raw.viewports
             .entry(ViewportId::ROOT)
             .or_default()
@@ -2032,13 +2068,32 @@ impl Render {
                 self.st.close_quit = true;
             }
         }
-        let dealt = self.st.deal.as_ref().map(|d| d.back);
         // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
         // follows the pointer, as before
         let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
-        let st = &mut self.st;
-        st.down = keys_held(&st.keys, ours);
-        let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
+        self.st.down = keys_held(&self.st.keys, ours);
+        self.split.mark(cost::Part::Input);
+        // nothing new since the last pass: its meshes are drawn again (the game's picture in them stays live)
+        let look = forza_ui::idle::Look {
+            size: [w, h],
+            ppp,
+            modifiers: mods,
+            state: self.st.fingerprint(),
+        };
+        let why = self.idle.pass(Instant::now(), !raw.events.is_empty(), look);
+        self.split.woke(why);
+        let pass = why.is_some() || self.busy;
+        self.split.mark(cost::Part::Check);
+        let dealt = self.st.deal.as_ref().map(|d| d.back);
+        let out = pass.then(|| {
+            if let Some(e) = forza_ui::idle::modifiers(&self.ctx, mods) {
+                raw.events.insert(0, e);
+            }
+            let st = &mut self.st;
+            self.split.passed();
+            self.ctx.run_ui(raw, |ui| panel::show(ui, st))
+        });
+        self.split.mark(cost::Part::Ui);
         match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
             (Some(_), None) => log("deal: closed"),
             (Some(a), Some(b)) if a != b => log(if b {
@@ -2070,23 +2125,66 @@ impl Render {
         self.club_out();
         self.table_out();
         self.keys();
-        let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
-        // SAFETY: the device the painter's textures belong to, on its render thread
-        match unsafe {
-            self.painter.paint(
-                dev,
-                [w, h],
+        self.split.mark(cost::Part::Out);
+        let delta = out.map(|out| {
+            self.prims = (
+                self.ctx.tessellate(out.shapes, out.pixels_per_point),
                 out.pixels_per_point,
-                &prims,
-                &out.textures_delta,
-            )
-        } {
+            );
+            out.textures_delta
+        });
+        self.split.mark(cost::Part::Tessellate);
+        // SAFETY: the device the painter's textures belong to, on its render thread
+        match unsafe { self.draw(dev, [w, h], delta, false) } {
             Ok(()) => true,
             Err(e) => {
                 log(&format!("paint: {e}"));
                 false
             }
         }
+    }
+
+    /// A pass's texture changes uploaded (`delta`; none when no pass ran), then the last pass's meshes drawn: the game
+    /// window's, or the board window's (`board`). A failure runs a pass on the next frame.
+    unsafe fn draw(
+        &mut self,
+        dev: &IDirect3DDevice9,
+        size: [u32; 2],
+        mut delta: Option<egui::TexturesDelta>,
+        board: bool,
+    ) -> windows::core::Result<()> {
+        let (painter, (prims, ppp), idle) = if board {
+            (
+                &mut self.board_painter,
+                &self.board_prims,
+                &mut self.board_idle,
+            )
+        } else {
+            (&mut self.painter, &self.prims, &mut self.idle)
+        };
+        // SAFETY: as the callers promise
+        let done = unsafe {
+            (|| -> windows::core::Result<()> {
+                if let Some(d) = &delta {
+                    self.split.uploaded(painter.upload(dev, d)?);
+                }
+                self.split.mark(cost::Part::Upload);
+                painter.paint(dev, size, *ppp, prims)?;
+                self.split.mark(cost::Part::Draw);
+                if let Some(d) = &delta {
+                    painter.free(d);
+                }
+                Ok(())
+            })()
+        };
+        // applied, or lost with the failure (as before the idle frames)
+        if let Some(d) = &mut delta {
+            d.clear();
+        }
+        if done.is_err() {
+            idle.forget();
+        }
+        done
     }
 
     /// The board window's frame (popped out): the same panel state drawn as the board alone by its own egui, then what
@@ -2109,47 +2207,71 @@ impl Render {
             ..Default::default()
         };
         // Alt shows the deck's keycaps (the buttons switch on), as in [`Render::paint`]
-        raw.events.insert(
-            0,
-            Event::ModifiersChanged(modifiers_with(|vk| {
-                // SAFETY: a plain key state query
-                (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
-            })),
-        );
+        let mods = modifiers_with(|vk| {
+            // SAFETY: a plain key state query
+            (unsafe { GetAsyncKeyState(i32::from(vk)) }) < 0
+        });
         raw.viewports
             .entry(ViewportId::ROOT)
             .or_default()
             .native_pixels_per_point = Some(ppp);
         self.table_in();
-        self.st.desk = true;
         // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
         // follows the pointer, as before
         let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
-        let st = &mut self.st;
-        st.down = keys_held(&st.keys, ours);
-        let out = self.board_ctx.run_ui(raw, |ui| panel::show(ui, st));
-        self.st.desk = false;
+        self.st.down = keys_held(&self.st.keys, ours);
+        self.split.mark(cost::Part::Input);
+        let look = forza_ui::idle::Look {
+            size: [w, h],
+            ppp,
+            modifiers: mods,
+            state: self.st.fingerprint(),
+        };
+        let why = self
+            .board_idle
+            .pass(Instant::now(), !raw.events.is_empty(), look);
+        self.split.woke(why);
+        let pass = why.is_some() || self.busy;
+        self.split.mark(cost::Part::Check);
+        let out = pass.then(|| {
+            if let Some(e) = forza_ui::idle::modifiers(&self.board_ctx, mods) {
+                raw.events.insert(0, e);
+            }
+            self.st.desk = true;
+            let st = &mut self.st;
+            self.split.passed();
+            let out = self.board_ctx.run_ui(raw, |ui| panel::show(ui, st));
+            self.st.desk = false;
+            out
+        });
+        self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
         self.table_out();
         self.keys();
-        let prims = self.board_ctx.tessellate(out.shapes, out.pixels_per_point);
-        // SAFETY: the device the painter's textures belong to, on its render thread
-        match unsafe {
-            self.board_painter.paint(
-                dev,
-                [w, h],
+        self.split.mark(cost::Part::Out);
+        let delta = out.map(|out| {
+            self.board_prims = (
+                self.board_ctx.tessellate(out.shapes, out.pixels_per_point),
                 out.pixels_per_point,
-                &prims,
-                &out.textures_delta,
-            )
-        } {
+            );
+            out.textures_delta
+        });
+        self.split.mark(cost::Part::Tessellate);
+        // SAFETY: the device the painter's textures belong to, on its render thread
+        match unsafe { self.draw(dev, [w, h], delta, true) } {
             Ok(()) => true,
             Err(e) => {
                 log(&format!("board window: paint: {e}"));
                 false
             }
         }
+    }
+
+    /// egui's clock (the `time` a pass is given), read between passes too: a skipped pass leaves egui's own input
+    /// time behind.
+    fn now(&self) -> f64 {
+        self.start.elapsed().as_secs_f64()
     }
 
     /// A card in hand on either window's board.
@@ -2750,34 +2872,33 @@ impl Render {
             .map(|mut v| std::mem::take(&mut *v))
             .unwrap_or_default();
         if keys != (self.last_page == panel::Page::Keys) {
-            if keys {
-                if let Some(f) = FILES.get() {
-                    match f.load_keys() {
-                        Ok((keys, pads)) => {
-                            (self.st.keys, self.st.pads) = (keys, pads);
-                            self.keys_ok = true;
-                        }
-                        Err(e) => {
-                            log(&format!(
-                                "keys: {} could not be read: {e} (not saved over)",
-                                f.keys.display()
-                            ));
-                            self.keys_ok = false;
-                        }
+            if keys && let Some(f) = FILES.get() {
+                match f.load_keys() {
+                    Ok((keys, pads)) => {
+                        (self.st.keys, self.st.pads) = (keys, pads);
+                        self.keys_ok = true;
+                    }
+                    Err(e) => {
+                        log(&format!(
+                            "keys: {} could not be read: {e} (not saved over)",
+                            f.keys.display()
+                        ));
+                        self.keys_ok = false;
                     }
                 }
-                let p = pads();
-                p.rescan();
-                self.pads = Some(p);
-                self.pads_scan = Instant::now();
-                self.pads_held.clear();
-            } else {
-                self.pads = None;
             }
+            self.pads = None; // KEYS opened: looked for afresh, below
         }
         self.last_page = self.st.page;
         if !keys {
             return;
+        }
+        if self.pads.is_none() && pads_warm() {
+            let p = pads();
+            p.rescan();
+            self.pads = Some(p);
+            self.pads_scan = Instant::now();
+            self.pads_held.clear();
         }
         for (vk, alt) in &typed {
             log(&format!(
@@ -2860,11 +2981,7 @@ impl Render {
             self.placed = old;
             self.table_write();
         }
-        if let Some(got) = self
-            .share
-            .as_ref()
-            .and_then(|f| f.poll(self.ctx.input(|i| i.time)))
-        {
+        if let Some(got) = self.share.as_ref().and_then(|f| f.poll(self.now())) {
             self.share = None;
             log(&format!(
                 "import: share link answered {:?}",
@@ -2883,7 +3000,7 @@ impl Render {
             {
                 Some((_, Some(id))) => {
                     log(&format!("import: share link {id}"));
-                    let now = self.ctx.input(|i| i.time);
+                    let now = self.now();
                     self.share =
                         panel::ShareFetch::start(&mut self.st, id, in_match(), now, share::get);
                 }
@@ -2966,7 +3083,7 @@ impl Render {
             log(&format!("formations: opened {}", dir.display()));
         }
         if let Some(i) = self.st.formation_load.take() {
-            let now = self.ctx.input(|i| i.time);
+            let now = self.now();
             if let Some(new) = panel::load_formation(&mut self.st, &self.placed, i, in_match(), now)
             {
                 log(&format!(
@@ -3060,7 +3177,7 @@ impl Render {
     /// Lineup text (the clipboard's; a share link's once fetched) as the whole table, the table before it written
     /// beside it (fpr_table0.before-import.txt) and kept for UNDO.
     fn import_text(&mut self, text: &str) {
-        let now = self.ctx.input(|i| i.time);
+        let now = self.now();
         let Some(new) = panel::import_lineup(&mut self.st, &self.placed, text, in_match(), now)
         else {
             let why = self.st.message.as_ref().map_or("", |m| m.text.as_str());
@@ -3260,6 +3377,33 @@ fn read_notice(p: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
 /// The controllers through winmm (from the system folder: seat 1's own winmm.dll is the hook), or the test's
 /// (`WCCFPANEL_FAKEPAD`).
+/// Whether winmm's joystick calls have answered once, off the render thread: their first answer (Windows loading its
+/// joystick stack) held the frame that opened KEYS for 80-130 ms (fakegame, 2026-11-08); later looks are quick. The first
+/// call starts the warm-up and says `false`; KEYS shows its controllers a moment later.
+fn pads_warm() -> bool {
+    static WARM: AtomicU8 = AtomicU8::new(0); // 0 cold, 1 warming, 2 warm
+    match WARM.compare_exchange(0, 1, Relaxed, Relaxed) {
+        Ok(_) => {
+            // shortcut: not joined (an unload under the loader lock cannot wait); it ends within a moment, and only
+            // fakegame unloads the panel, seconds later
+            std::thread::spawn(|| {
+                if std::env::var_os("WCCFPANEL_FAKEPAD").is_none()
+                    && let Some(w) = kit::SysWinmm::load()
+                {
+                    use forza::keys::PadApi as _;
+                    w.config_changed();
+                    for jid in 0..16 {
+                        let _ = w.caps(jid);
+                    }
+                }
+                WARM.store(2, Relaxed);
+            });
+            false
+        }
+        Err(s) => s == 2,
+    }
+}
+
 fn pads() -> forza::keys::Pads {
     // ponytail: winmm looked up again at each KEYS opening; cheap (the module stays loaded)
     let say: forza::standins::Log = Arc::new(|m: &str| log(&format!("pads: {m}")));
