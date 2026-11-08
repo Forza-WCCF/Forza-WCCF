@@ -43,7 +43,7 @@ launcher.choose_pack: {en: "Choose pack…", it: "Scegli pacchetto…", ja: "パ
 launcher.skip_tutorial: {en: "Skip the tutorial", it: "Salta il tutorial", ja: "チュートリアルを省略"}
 launcher.skip_tutorial_hint: {en: "Takes effect the next time you play.", it: "Si applica la prossima volta che giochi.", ja: "次にプレイするときから適用されます。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
-launcher.projector_hint: {en: "Its window, shown or hidden at once. Also in the game's SETTINGS.", it: "La sua finestra, mostrata o nascosta subito. Anche nelle IMPOSTAZIONI del gioco.", ja: "ウィンドウをすぐに表示・非表示。ゲームの設定でも変更できます。"}
+launcher.projector_hint: {en: "Shows the projector window at once. The CPU championship keeps playing while it is hidden.", it: "Mostra subito la finestra del proiettore. Il campionato CPU continua anche mentre è nascosta.", ja: "プロジェクターのウィンドウをすぐに表示・非表示にします。隠している間もCPU選手権は続きます。"}
 launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU選手権"}
 launcher.cpu_championship_hint: {en: "Plays on the projector, shown or hidden. Off saves CPU. Applied at the next start.", it: "Si gioca sul proiettore, visibile o nascosto. Off risparmia CPU. Si applica al prossimo avvio.", ja: "プロジェクターで行われます (表示・非表示どちらでも)。オフでCPUを節約。次回の起動時に反映されます。"}
 launcher.cleanup: {en: "CLEAN UP", it: "RIPULISCI", ja: "後片付け"}
@@ -454,7 +454,7 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La lavagna è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della lavagna", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della lavagna in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
-settings.projector_hint: {en: "Its window, shown or hidden at once. Needs the CPU championship on: set it in the Launcher.", it: "La sua finestra, mostrata o nascosta subito. Serve il campionato CPU attivo: si imposta nel Launcher.", ja: "ウィンドウをすぐに表示・非表示。CPU大会がオンのときだけ表示されます。Launcher で設定します。"}
+settings.projector_hint: {en: "Shows the projector window at once. Needs the CPU championship on, set in the Launcher.", it: "Mostra subito la finestra del proiettore. Serve il campionato CPU attivo, impostato nel Launcher.", ja: "プロジェクターのウィンドウをすぐに表示・非表示にします。CPU選手権がオンのときだけ使え、Launcher で設定します。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
 settings.pad_bg_seats: {en: "The setting turns off while 2 or more seats run on this PC, because all controllers count as one.", it: "L'impostazione si disattiva mentre su questo PC girano 2 o più posti: i controller contano come uno solo.", ja: "このPCで2席以上を動かしている間は無効になります。コントローラーが1台として扱われるためです。"}
