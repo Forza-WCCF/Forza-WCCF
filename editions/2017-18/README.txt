@@ -52,7 +52,7 @@ KEYS
       I       Aime card in / out   5   coin
   The panel's buttons do the same: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. Change keys and controller buttons under KEYS.
-  Formation board: drag a card to move it, drop it on another to swap. + CARD opens the CATALOGUE.
+  Formation board: drag a card to move it, drop it on another to swap. The CARDS button opens the CARDS page.
   Rare 2D-code cards work.
 
 ONLINE

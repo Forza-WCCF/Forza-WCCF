@@ -55,8 +55,8 @@ TASTI
       I       carta Aime dentro / fuori   5   moneta
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.
-  Formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
-  il CATALOGO.
+  Formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. Il pulsante CARTE apre
+  la pagina CARTE.
   Le carte rare con codice 2D funzionano.
 
 ONLINE
