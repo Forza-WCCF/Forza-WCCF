@@ -14,8 +14,16 @@ use sha2::{Digest, Sha256};
 
 /// Where the junctions go: `%ProgramData%\Forza-WCCF\run`.
 pub fn base() -> PathBuf {
-    env::var_os("ProgramData")
-        .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
+    base_in(env::var_os("ProgramData"))
+}
+
+/// `base` for a ProgramData value: an empty or relative one counts as unset, so the junctions never depend on the
+/// Launcher's working folder.
+fn base_in(program_data: Option<std::ffi::OsString>) -> PathBuf {
+    program_data
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
         .join("Forza-WCCF")
         .join("run")
 }
@@ -39,43 +47,77 @@ pub fn id(dir: &Path) -> String {
         .collect()
 }
 
+/// Names tried for one folder: `<id>`, then `<id>-1`.. when another folder or a file holds it.
+const NAMES: usize = 8;
+
 /// The folder a game program in `dir` starts from: None when `dir`'s path is plain ASCII (it starts there, as it
-/// always did), else the junction in `base` that points at `dir`, made or pointed again now.  Err: no junction could
-/// be made (ProgramData not writable, a network folder, ...); the program then starts from `dir`.
+/// always did), else a junction in `base` that leads to exactly `dir` (same folder on disk, not just the same text),
+/// made or mended now.  A name held by another folder's junction, a file or a folder with files is left as it is and
+/// the next name is tried.  Err: no junction could be made (ProgramData not writable, a network folder, every name
+/// taken, ...); the program then starts from `dir`.
 pub fn for_dir(dir: &Path, base: &Path) -> io::Result<Option<PathBuf>> {
     if is_ascii(dir) {
         return Ok(None);
     }
-    let link = base.join(id(dir));
-    if !is_ascii(&link) {
-        return Err(io::Error::other(format!(
-            "{} is not a plain ASCII path",
-            link.display()
-        )));
+    let real = fs::canonicalize(dir)?;
+    let id = id(dir);
+    let mut why = Vec::new();
+    for n in 0..NAMES {
+        let link = base.join(if n == 0 { id.clone() } else { format!("{id}-{n}") });
+        if !is_ascii(&link) {
+            return Err(io::Error::other(format!(
+                "{} is not a plain ASCII path",
+                link.display()
+            )));
+        }
+        match take(&link, dir, &real) {
+            Ok(()) => return Ok(Some(link)),
+            Err(e) => why.push(format!("{}: {e}", link.display())),
+        }
     }
-    match junction::get_target(&link) {
-        Ok(to) if norm(&to) == norm(dir) && link.is_dir() => return Ok(Some(link)),
-        // another folder's, or broken: removes the link only, never what it points at (RemoveDirectoryW on the link;
-        // a real folder there goes only when it is empty)
-        _ if fs::symlink_metadata(&link).is_ok() => fs::remove_dir(&link)?,
-        _ => fs::create_dir_all(base)?,
+    Err(io::Error::other(format!(
+        "no junction name is free for {}: {}",
+        dir.display(),
+        why.join("; ")
+    )))
+}
+
+/// Makes `link` lead to `dir` (on disk `real`), or says why that name cannot be used.
+fn take(link: &Path, dir: &Path, real: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(link).is_ok() {
+        match fs::canonicalize(link) {
+            Ok(to) if to == real && junction::exists(link).unwrap_or(false) => return Ok(()),
+            Ok(_) if junction::exists(link).unwrap_or(false) => {
+                return Err(io::Error::other("leads to another folder"));
+            }
+            // broken (its target is gone) or an empty folder: removes the link only, never what it points at
+            // (RemoveDirectoryW); a file or a folder with files stays and the name is skipped
+            _ => fs::remove_dir(link)?,
+        }
+    } else if let Some(parent) = link.parent() {
+        fs::create_dir_all(parent)?;
     }
-    junction::create(dir, &link)?;
-    if !link.is_dir() {
-        let _ = fs::remove_dir(&link);
-        return Err(io::Error::other(format!(
-            "{} does not lead to {}",
-            link.display(),
-            dir.display()
-        )));
+    junction::create(dir, link)?;
+    if fs::canonicalize(link).ok().as_deref() != Some(real) {
+        let _ = fs::remove_dir(link);
+        return Err(io::Error::other(format!("does not lead to {}", dir.display())));
     }
-    Ok(Some(link))
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kit::{GAME_PROGRAMS, find_game_named, seat_dir};
+
+    /// A scratch folder on a plain-ASCII path: the system's temp folder holds the user name, which may not be ASCII
+    /// (the machines this module is for), so it goes under ProgramData then.
+    fn top() -> tempfile::TempDir {
+        let tmp = env::temp_dir();
+        let at = if is_ascii(&tmp) { tmp } else { base().join("tests") };
+        fs::create_dir_all(&at).unwrap();
+        tempfile::tempdir_in(at).unwrap()
+    }
 
     /// A game folder at `game` as setup leaves it, and its seat 1: the three programs and a settings file in each.
     fn game_at(game: &Path) -> (PathBuf, PathBuf) {
@@ -114,7 +156,7 @@ mod tests {
 
     #[test]
     fn a_non_ascii_folder_starts_through_an_ascii_junction_to_the_real_files() {
-        let top = tempfile::tempdir().unwrap();
+        let top = top();
         let base = top.path().join(r"ProgramData\Forza-WCCF\run");
         for real in layouts(top.path(), "テスト游戏") {
             let (game, seat) = game_at(&real);
@@ -140,7 +182,7 @@ mod tests {
 
     #[test]
     fn an_ascii_folder_starts_where_it_is_and_makes_nothing() {
-        let top = tempfile::tempdir().unwrap();
+        let top = top();
         let base = top.path().join(r"ProgramData\Forza-WCCF\run");
         for real in layouts(top.path(), "Games") {
             let (game, seat) = game_at(&real);
@@ -153,8 +195,8 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_or_broken_junction_is_replaced_and_its_target_keeps_its_files() {
-        let top = tempfile::tempdir().unwrap();
+    fn a_name_held_by_another_folder_is_never_used_and_the_next_name_is() {
+        let top = top();
         let base = top.path().join("run");
         let (real, other) = (top.path().join("游戏").join("game"), top.path().join("other"));
         for d in [&real, &other] {
@@ -163,38 +205,92 @@ mod tests {
         }
         let link = base.join(id(&real));
         fs::create_dir_all(&base).unwrap();
-        junction::create(&other, &link).unwrap(); // another folder's junction under this one's name
-        assert_eq!(for_dir(&real, &base).unwrap(), Some(link.clone()));
-        assert_eq!(norm(&junction::get_target(&link).unwrap()), norm(&real));
+        // another folder's junction under this one's name: a 48-bit collision, or a folder whose path differs only in
+        // case in a case-sensitive directory (same id, another folder on disk)
+        junction::create(&other, &link).unwrap();
+        let next = base.join(format!("{}-1", id(&real)));
+        assert_eq!(for_dir(&real, &base).unwrap(), Some(next.clone()));
+        assert_eq!(fs::canonicalize(&next).unwrap(), fs::canonicalize(&real).unwrap());
+        assert_eq!(
+            fs::canonicalize(&link).unwrap(),
+            fs::canonicalize(&other).unwrap(),
+            "left as it was"
+        );
+        assert_eq!(
+            for_dir(&real, &base).unwrap(),
+            Some(next.clone()),
+            "the next start finds it again"
+        );
+        assert_eq!(for_dir(&other, &base).unwrap(), None, "plain ASCII: no junction");
         for d in [&real, &other] {
             assert_eq!(
                 fs::read_to_string(d.join(r"save\club")).unwrap(),
                 d.display().to_string()
             );
         }
-        // broken: its target is gone
+    }
+
+    #[test]
+    fn a_broken_junction_or_an_empty_folder_under_the_name_is_replaced() {
+        let top = top();
+        let base = top.path().join("run");
+        let real = top.path().join("游戏").join("game");
+        fs::create_dir_all(real.join("save")).unwrap();
+        fs::write(real.join(r"save\club"), b"x").unwrap();
+        let link = base.join(id(&real));
+        fs::create_dir_all(&base).unwrap();
         let gone = top.path().join("gone");
         fs::create_dir(&gone).unwrap();
-        fs::remove_dir(&link).unwrap();
         junction::create(&gone, &link).unwrap();
         fs::remove_dir(&gone).unwrap();
         assert_eq!(for_dir(&real, &base).unwrap(), Some(link.clone()));
         assert!(link.join(r"save\club").is_file());
-        // an empty real folder under the name goes; one with files is never emptied
         fs::remove_dir(&link).unwrap();
         fs::create_dir(&link).unwrap();
         assert_eq!(for_dir(&real, &base).unwrap(), Some(link.clone()));
-        fs::remove_dir(&link).unwrap();
-        fs::create_dir(&link).unwrap();
-        fs::write(link.join("keep.txt"), b"x").unwrap();
-        assert!(for_dir(&real, &base).is_err());
-        assert!(link.join("keep.txt").is_file());
-        assert!(real.join(r"save\club").is_file());
+        assert!(link.join(r"save\club").is_file());
+    }
+
+    #[test]
+    fn a_file_or_a_folder_with_files_under_the_name_stays_and_the_next_name_is_used() {
+        let top = top();
+        let base = top.path().join("run");
+        let real = top.path().join("游戏").join("game");
+        fs::create_dir_all(&real).unwrap();
+        fs::create_dir_all(&base).unwrap();
+        let id = id(&real);
+        let names: Vec<PathBuf> = (0..NAMES)
+            .map(|n| base.join(if n == 0 { id.clone() } else { format!("{id}-{n}") }))
+            .collect();
+        fs::write(&names[0], b"a file someone left").unwrap();
+        fs::create_dir(&names[1]).unwrap();
+        fs::write(names[1].join("keep.txt"), b"x").unwrap();
+        assert_eq!(for_dir(&real, &base).unwrap(), Some(names[2].clone()));
+        assert_eq!(fs::read(&names[0]).unwrap(), b"a file someone left");
+        assert!(names[1].join("keep.txt").is_file());
+        // every name taken: a clear error, nothing removed
+        fs::remove_dir(&names[2]).unwrap();
+        for n in &names[2..] {
+            fs::write(n, b"taken").unwrap();
+        }
+        let e = for_dir(&real, &base).unwrap_err().to_string();
+        assert!(e.contains("no junction name is free"), "{e}");
+        assert!(names.iter().all(|n| n.exists()));
+    }
+
+    #[test]
+    fn an_empty_or_relative_program_data_falls_back_to_the_system_folder() {
+        let system = PathBuf::from(r"C:\ProgramData\Forza-WCCF\run");
+        for v in [None, Some(""), Some("ProgramData"), Some(r"Forza\run")] {
+            assert_eq!(base_in(v.map(Into::into)), system, "{v:?}");
+        }
+        assert_eq!(base_in(Some(r"D:\PD".into())), PathBuf::from(r"D:\PD\Forza-WCCF\run"));
+        assert!(base().is_absolute());
     }
 
     #[test]
     fn no_junction_is_an_error_and_the_start_text_is_in_every_language() {
-        let top = tempfile::tempdir().unwrap();
+        let top = top();
         let real = top.path().join("游戏");
         fs::create_dir(&real).unwrap();
         let file = top.path().join("ProgramData");
@@ -213,7 +309,7 @@ mod tests {
     /// refused both ways, so starting through the junction hides nothing.
     #[test]
     fn a_changed_file_is_refused_through_the_junction_too() {
-        let top = tempfile::tempdir().unwrap();
+        let top = top();
         let real = top.path().join("游戏").join("seat1");
         fs::create_dir_all(&real).unwrap();
         let exe = real.join("client_Release.exe");
