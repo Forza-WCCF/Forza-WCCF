@@ -1761,6 +1761,70 @@ fn import_dialog() {
     all.unwrap();
 }
 
+/// 2017-18 IMPORT LINEUP: a dialog first, saying where a lineup comes from (the db.wccf.it Lineup page), its address
+/// with OPEN THE SITE and COPY (COPIED once the panel DLL copied it), then IMPORT FROM CLIPBOARD: the clipboard read as
+/// before. 2010-11 reads the clipboard at once.
+#[test]
+fn catalogue_import_help() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let t = |lang, key| forza_ui::text(lang, key, &[]);
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.message = None;
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(Vec2::new(1920.0, 1080.0), 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        h.get_by_label(&t(lang, "cat.import")).click();
+        h.run_steps(3);
+        assert!(
+            st.borrow().import_help && !st.borrow().import,
+            "{lang:?}: the dialog first"
+        );
+        h.get_by_label(&t(lang, "cat.import_help"));
+        h.get_by_label("db.wccf.it/#/board");
+        assert_eq!(panel::LINEUP_PAGE, "https://db.wccf.it/#/board");
+        h.get_by_label(&t(lang, "cat.site_open")).click();
+        h.run_steps(1);
+        assert!(
+            st.borrow().site_open,
+            "{lang:?}: OPEN THE SITE asks the DLL"
+        );
+        h.get_by_label(&t(lang, "cat.site_copy")).click();
+        h.run_steps(1);
+        assert!(st.borrow().site_copy, "{lang:?}: COPY asks the DLL");
+        // the DLL copied it
+        st.borrow_mut().site_copied = true;
+        h.run_steps(3);
+        h.get_by_label(&t(lang, "cat.site_copied"));
+        h.snapshot(format!("panel_import_help_{}", lang.code()));
+        all.extend_harness(&mut h);
+        h.get_by_label(&t(lang, "cat.import_paste")).click();
+        h.run_steps(2);
+        let s = st.borrow();
+        assert!(
+            s.import && !s.import_help && !s.site_copied,
+            "{lang:?}: the import asked, the dialog closed"
+        );
+    }
+    // 2010-11: IMPORT LINEUP reads the clipboard at once
+    let st1011 = std::cell::RefCell::new(panel::PanelState::sample(
+        Edition::E1011,
+        Lang::En,
+        panel::Page::Catalogue,
+    ));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+        panel::show(ui, &mut st1011.borrow_mut())
+    });
+    h.run_steps(4);
+    h.get_by_label("IMPORT LINEUP").click();
+    h.run_steps(2);
+    assert!(st1011.borrow().import && !st1011.borrow().import_help);
+    all.unwrap();
+}
+
 /// FORMATIONS (issue #89) during a match: two slots filled (one from another club), LOAD greyed out with its reason,
 /// slot 2 being named for SAVE (REPLACE: it is filled).
 #[test]

@@ -698,6 +698,14 @@ pub struct PanelState {
     pub add: Option<u32>,
     /// IMPORT LINEUP clicked: the panel DLL reads the clipboard and calls [`ask_import`].
     pub import: bool,
+    /// 2017-18: IMPORT LINEUP's dialog open (how to get a lineup from [`LINEUP_PAGE`], then the import).
+    pub import_help: bool,
+    /// The dialog's OPEN THE SITE clicked: the panel DLL opens [`LINEUP_PAGE`] in the default browser.
+    pub site_open: bool,
+    /// The dialog's COPY clicked: the panel DLL puts [`LINEUP_PAGE`] on the clipboard.
+    pub site_copy: bool,
+    /// The panel DLL copied it: COPY reads COPIED until the dialog closes.
+    pub site_copied: bool,
     /// A lineup read and checked, waiting for the import dialog's CONFIRM or CANCEL.
     pub import_ask: Option<ImportAsk>,
     /// CONFIRM clicked: the panel DLL takes `import_ask` and calls [`import_lineup`].
@@ -824,6 +832,10 @@ impl PanelState {
             undo: None,
             add: None,
             import: false,
+            import_help: false,
+            site_open: false,
+            site_copy: false,
+            site_copied: false,
             import_ask: None,
             import_go: false,
             import_undo: None,
@@ -992,6 +1004,9 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
     st.note(tone, text);
     added
 }
+
+/// The db.wccf.it lineup builder (its Lineup page), where IMPORT LINEUP's lineups come from.
+pub const LINEUP_PAGE: &str = "https://db.wccf.it/#/board";
 
 /// How long an import's UNDO and its message stay.
 pub const IMPORT_UNDO_SECS: f64 = 10.0;
@@ -1459,6 +1474,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     }
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
+        || st.import_help
         || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
         || (st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window));
     st.picture_rect =
@@ -1498,6 +1514,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
+    } else if st.import_help {
+        import_help_dialog(ui, st, lang);
     } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
         st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
@@ -1813,6 +1831,99 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     } else if go.clicked() || enter {
         st.reset_ask = None;
         st.reset_lineup = true;
+    }
+}
+
+/// 2017-18 IMPORT LINEUP: where a lineup comes from (the db.wccf.it Lineup page, its Copy link or Export), the page's
+/// address with OPEN THE SITE (the browser opens over the game window) and COPY, then IMPORT FROM CLIPBOARD (or Enter):
+/// the panel DLL reads the clipboard as before. CANCEL or Esc leaves.
+fn import_help_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let copied = st.site_copied;
+    let w = 520.0;
+    let modal = egui::Modal::new(egui::Id::unique("import-help-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(w);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.import"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.import_help"))
+                        .font(theme::body(17.0))
+                        .color(theme::TEXT),
+                );
+                // the page's address, as a player would type it on a phone, with OPEN and COPY
+                let (open, copy) = egui::Frame::new()
+                    .fill(theme::DEEP)
+                    .corner_radius(theme::RADIUS)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(LINEUP_PAGE.trim_start_matches("https://"))
+                                    .font(theme::body(17.0))
+                                    .color(theme::CYAN),
+                            );
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let key = if copied {
+                                    "cat.site_copied"
+                                } else {
+                                    "cat.site_copy"
+                                };
+                                let copy = action(ui, &tr!(lang, key)).clicked();
+                                let open = action(ui, &tr!(lang, "cat.site_open")).clicked();
+                                (open, copy)
+                            })
+                            .inner
+                        })
+                        .inner
+                    })
+                    .inner;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.site_hint"))
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
+                );
+                ui.add_space(4.0);
+                let go = widgets::cabinet(
+                    ui,
+                    vec2(w, 56.0),
+                    &tr!(lang, "cat.import_paste"),
+                    Cab::Go,
+                    true,
+                );
+                let cancel = widgets::cabinet(
+                    ui,
+                    vec2(w, 44.0),
+                    &tr!(lang, "cat.ask_cancel"),
+                    Cab::Plain,
+                    false,
+                );
+                (open, copy, go.clicked(), cancel.clicked())
+            })
+            .inner
+        });
+    let (open, copy, go, cancel) = modal.inner;
+    st.site_open |= open;
+    st.site_copy |= copy;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if cancel || esc || go || enter {
+        st.import_help = false;
+        st.import |= go || enter;
+        st.site_copied = false;
     }
 }
 
@@ -3555,7 +3666,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.formations_desk = false;
     }
     // the FORMATIONS dialog's name line keeps the keys
-    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() {
+    if !search.has_focus()
+        && !egui::Popup::is_any_open(ui.ctx())
+        && st.formations.is_none()
+        && !st.import_help
+    {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -3766,7 +3881,12 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             }
         });
     st.add = st.add.or(add);
-    st.import |= import;
+    // 2017-18: first the dialog saying where a lineup comes from; 2010-11 reads the clipboard at once, as before
+    if e1718 {
+        st.import_help |= import;
+    } else {
+        st.import |= import;
+    }
 }
 
 /// The card view's caption row under the pictures, with its gap: the name, the club line and the roles beside TOTAL,

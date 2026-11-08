@@ -37,6 +37,7 @@ windows = { workspace = true, features = [
     "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell", # IMPORT LINEUP's OPEN THE SITE (ShellExecuteW)
     "Win32_UI_WindowsAndMessaging",
 ] }
 
