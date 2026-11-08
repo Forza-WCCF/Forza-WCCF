@@ -1,6 +1,6 @@
 //! The frame cost by part, for forza_panel.log: every 600 frames `frame split` (each part's average over them, and
 //! how many egui passes ran) and `frame worst` (their slowest frame by part, with what it uploaded); `slow frame` at
-//! once for a frame over 25 ms, so the log lines around it say what the panel was doing.
+//! once for a frame over 25 ms (a couple per window), so the log lines around it say what the panel was doing.
 
 use crate::painter::Uploaded;
 use forza_ui::idle::Wake;
@@ -40,8 +40,9 @@ const NAMES: [&str; 11] = [
 ];
 
 const SLOW: Duration = Duration::from_millis(25);
-/// `slow frame` lines a run writes at most.
-const SLOW_LINES: u32 = 50;
+/// `slow frame` lines a window (the 600 frames between `frame split` lines) writes at most: a long session keeps
+/// naming its spikes, and the lines stay bounded. The window's slowest frame is in `frame worst` either way.
+const SLOW_LINES: u32 = 3;
 
 #[derive(Clone, Copy, Default)]
 struct Frame {
@@ -98,6 +99,7 @@ pub struct Split {
     wakes: [u32; 4],
     /// The window's slowest frame: its time, parts and number.
     worst: Option<(Duration, Frame, u32)>,
+    /// The window's `slow frame` lines written ([`SLOW_LINES`]).
     slow: u32,
 }
 
@@ -174,7 +176,14 @@ impl Split {
         let worst = self.worst.take().map_or(String::new(), |(t, f, at)| {
             format!("frame worst of the last {n}: frame {at}, {}", f.describe(t))
         });
-        (self.sum, self.total, self.frames, self.passes, self.wakes) = Default::default();
+        (
+            self.sum,
+            self.total,
+            self.frames,
+            self.passes,
+            self.wakes,
+            self.slow,
+        ) = Default::default();
         [split, worst]
     }
 }
@@ -218,5 +227,23 @@ mod tests {
         );
         // the next window starts empty
         assert!(s.lines()[0].contains("over the last 0 frames; egui ran 0 times"));
+    }
+
+    /// The cap is per window: a spike late in a long session is logged too.
+    #[test]
+    fn every_window_logs_its_slow_frames() {
+        let mut s = Split::default();
+        let slow = Duration::from_millis(30);
+        for window in 0..3 {
+            for n in 0..5 {
+                s.start();
+                assert_eq!(
+                    s.end(slow, n).is_some(),
+                    n < SLOW_LINES,
+                    "window {window}, frame {n}"
+                );
+            }
+            s.lines();
+        }
     }
 }
