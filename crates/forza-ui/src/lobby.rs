@@ -219,6 +219,10 @@ pub const CUP_MAX_MINUTES: u16 = 150;
 const CUP_DAY_CHANGE: u32 = 5 * 3600;
 /// A Universal Cup round's slot, seconds: rounds about 530 s apart (probe 1), longer than a friendly slot.
 const CUP_ROUND_SECS: u32 = 530;
+/// The longest championship slot measured: a friendly slot whose GAME state ends with the projector's live match
+/// (control 0x461CD0 on the live list), 489-505 s in the control logs of 2026-11-01 and 11-04
+/// (native/hook/src/uclive.rs GAME_SECS).
+const CHAMPIONSHIP_SLOT_SECS: u32 = 505;
 /// A cup from its open to the end of its championship: the cup's 5 rounds (about 44 min), then the championship's 3
 /// slots, and one more slot for when the control opens the championship a slot late (the day-change flag, 0x45DD69).
 const CUP_RUN_SECS: u32 = 78 * 60;
@@ -299,8 +303,9 @@ impl CupPlan {
 }
 
 // the night rule's run time covers the cup, a late slot and its championship
-const _: () =
-    assert!(CUP_ROUNDS * CUP_ROUND_SECS + (CHAMPIONSHIP_SLOTS + 1) * CUP_SLOT_SECS <= CUP_RUN_SECS);
+const _: () = assert!(
+    CUP_ROUNDS * CUP_ROUND_SECS + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS <= CUP_RUN_SECS
+);
 
 /// Why a cup time is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1972,7 +1977,7 @@ mod tests {
         let last = champ(cup(at, 0, 3 * 60 + 41).plan(h(3, 0)));
         assert_eq!(clock_text(last), "04:25");
         // even with the championship a slot late
-        assert!(last + (CHAMPIONSHIP_SLOTS + 1) * CUP_SLOT_SECS < CUP_DAY_CHANGE);
+        assert!(last + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS < CUP_DAY_CHANGE);
         assert_eq!(
             clock_text(CupPlan::GameTimes.championship().unwrap()),
             "21:44"
