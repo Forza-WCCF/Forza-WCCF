@@ -73,7 +73,7 @@ over the picture one at a time, and while a page is open its keys do not reach t
   - Dragging a card off the board takes it off (no right-click: a long press on a touch screen is one).
   - Resting the mouse on a card shows it big with a caption after `hover_delay_ms` (2010–11: setting, default 1000).
   - Every move updates the game's card table at once.
-- **Catalogue** ("+ CARD"): find a card and put it on the table.
+- **Cards** ("CARDS"): find a card and put it on the table.
   - Search line (words ANDed over name, club, country, season, position, role; digits match the card number).
   - Filters: position (ALL, GK, DF, MF, FW), rarity (ANY, ALL-TIME, LEGEND, RARE, SPECIAL, REGULAR), country, club.
   - Sort: NAME, TOTAL, OFF, DEF, TEC, POW, SPD, STA.

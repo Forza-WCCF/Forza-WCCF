@@ -8,7 +8,7 @@ COS'È
   World Club Champion Football 2017-18 su un solo PC Windows, con un posto, dai vostri file di gioco. Il VS online
   contro un'altra casa è facoltativo. Forza-WCCF fa le veci dell'hardware e dei server della sala giochi: il server di
   gioco (club e salvataggi), rete e keychip, lettore di carte Aime e scheda I/O. Intorno alla finestra del gioco c'è
-  un pannello con i pulsanti del cabinato e una lavagna della formazione per le vostre carte. Forza-WCCF non contiene
+  un pannello con i pulsanti del cabinato e la formazione per le vostre carte. Forza-WCCF non contiene
   file originali: tutto viene dalla vostra copia.
 
 COSA SERVE
@@ -30,7 +30,7 @@ LAUNCHER
   GIOCA            DOVE GIOCARE (Questo PC o Online), poi GIOCA. FERMA IL GIOCO chiude il gioco (durante una
                    partita: CLICCA ANCORA).
   CONFIGURAZIONE   cartella del gioco, CONFIGURA, ANNULLA CONFIGURAZIONE; IMMAGINI CARTE (Dal gioco, oppure
-                   Pacchetto HQ con Scegli pacchetto); Salta il tutorial; RIPULISCI DOPO UN BLOCCO (toglie i resti di un blocco o di una visita in sala interrotta; il
+                   Pacchetto HQ con Scegli pacchetto); RIPULISCI DOPO UN BLOCCO (toglie i resti di un blocco o di una visita in sala interrotta; il
                    club resta, una copia va prima in data\backup; non mentre il gioco è in esecuzione).
   AGGIORNAMENTO    elenca le versioni pubblicate: sceglietene una, poi AGGIORNA. Il gioco viene configurato di nuovo
                    da solo; club e impostazioni restano.
@@ -42,8 +42,6 @@ COME SI GIOCA
   Premete GIOCA. Il gioco parte in circa 30 secondi. La carta Aime è emulata. Club e salvataggi sono in
   data\save\gamesvr: fatene una copia.
   Una carta nuova parte con la licenza da manager, un tutorial di 5 partite e la creazione del club (circa 30 minuti).
-  Per saltarli, spuntate Salta il tutorial in CONFIGURAZIONE prima di GIOCA: la carta nuova riceve un club pronto e va
-  alla schermata principale.
   Inserite la carta subito dopo l'avvio. Dopo una partita toglietela (I), poi chiudete la finestra del gioco.
 
 TASTI
@@ -55,8 +53,8 @@ TASTI
       I       carta Aime dentro / fuori   5   moneta
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.
-  Lavagna della formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
-  il CATALOGO.
+  Formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. Il pulsante CARTE apre
+  la pagina CARTE.
   Le carte rare con codice 2D funzionano.
 
 ONLINE

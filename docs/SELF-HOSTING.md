@@ -33,7 +33,7 @@ The repository and its builds ship no game files. You need your own copies:
 - 2010-11: the game folder (the Rev D programs and their data), the same one the Forza-WCCF Launcher sets up on a
   player's PC. `guard_imports.py` checks control against the original's pinned hash.
 - 2017-18: `prog_data/player_data/player_data.bin` (the 2D-code cards) and `prog_data/cpu_team/cpu_50.dat` (the club
-  a new player starts with when the tutorial is skipped), from your game folder.
+  the test-only `--skip-tutorial` makes; players play the game's tutorial), from your game folder.
 
 Keep them on the server with mode 600. Never put them, the databases or the logs in a repository.
 
@@ -89,7 +89,8 @@ Another architecture for `forza-server`: `deploy/linux/Dockerfile.forza-server`.
 ### Server notices
 
 The desk sends one short notice to players in its lobby answer; the Launcher shows it, and the in-game panel shows it
-once per id. The notice is a JSON file, read on the first lobby answer and again whenever its time changes
+once per id across the top of the game picture for 30 seconds, between matches. The Launcher asks every minute, also
+while the game runs, so a new notice reaches a running game within about a minute (or after the match on). The notice is a JSON file, read on the first lobby answer and again whenever its time changes
 (`WCCF_NOTICE` names another file):
 
     /srv/forza-wccf/1718/data/notice.json      # `--store`'s folder
@@ -116,8 +117,10 @@ once per id. The notice is a JSON file, read on the first lobby answer and again
 - A good read logs `notice: /srv/forza-wccf/1718/data/notice.json read, id n11`; removing the file takes the notice
   off the lobby at the next answer.
 - 2017-18 only. The Launcher asks the lobby it is pointed at for the notice (`WCCF_LOBBY`, else the default
-  `lobby.wccf.it`), never the `servers` list; a self-hosted desk's notice reaches the players whose Launcher names
-  that lobby. A Launcher text box for a self-hosted arcade's own notice comes later.
+  `lobby.wccf.it`). While a seat plays on another server's desk (a LAN arcade, or a seat that a listed server
+  reserved), it asks that desk instead, so the seat shows the notice of the server it plays on: that desk's own file
+  (`WCCF_NOTICE`, else `notice.json` in its `--store` folder). A Launcher text box for a self-hosted arcade's own
+  notice comes later.
 
 ### The 2017-18 arcade
 

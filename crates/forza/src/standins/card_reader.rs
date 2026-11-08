@@ -876,7 +876,23 @@ mod pipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::sync::Arc;
+
+    // The reader's framing: what `frame` sends, `unframe` reads back with its bcc, and every shorter cut of it is
+    // still incomplete, so the game waits for the rest (the `10` of the payload is doubled, the terminator is not).
+    proptest! {
+        #[test]
+        fn a_framed_message_reads_back_whole(payload in prop::collection::vec(any::<u8>(), 0..64)) {
+            let f = frame(&payload);
+            let mut want = payload.clone();
+            want.push(payload.iter().fold(0, |a, b| a ^ b));
+            prop_assert_eq!(unframe(&f), Some(want));
+            for n in 0..f.len() {
+                prop_assert_eq!(unframe(&f[..n]), None, "{:02x?} cut at {}", payload, n);
+            }
+        }
+    }
 
     fn quiet() -> Log {
         Arc::new(|_| {})

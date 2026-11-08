@@ -99,7 +99,8 @@ fn gmsvr_answers_coach_list_and_replays_a_save() {
     assert_eq!(body.len(), 9292);
     assert_eq!(word(&body, 0), 1, "slot echoed");
 
-    // a club, then SAVE_DATA_SET 277 -> SAVE_DATA 275 returns the same block byte for byte
+    // a club, then SAVE_DATA_SET 277 -> SAVE_DATA 275 returns the same block with only the Universal Championship
+    // entry date cleared (MATCH SELECT reads it before the play's own reset runs)
     let mut add = req(36, 32);
     add[12] = 1;
     let (_, a) = ask(&mut c, 279, &add);
@@ -128,7 +129,9 @@ fn gmsvr_answers_coach_list_and_replays_a_save() {
     let (rc, got) = ask(&mut c, 275, &get);
     assert_eq!(rc, 276);
     assert_eq!(got.len(), 6176);
-    assert_eq!(&got[8..3080], &blk[..]);
+    let mut want = blk.clone();
+    forza::online::gamesvr::clear_uc_entry_date(&mut want);
+    assert_eq!(&got[8..3080], &want[..]);
     assert!(
         std::fs::read_dir(&dir).unwrap().all(|e| !e
             .unwrap()

@@ -53,7 +53,7 @@ use forza::online::save_logs::{self, Scrub};
 use forza::online::seat::{self, Lease};
 use forza::online::{championship, club, gamesvr};
 use forza::standins::{Handle, Log, aime, aimedb, card_reader, io_board, network, scenes};
-use forza_ui::lobby::CupPlan;
+use forza_ui::lobby::{CupPlan, CupRefused};
 use regex::Regex;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, FALSE, GetLastError, WAIT_ABANDONED, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Threading::{
@@ -420,6 +420,21 @@ pub fn any_on(kit: &Kit) -> bool {
     is_on(kit, Kind::Run) || is_on(kit, Kind::Server)
 }
 
+/// What the run in this process got for the Universal Cup (2017-18, this PC: `Run::start_gamesvr` writes the control's
+/// schedule from it): the window's PLAY tab shows that while the run is on, never a new preview.
+static CUP_STARTED: Mutex<Option<Result<CupPlan, CupRefused>>> = Mutex::new(None);
+
+/// [`CUP_STARTED`]: `None` while no run on this PC is on, else what that run got - a refusal included, so the PLAY tab
+/// keeps showing the refusal the run was started with.
+pub fn cup_started() -> Option<Result<CupPlan, CupRefused>> {
+    *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// [`CUP_STARTED`]: what the run being started got; `None` once it ends.
+fn remember_cup(got: Option<Result<CupPlan, CupRefused>>) {
+    *CUP_STARTED.lock().unwrap_or_else(PoisonError::into_inner) = got;
+}
+
 fn request_file(kit: &Kit, kind: Kind) -> PathBuf {
     kit.data().join(format!("{}.request", kind.name()))
 }
@@ -623,8 +638,18 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
     })
 }
 
+/// The run is over: [`CUP_STARTED`] is cleared, so the PLAY tab previews the choice again.
+struct ForgetCup;
+
+impl Drop for ForgetCup {
+    fn drop(&mut self) {
+        remember_cup(None);
+    }
+}
+
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
+    let _forget = ForgetCup; // every way out: the run it remembers has ended
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
@@ -909,6 +934,15 @@ fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
 }
 
 /// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
+/// The name a LAN arcade answers searches with: its cleaned arcade name, else this PC's.
+fn lan_name(arcade: String) -> String {
+    if arcade.is_empty() {
+        env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into())
+    } else {
+        arcade
+    }
+}
+
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     let file = Mutex::new(File::create(path).ok());
@@ -1047,7 +1081,12 @@ pub struct Run<'a> {
     early: [Duration; 2],
     /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
     uc_seen: Option<SystemTime>,
+    /// The day file's time when it was last read while it changed (logged once).
+    uc_partial: Option<SystemTime>,
     uc_told: Option<u32>,
+    /// The player's club last seen in that day's bracket (date, names, swap logged), for the swap line and the run's
+    /// summary.
+    uc_player: Option<(u32, String, bool)>,
     /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
     /// may be hidden: the championship plays unseen then.
     projector: bool,
@@ -1171,7 +1210,9 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         t0,
         early,
         uc_seen: None,
+        uc_partial: None,
         uc_told: None,
+        uc_player: None,
         projector: false,
         _lock: lock,
     };
@@ -1794,9 +1835,11 @@ impl Run<'_> {
         } else {
             let ctrl_conf = self.game.join(r"local\ctrl_user_option.conf");
             if matches!(self.mode, Mode::Local | Mode::Vs(_)) {
-                // 2017-18 CPU championship off: no projector program (it plays the championship), nobody waits for it;
-                // the "projector" setting only shows or hides its window (the panel in it)
-                projector = self.edition != Edition::E1718 || choices::cpu_championship_on(&self.kit.settings());
+                // 2017-18: the projector program runs for its window or for the CPU championship it plays (hidden when
+                // only the championship wants it); with both off, none, and nobody waits for it
+                let s = self.kit.settings();
+                projector =
+                    self.edition != Edition::E1718 || choices::projector_shown(&s) || choices::cpu_championship_on(&s);
                 let wait = if projector { "1" } else { "0" };
                 for c in &confs {
                     conf::set_control_ip(c, "127.0.0.1")?; // after a "remote" run: the cabinets play on this PC again
@@ -1819,7 +1862,14 @@ impl Run<'_> {
                 // the control saves the Universal Championship in log\<date>_uc.bin but makes no folder (0x41EF00)
                 fs::create_dir_all(game.join("log"))?;
             }
-            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, Vec::new())?;
+            // the CPU championship off: the control's hook keeps an all-CPU Universal Championship off the projector
+            // (native/hook/src/uclive.rs); the projector then plays the control's own demo pair instead
+            let env = if self.edition == Edition::E1718 && !choices::cpu_championship_on(&self.kit.settings()) {
+                vec![("WCCF_UCLIVE".to_owned(), "on".to_owned())]
+            } else {
+                Vec::new()
+            };
+            self.start_game(Role::Server, p.control_args.clone(), &game, !self.debug, env)?;
             let said = std::cell::Cell::new(false);
             wait_for(
                 Text::key("launcher.run_part_server"),
@@ -1961,10 +2011,18 @@ impl Run<'_> {
             // every tunnel guest reaches the desk as 127.0.0.1: no per-address limits there
             env.push(("WCCF_DESK_TUNNEL".to_owned(), "1".to_owned()));
         }
+        // the arcade's name this runtime set; empty: the desk's and the LAN answer's defaults
+        let name = forza::online::lobby::arcade_name(
+            &choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default(),
+        );
         if self.edition == Edition::E1718 {
             // guests bring their own clubs into this PC's store (online::club), on the tunnel and on the LAN
             let db = self.kit.save().join("gamesvr").join("gamesvr.db");
             env.push(("WCCF_CLUB_DB".to_owned(), db.display().to_string()));
+            // the ARCADES row for this desk's own arcade (a private room is never listed)
+            if !name.is_empty() {
+                env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
+            }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
         let mut cmd = if self.edition == Edition::E1718 {
@@ -1980,9 +2038,8 @@ impl Run<'_> {
             cmd.arg("--no-gmsvr");
         }
         if lan_only {
-            // the name guests see in their list: this PC's
-            cmd.arg("--lan")
-                .arg(env::var("COMPUTERNAME").unwrap_or_else(|_| "Forza-WCCF".into()));
+            // the name guests see in their list: the arcade's, as on its ARCADES row, else this PC's
+            cmd.arg("--lan").arg(lan_name(name));
         }
         cmd.arg((LIFE.as_secs() + 60).to_string()).arg(&logs);
         clean_env(&mut cmd, &logs, &env);
@@ -2243,6 +2300,8 @@ impl Run<'_> {
     /// GAME_SVR_ENTRY=1 (the control's VS entries, 243-246), the lobby's VS room claimed at its desk, the direct VS
     /// link. A cabinet on a server uses that server's.
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
+        // a new run: nothing of the last one until this one picks its cup
+        remember_cup(None);
         if !matches!(self.mode, Mode::Remote(..)) {
             self.club_leftover(&self.kit.save().join("gamesvr"));
         }
@@ -2256,6 +2315,8 @@ impl Run<'_> {
         // new start; local play's PLAY tab writes the same setting). A cup at a time is a schedule slot
         // (local\schedule_option.conf); VS keeps the game's times.
         let plan = rules::cup_plan(&self.mode, &self.kit.settings(), forza_ui::lobby::local_clock());
+        // the window's PLAY tab shows this run's result while it runs, not a new one every frame
+        remember_cup(Some(plan));
         let ((times, friendlies), line) = match plan {
             Ok(p) => (
                 conf::cup_files(p),
@@ -2275,6 +2336,17 @@ impl Run<'_> {
         conf::set_cup_times(&ctrl_conf, times)?;
         conf::set_cup_schedule(&self.game.join(r"local\schedule_option.conf"), friendlies)?;
         self.tell("  ", &line);
+        // for live checks: when the control should open the Universal Championship, the cup's winner in it (a refused
+        // time leaves the game's times)
+        let plan_line = match plan.unwrap_or(CupPlan::GameTimes).championship() {
+            Some(t) => format!(
+                "championship plan: from about {}, the slot after the cup's final, {} matches",
+                forza_ui::lobby::clock_text(t),
+                forza_ui::lobby::CHAMPIONSHIP_SLOTS
+            ),
+            None => "championship plan: none, no cup".to_owned(),
+        };
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &plan_line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
             let panel = choices::read_ok(&panel_file).map_err(|e| {
@@ -2327,6 +2399,7 @@ impl Run<'_> {
         let log = file_log(self.logs().join("gamesvr_log.txt"));
         // the run's game folder (also recorded as "game" by the 2017-18 setup): the stand-in pre-registers its 2D-code cards,
         // and data\settings.json "skip_tutorial": true makes it give a new Aime id a club from the game's cpu_50.dat
+        // (no window sets it now: seed-club.sh and the fixture use it, players play the tutorial)
         let skip = self.kit.settings()["skip_tutorial"].as_bool().unwrap_or(false);
         let game = Some(self.game.clone());
         // guests' clubs a crashed arcade left here (online::club): their players keep their home copies
@@ -2554,9 +2627,16 @@ impl Run<'_> {
         // settings keys kept from before the arcade rename: players' settings.json already holds them
         let public = self.kit.settings()["list_shop"].as_bool() == Some(true);
         let name = choices::setting(&self.kit.settings_file(), "shop_name").unwrap_or_default();
-        crate::lobby::HostRoom::open(&desk, &vslink::arcade::id_text(&id), public, &name, log, &|t| {
-            self.tell("     ", t)
-        })
+        let secret = crate::lobby::room_secret(key);
+        crate::lobby::HostRoom::open(
+            &desk,
+            &vslink::arcade::id_text(&id),
+            secret.as_deref(),
+            public,
+            &name,
+            log,
+            &|t| self.tell("     ", t),
+        )
     }
 
     /// A 2017-18 server's arcade room: its code, the lobby server holding it and the flag set when that lobby loses it;
@@ -2644,8 +2724,9 @@ impl Run<'_> {
         });
     }
 
-    /// 2017-18 with the control here: once a day, when today's Universal Championship (game\log\<date>_uc.bin) has
-    /// a player's club, the notice with about when it plays on the projector, and the bracket's line in the log.
+    /// 2017-18 with the control here: the bracket's line in the log at each change of today's Universal Championship
+    /// (game\log\<date>_uc.bin), a line when a player's club leaves it, and once a day, when it has a player's club,
+    /// the notice with about when it plays on the projector.
     fn watch_championship(&mut self) {
         if self.edition != Edition::E1718 || !self.alive(Role::Server) {
             return;
@@ -2655,14 +2736,41 @@ impl Run<'_> {
         let Ok(at) = fs::metadata(&f).and_then(|m| m.modified()) else {
             return;
         };
-        if self.uc_told == Some(date) || self.uc_seen == Some(at) {
+        if self.uc_seen == Some(at) {
+            return;
+        }
+        let b = fs::read(&f).unwrap_or_default();
+        let log = self.logs().join("run_launcher.txt");
+        if championship::whole(&b).is_err() {
+            // read while the control writes it: not judged, read again at the next look (one line per change)
+            if self.uc_partial != Some(at) {
+                self.uc_partial = Some(at);
+                crate::logs::append(&log, &championship::line_of(date, &b));
+            }
             return;
         }
         self.uc_seen = Some(at);
-        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        let teams = championship::teams(&b);
+        // every change of the day file gets its line (a few a day): a player's report then shows when the club went
+        // in, its fix/hasDvs flags, and a swap for a CPU team
+        crate::logs::append(&log, &championship::line_of(date, &b));
+        let mine = championship::players(&teams);
+        match &mut self.uc_player {
+            Some((d, club, told)) if *d == date && mine.is_empty() && !*told => {
+                *told = true;
+                crate::logs::append(
+                    &log,
+                    &format!(
+                        "championship: {date} {club} is no longer in the bracket - the control swapped it for a CPU team (fix or hasDvs 0, control 0x47DCF0 \"change cpu!\")"
+                    ),
+                );
+            }
+            _ if !mine.is_empty() => self.uc_player = Some((date, mine.clone(), false)),
+            _ => {}
+        }
         // shortcut: any player's club counts as "yours"; an arcade host with guests may see a guest's win, tell the
         // clubs apart (block +0 = coach id) if hosts report it
-        if !teams.iter().any(|t| t.player) {
+        if mine.is_empty() || self.uc_told == Some(date) {
             return;
         }
         self.uc_told = Some(date);
@@ -2673,7 +2781,6 @@ impl Run<'_> {
         if self.projector && choices::projector_shown(&self.kit.settings()) {
             self.tell("", &championship_notice(opens));
         }
-        crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
     }
 
     // ---- the supervisor ----
@@ -2946,6 +3053,7 @@ impl Run<'_> {
         } else {
             Vec::new()
         };
+        let control_here = self.alive(Role::Server) || self.gone.contains(&Role::Server);
         self.shutdown();
         let notice = self.host_closed_notice();
         let why = if notice.is_some() {
@@ -2963,6 +3071,18 @@ impl Run<'_> {
         }
         if let Some(n) = &notice {
             self.tell("", n);
+        }
+        if self.edition == Edition::E1718 && control_here {
+            let date = championship::date(now_local());
+            let seen = self
+                .uc_player
+                .as_ref()
+                .filter(|(d, ..)| *d == date)
+                .map(|(_, c, _)| c.as_str());
+            crate::logs::append(
+                &self.logs().join("run_launcher.txt"),
+                &championship::summary(&self.game, date, seen),
+            );
         }
         let club_home = self
             .visit
@@ -3194,6 +3314,13 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
+    #[test]
+    fn a_lan_arcade_answers_with_its_name() {
+        assert_eq!(super::lan_name("Bar Sport".into()), "Bar Sport");
+        assert!(!super::lan_name(String::new()).is_empty());
+    }
 
     #[test]
     fn the_championship_notice_gives_the_time_in_every_language() {

@@ -35,14 +35,27 @@ const TABS_H: f32 = 56.0;
 /// The deck row under the picture keeps at least this; on wide sheets the picture stops growing first.
 const DECK_MIN: f32 = 148.0;
 /// What the board's height needs per point of pitch width (pitch 1.25, the artwork's bench 0.205) and besides (margins 32,
-/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a hint line 23).
+/// gaps 12, and the foot: a gap 4, the row of buttons 22, a gap 8 and a line 23: the hint, or a note and its UNDO 22).
+/// The layout's column and the 2010-11 board use this.
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 101.0;
+/// The 2017-18 game window's board besides its pitch: the margins 32, the gap under the pitch 12, the foot 8 under the
+/// bench (its item spacing 4 and a space 4), the row of buttons 32 (the theme's buttons, drawn taller than their
+/// 22-point rects), [`FOOT_GAP`] 8 and the hint's line. Its 24 points take 116, 4 past this; 112 holds a 20-point
+/// line, the drawn hint (17) inside the board's 16-point margin at 1440x900.
+const BOARD_EXTRA_1718: f32 = 112.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
 /// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
 /// The pop-out board's foot: a gap 4 and one row for DOCK and UNDO 24.
 const DESK_FOOT: f32 = 28.0;
+/// The foot's buttons and hint keep this much of the board at their sides, the margin the board itself keeps in its
+/// column: none sits on the pitch's border.
+const FOOT_PAD: f32 = 16.0;
+/// The game window's board: the hint's gap under the row of buttons as drawn.
+const FOOT_GAP: f32 = 8.0;
+/// The foot's labels shrink to this when the board is too narrow for them (long Italian or Japanese labels).
+const FOOT_TEXT_MIN: f32 = 9.0;
 
 /// Points per pixel for a window of `w` x `h` pixels on a monitor of `dpi` (96 = 100%): 1 from 1440x900 up (a bigger
 /// window gets a bigger sheet, so the game's picture can grow past its own size), 2 from 2880x1800 (4K), the window's
@@ -449,12 +462,26 @@ pub struct Catalogue {
     /// The card view (a full page, front and back at their own pixels): the card shown (an index into the catalogue),
     /// and its back chosen when only one side fits.
     pub view: Option<usize>,
+    /// The back shown: the card view's one side, and the detail pane's picture (another card in the pane goes back
+    /// to its front).
     pub view_back: bool,
+    /// The stat range sliders shown (STAT RANGES).
+    pub ranges_open: bool,
+    /// The card number the detail pane last drew: the side belongs to it.
+    shown: Option<u32>,
     searched: Option<Filter>,
     index: Option<Index>,
 }
 
 impl Catalogue {
+    /// The pane's side goes with the card it was set on: another card (or none) shows its front again.
+    fn set_shown(&mut self, number: Option<u32>) {
+        if self.shown == number {
+            return;
+        }
+        (self.shown, self.view_back) = (number, false);
+    }
+
     /// The index made once and the search run again when the filter changed; `true` = the results changed.
     fn refresh(&mut self, cards: &[Card]) -> bool {
         let index = self.index.get_or_insert_with(|| Index::new(cards));
@@ -477,6 +504,12 @@ pub struct Note {
 }
 
 const NOTE_SECS: f64 = 4.0;
+/// How long the server's notice stays across the top of the game picture.
+pub const BANNER_SECS: f64 = 30.0;
+
+/// The CATALOGUE filter's country and club list boxes: wide enough for "Argentina (231)", narrow enough that both
+/// fit on one line beside their labels in English, Italian and Japanese.
+const COMBO_W: f32 = 136.0;
 
 impl Note {
     pub fn new(tone: Tone, text: String) -> Note {
@@ -493,6 +526,14 @@ impl Note {
         Note {
             secs: IMPORT_UNDO_SECS,
             ..Note::new(tone, text)
+        }
+    }
+
+    /// The server's notice across the top of the game picture ([`PanelState::banner`]): shown for [`BANNER_SECS`].
+    pub fn banner(text: String) -> Note {
+        Note {
+            secs: BANNER_SECS,
+            ..Note::new(Tone::Notice, text)
         }
     }
 
@@ -584,6 +625,8 @@ pub struct PanelState {
     pub ping_ms: u32,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
+    /// The server's notice, across the top of the game picture on the game page ([`Note::banner`]).
+    pub banner: Option<Note>,
     pub catalogue: Catalogue,
     /// Each action's key (virtual-key code, 0 none) and controller control (`forza::keys`), in [`ACTIONS`] order.
     pub keys: [u32; forza::keys::COUNT],
@@ -638,8 +681,9 @@ pub struct PanelState {
     pub board_changed: bool,
     /// A cabinet button pressed this frame: its action's name in keys.txt (START, PRESS, SHOOT, UP, ...).
     pub pressed: Option<&'static str>,
-    /// The cabinet button whose key is down (lit until the key goes up).
-    pub held: Option<&'static str>,
+    /// The actions (by [`forza::keys::NAMES`] index) whose bound key is down this frame ([`keys_down`]): their
+    /// cabinet buttons draw pressed, as under a click.
+    pub down: [bool; forza::keys::COUNT],
     /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
     pub undo: Option<(board::Removed, f64)>,
     /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
@@ -683,10 +727,14 @@ pub struct PanelState {
     /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
     /// panel starts is one left over, not a match beginning.
     pub seat_on: bool,
-    /// The table differs from `before_match`: RESET LINEUP is offered, greyed out while `in_match`.
+    /// The table differs from `before_match`: RESET LINEUP's hover names the table it goes back to. It is offered
+    /// whenever the panel is not in a match and a table was kept, so the flag only feeds that text.
     pub reset_ready: bool,
-    /// RESET LINEUP clicked: the panel DLL calls [`take_reset`].
+    /// RESET LINEUP's CONFIRM clicked: the panel DLL calls [`take_reset`].
     pub reset_lineup: bool,
+    /// RESET LINEUP clicked: its dialog shows the kept table until CONFIRM or CANCEL; `Some(true)`: on the board
+    /// window ([`PanelState::desk`]), as FORMATIONS does.
+    pub reset_ask: Option<bool>,
     /// A slot clicked to load: the panel DLL calls [`load_formation`].
     pub formation_load: Option<usize>,
     /// SAVE confirmed (slot, name): the panel DLL writes the table into the slot.
@@ -742,6 +790,7 @@ impl PanelState {
             online: false,
             ping_ms: 0,
             message: None,
+            banner: None,
             catalogue: Catalogue::default(),
             keys: forza::keys::defaults(edition == Edition::E1718),
             pads: [0; forza::keys::COUNT],
@@ -770,7 +819,7 @@ impl PanelState {
             picture_rect: None,
             board_changed: false,
             pressed: None,
-            held: None,
+            down: [false; forza::keys::COUNT],
             latched: None,
             undo: None,
             add: None,
@@ -793,6 +842,7 @@ impl PanelState {
             seat_on: true,
             reset_ready: false,
             reset_lineup: false,
+            reset_ask: None,
             formation_load: None,
             formation_save: None,
             formation_copy: None,
@@ -888,7 +938,6 @@ impl PanelState {
             },
             club: super::sample::club_view(),
             projector: (edition == Edition::E1718).then_some(true),
-            held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
                 lang,
@@ -1195,12 +1244,27 @@ pub fn lineup_tick(
         .before_match
         .as_ref()
         .is_some_and(|b| lineup_differs(b, placed));
+    if st.in_match {
+        st.reset_ask = None;
+    }
 }
 
 /// The table a match begins with, kept for RESET LINEUP, and when.
 fn keep_table(st: &mut PanelState, placed: &[Placed]) {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     st.before_match = Some(placed.to_vec());
+    st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// The table an earlier run kept when its last match began (the panel DLL's copy beside the table), `at` the copy's
+/// time: RESET LINEUP offers it from the start, until the next match keeps its own. An empty table keeps nothing.
+pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::SystemTime) {
+    if table.is_empty() {
+        return;
+    }
+    let t = time::OffsetDateTime::from(at);
+    let t = time::UtcOffset::current_local_offset().map_or(t, |o| t.to_offset(o));
+    st.before_match = Some(table);
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
 }
 
@@ -1231,9 +1295,9 @@ fn lineup_differs(a: &[Placed], b: &[Placed]) -> bool {
     key(a) != key(b)
 }
 
-/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when nothing differs, or
+/// RESET LINEUP: the table kept when the match began (`placed`: the table now, kept for UNDO), to be written like a card move; `None` when there is nothing kept, or
 /// in a match (`in_match`, read at the click, not the last poll's: refused with a note, as the import is). The board
-/// shows it at once.
+/// shows it at once; a reset to the table the board already holds is allowed and changes nothing (no UNDO line).
 pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Option<Vec<Placed>> {
     if !std::mem::take(&mut st.reset_lineup) {
         return None;
@@ -1243,15 +1307,14 @@ pub fn take_reset(st: &mut PanelState, placed: &[Placed], in_match: bool) -> Opt
         st.say(Tone::Refused, "cat.msg_import_match");
         return None;
     }
-    if !st.reset_ready {
-        return None;
-    }
     let before = st.before_match.clone()?;
     st.board = cards::board(&before, &st.cards);
-    // the UNDO lines belong to an older table; the new one undoes the reset
-    st.undo = None;
-    st.import_undo = Some((placed.to_vec(), 0.0));
-    st.reset_after = Some(before.clone());
+    if st.reset_ready {
+        // the UNDO lines belong to an older table; the new one undoes the reset
+        st.undo = None;
+        st.import_undo = Some((placed.to_vec(), 0.0));
+        st.reset_after = Some(before.clone());
+    }
     st.reset_ready = false;
     Some(before)
 }
@@ -1391,9 +1454,13 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
         Stroke::new(1.0, theme::RIM),
     );
     game_picture(ui, pic, st.picture);
+    if st.page == Page::Game {
+        banner(ui, pic, &mut st.banner);
+    }
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
-        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window));
+        || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
+        || (st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window));
     st.picture_rect =
         (st.page == Page::Game && st.deal.is_none() && !st.close_warn && !dialog).then_some(pic);
     // popped out the deck is the column's: COMPACT is the docked layout's choice
@@ -1434,6 +1501,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
         st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
+    } else if st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window) {
+        st.reset_ask = Some(false);
+        reset_dialog(ui, st, lang);
     }
     if st.page != Page::Game {
         let mut pg = ui.new_child(egui::UiBuilder::new().max_rect(above));
@@ -1466,7 +1536,7 @@ fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
 fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
-        egui::Id::new("paused"),
+        egui::Id::unique("paused"),
     ));
     p.rect_filled(pic, 0, Color32::from_black_alpha(150));
     let r = Rect::from_center_size(pic.center(), vec2((pic.width() - 40.0).min(560.0), 150.0));
@@ -1511,7 +1581,7 @@ fn paused(ui: &Ui, pic: Rect, lang: Lang, key: &str, left: u64) {
 /// while the dialog is open.
 fn close_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let edition = st.edition;
-    let modal = egui::Modal::new(egui::Id::new("close-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("close-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1576,7 +1646,7 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let Some(ask) = st.import_ask.clone() else {
         return;
     };
-    let modal = egui::Modal::new(egui::Id::new("import-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("import-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1633,6 +1703,119 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
+/// RESET LINEUP's question: the kept table as a squad list (the pitch by position, left to right, then the subs), the
+/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; CANCEL (or Esc) leaves
+/// the table as it is.
+fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let Some(kept) = st.before_match.as_deref() else {
+        st.reset_ask = None;
+        return;
+    };
+    let kept = cards::board(kept, &st.cards);
+    let now = &st.board;
+    let pitch_now: Vec<u32> = (0..11).filter_map(|s| now.number(s)).collect();
+    let bench_now: Vec<u32> = (11..16).filter_map(|s| now.number(s)).collect();
+    // one row per position, the subs last: (label, [(name, changes place)])
+    let mut rows: Vec<(String, Vec<(String, bool)>)> = Vec::new();
+    for pos in Position::ALL {
+        let mut on: Vec<usize> = (0..11)
+            .filter(|&s| kept.slots[s].is_some_and(|ci| kept.cards[ci].pos == pos))
+            .collect();
+        on.sort_by(|&a, &b| kept.spots[a].x.total_cmp(&kept.spots[b].x));
+        let names = on
+            .iter()
+            .filter_map(|&s| kept.slots[s].map(|ci| &kept.cards[ci]))
+            .map(|c| (c.short_name().to_owned(), !pitch_now.contains(&c.number)))
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            rows.push((pos.code().to_owned(), names));
+        }
+    }
+    let subs: Vec<_> = (11..16)
+        .filter_map(|s| kept.slots[s].map(|ci| &kept.cards[ci]))
+        .map(|c| (c.short_name().to_owned(), !bench_now.contains(&c.number)))
+        .collect();
+    if !subs.is_empty() {
+        rows.push((tr!(lang, "board.reset_subs"), subs));
+    }
+    let at = st.before_match_at.clone().unwrap_or_default();
+    let modal = egui::Modal::new(egui::Id::unique("reset-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_ask_title"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                ui.label(
+                    egui::RichText::new(tr!(lang, "board.reset_to", at = at))
+                        .font(theme::body(15.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+            for (label, names) in &rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(44.0, 20.0), Sense::hover());
+                    ui.painter().text(
+                        r.left_center(),
+                        Align2::LEFT_CENTER,
+                        label,
+                        theme::bold(14.0),
+                        theme::TEXT_DIM,
+                    );
+                    for (name, moves) in names {
+                        ui.label(
+                            egui::RichText::new(name)
+                                .font(theme::body(16.0))
+                                .color(if *moves { theme::GOLD } else { theme::TEXT }),
+                        );
+                    }
+                });
+            }
+            ui.label(
+                egui::RichText::new(tr!(lang, "board.reset_moves"))
+                    .font(theme::body(13.0))
+                    .color(theme::GOLD),
+            );
+            ui.add_space(6.0);
+            let go = widgets::cabinet(
+                ui,
+                vec2(440.0, 56.0),
+                &tr!(lang, "cat.ask_confirm"),
+                Cab::Go,
+                true,
+            );
+            let cancel = widgets::cabinet(
+                ui,
+                vec2(440.0, 44.0),
+                &tr!(lang, "cat.ask_cancel"),
+                Cab::Plain,
+                false,
+            );
+            (go, cancel)
+        });
+    let (go, cancel) = modal.inner;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    if cancel.clicked() || esc {
+        st.reset_ask = None;
+    } else if go.clicked() || enter {
+        st.reset_ask = None;
+        st.reset_lineup = true;
+    }
+}
+
 /// FORMATIONS: ten slots, each its name (or Empty), the club it was saved from and the day. LOAD puts a slot's cards
 /// on the table (greyed out during a match, the reason under the list); SAVE asks for a name (REPLACE when the slot is
 /// filled) and stores the table at any time; COPY TEXT puts the slot's lineup, COPY TABLE AS TEXT the table's, on the
@@ -1643,7 +1826,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     };
     let in_match = st.in_match;
     let mut close = false;
-    let modal = egui::Modal::new(egui::Id::new("formations-dialog"))
+    let modal = egui::Modal::new(egui::Id::unique("formations-dialog"))
         .backdrop_color(Color32::from_black_alpha(170))
         .frame(
             egui::Frame::new()
@@ -1752,7 +1935,7 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             if let Some((i, name)) = &mut f.naming {
                 let i = *i;
                 ui.separator();
-                ui.label(
+                let label = ui.label(
                     egui::RichText::new(tr!(lang, "form.name_for", n = i + 1))
                         .font(theme::bold(15.0))
                         .color(theme::TEXT),
@@ -1765,13 +1948,15 @@ fn formations_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         &tr!(lang, "form.replaces", name = o.name.clone()),
                     );
                 }
-                let edit = ui.add(
-                    egui::TextEdit::singleline(name)
-                        .id_salt("form-name")
-                        .char_limit(40)
-                        .font(theme::body(16.0))
-                        .desired_width(f32::INFINITY),
-                );
+                let edit = ui
+                    .add(
+                        egui::TextEdit::singleline(name)
+                            .id_salt("form-name")
+                            .char_limit(40)
+                            .font(theme::body(16.0))
+                            .desired_width(f32::INFINITY),
+                    )
+                    .labelled_by(label.id);
                 if !edit.has_focus() {
                     edit.request_focus();
                 }
@@ -1852,7 +2037,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     };
     let size = vec2(360.0, 640.0f32.min(area.height() - 20.0));
     let r = Rect::from_center_size(area.center(), size);
-    let resp = egui::Area::new(egui::Id::new("deal"))
+    let resp = egui::Area::new(egui::Id::unique("deal"))
         .order(egui::Order::Foreground)
         .fixed_pos(r.min)
         .show(ui.ctx(), |ui| {
@@ -1882,7 +2067,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                     "deal.title"
                 }
             );
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
             let g = widgets::fit(&p, &title, theme::display(28.0), col, size.x - 24.0);
             p.galley(
                 pos2(r.center().x - g.size().x / 2.0, r.top() + 14.0),
@@ -1955,8 +2140,8 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
 }
 
-/// One button of the cabinet's two plates: where it sits and how it looks. `label` is the side a small button's name
-/// is printed on (the big ones carry it inside); `tactic` indexes `PanelState::tactics`.
+/// One button of the cabinet's two plates: where it sits and how it looks. `label` is the side a button's name
+/// is printed on (PRESS, in the diamond, has none); `tactic` indexes `PanelState::tactics`.
 pub struct DeckItem {
     pub key: &'static str,
     pub action: &'static str,
@@ -2005,7 +2190,7 @@ fn grow(r: Rect, c: Pos2, s: f32) -> Rect {
 
 /// The cabinet's buttons in one row (a departure from the cabinet on purpose, to leave the picture room). Left: a
 /// diamond of yellow triangles (CENTRAL up, COUNTER down, L-SIDE left, R-SIDE right) round a red PRESS square, a
-/// small green DATA square beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
+/// tall green DATA key beside it. Middle: small yellow KEY PLAYER, big red SHOOT, big blue KEEPER, small green
 /// START in a line.
 pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
     deck_layout_for(area, true, 1.0, false)
@@ -2015,8 +2200,15 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
 fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem> {
     let [left, mid, _] = deck_plates(area, both, 1.0, stack);
     let (cy, my) = (left.center().y, mid.center().y);
-    let c = pos2(left.left() + 132.0, cy);
-    let (sq, tl, g) = (40.0, 26.0, 2.0);
+    // 2017-18 (no machine plate): the pad drawn 1.3 times the art's base size, the room above and below it free since
+    // CENTRAL and COUNTER print their names beside their arrows. 2010-11 keeps its deck as it was.
+    let pad = !both;
+    let c = pos2(left.left() + if pad { 134.0 } else { 132.0 }, cy);
+    let (beside, (up, down)) = (Some(Dir::Right), (Some(Dir::Up), Some(Dir::Down)));
+    let (central, counter) = if pad { (beside, beside) } else { (up, down) };
+    // the art's proportions: the triangles are 8/7 as wide as tall
+    let k = if pad { 1.3 } else { 1.0 };
+    let (sq, tl, g) = (32.0 * k, 28.0 * k, 2.0 * k);
     let off = sq / 2.0 + g + tl / 2.0;
     let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
         key,
@@ -2043,7 +2235,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Up),
             c - vec2(0.0, off),
             tall,
-            Some(Dir::Up),
+            central,
             Some(0),
         ),
         item(
@@ -2053,7 +2245,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Down),
             c + vec2(0.0, off),
             tall,
-            Some(Dir::Down),
+            counter,
             Some(1),
         ),
         item(
@@ -2091,8 +2283,8 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             "DATA",
             Cab::Data,
             Shape::Square,
-            pos2(left.right() - 19.0, cy),
-            vec2(30.0, 30.0),
+            pos2(left.right() - if pad { 22.0 } else { 32.0 }, cy),
+            vec2(25.0, 40.0),
             Some(Dir::Down),
             None,
         ),
@@ -2123,7 +2315,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             Shape::Round,
             pos2(shoot_x, my),
             vec2(big, big),
-            None,
+            Some(Dir::Down),
             None,
         ),
         item(
@@ -2133,10 +2325,81 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             Shape::Round,
             pos2(keeper_x, my),
             vec2(big, big),
-            None,
+            Some(Dir::Down),
             None,
         ),
     ]
+}
+
+/// The width a deck button's name and keycap may take on `side` (`plate`: the button's plate; `data`: the DATA
+/// lamp's rect; `others`: the deck's buttons; `both`: 2010-11, which keeps its old room).
+fn deck_label_room(
+    rect: Rect,
+    side: Dir,
+    plate: Rect,
+    data: Rect,
+    others: &[Rect],
+    both: bool,
+) -> f32 {
+    match side {
+        Dir::Left => rect.left() - plate.left() - 8.0,
+        _ if both => 110.0,
+        // CENTRAL, COUNTER, R-SIDE (2017-18): 4 points short of the DATA lamp and of its name centred under it (as
+        // wide as the room below allows)
+        Dir::Right => {
+            data.left().min(2.0 * data.center().x - plate.right() + 4.0) - 8.0 - rect.right()
+        }
+        // a name centred under (or over) its button stays 4 points inside the plate and clear of the name of a
+        // button of the same height beside it (SHOOT and KEEPER)
+        Dir::Up | Dir::Down => {
+            let x = rect.center().x;
+            let half = (x - plate.left()).min(plate.right() - x) - 4.0;
+            let near = others
+                .iter()
+                .filter(|o| **o != rect && o.y_range() == rect.y_range())
+                .map(|o| (o.center().x - x).abs() - 4.0)
+                .fold(f32::INFINITY, f32::min);
+            (2.0 * half).min(near).min(110.0)
+        }
+    }
+}
+
+/// A deck button's name and the width of its keycap after it (0: none) in `room`. With `fit` (2017-18), a label too
+/// wide shrinks the name (down to 70 %), else drops the keycap, so it does not run into the next button; 2010-11
+/// keeps its look.
+fn deck_label_parts(
+    p: &egui::Painter,
+    name: &str,
+    cap: &str,
+    room: f32,
+    fit: bool,
+) -> (std::sync::Arc<egui::Galley>, f32) {
+    let full = p.layout_no_wrap(name.to_owned(), theme::display(14.0), theme::TEXT_DIM);
+    let cap_w = keycap_width(p, cap, room - full.size().x - 4.0);
+    let w = full.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+    if !fit || w <= room {
+        return (full, cap_w);
+    }
+    let shrink = |max| widgets::fit(p, name, theme::display(14.0), theme::TEXT_DIM, max);
+    let small = shrink(room - 4.0 - cap_w);
+    if cap_w > 0.0 && small.size().x + 4.0 + cap_w <= room {
+        (small, cap_w)
+    } else {
+        (shrink(room), 0.0)
+    }
+}
+
+/// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
+/// way, never past `plate`'s right edge (DATA sits close to it).
+fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
+    let (w, h) = (size.x, size.y);
+    let (left, cy) = match side {
+        Dir::Up => (rect.center().x - w / 2.0, rect.top() - 4.0 - h / 2.0),
+        Dir::Down => (rect.center().x - w / 2.0, rect.bottom() + 4.0 + h / 2.0),
+        Dir::Left => (rect.left() - 4.0 - w, rect.center().y),
+        Dir::Right => (rect.right() + 4.0, rect.center().y),
+    };
+    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 - w), cy - h / 2.0), size)
 }
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
@@ -2183,12 +2446,19 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32, stack: bool) {
-    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
+    // a press sends the action's key down (the panel DLL lets it up after the release); a button draws pressed while
+    // its key is down (st.down), whether a click or the hotkey put it down.
     // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
+    let down = if st.edition == Edition::E1718 {
+        st.down
+    } else {
+        [false; forza::keys::COUNT]
+    };
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -2197,8 +2467,21 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                    shape: Shape,
                    lit: bool,
                    inside: bool| {
+        // the action's key held (a hotkey, or the key a click sent) presses the button as the mouse does
+        let key_down = action
+            .and_then(|a| forza::keys::NAMES.iter().position(|n| *n == a))
+            .is_some_and(|i| down[i]);
         let resp = ui.put(r, |ui: &mut Ui| {
-            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit, inside)
+            cabinet_shaped(
+                ui,
+                r.size(),
+                &tr!(lang, key),
+                kind,
+                shape,
+                lit,
+                inside,
+                key_down,
+            )
         });
         let hit = |b| {
             ui.input(|i| {
@@ -2239,10 +2522,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             StrokeKind::Inside,
         );
     }
-    for it in deck_layout_for(area, both, s, stack) {
+    let items = deck_layout_for(area, both, s, stack);
+    let data = items
+        .iter()
+        .find(|i| i.action == "DATA")
+        .map_or(area, |i| i.rect);
+    let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+    for it in items {
         let on = held == Some(it.action);
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
-        // a name printed beside the button is not printed in it too (the side layout's big buttons)
+        // a name printed beside the button is not printed in it too
         let inside = it.label.is_none();
         put(
             ui,
@@ -2273,30 +2562,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         let p = ui.painter();
         if let Some(side) = it.label {
             // the name, and the keycap after it, on one line beside the button
-            let name = p.layout_no_wrap(tr!(lang, it.key), theme::display(14.0), theme::TEXT_DIM);
-            let room = match side {
-                Dir::Left => it.rect.left() - deck_plates(area, both, s, stack)[0].left() - 8.0,
-                _ => 110.0,
-            };
-            let cap_w = keycap_width(p, &cap, room - name.size().x - 4.0);
-            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-            let h = name.size().y;
-            let (left, cy) = match side {
-                Dir::Up => (it.rect.center().x - w / 2.0, it.rect.top() - 4.0 - h / 2.0),
-                Dir::Down => (
-                    it.rect.center().x - w / 2.0,
-                    it.rect.bottom() + 4.0 + h / 2.0,
-                ),
-                Dir::Left => (it.rect.left() - 4.0 - w, it.rect.center().y),
-                Dir::Right => (it.rect.right() + 4.0, it.rect.center().y),
-            };
-            // never past the plate's edge (DATA sits close to it)
             let plate = deck_plates(area, both, s, stack)
                 .into_iter()
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
-            let left = left.min(plate.right() - 4.0 - w);
-            p.galley(pos2(left, cy - h / 2.0), name.clone(), theme::TEXT_DIM);
+            let room = deck_label_room(it.rect, side, plate, data, &rects, both);
+            let (name, cap_w) = deck_label_parts(p, &tr!(lang, it.key), &cap, room, !both);
+            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+            let at = deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+            let (left, cy) = (at.left(), at.center().y);
+            p.galley(at.min, name.clone(), theme::TEXT_DIM);
             if cap_w > 0.0 {
                 let r = Rect::from_min_size(
                     pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
@@ -2305,7 +2580,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 paint_keycap(p, r, &cap);
             }
         } else {
-            // the big buttons carry their name: the keycap sits inside, at the bottom
+            // PRESS has no name beside it: the keycap sits inside, at the bottom
             let cap_w = keycap_width(p, &cap, it.rect.width() - 10.0);
             if cap_w > 0.0 {
                 let r = Rect::from_center_size(
@@ -2344,6 +2619,15 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     }
     st.pressed = st.pressed.or(pressed);
     st.latched = latch;
+}
+
+/// Which actions' bound keys are down, from `down` (the key's live state, polled every frame): a key let go reads up
+/// on the next frame wherever the focus went, so no button stays pressed. Unbound actions (key 0) are never down.
+pub fn keys_down(
+    keys: &[u32; forza::keys::COUNT],
+    down: impl Fn(u32) -> bool,
+) -> [bool; forza::keys::COUNT] {
+    keys.map(|vk| vk != 0 && down(vk))
 }
 
 /// The buttons a right-click holds down until the next click on them: one mouse cannot hold KEY PLAYER (or KEEPER)
@@ -2630,9 +2914,14 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
     // as wide as the strip, or as its height can use, centred
+    let extra = if st.edition == Edition::E1718 {
+        BOARD_EXTRA_1718
+    } else {
+        BOARD_EXTRA
+    };
     let w = r
         .width()
-        .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+        .min((ui.max_rect().height() - extra) / BOARD_PER_W);
     let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
@@ -2699,6 +2988,9 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     if st.formations_desk {
         formations_dialog(ui, st, lang);
     }
+    if st.reset_ask == Some(true) {
+        reset_dialog(ui, st, lang);
+    }
 }
 
 /// Under a board: a card just taken off (its name and UNDO) or a lineup just imported (its UNDO) at the left, POP OUT
@@ -2717,64 +3009,68 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         st.kept_log = Some(n);
     }
     b.add_space(4.0);
-    // at the hint's right: the board in its own window, or back with the game
-    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max);
-    let label = egui::RichText::new(tr!(
+    // the row keeps the board's own margin at its sides: no button or hint line sits on the pitch's border
+    let row = Rect::from_min_max(b.cursor().min, b.max_rect().max).shrink2(vec2(FOOT_PAD, 0.0));
+    // at the hint's right: the board in its own window, or back with the game; 2017-18 at its left: RESET LINEUP and
+    // FORMATIONS
+    let mut texts = vec![tr!(
         lang,
         if st.file.board_window {
             "board.dock"
         } else {
             "board.pop_out"
         }
-    ))
-    .font(theme::bold(12.0));
-    let text_w = b
-        .painter()
-        .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-        .size()
-        .x;
-    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
-    let btn = Rect::from_min_size(
-        pos2(row.right() - text_w - pad, row.top()),
-        vec2(text_w + pad, 22.0),
-    );
-    let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-    // 2017-18: RESET LINEUP at its left, greyed out in a match and while the table is the one the match began with
-    let mut left = btn.left();
+    )];
     if st.edition == Edition::E1718 {
-        let label = egui::RichText::new(tr!(lang, "board.reset")).font(theme::bold(12.0));
-        let w = b
-            .painter()
-            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-            .size()
-            .x
-            + pad;
-        let at = Rect::from_min_size(pos2(btn.left() - 6.0 - w, row.top()), vec2(w, 22.0));
-        left = at.left();
-        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at));
-        let ready = st.reset_ready && !st.in_match;
-        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-        let hint = reset_hint(st, lang);
-        let r = c.add_enabled(ready, button);
-        st.reset_lineup |= r.clicked();
-        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
-        // FORMATIONS at its left: the same dialog as the catalogue's button
-        let label = egui::RichText::new(tr!(lang, "form.open")).font(theme::bold(12.0));
-        let w = b
-            .painter()
-            .layout_no_wrap(label.text().to_owned(), theme::bold(12.0), theme::TEXT)
-            .size()
-            .x
-            + pad;
-        let at = Rect::from_min_size(pos2(left - 6.0 - w, row.top()), vec2(w, 22.0));
-        left = at.left();
-        let button = egui::Button::new(label).wrap_mode(egui::TextWrapMode::Extend);
-        if b.put(at, button).clicked() {
-            st.formations_open = true;
-            st.formations_desk = st.desk;
-        }
+        texts.push(tr!(lang, "board.reset"));
+        texts.push(tr!(lang, "form.open"));
     }
-    if b.put(btn, button).clicked() {
+    let pad = b.spacing().button_padding.x * 2.0 + 2.0;
+    let gaps = 6.0 * (texts.len() - 1) as f32;
+    let text_width = |b: &Ui, fs: f32| {
+        texts
+            .iter()
+            .map(|t| {
+                b.painter()
+                    .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
+                    .size()
+                    .x
+            })
+            .sum::<f32>()
+    };
+    // long labels on a narrow board share the row: the text shrinks rather than a button running past the board
+    let fs = {
+        let room = row.width() - gaps - pad * texts.len() as f32;
+        let text = text_width(b, 12.0);
+        if text <= room {
+            12.0
+        } else {
+            (12.0 * room / text).clamp(FOOT_TEXT_MIN, 12.0)
+        }
+    };
+    let mut at = Vec::with_capacity(texts.len());
+    let mut right = row.right();
+    for t in &texts {
+        let w = b
+            .painter()
+            .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
+            .size()
+            .x
+            + pad;
+        let r = Rect::from_min_size(pos2((right - w).max(row.left()), row.top()), vec2(w, 22.0));
+        right = r.left() - 6.0;
+        at.push(r);
+    }
+    let left = at.last().map_or(row.left(), |r| r.left());
+    let button = |text: &str| {
+        egui::Button::new(egui::RichText::new(text).font(theme::bold(fs)))
+            .wrap_mode(egui::TextWrapMode::Extend)
+    };
+    let btn = at[0];
+    // the buttons' drawn bottom: the theme's 32-point buttons overflow their 22-point rects
+    let pop = b.put(btn, button(&texts[0]));
+    let mut buttons_bottom = pop.rect.bottom();
+    if pop.clicked() {
         st.file.board_window = !st.file.board_window;
         st.file_changed = true;
         st.say(
@@ -2786,14 +3082,34 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             },
         );
     }
+    // 2017-18: RESET LINEUP, offered outside a match with a table kept, and FORMATIONS at its left
+    if st.edition == Edition::E1718 {
+        let mut c = b.new_child(egui::UiBuilder::new().max_rect(at[1]));
+        let hint = reset_hint(st, lang);
+        let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
+        buttons_bottom = buttons_bottom.max(r.rect.bottom());
+        if r.clicked() {
+            st.reset_ask = Some(st.desk);
+        }
+        r.on_hover_text(&hint).on_disabled_hover_text(&hint);
+        let formations = b.put(at[2], button(&texts[2]));
+        buttons_bottom = buttons_bottom.max(formations.rect.bottom());
+        if formations.clicked() {
+            st.formations_open = true;
+            st.formations_desk = st.desk;
+        }
+    }
     // 2017-18 on the game window: three buttons leave the hint little room at their left, so it takes the full width
-    // under them, 8 points under them (the buttons are 22 high; the strip's foot, BOARD_EXTRA, holds both and the line)
+    // under them, FOOT_GAP under the buttons as drawn (the strip's foot, BOARD_EXTRA_1718, holds both and the line)
     let text = if st.edition == Edition::E1718 && !st.desk {
-        Rect::from_min_max(pos2(row.left(), row.top() + 30.0), row.max)
+        Rect::from_min_max(pos2(row.left(), buttons_bottom + FOOT_GAP), row.max)
     } else {
-        row.with_max_x(left - 8.0)
+        row.with_max_x((left - 8.0).max(row.left()))
     };
     let mut b = b.new_child(egui::UiBuilder::new().max_rect(text));
+    // an UNDO row no higher than the hint's line: the theme's 32-point buttons, centred on it, rose into the row over it
+    b.spacing_mut().interact_size.y = 22.0;
+    b.spacing_mut().button_padding.y = 2.0;
     if import_undo_line(&mut b, st, lang, now) {
         return None;
     }
@@ -2808,7 +3124,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                     .font(theme::body(HINT))
                     .color(theme::TEXT),
             );
-            if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+            if foot_undo(ui, lang).clicked() {
                 st.board_changed |= board::undo(&mut st.board, &r);
                 st.undo = None;
             }
@@ -2860,11 +3176,20 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
             .font(theme::body(HINT))
             .color(theme::TEXT),
         );
-        if widgets::action(ui, &tr!(lang, "board.undo")).clicked() {
+        if foot_undo(ui, lang).clicked() {
             st.import_undone = true;
         }
     });
     true
+}
+
+/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (23 points,
+/// [`BOARD_EXTRA`]).
+fn foot_undo(ui: &mut Ui, lang: Lang) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(tr!(lang, "board.undo")).font(theme::bold(12.0)))
+            .min_size(vec2(0.0, 22.0)),
+    )
 }
 
 /// How long UNDO stays offered after a card is taken off the board.
@@ -3129,6 +3454,50 @@ fn note_height(ctx: &egui::Context, message: Option<&Note>, width: f32) -> f32 {
     }
 }
 
+/// The server's notice across the top of the game picture, while its time lasts; the dialogs drawn after it cover it,
+/// and clicks go through it to the game.
+fn banner(ui: &mut Ui, pic: Rect, note: &mut Option<Note>) {
+    let now = ui.input(|i| i.time);
+    let Some(n) = note else { return };
+    let at = *n.shown.get_or_insert(now);
+    if now - at >= n.secs {
+        *note = None;
+        return;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(n.secs - (now - at)));
+    let col = n.tone.color();
+    let r = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(pic), |ui| {
+            egui::Frame::new()
+                .fill(theme::NIGHT.gamma_multiply(0.9))
+                .inner_margin(egui::Margin::symmetric(24, 10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&n.text)
+                                    .color(theme::TEXT)
+                                    .font(theme::body(20.0)),
+                            )
+                            .selectable(false),
+                        );
+                    });
+                })
+                .response
+        })
+        .inner;
+    ui.painter().rect_filled(
+        Rect::from_min_size(
+            pos2(r.rect.left(), r.rect.bottom() - 2.0),
+            vec2(r.rect.width(), 2.0),
+        ),
+        0,
+        col,
+    );
+}
+
 /// The message line, while its time lasts.
 fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     let now = ui.input(|i| i.time);
@@ -3177,6 +3546,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .desired_width(f32::INFINITY)
                         .margin(vec2(12.0, 8.0)),
                 )
+                .accessible_name(tr!(lang, "cat.search_hint"))
             },
         )
         .inner;
@@ -3205,20 +3575,22 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 f.pos = i + 1;
             }
         }
-        ui.add_space(16.0);
+        ui.add_space(8.0);
         let index = c.index.as_ref();
-        field(ui, &tr!(lang, "cat.country"), 80.0);
+        let country = field(ui, &tr!(lang, "cat.country"), 80.0);
         combo(
             ui,
             "country",
+            country.id,
             &mut f.country,
             index.map_or(&[][..], |x| &x.countries),
             lang,
         );
-        field(ui, &tr!(lang, "cat.club"), 56.0);
+        let club = field(ui, &tr!(lang, "cat.club"), 56.0);
         combo(
             ui,
             "club",
+            club.id,
             &mut f.club,
             index.map_or(&[][..], |x| &x.clubs),
             lang,
@@ -3241,6 +3613,20 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 f.rarity = i + 1;
             }
         }
+        // the six stat ranges and TOTAL fold away behind a check box: most searches never touch them
+        ui.add_space(16.0);
+        let narrowed = f.ranges != [(1, 20); 6] || f.total != (60, 100);
+        let label = if narrowed {
+            format!("{} ●", tr!(lang, "cat.ranges"))
+        } else {
+            tr!(lang, "cat.ranges")
+        };
+        if widgets::check_chip(ui, &label, c.ranges_open, false)
+            .on_hover_text(tr!(lang, "cat.ranges_hint"))
+            .clicked()
+        {
+            c.ranges_open = !c.ranges_open;
+        }
     });
     ui.horizontal_wrapped(|ui| {
         field(ui, &tr!(lang, "cat.sort"), label_w);
@@ -3260,46 +3646,41 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             }
         }
     });
-    // the stat ranges, two columns
-    egui::Frame::new()
-        .fill(theme::WELL)
-        .corner_radius(theme::RADIUS)
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let w = (ui.available_width() - 24.0) / 2.0;
-            egui::Grid::new("ranges")
-                .num_columns(2)
-                .spacing(vec2(24.0, 4.0))
-                .show(ui, |ui| {
-                    for i in 0..3 {
-                        range_slider(
-                            ui,
-                            &tr!(lang, STATS[i * 2]),
-                            &mut f.ranges[i * 2],
-                            (1, 20),
-                            w,
-                        );
-                        range_slider(
-                            ui,
-                            &tr!(lang, STATS[i * 2 + 1]),
-                            &mut f.ranges[i * 2 + 1],
-                            (1, 20),
-                            w,
-                        );
-                        ui.end_row();
-                    }
-                    range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
-                    ui.horizontal(|ui| {
-                        ui.add_space(w - 110.0);
-                        if action(ui, &tr!(lang, "cat.reset")).clicked() {
+    if c.ranges_open {
+        egui::Frame::new()
+            .fill(theme::WELL)
+            .corner_radius(theme::RADIUS)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let w = (ui.available_width() - 24.0) / 2.0;
+                egui::Grid::new("ranges")
+                    .num_columns(2)
+                    .spacing(vec2(24.0, 4.0))
+                    .show(ui, |ui| {
+                        for i in 0..3 {
+                            for j in [i * 2, i * 2 + 1] {
+                                range_slider(
+                                    ui,
+                                    &tr!(lang, STATS[j]),
+                                    &mut f.ranges[j],
+                                    (1, 20),
+                                    w,
+                                );
+                            }
+                            ui.end_row();
+                        }
+                        range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
+                        // RESET beside TOTAL, with the sliders it resets (on the RARITY row it wrapped in Japanese)
+                        let narrowed = f.ranges != [(1, 20); 6] || f.total != (60, 100);
+                        if narrowed && chip(ui, &tr!(lang, "cat.reset"), false, None).clicked() {
                             f.ranges = [(1, 20); 6];
                             f.total = (60, 100);
                         }
+                        ui.end_row();
                     });
-                    ui.end_row();
-                });
-        });
+            });
+    }
     // results and the stats pane
     let on_table: Vec<u32> = st
         .board
@@ -3308,45 +3689,43 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         .flatten()
         .filter_map(|&i| st.board.cards.get(i).map(|k| k.number))
         .collect();
+    let shown = c
+        .focus
+        .filter(|i| c.results.contains(i))
+        .or(c.results.first().copied())
+        .and_then(|i| cards.get(i));
+    // FRONT/BACK and +N more belong to the card they were clicked on, not to the pane
+    c.set_shown(shown.map(|k| k.number));
     let results = &c.results;
     let focus = &mut c.focus;
     let message = &mut st.message;
-    let links = &st.links;
-    // the affinity column when the game's links are known
-    let with_affinity = links.affinity.is_some();
-    let mut strips = egui_extras::StripBuilder::new(ui).size(egui_extras::Size::remainder());
-    if with_affinity {
-        strips = strips.size(egui_extras::Size::exact(220.0));
-    }
-    strips
-        .size(egui_extras::Size::exact(250.0))
+    let back = &mut c.view_back;
+    let ppp = ui.ctx().pixels_per_point();
+    egui_extras::StripBuilder::new(ui)
+        .size(egui_extras::Size::remainder())
+        .size(egui_extras::Size::exact(sizing::detail_width(ppp)))
         .horizontal(|mut strip| {
             strip.cell(|ui| {
-                ui.horizontal(|ui| {
-                    caps(ui, &tr!(lang, "cat.results", n = results.len()));
-                });
-                let sizing::Grid {
-                    card: size,
-                    cols: per_row,
-                } = sizing::grid(ui.available_width(), ui.ctx().pixels_per_point());
-                let gap = sizing::GAP;
+                let g = sizing::grid(ui.available_width(), ppp);
+                caps(ui, &tr!(lang, "cat.results", n = results.len()));
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt("results")
                     .auto_shrink(false);
                 if fresh {
                     area = area.vertical_scroll_offset(0.0); // a new search starts at the top
                 }
-                ui.spacing_mut().item_spacing = vec2(gap, gap);
+                ui.spacing_mut().item_spacing = vec2(sizing::GAP, sizing::GAP);
                 // only the rows in sight are laid out: the whole catalogue is thousands of cards
-                area.show_rows(ui, size.y, results.len().div_ceil(per_row), |ui, rows| {
+                area.show_rows(ui, g.card.y, results.len().div_ceil(g.cols), |ui, rows| {
                     for row in rows {
                         ui.horizontal(|ui| {
-                            for &i in results.iter().skip(row * per_row).take(per_row) {
+                            ui.add_space(g.pad);
+                            for &i in results.iter().skip(row * g.cols).take(g.cols) {
                                 let card = &cards[i];
                                 let resp = board::catalogue_card(
                                     ui,
                                     card,
-                                    size,
+                                    g.card,
                                     *focus == Some(i),
                                     on_table.contains(&card.number),
                                 );
@@ -3361,28 +3740,24 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     }
                 });
             });
-            let shown = focus
-                .filter(|i| results.contains(i))
-                .or(results.first().copied())
-                .and_then(|i| cards.get(i));
-            if with_affinity {
-                strip.cell(|ui| {
-                    if let Some(card) = shown {
-                        affinity_pane(ui, card, links, &on_table, lang);
-                    }
-                });
-            }
             strip.cell(|ui| {
-                if let Some(card) = shown {
-                    let (added, opened) = stats_pane(ui, card, lang);
-                    if added {
-                        add = Some(card.number);
-                    }
-                    open |= opened;
-                }
-                if !long {
-                    note_line(ui, message);
-                }
+                let seen = ui.max_rect();
+                ui.ctx().data_mut(|d| d.insert_temp(detail_rect_id(), seen));
+                egui::ScrollArea::vertical()
+                    .id_salt("detail")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        if let Some(card) = shown {
+                            let (added, opened) = stats_pane(ui, card, back, lang, seen.bottom());
+                            if added {
+                                add = Some(card.number);
+                            }
+                            open |= opened;
+                        }
+                        if !long {
+                            note_line(ui, message);
+                        }
+                    });
             });
             // Tab or a click on the stats pane's face: the card view of the card shown
             if open && let Some(card) = shown {
@@ -3566,72 +3941,65 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
-fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
+fn detail_rect_id() -> egui::Id {
+    egui::Id::unique("catalogue-detail-rect")
+}
+
+/// The catalogue detail pane's visible rect on the last frame (for layout tests): what shows without scrolling.
+pub fn catalogue_detail_rect(ctx: &egui::Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp(detail_rect_id()))
+}
+
+fn picture_rect_id() -> egui::Id {
+    egui::Id::unique("catalogue-picture-rect")
+}
+
+/// The catalogue detail pane's picture slot on the last frame (for layout tests).
+pub fn catalogue_picture_rect(ctx: &egui::Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp(picture_rect_id()))
+}
+
+fn combo(
+    ui: &mut Ui,
+    id: &str,
+    label: egui::Id,
+    value: &mut String,
+    options: &[(String, usize)],
+    lang: Lang,
+) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
         all.clone()
     } else {
         value.clone()
     };
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(shown)
-        .width(150.0)
-        .height(400.0)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(value, String::new(), all);
-            for (o, n) in options {
-                ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
-            }
-        });
+    // 0.37's combo grows to the space it is offered, and the wrapped row then moves it to the next line (a box
+    // 150 wide touched the pane's edge even on 0.36): it gets its own slot, which the row can measure
+    let slot = vec2(COMBO_W, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(slot, egui::Layout::top_down(egui::Align::Min), |ui| {
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(shown)
+            .width(COMBO_W)
+            .height(400.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(value, String::new(), all);
+                for (o, n) in options {
+                    ui.selectable_value(value, o.clone(), format!("{o} ({n})"));
+                }
+            })
+            .response
+            .labelled_by(label);
+    });
 }
 
-/// The card's partners by affinity, best first (from the game's own files), a tick on those already on the table.
-fn affinity_pane(ui: &mut Ui, card: &Card, links: &board::Links, on_table: &[u32], lang: Lang) {
-    egui::Frame::new()
-        .fill(theme::WELL)
-        .corner_radius(theme::RADIUS_BIG)
-        .inner_margin(10)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 2.0;
-            caps(ui, &tr!(lang, "cat.affinity"));
-            let w = ui.available_width();
-            let partners: Vec<_> = links
-                .affinity
-                .iter()
-                .flat_map(|a| a.partners(card.number))
-                .collect();
-            if partners.is_empty() {
-                ui.label(
-                    egui::RichText::new(tr!(lang, "cat.no_partners"))
-                        .font(theme::body(HINT))
-                        .color(theme::TEXT_DIM),
-                );
-            }
-            egui::ScrollArea::vertical()
-                .id_salt("affinity")
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    for (p, v) in partners {
-                        let r = ui.cursor();
-                        board::partner_row(ui, &p.name, None, Some(v), w - 22.0);
-                        if p.cards.iter().any(|n| on_table.contains(n)) {
-                            super::widgets::tone_icon(
-                                ui.painter(),
-                                pos2(r.left() + w - 9.0, r.top() + 9.0),
-                                Tone::Done,
-                            );
-                        }
-                    }
-                });
-        });
-}
-
-/// The card's stats and its ADD button; `true` = ADD clicked.
-/// The focused card's stats, ADD under them; returns (ADD clicked, the face clicked: the card view asked for).
-fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
-    let face = sizing::hover_face(ui.ctx().pixels_per_point());
-    let u = sizing::text_unit(face.x);
+/// The focused card's detail: its picture at whole pixels in a slot that is the same for both sides
+/// ([`sizing::detail_picture`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
+/// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
+/// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
+/// clicked: the card view asked for).
+fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32) -> (bool, bool) {
+    use egui::emath::GuiRounding as _;
+    let ppp = ui.ctx().pixels_per_point();
     egui::Frame::new()
         .fill(theme::WELL)
         .corner_radius(theme::RADIUS_BIG)
@@ -3639,24 +4007,57 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
-            let mut open = false;
+            let w = ui.available_width();
+            let mut side = usize::from(*back);
+            if segmented(
+                ui,
+                &mut side,
+                &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+                w,
+            ) {
+                *back = side == 1;
+            }
+            // the picture's own pixels when it is loaded, else the album art's (the drawn stand-in)
+            let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
+                .map_or(sizing::ALBUM, |(_, px)| px);
+            // the room: the pane's visible height less what goes under the picture, down to ADD as drawn on the
+            // last frame, and the frame's margin. The slot depends on the room only, so turning the card over (a scan
+            // front, an album back, one still loading) moves nothing.
+            let rest_id = ui.scope_id().with("rest");
+            let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
+            let top = ui.cursor().top();
+            let room = vec2(w, (bottom - top - rest - 16.0).max(1.0));
+            let (slot_size, size) = sizing::detail_picture(pic, room, ppp);
+            let (slot, resp) = ui.allocate_exact_size(vec2(w, slot_size.y), Sense::click());
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(picture_rect_id(), slot));
+            let open = resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked();
+            let r = Rect::from_min_size(
+                pos2(
+                    slot.center().x - size.x / 2.0,
+                    slot.center().y - size.y / 2.0,
+                )
+                .round_to_pixels(ppp),
+                size,
+            );
+            board::card_side(
+                ui.painter(),
+                r,
+                card,
+                *back,
+                size.x * ppp > pic.x + 0.5,
+                lang,
+            );
             ui.horizontal(|ui| {
-                let (r, resp) = ui.allocate_exact_size(face, Sense::click());
-                open = resp
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked();
-                board::card_face(ui.painter(), r, card, board::Look::default());
+                ui.label(
+                    egui::RichText::new(card.total.to_string())
+                        .font(theme::display(40.0))
+                        .color(theme::AMBER),
+                );
                 ui.vertical(|ui| {
-                    ui.label(
-                        egui::RichText::new(tr!(lang, "cat.total"))
-                            .font(theme::display(14.0 * u))
-                            .color(theme::TEXT_DIM),
-                    );
-                    ui.label(
-                        egui::RichText::new(card.total.to_string())
-                            .font(theme::display(48.0 * u))
-                            .color(theme::AMBER),
-                    );
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         chip(ui, card.pos.code(), true, Some(card.pos.color()));
                         // the printed code: the original's, never translated
@@ -3668,7 +4069,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
             });
             ui.label(
                 egui::RichText::new(&card.name)
-                    .font(theme::display(22.0 * u))
+                    .font(theme::display(20.0))
                     .color(theme::TEXT),
             );
             ui.label(
@@ -3676,7 +4077,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
                     "{} · {} · {}",
                     card.club, card.country, card.season
                 ))
-                .font(theme::body(HINT * u))
+                .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
             );
             // every role at the card's top rating (a card rated from its position flags has them all at 8)
@@ -3690,19 +4091,74 @@ fn stats_pane(ui: &mut Ui, card: &Card, lang: Lang) -> (bool, bool) {
             if !best.is_empty() {
                 ui.label(
                     egui::RichText::new(tr!(lang, "cat.best_role", roles = best.join(" ")))
-                        .font(theme::body(HINT * u))
+                        .font(theme::body(HINT))
                         .color(theme::TEXT_DIM),
                 );
             }
             ui.add_space(4.0);
-            let w = ui.available_width();
-            let names = STATS.map(|k| tr!(lang, k));
-            widgets::stat_bars(ui, card, &names, &tr!(lang, "cat.secret"), w);
+            stat_column(ui, card, lang, w);
             ui.add_space(6.0);
-            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
-            (add, open)
+            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true);
+            let under = add.rect.bottom() - slot.bottom();
+            if (under - rest).abs() > 0.5 {
+                ui.data_mut(|d| d.insert_temp(rest_id, under));
+                ui.ctx().request_repaint();
+            }
+            ui.add_space(6.0);
+            (add.clicked(), open)
         })
         .inner
+}
+
+/// The stats' full names as the card prints them, in its order.
+const STAT_NAMES: [&str; 6] = [
+    "cat.offence",
+    "cat.defence",
+    "cat.technique",
+    "cat.power",
+    "cat.speed",
+    "cat.stamina",
+];
+
+/// The six stats one a row as on the card, the full name at the left and the value at the right; SECRET across the
+/// column for a secret card.
+fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
+    const SIDE: f32 = 8.0;
+    const ROW: f32 = 20.0;
+    let p = ui.painter().clone();
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 6.0 * ROW), Sense::hover());
+    p.rect_filled(rect, 4, theme::DEEP);
+    if card.secret {
+        let t = tr!(lang, "cat.secret");
+        p.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            t,
+            theme::display(24.0),
+            theme::TEXT_DIM,
+        );
+        return;
+    }
+    for (i, &stat) in card.stats.iter().enumerate() {
+        let c = Rect::from_min_size(
+            rect.min + vec2(SIDE, i as f32 * ROW),
+            vec2(w - 2.0 * SIDE, ROW),
+        );
+        p.text(
+            c.left_center(),
+            egui::Align2::LEFT_CENTER,
+            tr!(lang, STAT_NAMES[i]),
+            theme::display(14.0),
+            theme::TEXT_DIM,
+        );
+        p.text(
+            c.right_center(),
+            egui::Align2::RIGHT_CENTER,
+            stat.to_string(),
+            theme::display(18.0),
+            theme::TEXT,
+        );
+    }
 }
 
 // ---- KEYS ----
@@ -4254,19 +4710,21 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 } else {
                     st.address.clear();
                     st.say(Tone::Notice, "settings.msg_type_address");
-                    ui.memory_mut(|m| m.request_focus(egui::Id::new("settings-address")));
+                    ui.memory_mut(|m| m.request_focus(egui::Id::unique("settings-address")));
                 }
             }
             // the server's address: digits and dots; Enter (or a click elsewhere) keeps a good one, Esc leaves it
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut st.address)
-                    .id(egui::Id::new("settings-address"))
-                    .char_limit(15)
-                    .hint_text(tr!(lang, "settings.address_hint"))
-                    .font(theme::mono(15.0))
-                    .desired_width(w)
-                    .margin(vec2(10.0, 7.0)),
-            );
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut st.address)
+                        .id(egui::Id::unique("settings-address"))
+                        .char_limit(15)
+                        .hint_text(tr!(lang, "settings.address_hint"))
+                        .font(theme::mono(15.0))
+                        .desired_width(w)
+                        .margin(vec2(10.0, 7.0)),
+                )
+                .accessible_name(tr!(lang, "settings.address_hint"));
             st.address.retain(|c| c.is_ascii_digit() || c == '.');
             if r.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) || st.address == st.file.server {
@@ -4840,7 +5298,7 @@ pub struct WidgetSheet {
     pub seg: usize,
     pub range: (u8, u8),
     pub total: (u8, u8),
-    pub toggles: [bool; 2],
+    pub toggles: [bool; 1],
     pub launcher_lang: Lang,
 }
 
@@ -4851,7 +5309,7 @@ impl WidgetSheet {
             seg: 1,
             range: (8, 17),
             total: (60, 100),
-            toggles: [true, false],
+            toggles: [false],
             launcher_lang: lang,
         }
     }
@@ -5003,12 +5461,6 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
                     widgets::toggle_row(
                         ui,
                         &mut ws.toggles[0],
-                        &tr!(lang, "launcher.skip_tutorial"),
-                        &tr!(lang, "launcher.skip_tutorial_hint"),
-                    );
-                    widgets::toggle_row(
-                        ui,
-                        &mut ws.toggles[1],
                         &tr!(lang, "installer.opt_shortcuts"),
                         &tr!(lang, "installer.opt_shortcuts_hint"),
                     );
@@ -5101,6 +5553,24 @@ mod tests {
         );
     }
 
+    /// The pane's side belongs to the card shown: another card shows its front again.
+    #[test]
+    fn the_detail_panes_side_belongs_to_the_card_shown() {
+        let mut c = Catalogue::default();
+        // the first card drawn, then BACK clicked on it
+        c.set_shown(Some(8));
+        c.view_back = true;
+        // the same card drawn again keeps what was clicked
+        c.set_shown(Some(8));
+        assert!(c.view_back);
+        c.set_shown(Some(9));
+        assert!(!c.view_back);
+        // no card at all (the filter emptied the results) clears it too
+        c.view_back = true;
+        c.set_shown(None);
+        assert!(!c.view_back);
+    }
+
     fn sheet_of(w: f32, h: f32) -> Rect {
         // what a window of w x h pixels shows, in points
         let ppp = scale(w, h, 96.0);
@@ -5149,7 +5619,8 @@ mod tests {
                     "{at}"
                 );
                 assert!(compact || l.deck.height() >= DECK_MIN - 0.01, "{at}");
-                // the board's pitch, bench and hint fit its height
+                // the board's pitch, bench and hint fit its height (the 2017-18 board's taller foot, drawn, is measured
+                // at these windows by snapshots::board_hint_clear_of_the_buttons)
                 let bw = l.board.width() - 32.0;
                 assert!(
                     compact || BOARD_PER_W * bw + BOARD_EXTRA <= l.board.height() + 1.0,
@@ -5185,11 +5656,22 @@ mod tests {
             for compact in [false, true] {
                 let l = layout(sheet_of(w, h), compact);
                 let col = l.board.shrink(16.0);
-                let pitch = board::pitch_rect(col.min, col.width());
-                let tile = board::card_size(pitch.width());
-                // the bench (8 + its well), the gap 4 and the row of buttons 22 with the hint's line 23 under it, as
-                // board_strip lays them out
-                let hint_bottom = pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 22.0 + 23.0;
+                // the 2017-18 pitch, as board_strip narrows it to the board's height
+                let pitch_w = col
+                    .width()
+                    .min((l.board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
+                let pitch =
+                    board::pitch_rect(pos2(col.center().x - pitch_w / 2.0, col.top()), pitch_w);
+                // the board's row (the pitch, its gap of 12 and the bench strip), the foot 8 under the bench, the row
+                // of buttons 32 (drawn taller than their 22-point rects) and the hint's 24-point line FOOT_GAP under
+                // them, as board_strip and board_foot lay them out
+                let hint_bottom = pitch.bottom() + board::row_height(pitch_w)
+                    - pitch_w * board::PITCH_ASPECT
+                    + 8.0
+                    + 32.0
+                    + FOOT_GAP
+                    + 24.0;
+                let win = format!("{w}x{h} compact {compact}");
                 for card_y in [
                     pitch.top() + 40.0,
                     pitch.bottom() - 40.0,
@@ -5197,8 +5679,7 @@ mod tests {
                 ] {
                     let (pane, tier) =
                         board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
-                    let at =
-                        format!("{w}x{h} compact {compact} card at {card_y}: {pane:?} {tier:?}");
+                    let at = format!("{win} card at {card_y}: {pane:?} {tier:?}");
                     assert!(l.board.contains_rect(pane), "{at}");
                     assert!(
                         !pane.intersects(l.picture) && !pane.intersects(l.deck),
@@ -5220,9 +5701,13 @@ mod tests {
                     board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
                 };
                 match (w as u32, h as u32, compact) {
-                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom),
-                    (1920, 1080, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Strip),
-                    (2560, 1440, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Large),
+                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom, "{win}"),
+                    (1920, 1080, false) => {
+                        assert_eq!(docked(pitch.top()).1, board::Tier::Strip, "{win}")
+                    }
+                    (2560, 1440, false) => {
+                        assert_eq!(docked(pitch.top()).1, board::Tier::Large, "{win}")
+                    }
                     _ => {}
                 }
             }
@@ -5245,6 +5730,136 @@ mod tests {
         assert_eq!(latch_kept(on, false, true), on);
         assert_eq!(latch_kept(on, true, true), None);
         assert_eq!(latch_kept(on, false, false), None);
+    }
+
+    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), the pad
+    /// is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
+    /// Alt) overlaps another or leaves its plate, in EN, IT and JA, in the row and stacked.
+    #[test]
+    fn the_pad_names_sit_beside_their_arrows() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let p = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+        // no keycap (Alt up), a short one and a long one (Alt held)
+        for cap in ["", "X", "Button 12"] {
+            for lang in [Lang::En, Lang::It, Lang::Ja] {
+                for stack in [false, true] {
+                    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                    let plates = deck_plates(area, false, 1.0, stack);
+                    let items = deck_layout_for(area, false, 1.0, stack);
+                    let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
+                    assert!(at("PRESS").width() > 40.0, "the pad is drawn bigger");
+                    // every button and every printed label, each with its plate
+                    let mut boxes = Vec::new();
+                    for it in &items {
+                        let plate = *plates
+                            .iter()
+                            .find(|p| p.contains(it.rect.center()))
+                            .unwrap();
+                        boxes.push((it.action.to_owned(), it.rect, plate));
+                        if let Some(side) = it.label {
+                            let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+                            let room =
+                                deck_label_room(it.rect, side, plate, at("DATA"), &rects, false);
+                            let (name, cap_w) =
+                                deck_label_parts(&p, &tr!(lang, it.key), cap, room, true);
+                            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+                            let label =
+                                deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+                            let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
+                            if matches!(it.action, "UP" | "DOWN") {
+                                assert!(
+                                    label.left() >= it.rect.right() + 3.0,
+                                    "{why}: right of its arrow"
+                                );
+                                assert!(
+                                    (label.center().y - it.rect.center().y).abs() < 0.5,
+                                    "{why}: centred on its arrow"
+                                );
+                            }
+                            boxes.push((format!("{why} label"), label, plate));
+                        }
+                    }
+                    for (n, (a, ra, pa)) in boxes.iter().enumerate() {
+                        assert!(
+                            pa.contains_rect(*ra),
+                            "{a} leaves its plate ({ra:?} in {pa:?})"
+                        );
+                        for (b, rb, _) in &boxes[n + 1..] {
+                            assert!(!ra.intersects(*rb), "{a} overlaps {b}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 2010-11 keeps its deck: a 32-point PRESS at the plate's 132, CENTRAL above and COUNTER below their arrows,
+    /// DATA 32 in from the plate's right, 110 points of room right of a button.
+    #[test]
+    fn the_2010_11_pad_is_unchanged() {
+        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 148.0));
+        let left = deck_plates(area, true, 1.0, false)[0];
+        let items = deck_layout_for(area, true, 1.0, false);
+        let it = |a: &str| items.iter().find(|i| i.action == a).unwrap();
+        let c = pos2(left.left() + 132.0, left.center().y);
+        assert_eq!(
+            it("PRESS").rect,
+            Rect::from_center_size(c, vec2(32.0, 32.0))
+        );
+        assert_eq!(
+            it("UP").rect,
+            Rect::from_center_size(c - vec2(0.0, 32.0), vec2(32.0, 28.0))
+        );
+        assert_eq!(
+            it("RIGHT").rect,
+            Rect::from_center_size(c + vec2(32.0, 0.0), vec2(28.0, 32.0))
+        );
+        assert_eq!(
+            (it("UP").label, it("DOWN").label),
+            (Some(Dir::Up), Some(Dir::Down))
+        );
+        assert_eq!(
+            it("DATA").rect,
+            Rect::from_center_size(pos2(left.right() - 32.0, c.y), vec2(25.0, 40.0))
+        );
+        let r = it("RIGHT").rect;
+        assert_eq!(
+            deck_label_room(r, Dir::Right, left, it("DATA").rect, &[], true),
+            110.0
+        );
+    }
+
+    /// A held hotkey presses its button for exactly the frames the key is down: repeats change nothing, the release
+    /// (also one made while another window had the focus) reads up on the next poll; unbound actions never press.
+    #[test]
+    fn held_keys_press_their_buttons() {
+        let mut keys = [0u32; forza::keys::COUNT];
+        let shoot = forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "SHOOT")
+            .unwrap();
+        let up = forza::keys::NAMES.iter().position(|n| *n == "UP").unwrap();
+        keys[shoot] = 0x53; // S
+        keys[up] = 0x26; // arrow up (a tactic lamp: pressed the same way as a click)
+        let frame = |held: &[u32]| keys_down(&keys, |vk| held.contains(&vk));
+        let only = |i: usize| (0..forza::keys::COUNT).map(|j| j == i).collect::<Vec<_>>();
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot));
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot)); // still held (key repeat): still pressed
+        assert_eq!(frame(&[0x26]).to_vec(), only(up));
+        // S let go while the game window had the focus: the next poll reads it up, nothing stays pressed
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        // key 0 (unbound) is never down, even if a poll said so
+        assert!(
+            keys_down(&[0; forza::keys::COUNT], |_| true)
+                .iter()
+                .all(|d| !d)
+        );
     }
 
     /// The game window, the board popped out: the left part holds the picture (centred, 16:10) over the toast line and
@@ -5401,8 +6016,9 @@ mod tests {
             st.popped = true;
             frame(&game_ctx, st, 1920.0, 1080.0, t, vec![]);
         };
-        let big =
-            |ctx: &egui::Context| ctx.memory(|m| m.area_rect(egui::Id::new("board-big")).is_some());
+        let big = |ctx: &egui::Context| {
+            ctx.memory(|m| m.area_rect(egui::Id::unique("board-big")).is_some())
+        };
         both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
         assert!(st.touched.is_none());
         both(&mut st, 0.1, vec![press(true)]);
@@ -5742,7 +6358,11 @@ mod tests {
         let (mut st, old) = importer();
         let text = "game 1011\nP 1 50 90\n";
         for (lineup, in_match, said) in [
-            (text, true, "Not during a match. Import between matches."),
+            (
+                text,
+                true,
+                "Not possible during a match. Try again between matches.",
+            ),
             (
                 "game 1718\nP 1 50 90\n",
                 false,
@@ -5751,7 +6371,7 @@ mod tests {
             (
                 "",
                 false,
-                "Copy a lineup's db.wccf.it link (or its text), then IMPORT LINEUP.",
+                "Copy a lineup's db.wccf.it link (or its text), then press IMPORT LINEUP.",
             ),
         ] {
             assert_eq!(import_lineup(&mut st, &old, lineup, in_match, 0.0), None);
@@ -5773,7 +6393,7 @@ mod tests {
         assert!(ShareFetch::start(&mut st, "abcd123", true, 0.0, |_| unreachable!()).is_none());
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "Not during a match. Import between matches."
+            "Not possible during a match. Try again between matches."
         );
         let f = ShareFetch::start(&mut st, "abcd123", false, 0.0, |path| {
             assert_eq!(path, "/api/share/abcd123.txt");
@@ -5869,7 +6489,7 @@ mod tests {
         assert_eq!(
             m.text,
             format!(
-                "Test XI: 3 cards on the table.\nKey player on the site: {kp}. Set it in the game.\n\
+                "Test XI: 3 cards on the table.\nThe lineup on db.wccf.it has this key player: {kp}. Set it in the game.\n\
                  Skipped: OLD · 13 GES 3 (no number in this game), 999 (not in the catalogue)"
             )
         );
@@ -5941,11 +6561,12 @@ mod tests {
         st.reset_lineup = true;
         assert_eq!(take_reset(&mut st, &subbed, false), Some(start.clone()));
         assert_eq!(cards::table_after(&start, &st.board), start);
-        // written back: nothing differs any more
+        // written back: nothing differs any more, though RESET LINEUP still takes the click and writes the same table
         lineup_tick(&mut st, None, None, &start);
         assert!(!st.reset_ready);
         st.reset_lineup = true;
-        assert_eq!(take_reset(&mut st, &start, false), None);
+        assert_eq!(take_reset(&mut st, &start, false), Some(start.clone()));
+        assert_eq!(cards::table_after(&start, &st.board), start);
         // a card session outside a match (a manager transfer) greys RESET out but keeps nothing
         lineup_tick(&mut st, None, Some((true, false)), &subbed);
         assert!(st.in_match);
@@ -6016,7 +6637,10 @@ mod tests {
         lineup_tick(&mut st, None, None, &start);
         assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
         st.in_match = true;
-        assert_eq!(reset_hint(&st, Lang::En), "Not during a match");
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "The lineup cannot be reset during a match."
+        );
     }
 
     /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
@@ -6074,7 +6698,7 @@ mod tests {
         assert_eq!(load_formation(&mut st, &old, 1, true, 1.0), None);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "Not during a match. Import between matches."
+            "Not possible during a match. Try again between matches."
         );
         assert!(st.formations.is_some() && st.import_undo.is_none());
         // an empty slot loads nothing

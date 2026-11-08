@@ -8,6 +8,8 @@
   version information and `env!("FORZA_VERSION")`, from `crates/launcher/version_rc.rs`) carry it. The commit tagged
   `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev+<short sha>` (the next patch, so the Launcher offers the next
   release, never the one the build came from); a clone without tags builds `0.0.0-dev+<short sha>`.
+  A non-empty `FORZA_VERSION` in the environment wins over `git describe` and must be semver (`0.7.0`); the
+  [candidate](#release-candidate) build sets it from the dispatch input `version`.
   `[workspace.package] version` in `Cargo.toml` only serves a plain `cargo build`.
 - Every other crate has its own `version` in its `Cargo.toml`, embedded in its programs' version information. Bump a
   crate's own version (patch for a fix, minor for a feature) in the PR that changes it, if at all; never bump an unchanged
@@ -18,7 +20,7 @@
   `forza-wccf.ico`. Two local builds, also in separate target folders, give one hash. The bytes follow the toolset: a
   local MSVC 14.44 build and a CI 14.51 build of the same commit differ by about 2.8 KB. Putting 14.44 in front of
   cargo does **not** give the local bytes: a run with `vcvarsall -vcvars_ver=14.44` produced a `FPR_Emu.exe`
-  byte-identical to the 14.51 one (`FlsAlloc` CRT imports and all, 2026-11-01, `E:\wccf-builds\av-bisect-20261101\`),
+  byte-identical to the 14.51 one (`FlsAlloc` CRT imports and all, 2026-11-01, `E:\wccf\wccf-builds\av-bisect-20261101\`),
   because rustc takes the CRT's lib directories from its own detection of the newest MSVC, not from PATH. A hash
   recorded here therefore still differs between a build PC and the runner, so `editions/2017-18/fpr_emu.sha256` freezes
   the published file instead of comparing builds (see "Antivirus verdicts").
@@ -35,21 +37,57 @@
 ## Alpha builds for players
 
 - 2017-18 only, as a GitHub **pre-release** of this repository with the ZIP and the installer.
-- Before publishing: the [stability gate](#stability-gate) passes on the tagged commit, someone has played the build,
-  and a maintainer approves the tag and the upload.
+- Before publishing: the [stability gate](#stability-gate) passes on the [candidate](#release-candidate) that gets
+  tagged, and a maintainer approves the tag and the upload. Whether someone plays the candidate first is decided per
+  release (0.7.0 shipped unplayed).
 - Release notes in English, Italian and Japanese, only in the GitHub release body (no CHANGES.txt in the ZIP), under the
   headings `## English`, `## Italiano` and `## 日本語`: this is an alpha, what changed, known bugs, and how to report one
   (SAVE LOGS in the panel, then attach the file to a GitHub issue). The Launcher's UPDATE tab shows the section in the
   player's language (English when there is none), up to the `SHA-256 sums` line, as plain text with VIEW ON GITHUB.
 - Player feedback: GitHub issues, in English, Italian or Japanese.
 
+## Release candidate
+
+A release ships the bytes CI built for its candidate, never a local package.
+
+1. `next` = `origin/main` plus the picked PRs: `git switch -C next origin/main`, then `git merge --no-ff` of each
+   pick's head (with `rerere.enabled`). `next` is a throwaway branch: force-pushed on a re-cut, deleted on merge.
+2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR.
+3. Dispatch the candidate: `gh workflow run release.yml --ref next -f version=<x.y.z>`. The build runs with
+   `FORZA_VERSION=<x.y.z>` (semver; it wins over `git describe`), the file-name check expects that version, and the
+   job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days;
+   an older candidate is dispatched again.
+4. The [stability gate](#stability-gate) runs on that candidate. A fix goes on its PR; then `next` is cut again and
+   dispatched again.
+5. Merge the `chore(release)` PR with a merge commit, never squash or rebase, so the candidate sha stays an ancestor
+   of `main`; the picked PRs then show as merged.
+6. Sign the tag on the candidate sha, not on the merge commit: `git tag -s v<x.y.z> -m "..." <candidate sha>`.
+   Pushing the tag prints `Cannot create ref ... restricted` (the tag ruleset), yet the admin bypass creates it:
+   confirm with `gh api repos/Forza-WCCF/Forza-WCCF/git/ref/tags/v<x.y.z>`.
+7. The tag push runs the Release workflow again. Before the draft, the `publish` step "Same bytes as the candidate"
+   compares the tag build's `SHA256SUMS.txt` with the newest completed dispatch on the same commit that carries
+   `<x.y.z>` and writes "same bytes as run N". Differing files (a new runner image is the known cause) or no candidate
+   fail `publish`, so no draft is made from other bytes.
+
 ## Stability gate
 
-Before a ZIP goes to a player: the full `cargo xtask check` on the commit that is packaged, then a soak run through
-the guard ([SAFETY.md](SAFETY.md)): at least three matches back to back, RESTART NOW once, a card in and out, online
-and offline, and a quit, with no crash snapshot, no hang, nothing left running and the routes unchanged. The logs are
-read for warnings, not only for the pass lines. Crash snapshots and problem reports stay on, so a crash in a player's
-hands is seen.
+CI is the gate, on the candidate:
+
+- the candidate dispatch: build, VirusTotal (Microsoft finds nothing) and the reproducibility job;
+- the PR CI on the `chore(release)` PR;
+- the per-file antivirus check on the candidate's files ([Antivirus verdicts](#antivirus-verdicts)): a local
+  Defender scan of every `.exe` and `.dll` in the ZIP plus the installer, and a VirusTotal lookup of each; Microsoft
+  must find nothing in any of them. The workflow's VirusTotal job scans only the three packages.
+
+Optional, chosen per release:
+
+- the full `cargo xtask check` on the candidate sha, recommended when someone plays the candidate or when release
+  tooling (`xtask`, `release.yml`) changed;
+- a play test of the candidate's `dist`, and a soak run through the guard ([SAFETY.md](SAFETY.md)): at least three
+  matches back to back, RESTART NOW once, a card in and out, online and offline, and a quit, with no crash snapshot,
+  no hang, nothing left running and the routes unchanged. The logs are read for warnings, not only for the pass lines.
+
+Crash snapshots and problem reports stay on, so a crash in a player's hands is seen.
 
 ## Antivirus verdicts
 
@@ -70,15 +108,15 @@ as clean because an earlier scan did. What helps:
   that `FPR_Emu.exe` builds the same twice;
 - a program whose sources did not change keeps its bytes; do not rebuild it for a release, and do not change a
   program's bytes hoping the verdict clears: it is one engine's opinion of those bytes, measured to stay put;
-- scanning on a Windows PC before tagging is advisory only, not a gate: the verdict flips both ways. If a scan is
-  wanted, copy the file first and scan the copy: real-time protection deletes the sample about 30 s after the scan,
-  and `MpCmdRun` exits 2 both for a detection and for a missing file, so read `Scanning <path> found N threats` and
-  the `Threat` lines.
+- the per-file scan of the candidate's bytes is the gate, and one clean scan never clears a file for good: the
+  verdict flips both ways, so the scan runs on the files that ship, before tagging and again before uploading. Scan a
+  copy, not the file: real-time protection deletes the sample about 30 s after the scan. `MpCmdRun` exits 2 both for
+  a detection and for a missing file, so read `Scanning <path> found N threats` and the `Threat` lines;
 - the local scan is the only read of the cloud verdict: VirusTotal's Microsoft engine said "undetected" for the
   0.6.2 ZIP on 2026-11-02 while the local engine (signatures 1.463.94.0) flagged `Launcher.exe` **and**
-  `overlay/forza_panel.dll` in it as `Trojan:Win32/Wacatac.C!ml`, and acted on the owner's install while a game ran.
-  The 0.6.1 files of both were clean in the same session. Scan the unzipped files before tagging and again before
-  uploading (`tooling/av-scan/scan.ps1`: one fresh copy per file, phase-3 `MpCmdRun`,
+  `overlay/forza_panel.dll` in it as `Trojan:Win32/Wacatac.C!ml`, and acted on a maintainer's install while a game
+  ran. The 0.6.1 files of both were clean in the same session. Update the signatures, scan the unzipped files
+  (`tooling/av-scan/scan.ps1`, kept outside this repository: one fresh copy per file, phase-3 `MpCmdRun`,
   `-DisableRemediation`), and read it file by file: the two big files are what moves, the five small programs have
   stayed clean;
 - a flagged file of ours is rebuilt for size, not for a new hash: `[profile.release.package.…] opt-level = "z"` with
@@ -87,7 +125,7 @@ as clean because an earlier scan did. What helps:
   the shape is the only lever measured to work.
 
 Obfuscation and packing raise the verdict instead of lowering it (Microsoft says so outright), and signing without a
-paid certificate leaves `!ml` verdicts untouched: `E:\wccf-builds\codesign-20261101\OPTIONS.md`.
+paid certificate leaves `!ml` verdicts untouched: `E:\wccf\wccf-builds\codesign-20261101\OPTIONS.md`.
 
 ## In-app UPDATE
 

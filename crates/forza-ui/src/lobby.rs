@@ -6,7 +6,7 @@ use super::Lang;
 use super::theme;
 use super::widgets::{
     Cab, Tone, action, cabinet, caps, check_chip, field, fit, fold, section, segmented,
-    status_line, text_w, toggle_row,
+    status_line, stepper, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
@@ -217,9 +217,15 @@ pub const CUP_MAX_MINUTES: u16 = 150;
 /// replaces the Universal Championship bracket (the cup and the next three slots) with a CPU-only one, so the cup and
 /// its championship must not run across it. Before it nothing in the slot schedule reads the clock: a cup at 01:00 is fine.
 const CUP_DAY_CHANGE: u32 = 5 * 3600;
-/// A cup from its open to the end of its championship: the cup about 45 min (rounds about 530 s apart, probe 1), the
-/// championship 3 slots, about 27 min, with a margin.
-const CUP_RUN_SECS: u32 = 75 * 60;
+/// A Universal Cup round's slot, seconds: rounds about 530 s apart (probe 1), longer than a friendly slot.
+const CUP_ROUND_SECS: u32 = 530;
+/// The longest championship slot measured: a friendly slot whose GAME state ends with the projector's live match
+/// (control 0x461CD0 on the live list), 489-505 s in the control logs of 2026-11-01 and 11-04
+/// (native/hook/src/uclive.rs GAME_SECS).
+const CHAMPIONSHIP_SLOT_SECS: u32 = 505;
+/// A cup from its open to the end of its championship: the cup's 5 rounds (about 44 min), then the championship's 3
+/// slots, and one more slot for when the control opens the championship a slot late (the day-change flag, 0x45DD69).
+const CUP_RUN_SECS: u32 = 78 * 60;
 /// Slack for the open time we estimate (boot and slot lengths vary by seconds per slot).
 const CUP_SLACK_SECS: u32 = 5 * 60;
 const DAY: u32 = 24 * 3600;
@@ -270,6 +276,36 @@ pub enum CupPlan {
         opens: u32,
     },
 }
+
+/// The Universal Cup's rounds (group league 3, semifinals, final), one slot each.
+const CUP_ROUNDS: u32 = 5;
+/// The Universal Championship's matches (2 semifinals, the final), one slot each, played after the day's cups.
+pub const CHAMPIONSHIP_SLOTS: u32 = 3;
+/// The game's last cup of the day ([`CupMode::GameTimes`]: the stand-in's GAME_CTRL open time 4), seconds.
+const LAST_GAME_CUP: u32 = 21 * 3600;
+
+impl CupPlan {
+    /// About when the Universal Championship starts on the projector (seconds after midnight), the cup's winner in it:
+    /// the slot after the cup's final. The control opens it once the day counts 4 cups held (0x45DD21): a slot cup has
+    /// all four open times 0, so that is as soon as the cup leaves the schedule; the game's times count their 21:00
+    /// cup as the fourth. Both reach 4 in 0x462820, which clears the day-change flag in the same call (0x4628B4,
+    /// 0x4628BC), so neither normally pays the extra slot of 0x45DD69; [`CUP_RUN_SECS`] still allows it.
+    /// None: no cup, so a CPU-only championship the projector does not show (native/hook/src/uclive.rs).
+    pub fn championship(self) -> Option<u32> {
+        match self {
+            Self::Off => None,
+            Self::Slot { opens, .. } => Some((opens + CUP_ROUNDS * CUP_ROUND_SECS) % DAY),
+            // shortcut: the cup opens at the first slot from 21:00 (up to one slot later); a control started after
+            // 21:00 (or before 05:00) has counted 4 cups at once and plays a CPU-only championship instead
+            Self::GameTimes => Some(LAST_GAME_CUP + CUP_ROUNDS * CUP_ROUND_SECS),
+        }
+    }
+}
+
+// the night rule's run time covers the cup, a late slot and its championship
+const _: () = assert!(
+    CUP_ROUNDS * CUP_ROUND_SECS + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS <= CUP_RUN_SECS
+);
 
 /// Why a cup time is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,6 +477,8 @@ pub enum Scenario {
     ArcadeHost,
     /// An arcade code typed and being joined.
     ArcadeJoining,
+    /// An arcade code typed, not joined yet: the one status line says which room JOIN goes to.
+    ArcadeCode,
     /// An arcade code no room has.
     ArcadeNoRoom,
     /// HOST ARCADE after the lobby lost the room: no code, the line that says so.
@@ -454,7 +492,7 @@ pub enum Scenario {
 }
 
 impl Scenario {
-    pub const ALL: [Scenario; 17] = [
+    pub const ALL: [Scenario; 18] = [
         Scenario::List,
         Scenario::Empty,
         Scenario::Full,
@@ -467,6 +505,7 @@ impl Scenario {
         Scenario::Cpu,
         Scenario::ArcadeHost,
         Scenario::ArcadeJoining,
+        Scenario::ArcadeCode,
         Scenario::ArcadeNoRoom,
         Scenario::ArcadeLost,
         Scenario::LanList,
@@ -488,6 +527,7 @@ impl Scenario {
             Scenario::Cpu => "cpu",
             Scenario::ArcadeHost => "arcade_host",
             Scenario::ArcadeJoining => "arcade_joining",
+            Scenario::ArcadeCode => "arcade_code",
             Scenario::ArcadeNoRoom => "arcade_no_room",
             Scenario::ArcadeLost => "arcade_lost",
             Scenario::LanList => "lan_list",
@@ -687,6 +727,7 @@ impl LobbyView {
             }
             Scenario::ArcadeHost
             | Scenario::ArcadeJoining
+            | Scenario::ArcadeCode
             | Scenario::ArcadeNoRoom
             | Scenario::ArcadeLost => {
                 // 2017-18 with the shared arcade on: one public room listed, the rest by code
@@ -705,6 +746,7 @@ impl LobbyView {
                     Scenario::ArcadeJoining => {
                         (v.joining, v.list_arcade) = (Some("K7QM2XPD".into()), true)
                     }
+                    Scenario::ArcadeCode => {}
                     Scenario::ArcadeLost => (v.hosting, v.notice) = (true, Some(Notice::RoomLost)),
                     _ => v.notice = Some(Notice::NoRoom),
                 }
@@ -779,9 +821,16 @@ impl LobbyView {
             .collect()
     }
 
-    /// The selected row, when it can be joined now.
+    /// The code typed in the box: while there is one, JOIN joins it and no row is picked, so the two targets never
+    /// compete.
+    pub fn code_now(&self) -> Option<&str> {
+        let code = self.code.trim();
+        (self.codes && !code.is_empty()).then_some(code)
+    }
+
+    /// The selected row, when it can be joined now: none while a code is typed.
     pub fn joinable(&self) -> Option<&Row> {
-        if self.offline || self.stale() || self.grey_now().is_some() {
+        if self.code_now().is_some() || self.offline || self.stale() || self.grey_now().is_some() {
             return None;
         }
         let r = self.selected_row()?;
@@ -790,8 +839,7 @@ impl LobbyView {
 
     /// JOIN: the room code typed, else the selected row when it can be joined now.
     pub fn join_action(&self) -> Option<LobbyAction> {
-        let code = self.code.trim();
-        if self.codes && !code.is_empty() {
+        if let Some(code) = self.code_now() {
             return self
                 .joining
                 .is_none()
@@ -802,7 +850,7 @@ impl LobbyView {
 
     /// Why JOIN is greyed, in a few words; `None` when it can join or the greyed list already says why.
     pub fn why_not_join(&self, lang: Lang) -> Option<String> {
-        if self.join_action().is_some() || self.grey_now().is_some() {
+        if self.join_action().is_some() || self.grey_now().is_some() || self.code_now().is_some() {
             return None;
         }
         Some(if self.offline {
@@ -885,10 +933,12 @@ fn keys(ui: &Ui, v: &mut LobbyView) -> Option<LobbyAction> {
     if pressed(Key::ArrowDown, none) && v.selected + 1 < n {
         v.selected += 1;
         v.scroll = true;
+        v.code.clear(); // a row picked: the code typed is no longer the target
     }
     if pressed(Key::ArrowUp, none) && v.selected > 0 {
         v.selected -= 1;
         v.scroll = true;
+        v.code.clear();
     }
     if pressed(Key::ArrowLeft, none) {
         v.set_kind(Kind::Arcades);
@@ -955,12 +1005,14 @@ pub fn show_with(
                     ui.horizontal(|ui| {
                         let connect = tr!(lang, "lobby.connect");
                         let bw = text_w(ui, &connect) + 40.0;
-                        let r = ui.add(
-                            egui::TextEdit::singleline(&mut v.address)
-                                .font(theme::mono(15.0))
-                                .desired_width(ui.available_width() - bw)
-                                .margin(vec2(10.0, 7.0)),
-                        );
+                        let r = ui
+                            .add(
+                                egui::TextEdit::singleline(&mut v.address)
+                                    .font(theme::mono(15.0))
+                                    .desired_width(ui.available_width() - bw)
+                                    .margin(vec2(10.0, 7.0)),
+                            )
+                            .accessible_name(direct.as_str());
                         if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             act = Some(LobbyAction::DirectAddress(v.address.clone()));
                         }
@@ -1005,10 +1057,10 @@ pub fn show_with(
     }
     // list_fit: the height under the list this frame, scrolled-away folds included, sizes the list next frame (once more
     // when it changed)
-    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::new(LIST_BOTTOM)));
+    let list_bottom: Option<f32> = ui.data(|d| d.get_temp(egui::Id::unique(LIST_BOTTOM)));
     if let Some(top) = list_bottom.filter(|_| v.list_fit && !v.hosting && v.room.is_none()) {
         let below = ui.cursor().top() - top + hidden;
-        let id = egui::Id::new(BELOW_LIST);
+        let id = egui::Id::unique(BELOW_LIST);
         let old: Option<f32> = ui.data(|d| d.get_temp(id));
         if old.is_none_or(|o| (o - below).abs() > 0.5) {
             ui.data_mut(|d| d.insert_temp(id, below));
@@ -1050,13 +1102,15 @@ fn lan_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAc
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
-        let r = ui.add(
-            egui::TextEdit::singleline(&mut v.lan_address)
-                .font(theme::mono(15.0))
-                .desired_width(180.0)
-                .margin(vec2(10.0, 6.0)),
-        );
+        let label = field(ui, &tr!(lang, "lobby.lan_type"), 130.0);
+        let r = ui
+            .add(
+                egui::TextEdit::singleline(&mut v.lan_address)
+                    .font(theme::mono(15.0))
+                    .desired_width(180.0)
+                    .margin(vec2(10.0, 6.0)),
+            )
+            .labelled_by(label.id);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let typed = !v.lan_address.trim().is_empty();
         if ui
@@ -1246,7 +1300,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     let vis = v.visible();
     v.selected = v.selected.min(vis.len().saturating_sub(1));
     let list_h = if v.list_fit {
-        let below: f32 = ui.data(|d| d.get_temp(egui::Id::new(BELOW_LIST)).unwrap_or(0.0));
+        let below: f32 = ui.data(|d| d.get_temp(egui::Id::unique(BELOW_LIST)).unwrap_or(0.0));
         (ui.available_height() - below).max(LIST_MIN_H)
     } else {
         LIST_H
@@ -1270,11 +1324,12 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             for (n, &i) in vis.iter().enumerate() {
                 let r = &v.rows()[i].clone();
                 let (rect, resp) = ui.allocate_exact_size(vec2(rw, ROW_H), Sense::click());
-                let sel = n == v.selected;
+                // a code typed is the target instead: then no row looks picked
+                let sel = v.code_now().is_none() && n == v.selected;
                 let dim = offline || v.view_only(r);
                 let off = dim || !r.joinable();
                 resp.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, sel, &r.name)
+                    egui::WidgetInfo::selected(egui::Role::RadioButton, true, sel, &r.name)
                 });
                 if resp.clicked() {
                     v.selected = n;
@@ -1355,7 +1410,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             }
         });
     let bottom = ui.cursor().top();
-    ui.data_mut(|d| d.insert_temp(egui::Id::new(LIST_BOTTOM), bottom));
+    ui.data_mut(|d| d.insert_temp(egui::Id::unique(LIST_BOTTOM), bottom));
     ui.add_space(8.0);
     if v.codes {
         code_row(ui, v, lang, act);
@@ -1417,6 +1472,9 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
     });
 }
 
+/// The cup time's [`stepper`] width.
+pub const CUP_STEPPER_W: f32 = 190.0;
+
 /// The Universal Cup rows (mode, time, the line it gives): the host dialog's and, `local`, the PLAY tab's for a cup on
 /// this PC alone. True when the time is refused (the caller greys its start).
 pub fn cup_rows(
@@ -1426,6 +1484,7 @@ pub fn cup_rows(
     lang: Lang,
     label_w: f32,
     local: bool,
+    started: Option<Result<CupPlan, CupRefused>>,
 ) -> bool {
     let (off_key, note_key) = if local {
         ("lobby.cup_off_local", "lobby.cup_local")
@@ -1436,13 +1495,14 @@ pub fn cup_rows(
     const MODES: [CupMode; 4] = [CupMode::Off, CupMode::GameTimes, CupMode::In, CupMode::At];
     ui.horizontal(|ui| {
         field(ui, &tr!(lang, "lobby.cup"), label_w);
+        let at = clock_text(u32::from(cup.at) * 60);
+        // the chosen time in its segment, so it reads before the row under it
         let labels = [
-            "lobby.cup_off",
-            "lobby.cup_game_times",
-            "lobby.cup_in",
-            "lobby.cup_at",
-        ]
-        .map(|k| tr!(lang, k));
+            tr!(lang, "lobby.cup_off"),
+            tr!(lang, "lobby.cup_game_times"),
+            tr!(lang, "lobby.cup_in", m = cup.minutes),
+            tr!(lang, "lobby.cup_at", t = at.as_str()),
+        ];
         let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
         let mut i = MODES.iter().position(|&m| m == cup.mode).unwrap_or(1);
         if segmented(ui, &mut i, &labels, ui.available_width()) {
@@ -1451,34 +1511,39 @@ pub fn cup_rows(
     });
     if matches!(cup.mode, CupMode::In | CupMode::At) {
         ui.horizontal(|ui| {
-            field(ui, "", label_w);
+            let names = [tr!(lang, "lobby.cup_earlier"), tr!(lang, "lobby.cup_later")];
+            let names = [names[0].as_str(), names[1].as_str()];
             if cup.mode == CupMode::In {
-                ui.add(
-                    egui::DragValue::new(&mut cup.minutes)
-                        .range(CUP_MIN_MINUTES..=CUP_MAX_MINUTES)
-                        .suffix(tr!(lang, "lobby.cup_min_unit")),
+                field(ui, &tr!(lang, "lobby.cup_in_field"), label_w);
+                let text = tr!(lang, "lobby.cup_minutes", m = cup.minutes);
+                let range = CUP_MIN_MINUTES..=CUP_MAX_MINUTES;
+                stepper(
+                    ui,
+                    &mut cup.minutes,
+                    range,
+                    5,
+                    false,
+                    &text,
+                    names,
+                    CUP_STEPPER_W,
                 );
             } else {
-                let (mut h, mut m) = (cup.at / 60, cup.at % 60);
-                let two = |n: f64, _| format!("{n:02.0}");
-                let a = ui.add(
-                    egui::DragValue::new(&mut h)
-                        .range(0..=23)
-                        .custom_formatter(two),
+                field(ui, &tr!(lang, "lobby.cup_at_field"), label_w);
+                let text = clock_text(u32::from(cup.at) * 60);
+                stepper(
+                    ui,
+                    &mut cup.at,
+                    0..=24 * 60 - 1,
+                    5,
+                    true,
+                    &text,
+                    names,
+                    CUP_STEPPER_W,
                 );
-                ui.label(":");
-                let b = ui.add(
-                    egui::DragValue::new(&mut m)
-                        .range(0..=59)
-                        .custom_formatter(two),
-                );
-                if a.changed() || b.changed() {
-                    cup.at = h * 60 + m;
-                }
             }
         });
     }
-    let (tone, line) = match cup.plan(now) {
+    let (tone, line) = match cup_shown(started, cup, now) {
         Ok(CupPlan::Off) => (Tone::Notice, tr!(lang, off_key)),
         Ok(CupPlan::GameTimes) => (Tone::Done, tr!(lang, "lobby.cup_game_times_line")),
         Ok(CupPlan::Slot { opens, .. }) => (
@@ -1497,11 +1562,21 @@ pub fn cup_rows(
     refused
 }
 
+/// The cup line's plan: a run on this folder shows what it was started with (a refusal stays the refusal row, a slot
+/// keeps the time PLAY gave it); with no run, the choice previewed at `now`.
+fn cup_shown(
+    started: Option<Result<CupPlan, CupRefused>>,
+    cup: &CupChoice,
+    now: u32,
+) -> Result<CupPlan, CupRefused> {
+    started.unwrap_or_else(|| cup.plan(now))
+}
+
 /// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
 /// both back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let (mut host, mut cancel) = (false, false);
-    let modal = egui::Modal::new(egui::Id::new("lobby-host"))
+    let modal = egui::Modal::new(egui::Id::unique("lobby-host"))
         .backdrop_color(egui::Color32::from_black_alpha(150))
         .frame(
             egui::Frame::new()
@@ -1511,7 +1586,8 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 .inner_margin(20),
         )
         .show(ui.ctx(), |ui| {
-            ui.set_width(440.0);
+            // 480: the cup's four segments fit in Italian (cup_rows_fit_the_launcher)
+            ui.set_width(480.0);
             ui.label(
                 egui::RichText::new(tr!(lang, "lobby.host_title"))
                     .font(theme::display(26.0))
@@ -1533,17 +1609,18 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
                 &hint,
             );
             ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
+                let label = field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut v.arcade_name)
                         .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
                         .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
                         .desired_width(ui.available_width())
                         .margin(vec2(10.0, 6.0)),
-                );
+                )
+                .labelled_by(label.id);
             });
             let now = v.clock.unwrap_or_else(local_clock);
-            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false);
+            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false, None);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let size = vec2(216.0, 48.0);
@@ -1571,14 +1648,16 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
 fn code_row(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     ui.add_enabled_ui(v.joining.is_none(), |ui| {
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "lobby.room_code"), 130.0);
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut v.code)
-                    .font(theme::mono(17.0))
-                    .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
-                    .desired_width(110.0)
-                    .margin(vec2(10.0, 6.0)),
-            );
+            let label = field(ui, &tr!(lang, "lobby.room_code"), 130.0);
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(&mut v.code)
+                        .font(theme::mono(17.0))
+                        .char_limit(forza::online::lobby::ARCADE_CODE_LEN)
+                        .desired_width(110.0)
+                        .margin(vec2(10.0, 6.0)),
+                )
+                .labelled_by(label.id);
             if r.lost_focus()
                 && ui.input(|i| i.key_pressed(Key::Enter))
                 && !v.code.trim().is_empty()
@@ -1732,6 +1811,11 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     };
     if let Some(k) = key {
         return Some((Tone::Notice, tr!(lang, k)));
+    }
+    // a code typed: name what JOIN joins, so no row can pass for the target
+    if let Some(code) = v.code_now() {
+        let code = code.to_ascii_uppercase();
+        return Some((Tone::Notice, tr!(lang, "lobby.code_target", code = code)));
     }
     if let (true, Some(s)) = (v.stale(), v.updated_s) {
         return Some((Tone::Notice, tr!(lang, "lobby.stale", s = s)));
@@ -1925,10 +2009,68 @@ mod tests {
             assert_eq!(c.plan(now), Err(why), "{c:?} at {}", clock_text(now));
         }
         assert_eq!(cup(CupMode::Off, 0, 0).plan(h(4, 0)), Ok(CupPlan::Off));
+        // the championship: the slot after the cup's 5 rounds, ending 3 slots later, before 05:00 for the last cup
+        // a night allows
+        let champ = |p: Result<CupPlan, _>| p.unwrap().championship().unwrap();
+        assert_eq!(
+            champ(cup(in_, 8, 0).plan(h(14, 0))),
+            h(14, 0) + 505 + 5 * 530
+        );
+        assert_eq!(clock_text(champ(cup(in_, 8, 0).plan(h(14, 0)))), "14:52");
+        assert_eq!(
+            champ(cup(at, 0, 21 * 60 + 30).plan(h(20, 0))),
+            h(21, 30) + 5 + 2650
+        );
+        assert_eq!(champ(cup(in_, 30, 0).plan(h(23, 45))), h(0, 17) + 55 + 2650);
+        let last = champ(cup(at, 0, 3 * 60 + 41).plan(h(3, 0)));
+        assert_eq!(clock_text(last), "04:25");
+        // even with the championship a slot late
+        assert!(last + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS < CUP_DAY_CHANGE);
+        assert_eq!(
+            clock_text(CupPlan::GameTimes.championship().unwrap()),
+            "21:44"
+        );
+        assert_eq!(CupPlan::Off.championship(), None);
         assert_eq!(
             cup(CupMode::GameTimes, 0, 0).plan(h(4, 0)),
             Ok(CupPlan::GameTimes)
         );
+    }
+
+    /// A run on this folder shows the cup result PLAY gave it (the run line's time, not a new now + N every frame) and
+    /// keeps a refusal; with no run, the choice is previewed at the clock.
+    #[test]
+    fn a_run_keeps_the_cup_time_it_was_started_with() {
+        let h = |h: u32, m: u32| h * 3600 + m * 60;
+        let cup = CupChoice {
+            mode: CupMode::In,
+            minutes: 8,
+            at: 0,
+        };
+        let started = cup.plan(h(18, 8));
+        // the run line's time (18:16), not the 18:26 the same choice previews at 18:18
+        assert_eq!(
+            started,
+            Ok(CupPlan::Slot {
+                friendlies: 1,
+                opens: h(18, 16) + 25
+            })
+        );
+        // ten minutes into the run: the preview would say 18:26, the run's line stays 18:16
+        assert_eq!(cup_shown(Some(started), &cup, h(18, 18)), started);
+        assert_eq!(cup_shown(None, &cup, h(18, 18)), cup.plan(h(18, 18)));
+        assert_ne!(cup_shown(None, &cup, h(18, 18)), started);
+        // refused at PLAY ("At 21:00" picked at 18:00, 180 min > the 150 it takes) stays refused: later, when the
+        // preview turns legal, the run's line keeps the refusal it was started with
+        let at = CupChoice {
+            mode: CupMode::At,
+            at: 21 * 60,
+            ..cup
+        };
+        let refused = at.plan(h(18, 0));
+        assert_eq!(refused, Err(CupRefused::TooFar));
+        assert_eq!(cup_shown(Some(refused), &at, h(18, 40)), refused);
+        assert_ne!(cup_shown(None, &at, h(18, 40)), refused);
     }
 
     #[test]
@@ -1969,6 +2111,7 @@ mod tests {
     #[test]
     fn listed_arcade_rooms_join_from_their_row() {
         let mut v = LobbyView::sample(Scenario::ArcadeNoRoom);
+        v.code.clear();
         assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
         v.arcades[0].room = false;
         assert_eq!(v.visible().len(), 1);
@@ -1980,9 +2123,34 @@ mod tests {
         // a code typed joins by code: JOIN is live
         v.arcade_rooms = true;
         v.arcades.clear();
+        v.code = "K7QM2XPD".into();
         assert_eq!(v.why_not_join(Lang::En), None);
         v.code.clear();
         assert_eq!(v.why_not_join(Lang::En).as_deref(), Some("Pick a room"));
+    }
+
+    /// A typed code and a picked row are never both the target: the code hides the row, a pick clears the code.
+    #[test]
+    fn a_code_and_a_row_never_compete() {
+        let mut v = LobbyView::sample(Scenario::ArcadeCode);
+        assert_eq!(v.selected, 0);
+        assert_eq!(v.code_now(), Some("K7QM2XPD"));
+        assert!(v.joinable().is_none(), "no row is picked with a code typed");
+        assert_eq!(
+            v.join_action(),
+            Some(LobbyAction::JoinCode("K7QM2XPD".into()))
+        );
+        // the one status line names it, in every language
+        for lang in Lang::ALL {
+            let (_, said) = status(&v, lang).expect("the code's target is named");
+            assert!(said.contains("K7QM2XPD"), "{lang:?}: {said}");
+        }
+        // a row picked: the code goes
+        v.code.clear();
+        assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("p1"));
+        assert_eq!(v.join_action(), Some(LobbyAction::Join("p1".into())));
+        v.code = "K7QM2XPD".into();
+        assert!(v.joinable().is_none(), "a code typed again hides the row");
     }
 
     /// The host's own arcade showed no count while it ran (2026-10-28 live test: seats 1-3 taken, nothing shown).

@@ -13,7 +13,10 @@
 //! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: an arcade room hosted by the PC whose arcade tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
 //!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`arcade_name`]); desks before this
-//!   answer `ERR`, and the Launcher asks again without the name.
+//!   answer `ERR`, and the Launcher asks again without the name. `CREATE shop ID SECRET public|private [NAME...]`
+//!   carries the host's room secret ([`valid_room_secret`]): the same secret gets its last room's code again (a
+//!   restarted host keeps it; the desk keeps only the secret's hash, and forgets codes when it restarts). Desks
+//!   before this answer `ERR`, and the Launcher asks again without the secret (a fresh code, as before).
 //! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the arcade room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
 //!   Desks before this list rooms without [`Arcade::room`]. The Launcher joins a row with it by `JOIN id`; a 2017-18
@@ -129,6 +132,12 @@ pub struct Arcade {
 /// An iroh EndpointId as written: 64 hex digits.
 pub fn valid_endpoint_id(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// An arcade host's room secret as written: 64 hex digits, as an EndpointId (the Launcher derives it from its tunnel
+/// key; only its holder gets the room's code back).
+pub fn valid_room_secret(s: &str) -> bool {
+    valid_endpoint_id(s)
 }
 
 /// The desk's answer to `SHOP t [ID]`.
@@ -252,9 +261,11 @@ pub enum Ask {
     Create {
         open: bool,
     },
-    /// `name` empty: the desk's own ([`ARCADE_ROOM_NAME`]); else already [`arcade_name`].
+    /// `name` empty: the desk's own ([`ARCADE_ROOM_NAME`]); else already [`arcade_name`]. `secret`: the host's room
+    /// secret ([`valid_room_secret`]), none from Launchers before it.
     CreateArcade {
         host: String,
+        secret: Option<String>,
         public: bool,
         name: String,
     },
@@ -287,7 +298,19 @@ impl Ask {
             Ask::Create { open: false } => "CREATE vs\n".into(),
             Ask::Create { open: true } => "CREATE vs open\n".into(),
             // wire tokens `CREATE shop` and `SHOP` kept from before the arcade rename: older clients and desks speak them
-            Ask::CreateArcade { host, public, name } if !name.is_empty() => {
+            Ask::CreateArcade {
+                host,
+                secret: Some(secret),
+                public,
+                name,
+            } => {
+                let vis = if *public { "public" } else { "private" };
+                let sp = if name.is_empty() { "" } else { " " };
+                format!("CREATE shop {host} {secret} {vis}{sp}{name}\n")
+            }
+            Ask::CreateArcade {
+                host, public, name, ..
+            } if !name.is_empty() => {
                 let vis = if *public { "public" } else { "private" };
                 format!("CREATE shop {host} {vis} {name}\n")
             }
@@ -331,13 +354,28 @@ impl Ask {
             ["CREATE", "vs"] => Ask::Create { open: false },
             ["CREATE", "vs", "open"] => Ask::Create { open: true },
             // kept wire tokens `CREATE shop` and `SHOP` (see `line`)
+            [
+                "CREATE",
+                "shop",
+                id,
+                secret,
+                vis @ ("public" | "private"),
+                ref name @ ..,
+            ] if valid_endpoint_id(id) && valid_room_secret(secret) => Ask::CreateArcade {
+                host: s(id),
+                secret: Some(s(secret)),
+                public: vis == "public",
+                name: arcade_name(&name.join(" ")),
+            },
             ["CREATE", "shop", id] if valid_endpoint_id(id) => Ask::CreateArcade {
                 host: s(id),
+                secret: None,
                 public: false,
                 name: String::new(),
             },
             ["CREATE", "shop", id, "public"] if valid_endpoint_id(id) => Ask::CreateArcade {
                 host: s(id),
+                secret: None,
                 public: true,
                 name: String::new(),
             },
@@ -350,6 +388,7 @@ impl Ask {
             ] if valid_endpoint_id(id) && !arcade_name(&name.join(" ")).is_empty() => {
                 Ask::CreateArcade {
                     host: s(id),
+                    secret: None,
                     public: vis == "public",
                     name: arcade_name(&name.join(" ")),
                 }
@@ -528,11 +567,13 @@ pub fn create(addr: SocketAddr, open: bool) -> Result<Created, String> {
     Created::parse(&a).ok_or(a)
 }
 
-/// `CREATE shop ID [public]` (2017-18): an arcade room for the PC whose arcade tunnel is `host`, this PC on seat 1;
-/// `public` lists it in `LOBBY` (never its code) under `name` ([`arcade_name`] applied; empty: the desk's own).
+/// `CREATE shop ID [SECRET] [public]` (2017-18): an arcade room for the PC whose arcade tunnel is `host`, this PC on
+/// seat 1; `public` lists it in `LOBBY` (never its code) under `name` ([`arcade_name`] applied; empty: the desk's
+/// own); `secret` ([`valid_room_secret`]) gets the code of its last room again.
 pub fn create_arcade(
     addr: SocketAddr,
     host: &str,
+    secret: Option<&str>,
     public: bool,
     name: &str,
 ) -> Result<Created, String> {
@@ -540,6 +581,7 @@ pub fn create_arcade(
         addr,
         &Ask::CreateArcade {
             host: host.into(),
+            secret: secret.map(Into::into),
             public,
             name: arcade_name(name),
         }
@@ -740,23 +782,39 @@ mod tests {
         for ask in [
             Ask::CreateArcade {
                 host: id.clone(),
+                secret: None,
                 public: false,
                 name: String::new(),
             },
             Ask::CreateArcade {
                 host: id.clone(),
+                secret: None,
                 public: true,
                 name: String::new(),
             },
             Ask::CreateArcade {
                 host: id.clone(),
+                secret: None,
                 public: false,
                 name: "Sala Roma".into(),
             },
             Ask::CreateArcade {
                 host: id.clone(),
+                secret: None,
                 public: true,
                 name: "ゲームセンター 1".into(),
+            },
+            Ask::CreateArcade {
+                host: id.clone(),
+                secret: Some("cd".repeat(32)),
+                public: false,
+                name: String::new(),
+            },
+            Ask::CreateArcade {
+                host: id.clone(),
+                secret: Some("cd".repeat(32)),
+                public: true,
+                name: "Sala Roma".into(),
             },
             Ask::JoinArcade {
                 code: "K7QMZD".into(),
@@ -780,6 +838,10 @@ mod tests {
         assert_eq!(Ask::parse("CREATE shop 1.2.3.4"), None);
         assert_eq!(Ask::parse(&format!("SHOP t {}", &id[..60])), None);
         assert_eq!(Ask::parse(&format!("CREATE shop {id} hidden Roma")), None);
+        assert_eq!(
+            Ask::parse(&format!("CREATE shop {id} {} private", &id[..60])),
+            None
+        );
     }
 
     /// A room's name loses control characters and extra spaces, and stops at 24 characters.

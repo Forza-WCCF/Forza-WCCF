@@ -1,7 +1,9 @@
+#![deny(clippy::pedantic)]
+
 //! `cap <root> <outdir>`: save every visible top-level window of the game processes (`client_Release.exe`,
 //! `control_Release.exe`) whose exe lies under `root` as `<kind>-<pid>.png`, one line per capture naming the method.
 //! Windows.Graphics.Capture on the window handle (`wgc`) takes the window's own composed content, Direct3D included;
-//! PrintWindow with PW_RENDERFULLCONTENT (`printwindow`, blank for the game's Direct3D 9 windows) is the fallback when
+//! `PrintWindow` with `PW_RENDERFULLCONTENT` (`printwindow`, blank for the game's Direct3D 9 windows) is the fallback when
 //! WGC is unavailable. Both read one window, never the screen, so other apps never end up in a capture.
 //! Replaces the old cap.ps1. Windows only; `cargo xtask cap` builds and runs it.
 
@@ -28,6 +30,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 const GAMES: [&str; 2] = ["client_Release.exe", "control_Release.exe"];
 const PW_RENDERFULLCONTENT: u32 = 2;
+
+/// A Win32 size field's value: every struct and buffer here is far below 4 GiB.
+fn size32(n: usize) -> u32 {
+    u32::try_from(n).expect("a Win32 size fits its u32 field")
+}
 
 /// The capture's name prefix: a client under `\seat1\` is a seat, a control is `control`, any other client the projector.
 fn kind(exe: &str, path: &str) -> &'static str {
@@ -57,16 +64,16 @@ fn games(root: &str) -> Vec<(u32, String, String)> {
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         let mut e: PROCESSENTRY32W = std::mem::zeroed();
-        e.dwSize = size_of::<PROCESSENTRY32W>() as u32;
-        let mut ok = Process32FirstW(snap, &mut e) != 0;
+        e.dwSize = size32(size_of::<PROCESSENTRY32W>());
+        let mut ok = Process32FirstW(snap, &raw mut e) != 0;
         while ok {
             let exe = wide(&e.szExeFile);
             if GAMES.iter().any(|g| g.eq_ignore_ascii_case(&exe)) {
                 let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, e.th32ProcessID);
                 if !h.is_null() {
                     let mut buf = [0u16; 1024];
-                    let mut n = buf.len() as u32;
-                    if QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut n) != 0 {
+                    let mut n = size32(buf.len());
+                    if QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &raw mut n) != 0 {
                         let path = String::from_utf16_lossy(&buf[..n as usize]);
                         if under(root, &path) {
                             found.push((e.th32ProcessID, exe, path));
@@ -75,7 +82,7 @@ fn games(root: &str) -> Vec<(u32, String, String)> {
                     CloseHandle(h);
                 }
             }
-            ok = Process32NextW(snap, &mut e) != 0;
+            ok = Process32NextW(snap, &raw mut e) != 0;
         }
         CloseHandle(snap);
     }
@@ -88,7 +95,7 @@ unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> i32 {
     let mut pid = 0;
     // SAFETY: `h` comes from EnumWindows.
     unsafe {
-        GetWindowThreadProcessId(h, &mut pid);
+        GetWindowThreadProcessId(h, &raw mut pid);
         if IsWindowVisible(h) != 0 {
             v.push((h, pid));
         }
@@ -100,11 +107,11 @@ unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> i32 {
 fn windows_of() -> Vec<(HWND, u32)> {
     let mut v: Vec<(HWND, u32)> = vec![];
     // SAFETY: `collect` only uses the pointer during this call.
-    unsafe { EnumWindows(Some(collect), &mut v as *mut _ as LPARAM) };
+    unsafe { EnumWindows(Some(collect), &raw mut v as LPARAM) };
     v
 }
 
-/// The window's own pixels as (width, height, RGBA, method), restoring it first when minimized: WGC, else PrintWindow.
+/// The window's own pixels as (width, height, RGBA, method), restoring it first when minimized: WGC, else `PrintWindow`.
 fn grab(h: HWND) -> Option<(u32, u32, Vec<u8>, &'static str)> {
     // SAFETY: `h` is a window handle; IsIconic and ShowWindow accept any value.
     unsafe {
@@ -121,19 +128,20 @@ fn grab(h: HWND) -> Option<(u32, u32, Vec<u8>, &'static str)> {
     }
 }
 
-/// PrintWindow(PW_RENDERFULLCONTENT) into a DIB section: (width, height, RGBA).
+/// `PrintWindow(PW_RENDERFULLCONTENT)` into a DIB section: (width, height, RGBA).
 fn print_window(h: HWND) -> Option<(u32, u32, Vec<u8>)> {
     // SAFETY: GDI objects are created, used and freed here; the DIB section memory is read only while the bitmap is alive.
     unsafe {
         let mut r: RECT = std::mem::zeroed();
-        GetWindowRect(h, &mut r);
+        GetWindowRect(h, &raw mut r);
         let (w, ht) = (r.right - r.left, r.bottom - r.top);
         if w <= 0 || ht <= 0 {
             return None;
         }
+        // both are positive from here on, so each unsigned cast keeps the value
         let mut bi: BITMAPINFO = std::mem::zeroed();
         bi.bmiHeader = BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biSize: size32(size_of::<BITMAPINFOHEADER>()),
             biWidth: w,
             biHeight: -ht, // top-down
             biPlanes: 1,
@@ -143,14 +151,23 @@ fn print_window(h: HWND) -> Option<(u32, u32, Vec<u8>)> {
         };
         let dc = CreateCompatibleDC(std::ptr::null_mut());
         let mut bits = std::ptr::null_mut();
-        let bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &mut bits, std::ptr::null_mut(), 0);
+        let bmp = CreateDIBSection(
+            dc,
+            &raw const bi,
+            DIB_RGB_COLORS,
+            &raw mut bits,
+            std::ptr::null_mut(),
+            0,
+        );
         if bmp.is_null() {
             DeleteDC(dc);
             return None;
         }
         let old = SelectObject(dc, bmp);
         let ok = PrintWindow(h, dc, PW_RENDERFULLCONTENT) != 0;
-        let mut px = std::slice::from_raw_parts(bits as *const u8, (w * ht * 4) as usize).to_vec();
+        let mut px =
+            std::slice::from_raw_parts(bits as *const u8, (w * ht * 4).cast_unsigned() as usize)
+                .to_vec();
         SelectObject(dc, old);
         DeleteObject(bmp);
         DeleteDC(dc);
@@ -158,7 +175,7 @@ fn print_window(h: HWND) -> Option<(u32, u32, Vec<u8>)> {
             p.swap(0, 2); // BGRA -> RGBA
             p[3] = 255; // PrintWindow leaves alpha at 0
         }
-        ok.then_some((w as u32, ht as u32, px))
+        ok.then_some((w.cast_unsigned(), ht.cast_unsigned(), px))
     }
 }
 
@@ -178,6 +195,10 @@ fn save(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), Box<dyn std::err
 }
 
 /// Capture the game windows under `root` into `out`; one line per capture.
+///
+/// # Errors
+///
+/// The output folder cannot be created or a PNG cannot be written.
 pub fn capture(root: &str, out: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     std::fs::create_dir_all(out)?;
     let procs = games(root);
@@ -271,7 +292,7 @@ mod tests {
                 },
                 ..std::mem::zeroed()
             };
-            RegisterClassW(&wc);
+            RegisterClassW(&raw const wc);
             let h = CreateWindowExW(
                 0,
                 name.as_ptr(),
@@ -299,15 +320,15 @@ mod tests {
             // SAFETY: a zeroed MSG filled by PeekMessageW and dispatched on this, the windows' thread.
             unsafe {
                 let mut m: MSG = std::mem::zeroed();
-                while PeekMessageW(&mut m, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
-                    DispatchMessageW(&m);
+                while PeekMessageW(&raw mut m, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    DispatchMessageW(&raw const m);
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
 
-    /// grab() on `h`: the method used and the centre pixel's RGB.
+    /// `grab()` on `h`: the method used and the centre pixel's RGB.
     fn centre(h: HWND) -> (&'static str, [u8; 3]) {
         let (w, ht, px, how) = grab(h).expect("grab");
         let i = ((ht / 2 * w + w / 2) * 4) as usize;
@@ -327,7 +348,7 @@ mod tests {
     }
 
     /// A window presented by a D3D11 flip-model swap chain (cleared to RGB(51, 102, 204)): the Direct3D path the game's
-    /// windows need, where PrintWindow comes back blank.
+    /// windows need, where `PrintWindow` comes back blank.
     #[test]
     fn d3d_window() {
         use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
@@ -360,14 +381,14 @@ mod tests {
                 .CreateSwapChainForHwnd(
                     &dev,
                     windows::Win32::Foundation::HWND(h),
-                    &desc,
+                    &raw const desc,
                     None,
                     None,
                 )
                 .unwrap();
             let back: ID3D11Texture2D = sc.GetBuffer(0).unwrap();
             let mut rtv = None;
-            dev.CreateRenderTargetView(&back, None, Some(&mut rtv))
+            dev.CreateRenderTargetView(&back, None, Some(&raw mut rtv))
                 .unwrap();
             ctx.ClearRenderTargetView(rtv.as_ref().unwrap(), &[0.2, 0.4, 0.8, 1.0]);
             sc.Present(0, DXGI_PRESENT(0)).unwrap();
@@ -383,7 +404,8 @@ mod tests {
     #[test]
     fn no_match_no_capture() {
         let out = std::env::temp_dir().join(format!("cap-test-{}", std::process::id()));
-        assert!(capture(r"Z:\no\such\root", &out).unwrap().is_empty());
+        let lines = capture(r"Z:\no\such\root", &out).unwrap();
+        assert!(lines.is_empty(), "captured {lines:?}");
         let _ = std::fs::remove_dir_all(&out);
     }
 }

@@ -32,7 +32,6 @@ serde_json = "1.0.151"
 time = { version = "0.3.55", features = ["local-offset"] }
 zip.workspace = true
 junction.workspace = true
-windows.workspace = true
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -65,10 +64,13 @@ windows-sys = { version = "0.61.2", features = [
 csv = "1.4.0"
 object.workspace = true
 sha2.workspace = true
+fs4.workspace = true
 semver.workspace = true
 self-replace.workspace = true
 
 [dev-dependencies]
+# tests/it/sound.rs: Core Audio's interface for the starting volumes forza::sound sets
+windows.workspace = true
 # tests/it/arcade_room.rs: an in-process iroh relay (iroh::test_utils::run_relay_server)
 iroh = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

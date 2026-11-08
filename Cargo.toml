@@ -18,15 +18,16 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0.104"
 aes = "0.9.3"
 clap = { version = "4.6.7", features = ["derive"] }
-# GUI: eframe's defaults minus `web_screen_reader`; `glow` (OpenGL) first, wgpu the fallback when it cannot open the
-# window (launcher, installer). `wgpu_no_default_features`: wgpu's backends come from the `wgpu` entry below
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "links", "wgpu_no_default_features", "glow", "wayland", "x11"] }
-egui = { version = "0.36.2", default-features = false }
-egui_extras = { version = "0.36.2", default-features = false }
-emath = { version = "0.36.2", default-features = false }
+# GUI: eframe's defaults minus `web_screen_reader` and `system_fonts` (our own fonts); `clipboard` keeps paste from
+# other programs; `glow` (OpenGL) first, wgpu the fallback when it cannot open the window (launcher, installer).
+# `wgpu_no_default_features`: wgpu's backends come from the `wgpu` entry below
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "links", "wgpu_no_default_features", "glow", "wayland", "x11"] }
+egui = { version = "0.37.0", default-features = false }
+egui_extras = { version = "0.37.0", default-features = false }
+emath = { version = "0.37.0", default-features = false }
 # eframe's wgpu (same version) with only the DX12 backend: the Windows fallback renderer, without Vulkan, Metal, GL, WebGPU
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "wgsl", "dx12"] }
-egui_kittest = { version = "0.36.2", features = ["snapshot", "wgpu"] }
+egui_kittest = { version = "0.37.0", features = ["snapshot", "wgpu"] }
 forza = { path = "crates/forza" }
 forza-ui = { path = "crates/forza-ui" }
 rust-i18n = "4.2.4"
@@ -34,9 +35,13 @@ fs-err = "3.3.2"
 junction = "2.1.0"
 rfd = "0.17.2"
 sha2 = "0.11.0"
+md-5 = "0.11.0"
 semver = "1.0.26"
 self-replace = "1.5.0"
 xshell = "0.2.7"
+# dev-dependency only, never in a shipped binary: the property tests (the log scrub, the access codes, the game
+# server's framing, the card reader's framing, xtask's name mask)
+proptest = "1.12.0"
 crc32fast = "1.5.2"
 fs4 = "1.1.0"
 ntfs = "0.4.0"
@@ -67,6 +72,11 @@ unsafe_op_in_unsafe_fn = "deny"
 all = { level = "warn", priority = -1 }
 undocumented_unsafe_blocks = "warn"
 dbg_macro = "warn"
+
+[workspace.metadata.cargo-shear]
+# no code names it: launcher and installer depend on it for eframe's wgpu fallback, so feature unification leaves that
+# renderer with its DX12 backend only (the `wgpu` entry above)
+ignored = ["wgpu"]
 
 [profile.release]
 opt-level = 3
