@@ -159,6 +159,53 @@ fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
+/// A `CARGO_TARGET_DIR` shared by several worktrees holds one copy of each workspace crate: cargo names the artifacts by
+/// the crate's path inside the workspace and calls them fresh when the sources are older, so a worktree with older files
+/// would get the last worktree's code (cargo 1.99, tried 2026-11-07). On a change of worktree (`.forza-worktree` in that
+/// folder) every tracked file gets the current time, and cargo rebuilds the workspace crates; dependencies stay.
+fn shared_target(root: &Path) -> Result<()> {
+    let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from) else {
+        return Ok(());
+    };
+    // `cargo run` names the worktree it runs in; this xtask.exe may have been built from another one
+    let here = std::env::var_os("CARGO_MANIFEST_DIR")
+        .and_then(|m| Path::new(&m).parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| root.to_owned());
+    let marker = dir.join(".forza-worktree");
+    let last = std::fs::read_to_string(&marker).unwrap_or_default();
+    if here == root && Path::new(last.trim()) == here {
+        return Ok(());
+    }
+    let o = Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(&here)
+        .output()?;
+    ensure!(
+        o.status.success(),
+        "git ls-files failed in {}",
+        here.display()
+    );
+    let now = std::time::SystemTime::now();
+    for f in o.stdout.split(|b| *b == 0).filter(|f| !f.is_empty()) {
+        // a tracked file deleted or read-only in the working tree is skipped
+        if let Ok(file) = std::fs::File::options()
+            .write(true)
+            .open(here.join(String::from_utf8_lossy(f).as_ref()))
+        {
+            file.set_modified(now)?;
+        }
+    }
+    fs::create_dir_all(&dir)?;
+    fs::write(&marker, here.display().to_string())?;
+    ensure!(
+        here == root,
+        "this xtask.exe was built from {} (shared CARGO_TARGET_DIR); {} is marked newer now: run the command again",
+        root.display(),
+        here.display()
+    );
+    Ok(())
+}
+
 const TOP: &str = "Forza-WCCF-2010-11";
 const PRODUCT: &str = "Forza-WCCF 2010-11";
 const PRODUCT_1718: &str = "Forza-WCCF 2017-18";
@@ -411,6 +458,7 @@ fn main() -> Result<()> {
     if !text && !matches!(task, Task::Stage { .. }) {
         use_sccache();
     }
+    shared_target(&root)?;
     let stage_root = stage_root(&root);
     let kit = stage_root.join("kit/2010-11");
     let kit_1718 = stage_root.join("kit/2017-18");
@@ -500,13 +548,26 @@ fn remap_config(root: &Path) -> Vec<String> {
     let cargo = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| home.as_ref().map(|h| h.join(".cargo")));
+    // the build scripts' OUT_DIR is the only path of the worktree left in the programs (cargo passes the workspace crates'
+    // sources as relative paths); a shared CARGO_TARGET_DIR is mapped to where `target\` would be, so the bytes stay the
+    // same and the flags name no worktree (they are part of every crate's hash: one copy of the dependencies per slot)
+    let local = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(t) => (PathBuf::from(t), Path::new("forza-wccf").join("target")),
+        None => (root.to_owned(), PathBuf::from("forza-wccf")),
+    };
     let flags: Vec<String> = [
-        (home, "~"),
-        (cargo, "cargo"),
-        (Some(root.to_owned()), "forza-wccf"),
+        (home, PathBuf::from("~")),
+        (cargo, PathBuf::from("cargo")),
+        (Some(local.0), local.1),
     ]
     .into_iter()
-    .filter_map(|(from, to)| Some(format!("'--remap-path-prefix={}={to}'", from?.display())))
+    .filter_map(|(from, to)| {
+        Some(format!(
+            "'--remap-path-prefix={}={}'",
+            from?.display(),
+            to.display()
+        ))
+    })
     .collect();
     [TARGET, PANEL_TARGET]
         .into_iter()
