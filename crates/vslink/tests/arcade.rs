@@ -99,6 +99,7 @@ fn host_services() -> HostServices {
     let ids = relay_ids.clone();
     thread::spawn(move || {
         let mut b = vec![0u8; 65536];
+        let mut echoed = 0u32;
         while let Ok((n, src)) = relay.recv_from(&mut b) {
             seen.lock().unwrap().insert(src);
             if n >= 4 {
@@ -107,6 +108,12 @@ fn host_services() -> HostServices {
                     .push(u32::from_le_bytes(b[..4].try_into().unwrap()));
             }
             let _ = relay.send_to(&b[..n], src);
+            echoed += 1;
+            if echoed.is_multiple_of(16) {
+                // the pace the stall's sender keeps: a burst echoed at once overflows the host flow socket's default
+                // receive buffer, a loopback artifact the game's pace does not produce
+                thread::sleep(Duration::from_millis(1));
+            }
         }
     });
     HostServices {
@@ -857,21 +864,48 @@ fn stall_proxy(to: SocketAddr, blocked: Arc<AtomicBool>) -> u16 {
 
 /// Packets of [`STALL_SIZE`] bytes from the join side to the host's relay port through the stall proxy, counted
 /// where the host receives them: 20 sent and all arrived; then `during` sent while the proxy holds every byte (none may
-/// arrive meanwhile); then 20 after it lets go. The ids the host got, in arrival order, once all have or nothing came
-/// for `quiet`. The echoes are not counted: the burst after the stall overflows the host flow socket's default receive
-/// buffer on its way back, a loopback artifact the game's pace does not produce.
-fn through_a_stall(p: &Pair, blocked: &AtomicBool, during: u32, quiet: Duration) -> Vec<u32> {
+/// arrive meanwhile); then 20 after it lets go. The ids the host got and the ids of the echoes back at the sender, each
+/// in arrival order, once all have come or nothing came for `quiet`.
+fn through_a_stall(
+    p: &Pair,
+    blocked: &AtomicBool,
+    during: u32,
+    quiet: Duration,
+) -> (Vec<u32>, Vec<u32>) {
     const AROUND: u32 = 20;
     let total = (2 * AROUND + during) as usize;
     let ids = &p.services.relay_ids;
     ids.lock().unwrap().clear();
-    let s = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let s = roomy_udp();
+    let echoes: Arc<Mutex<Vec<u32>>> = Arc::default();
+    let (r, back, done) = (
+        s.try_clone().unwrap(),
+        echoes.clone(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    r.set_read_timeout(Some(Duration::from_millis(100)))
+        .unwrap();
+    let reader = {
+        let done = done.clone();
+        thread::spawn(move || {
+            let mut b = vec![0u8; 65536];
+            while !done.load(Ordering::Relaxed) {
+                if let Ok(n) = r.recv(&mut b)
+                    && n >= 4
+                {
+                    back.lock()
+                        .unwrap()
+                        .push(u32::from_le_bytes(b[..4].try_into().unwrap()));
+                }
+            }
+        })
+    };
     let mut pkt = vec![0u8; STALL_SIZE];
     let mut send = |i: u32| {
         pkt[..4].copy_from_slice(&i.to_le_bytes());
         s.send_to(&pkt, at(p.join_ports.relay)).unwrap();
     };
-    let wait = |n: usize, quiet: Duration| {
+    let wait_for = |ids: &Arc<Mutex<Vec<u32>>>, n: usize, quiet: Duration| {
         let (mut seen, mut last) = (0, Instant::now());
         while seen < n && last.elapsed() < quiet {
             thread::sleep(Duration::from_millis(20));
@@ -881,6 +915,7 @@ fn through_a_stall(p: &Pair, blocked: &AtomicBool, during: u32, quiet: Duration)
             }
         }
     };
+    let wait = |n: usize, quiet: Duration| wait_for(ids, n, quiet);
     for i in 0..AROUND {
         send(i);
         thread::sleep(Duration::from_millis(20));
@@ -911,7 +946,12 @@ fn through_a_stall(p: &Pair, blocked: &AtomicBool, during: u32, quiet: Duration)
         thread::sleep(Duration::from_millis(20));
     }
     wait(total, quiet);
-    ids.lock().unwrap().clone()
+    wait_for(&echoes, total, quiet);
+    done.store(true, Ordering::Relaxed);
+    reader.join().unwrap();
+    let got = ids.lock().unwrap().clone();
+    let back = echoes.lock().unwrap().clone();
+    (got, back)
 }
 
 /// Stall packets: 200 bytes each, 7,240 of them (1.5 MB) in the stall below. Measured on Windows, a stream holds
@@ -935,7 +975,8 @@ fn echo(p: &Pair, size: usize, wait: Duration) -> Option<Vec<u8>> {
 }
 
 /// The flows on a stream through a stall of the only path that holds more than the stream's window and the queue
-/// behind it: every packet reaches the host, once and in order. Then a packet far over the datagram limit crosses whole, and
+/// behind it: the join side's producer waits for room (logged), every packet reaches the host, once and in order, and
+/// every echo comes back the same way. Then a packet far over the datagram limit crosses whole, and
 /// after the host restarts the join side dials again and its flows cross on a fresh stream.
 #[test]
 fn a_stall_pauses_the_flow_and_loses_nothing() {
@@ -946,12 +987,23 @@ fn a_stall_pauses_the_flow_and_loses_nothing() {
         &p.join_log,
         "link to the arcade up (streams in lz4, flows on a stream)"
     ));
-    let got = through_a_stall(&p, &blocked, STALL_PACKETS, Duration::from_secs(30));
+    let (got, back) = through_a_stall(&p, &blocked, STALL_PACKETS, Duration::from_secs(30));
+    let all = (0..STALL_PACKETS + 40).collect::<Vec<_>>();
     assert!(
-        got == (0..STALL_PACKETS + 40).collect::<Vec<_>>(),
+        got == all,
         "every packet, once, in order: {} arrived",
         got.len()
     );
+    assert!(
+        back == all,
+        "every echo, once, in order: {} came back",
+        back.len()
+    );
+    // the stall filled the queue and the producer waited: a producer that drops would not log this
+    assert!(logged(
+        &p.join_log,
+        "flows: a queue is full, waiting for room"
+    ));
     assert!(
         echo(&p, 60_000, Duration::from_secs(10)).is_some(),
         "the 60,000-byte packet"
@@ -1001,7 +1053,7 @@ fn datagram_flows_lose_packets_in_the_same_stall() {
         );
         thread::sleep(Duration::from_millis(50));
     }
-    let got = through_a_stall(&p, &blocked, STALL_PACKETS, Duration::from_secs(5));
+    let (got, _) = through_a_stall(&p, &blocked, STALL_PACKETS, Duration::from_secs(5));
     assert!(
         got.len() < (STALL_PACKETS + 40) as usize,
         "datagram flows lost nothing ({} arrived): the stall test proves nothing",
@@ -1009,6 +1061,63 @@ fn datagram_flows_lose_packets_in_the_same_stall() {
     );
     assert!(echo(&p, 60_000, Duration::from_secs(2)).is_none());
     assert!(logged(&p.join_log, "dropped a 60004-byte datagram"));
+    assert!(
+        !logged(&p.join_log, "waiting for room"),
+        "datagram flows never wait"
+    );
+}
+
+/// A shop/3 guest whose flow stream sends a frame over the cap: the host logs why and closes that link
+/// ([`arcade::CLOSE_BAD_FLOWS`]), as the join side does with a bad stream from the host, and dials again; on the
+/// fresh link a fresh flow stream carries flows both ways again.
+#[test]
+fn a_bad_flow_frame_closes_the_link_and_a_fresh_one_carries_flows() {
+    let mut p = pair("badflow", 0, false);
+    drop(p.join.take());
+    let guest = old_endpoint(&p, false); // a bare endpoint: its ALPN is the one it dials with
+    let url = p.relay.urls::<Vec<iroh::RelayUrl>>().remove(0);
+    let host = iroh::EndpointAddr::new(iroh::PublicKey::from_bytes(&p.host.id).unwrap())
+        .with_relay_url(url);
+    let frame = |flow: u32, d: &[u8]| {
+        let mut f = u16::try_from(4 + d.len()).unwrap().to_le_bytes().to_vec();
+        f.extend(flow.to_le_bytes());
+        f.extend(d);
+        f
+    };
+    let run = async {
+        let conn = guest
+            .connect(host.clone(), arcade::ARCADE_ALPN_3)
+            .await
+            .unwrap();
+        assert_eq!(conn.alpn(), arcade::ARCADE_ALPN_3);
+        let mut w = conn.open_uni().await.unwrap();
+        w.write_all(&u16::MAX.to_le_bytes()).await.unwrap();
+        w.write_all(&[0u8; 64]).await.unwrap();
+        let why = conn.closed().await;
+        assert!(
+            matches!(&why, iroh::endpoint::ConnectionError::ApplicationClosed(c)
+                if c.error_code == arcade::CLOSE_BAD_FLOWS.into()),
+            "{why:?}"
+        );
+
+        let conn = guest.connect(host, arcade::ARCADE_ALPN_3).await.unwrap();
+        let mut w = conn.open_uni().await.unwrap();
+        let sent = frame(1, b"\x05\0\0\0again");
+        w.write_all(&sent).await.unwrap();
+        let mut r = conn.accept_uni().await.unwrap();
+        let mut back = vec![0u8; sent.len()];
+        r.read_exact(&mut back).await.unwrap();
+        assert_eq!(back, sent, "the echo on the fresh flow stream");
+        conn.close(0u8.into(), b"bye");
+    };
+    p._rt
+        .block_on(async { tokio::time::timeout(Duration::from_secs(30), run).await })
+        .expect("in 30 s");
+    wait_logged(
+        &p.host_log,
+        "the flow stream failed (a 65535-byte frame, over the 65511-byte cap), closing the link",
+    );
+    p._rt.block_on(guest.close());
 }
 
 /// A new side with a 0.7.1 side (lz4 streams, datagram flows) or a 0.6.3 one (plain streams, datagram flows), either
