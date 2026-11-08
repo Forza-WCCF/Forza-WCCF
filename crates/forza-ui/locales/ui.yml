@@ -288,14 +288,14 @@ board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
 board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好連携"}
 board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
 board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
-board.pop_out: {en: "POP OUT BOARD", it: "FORMAZIONE IN FINESTRA", ja: "別ウィンドウで表示"}
+board.pop_out: {en: "POP OUT BOARD", it: "LAVAGNA IN FINESTRA", ja: "別ウィンドウで表示"}
 board.dock: {en: "DOCK BOARD", it: "RIPORTA NEL GIOCO", ja: "ボードを戻す"}
-board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
+board.window_title: {en: "Formation board", it: "Lavagna", ja: "フォーメーション"}
 cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
 cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
-cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
+cat.title: {en: "CARDS", it: "CARTE", ja: "カード"}
 cat.search_hint: {en: "Search cards", it: "Cerca carte", ja: "カードを検索"}
 cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
 cat.best_role: {en: "Best roles: %{roles}", it: "Ruoli migliori: %{roles}", ja: "適性：%{roles}"}
@@ -447,13 +447,13 @@ settings.restart_refused: {en: "The game cannot restart during a match.", it: "I
 settings.restarting: {en: "RESTARTING…", it: "RIAVVIO IN CORSO…", ja: "再起動中…"}
 settings.msg_compact: {en: "Compact view: the game picture is bigger.", it: "Vista compatta: l'immagine del gioco è più grande.", ja: "コンパクト表示：ゲーム画面が大きくなります。"}
 settings.msg_cabinet: {en: "Cabinet view: all the buttons are shown.", it: "Vista cabinato: i pulsanti sono tutti visibili.", ja: "筐体表示：ボタンがすべて表示されます。"}
-settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
+settings.board: {en: "FORMATION BOARD", it: "LAVAGNA", ja: "フォーメーション"}
 settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
 settings.board_window: {en: "OWN WINDOW", it: "IN FINESTRA", ja: "別ウィンドウ"}
-settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
-settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
-settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
-settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della formazione in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
+settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Lavagna in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
+settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La lavagna è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
+settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della lavagna", ja: "ボードのウィンドウにもボタン"}
+settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della lavagna in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
 settings.projector_hint: {en: "Its window, shown or hidden at once. Needs the CPU championship on: set it in the Launcher.", it: "La sua finestra, mostrata o nascosta subito. Serve il campionato CPU attivo: si imposta nel Launcher.", ja: "ウィンドウをすぐに表示・非表示。CPU大会がオンのときだけ表示されます。Launcher で設定します。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
