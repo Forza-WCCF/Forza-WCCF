@@ -19,7 +19,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 # `#[cfg_attr(all(test, not(debug_assertions)), no_panic)]` on the panic-free cores of the calls the game makes: the
-# optimised test builds (`check`'s `ci` and `fast` profiles) fail to link if one can panic; never in a shipped DLL
+# test builds without debug assertions (the `fast`, `ci` and `release` profiles) fail to link if one can panic; never
+# in a shipped DLL
 [dev-dependencies]
 no-panic = { workspace = true }
 
