@@ -163,7 +163,7 @@ installer.key_hint: {en: "The ZIP or web page with the table of game keys. The i
 installer.package_hint: {en: "The Forza-WCCF ZIP for this edition. It sets up the game.", it: "Lo ZIP di Forza-WCCF per questa edizione. Prepara il gioco.", ja: "このエディション用の Forza-WCCF の ZIP です。ゲームをセットアップします。"}
 installer.key_found: {en: "Key found for this disc.", it: "Chiave trovata per questo disco.", ja: "このディスクのキーが見つかりました。"}
 installer.key_none: {en: "This file has no key for this disc.", it: "Questo file non ha la chiave per questo disco.", ja: "このファイルにはこのディスクのキーがありません。"}
-installer.key_not_list: {en: "Not a key list.", it: "Non è un elenco di chiavi.", ja: "キーリストではありません。"}
+installer.key_not_list: {en: "Not a key list.", it: "Non è un elenco chiavi.", ja: "キーリストではありません。"}
 installer.key_is_package: {en: "This is the Forza-WCCF ZIP, not the key list.", it: "Questo è lo ZIP di Forza-WCCF, non l'elenco chiavi.", ja: "これは Forza-WCCF の ZIP で、キーリストではありません。"}
 installer.pkg_ok: {en: "Forza-WCCF package for the %{edition} edition.", it: "Pacchetto Forza-WCCF per l'edizione %{edition}.", ja: "%{edition} エディション用の Forza-WCCF パッケージです。"}
 installer.pkg_wrong: {en: "This package is for the %{edition} edition, not this game.", it: "Questo pacchetto è per l'edizione %{edition}, non per questo gioco.", ja: "このパッケージは %{edition} エディション用で、このゲーム用ではありません。"}

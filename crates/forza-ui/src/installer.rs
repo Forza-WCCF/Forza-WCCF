@@ -251,7 +251,7 @@ impl InstallerState {
     pub fn sample(lang: Lang, page: Page) -> Self {
         InstallerState {
             iso: r"D:\Images\disc-2010-11.iso".into(),
-            key: r"D:\Images\disc-2010-11.key".into(),
+            key: r"D:\Images\keys.zip".into(),
             detected: Some(Edition::E1011),
             key_check: Some(KeyCheck::Found),
             package_check: Some(PackageCheck::Ok(Edition::E1011)),
