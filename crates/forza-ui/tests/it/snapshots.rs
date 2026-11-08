@@ -1013,6 +1013,56 @@ fn board_foot_inside_the_board() {
     all.unwrap();
 }
 
+/// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
+/// the windows the panel's layout test covers and the game window players run (1972x1080), in English, Italian and
+/// Japanese. Laid out only: no GPU.
+#[test]
+fn board_hint_clear_of_the_buttons() {
+    const GAP: f32 = 8.0;
+    for (w, h) in [
+        (1440.0, 900.0),
+        (1600.0, 900.0),
+        (1280.0, 800.0),
+        (1920.0, 1049.0),
+        (1920.0, 1080.0),
+        (1972.0, 1080.0),
+        (2560.0, 1369.0),
+        (2560.0, 1440.0),
+        (3440.0, 1440.0),
+    ] {
+        // the sheet such a window shows, in points
+        let size = Vec2::new(w, h) / panel::scale(w, h, 96.0);
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(8);
+            let at = |key: &str| h.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let buttons = ["board.pop_out", "board.reset", "form.open"]
+                .map(|k| at(k).bottom())
+                .into_iter()
+                .fold(f32::MIN, f32::max);
+            let hint = at("board.hint");
+            // the board strip keeps a 16-point margin inside the board's column
+            let board =
+                panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
+            let case = format!("{size:?} {}", lang.code());
+            assert!(
+                hint.top() >= buttons + GAP - 0.5,
+                "{case}: the hint at {} sits {} under the buttons",
+                hint.top(),
+                hint.top() - buttons
+            );
+            assert!(
+                hint.bottom() <= board.bottom() - 16.0 + 0.5,
+                "{case}: the hint ends at {}, the board at {}",
+                hint.bottom(),
+                board.bottom()
+            );
+        }
+    }
+}
+
 /// RESET LINEUP names the moment its table was kept in its hover text, and a reset leaves an UNDO under the board.
 #[test]
 fn board_reset_lineup_hint_and_undo() {
