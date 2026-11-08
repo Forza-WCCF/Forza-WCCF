@@ -270,18 +270,16 @@ fn kind_of(h: HANDLE) -> u8 {
     if h.is_null() || h == INVALID_HANDLE_VALUE {
         return 0;
     }
-    (0..MAX)
-        .find(|&i| DEV[i].load(Relaxed) == h as usize)
-        .map_or(0, |i| KIND[i].load(Relaxed))
+    DEV.iter()
+        .zip(&KIND)
+        .find(|(d, _)| d.load(Relaxed) == h as usize)
+        .map_or(0, |(_, k)| k.load(Relaxed))
 }
 
 fn add(h: HANDLE, kind: u8) {
-    for i in 0..MAX {
-        if DEV[i]
-            .compare_exchange(0, h as usize, Relaxed, Relaxed)
-            .is_ok()
-        {
-            KIND[i].store(kind, Relaxed);
+    for (d, k) in DEV.iter().zip(&KIND) {
+        if d.compare_exchange(0, h as usize, Relaxed, Relaxed).is_ok() {
+            k.store(kind, Relaxed);
             return;
         }
     }
@@ -394,12 +392,13 @@ unsafe fn mxdev_ioctl(
             }
             // DISK_GEOMETRY: Cylinders (i64), MediaType FixedMedia (12), TracksPerCylinder, SectorsPerTrack, BytesPerSector
             0x0007_0000 if os >= 24 => {
-                let g = out(24);
+                let mut g = [0u8; 24];
                 g[..8].copy_from_slice(&1i64.to_le_bytes());
                 g[8..12].copy_from_slice(&12u32.to_le_bytes());
                 g[12..16].copy_from_slice(&1u32.to_le_bytes());
                 g[16..20].copy_from_slice(&((SRAM_SIZE as u32) / SRAM_SECTOR).to_le_bytes());
                 g[20..24].copy_from_slice(&SRAM_SECTOR.to_le_bytes());
+                out(24).copy_from_slice(&g);
                 24
             }
             0x9C40_6004 if os >= 4 => {

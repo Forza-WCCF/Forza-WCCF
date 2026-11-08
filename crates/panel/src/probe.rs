@@ -132,8 +132,8 @@ unsafe extern "stdcall" fn seq_hook(scene: usize, name: *const u8) -> i32 {
         "next".to_string()
     } else {
         let b = read::<48>(name as usize).unwrap_or([0; 48]);
-        let n = b.iter().position(|&c| c == 0).unwrap_or(48);
-        format!("\"{}\"", String::from_utf8_lossy(&b[..n]))
+        let text = b.split(|&c| c == 0).next().unwrap_or_default();
+        format!("\"{}\"", String::from_utf8_lossy(text))
     };
     let from = if vt == at(TITLE_VT) {
         "Before Game Title Movie".to_string()
@@ -285,7 +285,7 @@ fn sampler() {
             .into_iter()
             // SAFETY: a module-list lookup on a NUL-terminated literal
             .filter(|m| unsafe { GetModuleHandleA(PCSTR(m.as_ptr())) }.is_ok())
-            .map(|m| String::from_utf8_lossy(&m[..m.len() - 1]).into_owned())
+            .map(|m| String::from_utf8_lossy(m.strip_suffix(b"\0").unwrap_or(m)).into_owned())
             .collect();
             say(&format!(
                 "sofdec: first movie; audio modules loaded: {loaded:?}"
@@ -295,10 +295,13 @@ fn sampler() {
             inner_t = Instant::now();
             let words: Vec<u32> = (0..INNER_WORDS).map(|i| u32_at(inner + 4 * i)).collect();
             if let Some((at0, old)) = inner_last.as_ref().filter(|(a, _)| *a == inner) {
-                let moved: Vec<String> = (0..INNER_WORDS)
-                    .filter(|&i| old[i] != words[i])
+                let moved: Vec<String> = old
+                    .iter()
+                    .zip(&words)
+                    .enumerate()
+                    .filter(|(_, (o, w))| o != w)
                     .take(16)
-                    .map(|i| format!("+{:X}={:X}", 4 * i, words[i]))
+                    .map(|(i, (_, w))| format!("+{:X}={w:X}", 4 * i))
                     .collect();
                 say(&format!(
                     "sofdec: PREP, inner {:08X} words moved in 1 s: {}",

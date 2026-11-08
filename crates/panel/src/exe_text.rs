@@ -72,8 +72,9 @@ pub fn parse(sheet: &str) -> Result<Vec<Row>, String> {
 /// The room's bytes hold the original: its hash, then zeros to the room's end.
 pub fn is_original(room: &[u8], row: &Row) -> bool {
     room.len() == row.room
-        && Sha256::digest(&room[..row.len]).as_slice() == row.sha
-        && room[row.len..].iter().all(|&b| b == 0)
+        && room.split_at_checked(row.len).is_some_and(|(text, rest)| {
+            Sha256::digest(text).as_slice() == row.sha && rest.iter().all(|&b| b == 0)
+        })
 }
 
 /// What the room holds once replaced: our text, then zeros.
@@ -213,9 +214,11 @@ const CTD_ROWS: [(usize, [u8; 8]); 4] = [
 /// Each row's instruction at `base`: its address and the key's VA relocated (reloc type 3).
 fn originals<const N: usize>(rows: [(usize, [u8; N]); 4], base: usize) -> [(usize, [u8; N]); 4] {
     rows.map(|(va, mut b)| {
-        let key = u32::from_le_bytes(b[N - 4..].try_into().unwrap()) as usize;
-        let key = key.wrapping_sub(0x40_0000).wrapping_add(base) as u32;
-        b[N - 4..].copy_from_slice(&key.to_le_bytes());
+        // every row ends in its imm32 (N is 8 or 12)
+        if let Some(imm) = b.last_chunk_mut::<4>() {
+            let key = u32::from_le_bytes(*imm) as usize;
+            *imm = (key.wrapping_sub(0x40_0000).wrapping_add(base) as u32).to_le_bytes();
+        }
         (base + va - 0x40_0000, b)
     })
 }
@@ -274,7 +277,7 @@ fn names(base: usize, size: usize, italian: bool) -> usize {
             }
             // SAFETY: inside the image (checked above)
             let now = unsafe { std::slice::from_raw_parts(p as *const u8, jp.len() + 1) };
-            if now[..jp.len()] != jp[..] || now[jp.len()] != 0 {
+            if now.split_last() != Some((&0, jp.as_slice())) {
                 continue;
             }
             // ours for as long as the game runs; ASCII without an end byte (forza's test)
@@ -322,9 +325,13 @@ mod tests {
             .lines()
             .filter(|l| !l.starts_with('#') && !l.is_empty())
         {
-            let rva =
-                usize::from_str_radix(l[2..l.find('\t').unwrap()].trim_start_matches('0'), 16)
-                    .unwrap();
+            let rva = usize::from_str_radix(
+                l.get(2..l.find('\t').unwrap())
+                    .unwrap()
+                    .trim_start_matches('0'),
+                16,
+            )
+            .unwrap();
             assert!(
                 en.iter().all(|r| r.rva != rva),
                 "protected rva {rva:#X} is in exe_text.tsv"

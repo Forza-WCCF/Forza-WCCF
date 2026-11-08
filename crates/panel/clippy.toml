@@ -1,0 +1,6 @@
+# The crates here run in the game's process and deny panicking calls (each crate root); tests may still unwrap,
+# expect, panic and index. Clippy reads the nearest clippy.toml above a crate, so this one covers only the panel.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

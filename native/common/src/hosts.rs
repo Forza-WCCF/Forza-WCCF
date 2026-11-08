@@ -24,9 +24,12 @@ fn is_denied(name: &[u8]) -> bool {
     let name = name.strip_suffix(b".").unwrap_or(name);
     DENIED.iter().any(|d| {
         let d = d.as_bytes();
-        name.len() >= d.len()
-            && name[name.len() - d.len()..].eq_ignore_ascii_case(d)
-            && (name.len() == d.len() || name[name.len() - d.len() - 1] == b'.')
+        name.len()
+            .checked_sub(d.len())
+            .and_then(|cut| name.split_at_checked(cut))
+            .is_some_and(|(head, tail)| {
+                tail.eq_ignore_ascii_case(d) && head.last().is_none_or(|&c| c == b'.')
+            })
     })
 }
 
@@ -219,6 +222,7 @@ static ADDR_LOGGED: [AtomicBool; BLOCKED_ADDRS.len()] =
 
 /// The [`BLOCKED_ADDRS`] index and port of a socket address (`AF_INET`, or `AF_INET6` holding a mapped IPv4) that is
 /// one of them; None for every other address and for anything too short to read.
+#[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 fn blocked_dest(sa: &[u8]) -> Option<(usize, u16)> {
     let family = u16::from_le_bytes(sa.get(..2)?.try_into().ok()?);
     let port = u16::from_be_bytes(sa.get(2..4)?.try_into().ok()?);
@@ -244,12 +248,12 @@ fn refused(call: &str, name: *const u8, len: i32) -> bool {
     let Some((i, port)) = blocked_dest(sa) else {
         return false;
     };
-    if !ADDR_LOGGED[i].swap(true, Relaxed)
+    if let (Some(logged), Some(addr)) = (ADDR_LOGGED.get(i), BLOCKED_ADDRS.get(i))
+        && !logged.swap(true, Relaxed)
         && let Some(log) = LOG.get()
     {
         log(&format!(
-            "blocked publisher address {}:{port} ({call}), later attempts refused unlogged",
-            BLOCKED_ADDRS[i]
+            "blocked publisher address {addr}:{port} ({call}), later attempts refused unlogged"
         ));
     }
     true
@@ -375,8 +379,10 @@ fn patch(hooks: &[Hook], real: &[AtomicUsize]) -> String {
     // SAFETY: `exe` is loaded for the process's life
     for d in unsafe { crate::imports(exe) } {
         let dll = d.name().to_bytes();
-        for (i, (want, name, ordinal, hook)) in hooks.iter().enumerate() {
-            if done[i] || !dll.eq_ignore_ascii_case(want.as_bytes()) {
+        for ((want, name, ordinal, hook), (done, real)) in
+            hooks.iter().zip(done.iter_mut().zip(real))
+        {
+            if *done || !dll.eq_ignore_ascii_case(want.as_bytes()) {
                 continue;
             }
             let slot = d
@@ -386,8 +392,8 @@ fn patch(hooks: &[Hook], real: &[AtomicUsize]) -> String {
                 // SAFETY: an import slot of the loaded program; the hook has the import's signature; the original is
                 // kept before the slot points at the hook
                 unsafe {
-                    real[i].store(slot.read(), Relaxed);
-                    done[i] = crate::redirect(slot, *hook).is_some();
+                    real.store(slot.read(), Relaxed);
+                    *done = crate::redirect(slot, *hook).is_some();
                 }
             }
         }

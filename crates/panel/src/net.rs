@@ -129,8 +129,10 @@ const MATCH_QUIET_MS: u32 = 5000;
 /// a match and only then.
 fn is_frame_sync(p: &[u8]) -> bool {
     p.len() >= 52
-        && p[..8] == [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]
-        && u16::from_le_bytes([p[8], p[9]]) == 10
+        && p.first_chunk::<10>().is_some_and(|h| {
+            h[..8] == [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C]
+                && u16::from_le_bytes([h[8], h[9]]) == 10
+        })
 }
 
 /// This seat's match as its frame-sync packets show it, for one log line at its start and one at its end (times in
@@ -272,23 +274,27 @@ fn frame_hello(my_seat: u8) -> [u8; 6] {
     p
 }
 
-/// The data packet to the relay (`relay_sendto`): magic, `D`, the other's seat, mine, the payload. Returns its length.
-fn frame_d(out: &mut [u8], seat: u8, my_seat: u8, payload: &[u8]) -> usize {
-    out[..4].copy_from_slice(MAGIC);
-    out[4] = b'D';
-    out[5] = seat;
-    out[6] = my_seat;
-    out[7..7 + payload.len()].copy_from_slice(payload);
-    7 + payload.len()
+/// The data packet to the relay (`relay_sendto`): magic, `D`, the other's seat, mine, the payload. Returns its length,
+/// None when `out` has no room for it.
+fn frame_d(out: &mut [u8], seat: u8, my_seat: u8, payload: &[u8]) -> Option<usize> {
+    let (head, rest) = out.split_first_chunk_mut::<7>()?;
+    rest.get_mut(..payload.len())?.copy_from_slice(payload);
+    head[..4].copy_from_slice(MAGIC);
+    head[4] = b'D';
+    head[5] = seat;
+    head[6] = my_seat;
+    Some(7 + payload.len())
 }
 
 /// A packet from the relay (`relay_recvfrom`): magic, `F`, the sender's seat 1-8, its address (4 bytes), the payload.
 /// `None`: the relay's own, not the game's.
 fn parse_f(p: &[u8]) -> Option<(usize, [u8; 4], &[u8])> {
-    if p.len() < 10 || &p[..4] != MAGIC || p[4] != b'F' || !(1..=8).contains(&p[5]) {
+    let (head, payload) = p.split_first_chunk::<10>()?;
+    let [.., kind, seat, a, b, c, d] = *head;
+    if !head.starts_with(MAGIC) || kind != b'F' || !(1..=8).contains(&seat) {
         return None;
     }
-    Some((usize::from(p[5]), [p[6], p[7], p[8], p[9]], &p[10..]))
+    Some((usize::from(seat), [a, b, c, d], payload))
 }
 
 fn real_sendto() -> SendtoFn {
@@ -349,10 +355,19 @@ unsafe extern "system" fn relay_sendto(
         // SAFETY: the caller's arguments, unchanged.
         return unsafe { real_sendto()(s, buf, len, flags, to, tolen) };
     };
-    let was = std::mem::replace(
-        &mut PEER.lock().unwrap_or_else(|e| e.into_inner())[seat],
-        addr,
-    );
+    let was = {
+        let mut peers = PEER.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(slot) = peers.get_mut(seat) else {
+            // relay_peer gives seats 1-8 only; fail closed as below, never past the relay
+            say(&format!(
+                "relay: dropped a {len}-byte packet for seat {seat}: no such seat"
+            ));
+            // SAFETY: sets this thread's Winsock error, nothing else.
+            unsafe { WSASetLastError(WSAEMSGSIZE) };
+            return SOCKET_ERROR;
+        };
+        std::mem::replace(slot, addr)
+    };
     // the game leaves sin_zero unset in one of its send paths (client 0x4CDB40): only the address and port count
     if (was.family, was.addr, was.port) != (addr.family, addr.addr, addr.port) {
         // the opponent's address as the game took it from the control (ENEMY_INFO)
@@ -366,7 +381,16 @@ unsafe extern "system" fn relay_sendto(
     let mut pkt = [0u8; 4200];
     // SAFETY: `buf` has `len` readable bytes (len is 0..=4096).
     let payload = unsafe { std::slice::from_raw_parts(buf, len as usize) };
-    let n = frame_d(&mut pkt, seat as u8, MY_SEAT.load(Relaxed) as u8, payload);
+    // 7 + at most 4096 bytes: always room
+    let Some(n) = frame_d(&mut pkt, seat as u8, MY_SEAT.load(Relaxed) as u8, payload) else {
+        // fail closed: never send the opponent's address a packet that skips the relay
+        say(&format!(
+            "relay: dropped a {len}-byte packet for seat {seat}: too big to frame"
+        ));
+        // SAFETY: sets this thread's Winsock error, nothing else.
+        unsafe { WSASetLastError(WSAEMSGSIZE) };
+        return SOCKET_ERROR;
+    };
     let r = relay_addr();
     // SAFETY: the real `sendto` with our packet and a 16-byte `sockaddr_in`.
     let sent = unsafe {
@@ -438,7 +462,8 @@ unsafe extern "system" fn relay_recvfrom(
             return r;
         }
         if src.family == AF_INET && src.addr == relay.addr && src.port == relay.port {
-            let Some((seat, ip, payload)) = parse_f(&tmp[..r as usize]) else {
+            let Some((seat, ip, payload)) = parse_f(tmp.get(..r as usize).unwrap_or_default())
+            else {
                 continue; // the relay's, not the game's: read the next one
             };
             let n = payload.len().min(len.max(0) as usize);
@@ -446,7 +471,12 @@ unsafe extern "system" fn relay_recvfrom(
             unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), buf, n) };
             // SAFETY: `fromlen` is null or valid for the caller.
             if !from.is_null() && !fromlen.is_null() && unsafe { *fromlen } >= SA_LEN as i32 {
-                let known = PEER.lock().unwrap_or_else(|e| e.into_inner())[seat];
+                let known = PEER
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(seat)
+                    .copied()
+                    .unwrap_or(SockaddrIn::NONE);
                 let f = if known.family == AF_INET {
                     known
                 } else {
@@ -546,7 +576,7 @@ pub fn relay_install(e1718: bool, log: fn(&str)) {
     let mut exe = [0u16; 260];
     // SAFETY: a buffer of our own.
     let n = unsafe { GetModuleFileNameW(None, &mut exe) } as usize;
-    let path = String::from_utf16_lossy(&exe[..n]);
+    let path = String::from_utf16_lossy(exe.get(..n).unwrap_or_default());
     let nm = path.rsplit('\\').next().unwrap_or(&path);
     // SAFETY: plain module lookups.
     let (me, ws) = unsafe { (GetModuleHandleW(None), GetModuleHandleW(w!("ws2_32.dll"))) };
@@ -1095,8 +1125,9 @@ mod tests {
     fn framing() {
         assert_eq!(frame_hello(3), *b"WRL1R\x03");
         let mut out = [0u8; 64];
-        let n = frame_d(&mut out, 2, 1, b"abc");
+        let n = frame_d(&mut out, 2, 1, b"abc").unwrap();
         assert_eq!(&out[..n], b"WRL1D\x02\x01abc");
+        assert_eq!(frame_d(&mut out[..9], 2, 1, b"abc"), None); // no room: relay_sendto drops it
         let f = b"WRL1F\x02\x7f\x00\x00\x02xyz";
         assert_eq!(parse_f(f), Some((2, [127, 0, 0, 2], &b"xyz"[..])));
         assert_eq!(

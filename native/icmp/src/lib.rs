@@ -2,6 +2,17 @@
 //! with 5 s timeouts (about 45 s in the control, 20 s in each client). IcmpSendEcho returns 0 (no reply) at once and
 //! writes nothing, the same result as the timeout. No packet leaves the PC.
 #![cfg(target_arch = "x86")]
+// This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::string_slice
+)]
 
 use std::ffi::c_void;
 use windows_sys::Win32::Foundation::HANDLE;
