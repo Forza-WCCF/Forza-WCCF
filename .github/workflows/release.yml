@@ -175,7 +175,7 @@ jobs:
     name: virustotal
     needs: [candidate, build]
     # a fresh verdict also on a candidate's files: VirusTotal knows them, so no upload, only the polls
-    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.candidate.outputs.run != '') }}
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.candidate.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -280,6 +280,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          CAND: ${{ needs.candidate.outputs.run }}
         run: |
+          (cd dist && sha256sum --strict -c SHA256SUMS.txt)
           gh release create "$TAG" --repo "$REPO" --draft --prerelease --verify-tag \
-            --title "$TAG" --notes-file <(printf 'Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt.\n\n### VirusTotal\n\n'; cat vt/virustotal.md) dist/*
+            --title "$TAG" --notes-file <(printf 'Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt.\nFiles of candidate run https://github.com/%s/actions/runs/%s, not rebuilt.\n\n### VirusTotal\n\n' "$REPO" "$CAND"; cat vt/virustotal.md) dist/*

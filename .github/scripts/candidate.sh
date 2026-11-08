@@ -14,7 +14,7 @@ find_candidate() {
   local v=$1 sha=$2 runs id build skipped='' found=''
   # The dispatch's build job decides, not the run's conclusion: a failed virustotal job (a Microsoft false positive)
   # leaves the files its build made intact, and the tag run's own virustotal job judges them again.
-  if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$sha" -s completed -L 20 --json databaseId --jq '.[].databaseId'); then
+  if ! runs=$(gh run list -R "$REPO" -w release.yml -e workflow_dispatch -c "$sha" -L 20 --json databaseId --jq '.[].databaseId'); then
     echo "gh run list failed: cannot look for a candidate on $sha" >&2
     return 1
   fi
@@ -23,7 +23,7 @@ find_candidate() {
       echo "gh run view failed: cannot read the jobs of run $id" >&2
       return 1
     fi
-    if [ "$build" != success ]; then skipped="$skipped $id (build: ${build:-missing})"; continue; fi
+    if [ "$build" != success ]; then skipped="$skipped $id (build: ${build:-missing or still running})"; continue; fi
     # an expired dist artifact is reported below
     if ! gh run download "$id" -R "$REPO" -n dist -D "cand-$id" >&2; then skipped="$skipped $id (no dist artifact)"; continue; fi
     if names "cand-$id/SHA256SUMS.txt" | grep -xF "Forza-WCCF-2017-18-$v.zip" >/dev/null; then echo "$id"; return 0; fi
