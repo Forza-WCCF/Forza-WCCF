@@ -12,6 +12,21 @@ use std::path::{Path, PathBuf};
 const RECORDS: usize = 3 * 6_480;
 const RECORD: usize = 7_636;
 const TEAM: usize = 3_800;
+/// The whole file: the inits, the records and their MD5.
+const LEN: usize = RECORDS + 3 * RECORD + 16;
+
+/// Ok when `b` is a whole day file (its length and its own MD5); else why not, for the log: a read while the control
+/// writes it gives a short file, which must not read as "no player's club".
+pub fn whole(b: &[u8]) -> Result<(), String> {
+    use md5::{Digest, Md5};
+    if b.len() != LEN {
+        return Err(format!("{} bytes, not {LEN}", b.len()));
+    }
+    if Md5::digest(&b[..LEN - 16])[..] != b[LEN - 16..] {
+        return Err("its MD5 does not match".into());
+    }
+    Ok(())
+}
 
 /// A team of the semifinals.
 #[derive(Debug, PartialEq, Eq)]
@@ -89,7 +104,15 @@ pub fn line(game: &Path, date: u32) -> String {
             f.display()
         );
     };
-    let teams: Vec<String> = teams(&b)
+    line_of(date, &b)
+}
+
+/// [`line`] for the day file's bytes `b`.
+pub fn line_of(date: u32, b: &[u8]) -> String {
+    if let Err(why) = whole(b) {
+        return format!("championship: {date} day file read while it changed ({why}) - not judged");
+    }
+    let teams: Vec<String> = teams(b)
         .iter()
         .map(|t| {
             let name = t.names.join(" / ");
@@ -116,6 +139,9 @@ pub fn summary(game: &Path, date: u32, seen: Option<&str>) -> String {
     let Ok(b) = std::fs::read(file(game, date)) else {
         return format!("{lead} not held (no bracket)");
     };
+    if let Err(why) = whole(&b) {
+        return format!("{lead} not judged (the day file read while it changed: {why})");
+    }
     let t = teams(&b);
     let mine = players(&t);
     match (t.is_empty(), mine.is_empty(), seen) {
@@ -144,7 +170,40 @@ mod tests {
             b[blk + 4..blk + 8].copy_from_slice(&id.to_le_bytes());
             b[blk + 8..blk + 8 + name.len()].copy_from_slice(name.as_bytes());
         }
+        seal(&mut b);
         b
+    }
+
+    /// The file's MD5, as the control writes it.
+    fn seal(b: &mut [u8]) {
+        use md5::{Digest, Md5};
+        let sum = Md5::digest(&b[..LEN - 16]);
+        b[LEN - 16..].copy_from_slice(&sum);
+    }
+
+    #[test]
+    fn only_a_whole_day_file_is_judged() {
+        let b = day(&[("FC Madcaps", 0), ("CPU A", 950)]);
+        assert_eq!(whole(&b), Ok(()));
+        assert_eq!(whole(&b[..LEN - 1]), Err("42363 bytes, not 42364".into()));
+        assert_eq!(whole(&[]), Err("0 bytes, not 42364".into()));
+        let mut bad = b.clone();
+        bad[RECORDS + 40] ^= 1;
+        assert_eq!(whole(&bad), Err("its MD5 does not match".into()));
+        let dir = std::env::temp_dir().join(format!("forza-uc-whole-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("log")).unwrap();
+        std::fs::write(file(&dir, 20261102), &b[..RECORDS + RECORD]).unwrap();
+        assert_eq!(
+            line(&dir, 20261102),
+            "championship: 20261102 day file read while it changed (27076 bytes, not 42364) - not judged"
+        );
+        assert_eq!(
+            summary(&dir, 20261102, Some("FC Madcaps")),
+            "Universal Championship today (20261102): not judged (the day file read while it changed: 27076 bytes, not 42364)"
+        );
+        std::fs::write(file(&dir, 20261102), &bad).unwrap();
+        assert!(line(&dir, 20261102).ends_with("(its MD5 does not match) - not judged"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -201,6 +260,7 @@ mod tests {
         b[blk] = 3;
         b[blk + 96] = 1;
         b[blk + TEAM - 4] = 1;
+        seal(&mut b);
         std::fs::write(file(&dir, 20261102), &b).unwrap();
         assert_eq!(
             line(&dir, 20261102),
