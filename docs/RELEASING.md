@@ -55,8 +55,9 @@ A release ships the bytes CI built for its candidate, never a local package.
 2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR.
 3. Dispatch the candidate: `gh workflow run release.yml --ref next -f version=<x.y.z>`. The build runs with
    `FORZA_VERSION=<x.y.z>` (semver; it wins over `git describe`), the file-name check expects that version, and the
-   job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days;
-   an older candidate is dispatched again.
+   job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days:
+   the tag must come within that time, or the commit is dispatched again and that new build is the one played and
+   tagged.
 4. The [stability gate](#stability-gate) runs on that candidate. A fix goes on its PR; then `next` is cut again and
    dispatched again.
 5. Merge the `chore(release)` PR with a merge commit, never squash or rebase, so the candidate sha stays an ancestor
@@ -64,10 +65,12 @@ A release ships the bytes CI built for its candidate, never a local package.
 6. Sign the tag on the candidate sha, not on the merge commit: `git tag -s v<x.y.z> -m "..." <candidate sha>`.
    Pushing the tag prints `Cannot create ref ... restricted` (the tag ruleset), yet the admin bypass creates it:
    confirm with `gh api repos/Forza-WCCF/Forza-WCCF/git/ref/tags/v<x.y.z>`.
-7. The tag push runs the Release workflow again. Before the draft, the `publish` step "Same bytes as the candidate"
-   compares the tag build's `SHA256SUMS.txt` with the newest completed dispatch on the same commit that carries
-   `<x.y.z>` and writes "same bytes as run N". Differing files (a new runner image is the known cause) or no candidate
-   fail `publish`, so no draft is made from other bytes.
+7. The tag push runs the Release workflow again, which builds nothing: job `candidate` takes the files of the
+   candidate, the newest dispatch on the tagged commit whose build job succeeded and whose files carry `<x.y.z>` (its
+   VirusTotal job may still be running or have failed). It checks them against that run's `SHA256SUMS.txt` and the
+   version, then VirusTotal judges them again and `publish` makes the draft, whose notes name candidate run N. No
+   candidate, an expired `dist` or a failed check fails job `candidate` within a minute with the reason, before any
+   draft.
 
 ## Stability gate
 
