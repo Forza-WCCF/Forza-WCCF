@@ -1046,6 +1046,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn put_cut_without_room_for_the_0_writes_nothing() {
+        assert_eq!(put_cut(&mut [], b"$1"), None);
+        let mut b = [0xAA];
+        assert_eq!((put_cut(&mut b, b"$1"), b), (Some(0), [0]));
+    }
+
+    #[test]
     fn a_refused_text_is_cut_to_its_box() {
         // the secretary window: 10 bytes, an older kit's Italian, two numbers
         let fmt = b"mese %d giorno %d";
