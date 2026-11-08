@@ -193,7 +193,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
     }
     // the package to set up and its edition, both known before anything is written
     let setup = match kit.as_ref().filter(|_| plan.setup) {
-        Some(k) => Some((k, edition_of(id).ok_or(E::EditionMismatch)?)),
+        Some(k) => Some((k, edition_of(id).ok_or(E::UnknownEdition)?)),
         None => None,
     };
     ensure!(!plan.english || setup.is_some(), E::EnglishNeedsSetup);
