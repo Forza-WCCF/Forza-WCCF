@@ -1081,7 +1081,12 @@ pub struct Run<'a> {
     early: [Duration; 2],
     /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
     uc_seen: Option<SystemTime>,
+    /// The day file's time when it was last read while it changed (logged once).
+    uc_partial: Option<SystemTime>,
     uc_told: Option<u32>,
+    /// The player's club last seen in that day's bracket (date, names, swap logged), for the swap line and the run's
+    /// summary.
+    uc_player: Option<(u32, String, bool)>,
     /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
     /// may be hidden: the championship plays unseen then.
     projector: bool,
@@ -1205,7 +1210,9 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         t0,
         early,
         uc_seen: None,
+        uc_partial: None,
         uc_told: None,
+        uc_player: None,
         projector: false,
         _lock: lock,
     };
@@ -2329,6 +2336,17 @@ impl Run<'_> {
         conf::set_cup_times(&ctrl_conf, times)?;
         conf::set_cup_schedule(&self.game.join(r"local\schedule_option.conf"), friendlies)?;
         self.tell("  ", &line);
+        // for live checks: when the control should open the Universal Championship, the cup's winner in it (a refused
+        // time leaves the game's times)
+        let plan_line = match plan.unwrap_or(CupPlan::GameTimes).championship() {
+            Some(t) => format!(
+                "championship plan: from about {}, the slot after the cup's final, {} matches",
+                forza_ui::lobby::clock_text(t),
+                forza_ui::lobby::CHAMPIONSHIP_SLOTS
+            ),
+            None => "championship plan: none, no cup".to_owned(),
+        };
+        crate::logs::append(&self.logs().join("run_launcher.txt"), &plan_line);
         if let Mode::Vs(_) = self.mode {
             let panel_file = self.kit.data().join("panel.txt");
             let panel = choices::read_ok(&panel_file).map_err(|e| {
@@ -2706,8 +2724,9 @@ impl Run<'_> {
         });
     }
 
-    /// 2017-18 with the control here: once a day, when today's Universal Championship (game\log\<date>_uc.bin) has
-    /// a player's club, the notice with about when it plays on the projector, and the bracket's line in the log.
+    /// 2017-18 with the control here: the bracket's line in the log at each change of today's Universal Championship
+    /// (game\log\<date>_uc.bin), a line when a player's club leaves it, and once a day, when it has a player's club,
+    /// the notice with about when it plays on the projector.
     fn watch_championship(&mut self) {
         if self.edition != Edition::E1718 || !self.alive(Role::Server) {
             return;
@@ -2717,14 +2736,41 @@ impl Run<'_> {
         let Ok(at) = fs::metadata(&f).and_then(|m| m.modified()) else {
             return;
         };
-        if self.uc_told == Some(date) || self.uc_seen == Some(at) {
+        if self.uc_seen == Some(at) {
+            return;
+        }
+        let b = fs::read(&f).unwrap_or_default();
+        let log = self.logs().join("run_launcher.txt");
+        if championship::whole(&b).is_err() {
+            // read while the control writes it: not judged, read again at the next look (one line per change)
+            if self.uc_partial != Some(at) {
+                self.uc_partial = Some(at);
+                crate::logs::append(&log, &championship::line_of(date, &b));
+            }
             return;
         }
         self.uc_seen = Some(at);
-        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        let teams = championship::teams(&b);
+        // every change of the day file gets its line (a few a day): a player's report then shows when the club went
+        // in, its fix/hasDvs flags, and a swap for a CPU team
+        crate::logs::append(&log, &championship::line_of(date, &b));
+        let mine = championship::players(&teams);
+        match &mut self.uc_player {
+            Some((d, club, told)) if *d == date && mine.is_empty() && !*told => {
+                *told = true;
+                crate::logs::append(
+                    &log,
+                    &format!(
+                        "championship: {date} {club} is no longer in the bracket - the control swapped it for a CPU team (fix or hasDvs 0, control 0x47DCF0 \"change cpu!\")"
+                    ),
+                );
+            }
+            _ if !mine.is_empty() => self.uc_player = Some((date, mine.clone(), false)),
+            _ => {}
+        }
         // shortcut: any player's club counts as "yours"; an arcade host with guests may see a guest's win, tell the
         // clubs apart (block +0 = coach id) if hosts report it
-        if !teams.iter().any(|t| t.player) {
+        if mine.is_empty() || self.uc_told == Some(date) {
             return;
         }
         self.uc_told = Some(date);
@@ -2735,7 +2781,6 @@ impl Run<'_> {
         if self.projector && choices::projector_shown(&self.kit.settings()) {
             self.tell("", &championship_notice(opens));
         }
-        crate::logs::append(&self.logs().join("run_launcher.txt"), &championship_line(&self.game));
     }
 
     // ---- the supervisor ----
@@ -3008,6 +3053,7 @@ impl Run<'_> {
         } else {
             Vec::new()
         };
+        let control_here = self.alive(Role::Server) || self.gone.contains(&Role::Server);
         self.shutdown();
         let notice = self.host_closed_notice();
         let why = if notice.is_some() {
@@ -3025,6 +3071,18 @@ impl Run<'_> {
         }
         if let Some(n) = &notice {
             self.tell("", n);
+        }
+        if self.edition == Edition::E1718 && control_here {
+            let date = championship::date(now_local());
+            let seen = self
+                .uc_player
+                .as_ref()
+                .filter(|(d, ..)| *d == date)
+                .map(|(_, c, _)| c.as_str());
+            crate::logs::append(
+                &self.logs().join("run_launcher.txt"),
+                &championship::summary(&self.game, date, seen),
+            );
         }
         let club_home = self
             .visit

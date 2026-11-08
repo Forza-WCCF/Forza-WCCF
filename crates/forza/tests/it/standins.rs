@@ -86,6 +86,10 @@ fn gamesvr_replay() {
         if resp.len() >= 40 + 16 + 7_622 && resp[8..10] == 238u16.to_le_bytes() {
             resp[40 + 16 + 7_620..40 + 16 + 7_622].fill(0);
         }
+        // 250's dataVSWeek (+12) is the same clock's week; the recording holds 0
+        if resp.len() >= 40 + 504 && resp[8..10] == 250u16.to_le_bytes() {
+            resp[40 + 12..40 + 14].fill(0);
+        }
         assert_eq!(
             resp.len() as u64,
             r["resp_len"].as_u64().unwrap(),

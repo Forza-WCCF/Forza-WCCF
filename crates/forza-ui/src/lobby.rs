@@ -217,9 +217,15 @@ pub const CUP_MAX_MINUTES: u16 = 150;
 /// replaces the Universal Championship bracket (the cup and the next three slots) with a CPU-only one, so the cup and
 /// its championship must not run across it. Before it nothing in the slot schedule reads the clock: a cup at 01:00 is fine.
 const CUP_DAY_CHANGE: u32 = 5 * 3600;
-/// A cup from its open to the end of its championship: the cup about 45 min (rounds about 530 s apart, probe 1), the
-/// championship 3 slots, about 27 min, with a margin.
-const CUP_RUN_SECS: u32 = 75 * 60;
+/// A Universal Cup round's slot, seconds: rounds about 530 s apart (probe 1), longer than a friendly slot.
+const CUP_ROUND_SECS: u32 = 530;
+/// The longest championship slot measured: a friendly slot whose GAME state ends with the projector's live match
+/// (control 0x461CD0 on the live list), 489-505 s in the control logs of 2026-11-01 and 11-04
+/// (native/hook/src/uclive.rs GAME_SECS).
+const CHAMPIONSHIP_SLOT_SECS: u32 = 505;
+/// A cup from its open to the end of its championship: the cup's 5 rounds (about 44 min), then the championship's 3
+/// slots, and one more slot for when the control opens the championship a slot late (the day-change flag, 0x45DD69).
+const CUP_RUN_SECS: u32 = 78 * 60;
 /// Slack for the open time we estimate (boot and slot lengths vary by seconds per slot).
 const CUP_SLACK_SECS: u32 = 5 * 60;
 const DAY: u32 = 24 * 3600;
@@ -270,6 +276,36 @@ pub enum CupPlan {
         opens: u32,
     },
 }
+
+/// The Universal Cup's rounds (group league 3, semifinals, final), one slot each.
+const CUP_ROUNDS: u32 = 5;
+/// The Universal Championship's matches (2 semifinals, the final), one slot each, played after the day's cups.
+pub const CHAMPIONSHIP_SLOTS: u32 = 3;
+/// The game's last cup of the day ([`CupMode::GameTimes`]: the stand-in's GAME_CTRL open time 4), seconds.
+const LAST_GAME_CUP: u32 = 21 * 3600;
+
+impl CupPlan {
+    /// About when the Universal Championship starts on the projector (seconds after midnight), the cup's winner in it:
+    /// the slot after the cup's final. The control opens it once the day counts 4 cups held (0x45DD21): a slot cup has
+    /// all four open times 0, so that is as soon as the cup leaves the schedule; the game's times count their 21:00
+    /// cup as the fourth. Both reach 4 in 0x462820, which clears the day-change flag in the same call (0x4628B4,
+    /// 0x4628BC), so neither normally pays the extra slot of 0x45DD69; [`CUP_RUN_SECS`] still allows it.
+    /// None: no cup, so a CPU-only championship the projector does not show (native/hook/src/uclive.rs).
+    pub fn championship(self) -> Option<u32> {
+        match self {
+            Self::Off => None,
+            Self::Slot { opens, .. } => Some((opens + CUP_ROUNDS * CUP_ROUND_SECS) % DAY),
+            // shortcut: the cup opens at the first slot from 21:00 (up to one slot later); a control started after
+            // 21:00 (or before 05:00) has counted 4 cups at once and plays a CPU-only championship instead
+            Self::GameTimes => Some(LAST_GAME_CUP + CUP_ROUNDS * CUP_ROUND_SECS),
+        }
+    }
+}
+
+// the night rule's run time covers the cup, a late slot and its championship
+const _: () = assert!(
+    CUP_ROUNDS * CUP_ROUND_SECS + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS <= CUP_RUN_SECS
+);
 
 /// Why a cup time is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1973,6 +2009,28 @@ mod tests {
             assert_eq!(c.plan(now), Err(why), "{c:?} at {}", clock_text(now));
         }
         assert_eq!(cup(CupMode::Off, 0, 0).plan(h(4, 0)), Ok(CupPlan::Off));
+        // the championship: the slot after the cup's 5 rounds, ending 3 slots later, before 05:00 for the last cup
+        // a night allows
+        let champ = |p: Result<CupPlan, _>| p.unwrap().championship().unwrap();
+        assert_eq!(
+            champ(cup(in_, 8, 0).plan(h(14, 0))),
+            h(14, 0) + 505 + 5 * 530
+        );
+        assert_eq!(clock_text(champ(cup(in_, 8, 0).plan(h(14, 0)))), "14:52");
+        assert_eq!(
+            champ(cup(at, 0, 21 * 60 + 30).plan(h(20, 0))),
+            h(21, 30) + 5 + 2650
+        );
+        assert_eq!(champ(cup(in_, 30, 0).plan(h(23, 45))), h(0, 17) + 55 + 2650);
+        let last = champ(cup(at, 0, 3 * 60 + 41).plan(h(3, 0)));
+        assert_eq!(clock_text(last), "04:25");
+        // even with the championship a slot late
+        assert!(last + (CHAMPIONSHIP_SLOTS + 1) * CHAMPIONSHIP_SLOT_SECS < CUP_DAY_CHANGE);
+        assert_eq!(
+            clock_text(CupPlan::GameTimes.championship().unwrap()),
+            "21:44"
+        );
+        assert_eq!(CupPlan::Off.championship(), None);
         assert_eq!(
             cup(CupMode::GameTimes, 0, 0).plan(h(4, 0)),
             Ok(CupPlan::GameTimes)
