@@ -3942,7 +3942,7 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 }
 
 fn detail_rect_id() -> egui::Id {
-    egui::Id::new("catalogue-detail-rect")
+    egui::Id::unique("catalogue-detail-rect")
 }
 
 /// The catalogue detail pane's visible rect on the last frame (for layout tests): what shows without scrolling.
@@ -3951,7 +3951,7 @@ pub fn catalogue_detail_rect(ctx: &egui::Context) -> Option<Rect> {
 }
 
 fn picture_rect_id() -> egui::Id {
-    egui::Id::new("catalogue-picture-rect")
+    egui::Id::unique("catalogue-picture-rect")
 }
 
 /// The catalogue detail pane's picture slot on the last frame (for layout tests).
@@ -4023,7 +4023,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
             // the room: the pane's visible height less what goes under the picture, down to ADD as drawn on the
             // last frame, and the frame's margin. The slot depends on the room only, so turning the card over (a scan
             // front, an album back, one still loading) moves nothing.
-            let rest_id = ui.id().with("rest");
+            let rest_id = ui.scope_id().with("rest");
             let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
             let top = ui.cursor().top();
             let room = vec2(w, (bottom - top - rest - 16.0).max(1.0));

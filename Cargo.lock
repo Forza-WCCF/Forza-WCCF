@@ -2237,6 +2237,7 @@ dependencies = [
  "ipnet",
  "regex",
  "serde_json",
+ "sha2",
  "time",
 ]
 

@@ -592,7 +592,7 @@ pub fn stepper(
         let r = r.shrink(2.0);
         let live = wrap || step_value(*value, up, &range, step, wrap) != *value;
         let resp = ui.interact(r, mid.id.with(up), Sense::click());
-        resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, live, name));
+        resp.widget_info(|| WidgetInfo::labeled(Role::Button, live, name));
         // (press time, repeats so far) while held: a release after a repeat is not one more step
         let key = resp.id.with("held");
         let held = live && resp.is_pointer_button_down_on();
