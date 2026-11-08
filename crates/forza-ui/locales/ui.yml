@@ -46,7 +46,7 @@ launcher.pictures_download_ask: {en: "Download the high-quality card pictures (%
 launcher.pictures_remove_ask: {en: "Remove the high-quality card pictures? The game's own pictures come back, and the downloaded pack is kept.", it: "Rimuovere le immagini delle carte in alta qualità? Tornano le immagini del gioco e il pacchetto scaricato resta.", ja: "高画質カード画像を削除しますか？ゲーム本来の画像に戻ります。ダウンロードしたファイルは残ります。"}
 launcher.projector: {en: "Projector", it: "Proiettore", ja: "プロジェクター"}
 launcher.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. The game's SETTINGS switch it on and off too.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Si accende e si spegne anche dalle IMPOSTAZIONI del gioco.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。ゲームの設定からもオン・オフできます。"}
-launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU大会"}
+launcher.cpu_championship: {en: "CPU championship", it: "Campionato CPU", ja: "CPU選手権"}
 launcher.cpu_championship_hint: {en: "CPU teams play a championship on the projector. When it is off, the projector shows a demo match instead. Applies the next time you start the game.", it: "Le squadre della CPU giocano un campionato sul proiettore. Se è disattivato, il proiettore mostra una partita dimostrativa. Si applica al prossimo avvio del gioco.", ja: "CPUチーム同士の大会をプロジェクターで行います。オフのときは、プロジェクターでデモ試合を表示します。次回のプレイから反映されます。"}
 launcher.cleanup: {en: "CLEAN UP", it: "RIPULISCI", ja: "後片付け"}
 launcher.cleanup_hint: {en: "Removes what a crashed game left behind. Your club is kept.", it: "Rimuove ciò che un arresto anomalo ha lasciato. Il tuo club resta.", ja: "クラッシュで残ったファイルを片付けます。クラブは残ります。"}
@@ -265,7 +265,7 @@ cab.held: {en: "HELD", it: "TENUTO", ja: "ホールド"}
 # ---- panel ----
 panel.f11: {en: "F11 switches between window and full screen.", it: "F11 alterna finestra e schermo intero.", ja: "F11 でウィンドウと全画面を切り替えます。"}
 panel.ping: {en: "%{ms} ms", it: "%{ms} ms", ja: "%{ms} ms"}
-panel.add_card: {en: "+ CARD", it: "+ CARTA", ja: "＋カード"}
+panel.add_card: {en: "CARDS", it: "CARTE", ja: "カード"}
 panel.keys: {en: "KEYS", it: "TASTI", ja: "キー設定"}
 panel.settings: {en: "SETTINGS", it: "IMPOSTAZIONI", ja: "設定"}
 panel.club_card: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
@@ -300,7 +300,7 @@ cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
 cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
-cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
+cat.title: {en: "CARDS", it: "CARTE", ja: "カード"}
 cat.search_hint: {en: "Search cards", it: "Cerca carte", ja: "カードを検索"}
 cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
 cat.best_role: {en: "Best roles: %{roles}", it: "Ruoli migliori: %{roles}", ja: "適性：%{roles}"}
@@ -335,15 +335,15 @@ cat.back: {en: "BACK", it: "RETRO", ja: "裏面"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
-cat.msg_full: {en: "The table is full (16 cards). Right-click a card to remove it.", it: "Il tavolo è pieno (16 carte). Clic destro su una carta per toglierla.", ja: "テーブルが満杯です（16枚）。カードを右クリックすると外せます。"}
-cat.msg_no_place: {en: "No room on the table. Right-click a card to remove it.", it: "Non c'è spazio sul tavolo. Clic destro su una carta per toglierla.", ja: "テーブルに空きがありません。カードを右クリックすると外せます。"}
+cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
+cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
 cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
 cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
 cat.msg_import_kp: {en: "The lineup on db.wccf.it has this key player: %{name}. Set it in the game.", it: "La formazione su db.wccf.it indica questo giocatore chiave: %{name}. Sceglilo nel gioco.", ja: "db.wccf.it の編成ではキープレイヤーは %{name} です。ゲーム内で設定してください。"}
 cat.msg_import_skipped: {en: "Skipped: %{list}", it: "Saltate: %{list}", ja: "読み込めないカード：%{list}"}
-form.open: {en: "FORMATIONS", it: "FORMAZIONI", ja: "保存した編成"}
-form.title: {en: "FORMATIONS", it: "FORMAZIONI", ja: "保存した編成"}
+form.open: {en: "SAVED LINEUPS", it: "FORMAZIONI SALVATE", ja: "保存した編成"}
+form.title: {en: "SAVED LINEUPS", it: "FORMAZIONI SALVATE", ja: "保存した編成"}
 form.empty: {en: "Empty slot", it: "Slot vuoto", ja: "空きスロット"}
 form.save: {en: "SAVE", it: "SALVA", ja: "保存"}
 form.replace: {en: "REPLACE", it: "SOSTITUISCI", ja: "上書き"}
@@ -459,7 +459,7 @@ settings.msg_compact: {en: "Compact view: the game picture is bigger.", it: "Vis
 settings.msg_cabinet: {en: "Cabinet view: all the buttons are shown.", it: "Vista cabinato: i pulsanti sono tutti visibili.", ja: "筐体表示：ボタンがすべて表示されます。"}
 settings.board: {en: "FORMATION BOARD", it: "FORMAZIONE", ja: "フォーメーション"}
 settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと同じ画面"}
-settings.board_window: {en: "Pop out the formation board", it: "Formazione in finestra", ja: "フォーメーションボードをポップアウト"}
+settings.board_window: {en: "OWN WINDOW", it: "IN FINESTRA", ja: "別ウィンドウ"}
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
@@ -561,7 +561,7 @@ lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
 lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
 lobby.next_entry: {en: "Next ENTRY in %{t}", it: "Prossima ENTRY tra %{t}", ja: "次のエントリーまで %{t}"}
-lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossimo ENTRY tra %{t}.", ja: "次の ENTRY まで %{t}。"}
+lobby.wait_entry: {en: "Next ENTRY in %{t}.", it: "Prossima ENTRY tra %{t}.", ja: "次のエントリーまで %{t}。"}
 # beyond the ROADMAP table: columns, filters, room lines and status lines
 lobby.name: {en: "NAME", it: "NOME", ja: "名前"}
 lobby.code: {en: "CODE", it: "CODICE", ja: "コード"}
@@ -667,7 +667,7 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
-launcher.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
+launcher.save_logs: {en: "Save logs", it: "Salva i log", ja: "ログを保存"}
 settings.save_logs: {en: "SAVE LOGS", it: "SALVA I LOG", ja: "ログを保存"}
 logs.saved: {en: "Logs saved: %{path}. Send this file with your problem report.", it: "Log salvati: %{path}. Allega questo file alla tua segnalazione.", ja: "ログを保存しました：%{path}。問題の報告にこのファイルを添付してください。"}
 logs.save_failed: {en: "Could not save the logs: %{why}", it: "Impossibile salvare i log: %{why}", ja: "ログを保存できません：%{why}"}
@@ -752,7 +752,7 @@ launcher.run_remote_seat_projector: {en: "server %{ip}, port %{port}: seat %{sea
 launcher.run_server_up: {en: "server on port %{port} (%{n} match engines)", it: "server sulla porta %{port} (%{n} motori di partita)", ja: "ポート %{port} のサーバー(試合エンジン %{n} 個)"}
 launcher.run_projector: {en: "projector", it: "proiettore", ja: "プロジェクター"}
 launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own cabinet)", it: "nessun proiettore qui (ogni PC usa il proprio cabinato)", ja: "ここにはプロジェクターはありません (各PCがそれぞれの筐体を動かします)"}
-launcher.run_projector_off: {en: "no projector: Projector and CPU championship off", it: "nessun proiettore: Proiettore e campionato CPU disattivati", ja: "プロジェクターなし：プロジェクターとCPU大会がオフ"}
+launcher.run_projector_off: {en: "no projector: Projector and CPU championship off", it: "nessun proiettore: Proiettore e campionato CPU disattivati", ja: "プロジェクターなし：プロジェクターとCPU選手権がオフ"}
 launcher.run_projector_hidden: {en: "projector, its window hidden (Projector off)", it: "proiettore, finestra nascosta (Proiettore disattivato)", ja: "プロジェクター、ウィンドウ非表示 (プロジェクター オフ)"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
 launcher.run_money_by_game: {en: "projector: money overlay loaded by the game", it: "proiettore: overlay dei soldi caricato dal gioco", ja: "プロジェクター: 金額オーバーレイをゲームが読み込みました"}

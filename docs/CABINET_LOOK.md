@@ -39,7 +39,7 @@ The sources describe the screens only in outline; visual detail is **[I]** unles
 - **Main monitor.** Shows tournament results and the match [S5]. The data button toggles on-screen stats [S1, S3]; direction keys show the manager's current instruction on screen [S1].
 - **Contract end / game over.** Results list Prize Money, Previous salary and Last Pay [L: `docs/research/CONTRACT-END-2010-11.md:94`]. Staff screens (test menu, Club Card Recovery) are plain, text-first screens [L].
 - **Mode choice.** In-store versus nationwide network battle appeared in the 2009–10 edition [S5].
-- **Card back, as a stat-layout model.** Card backs show main and sub position, ability values, consistency and injury resistance [S6]. Use this order for the CATALOGUE stats pane.
+- **Card back, as a stat-layout model.** Card backs show main and sub position, ability values, consistency and injury resistance [S6]. Use this order for the CARDS stats pane.
 
 ## 4. Buttons
 
@@ -102,7 +102,7 @@ No source names fonts. The original screens use large bold sans type with heavy 
 - **Latin:** a bold, slightly condensed sans for headings and stat numbers (weights 700 and 800); a regular 400 and medium 500 for body. Candidates under OFL: Barlow / Barlow Condensed, Rajdhani, or Oswald for numerals.
 - **Japanese:** Noto Sans JP at 500 and 700, paired with the Latin face; set kana/kanji about 0.95x the Latin size so lines align.
 - **Sizes for the egui text styles:** Heading 20 px bold, Body 14 px, Button 14 px bold, Small 11 px, Monospace 13 px; stat numerals 22 px in the condensed face with tabular figures.
-- **Case:** panel names in capitals (FORMATION BOARD, CATALOGUE, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L].
+- **Case:** panel names in capitals (FORMATION BOARD, CARDS, KEYS, SETTINGS, CLUB CARD), matching the project's own naming [L].
 - EN, IT and JA all ship ([CONTRIBUTING.md](../CONTRIBUTING.md)): test that Italian labels (longer than English) and Japanese labels (no spaces) fit the same button widths.
 
 ## 7. Motion and sound
