@@ -1,5 +1,5 @@
 //! Runs natively on Windows to check a Linux endpoint, without launching a game.
-// No call that can panic (tests may, crates/clippy.toml)
+// The checks' own asserts panic; every other failure is an error (tests may, crates/clippy.toml)
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
