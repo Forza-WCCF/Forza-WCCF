@@ -71,8 +71,8 @@ pub fn players(records: &[u8]) -> Vec<(usize, usize, u32)> {
     out
 }
 
-/// Whether the semifinals hold a player's team: the places [`players`] lists, without its allocation, so the check
-/// below can prove it cannot panic.
+/// Whether the semifinals hold a player's team: the places [`players`] lists, without its allocation, so the no_panic
+/// test check can prove it cannot panic.
 #[cfg_attr(all(test, not(debug_assertions)), no_panic::no_panic)]
 pub fn human_in(records: &[u8]) -> bool {
     (0..2).any(|m| {
@@ -156,11 +156,14 @@ pub fn apply(span: &mut [u8], span_at: usize, thunk: usize) -> Result<(), usize>
 /// Checks the slot site's 5 bytes in `span` (at address `at`) and makes them `call thunk`. False: not
 /// [`SLOT_ORIGINAL`]; then nothing is written.
 pub fn apply_slot(span: &mut [u8], at: usize, thunk: usize) -> bool {
-    if span.get(..5) != Some(&SLOT_ORIGINAL) {
+    let Some([op, rel @ ..]) = span
+        .first_chunk_mut::<5>()
+        .filter(|site| **site == SLOT_ORIGINAL)
+    else {
         return false;
-    }
-    span[0] = 0xE8;
-    span[1..5].copy_from_slice(&(thunk.wrapping_sub(at + 5) as u32).to_le_bytes());
+    };
+    *op = 0xE8;
+    *rel = (thunk.wrapping_sub(at + 5) as u32).to_le_bytes();
     true
 }
 
@@ -347,11 +350,15 @@ pub const ENTRY_ADDRS: [usize; 5] = [3, 11, 19, 36, 41];
 pub fn entry_globals(code: &[u8], delta: u32) -> Option<[u32; 5]> {
     let mut want = ENTRY_SIG;
     for at in ENTRY_ADDRS {
-        let a = u32::from_le_bytes(want[at..at + 4].try_into().ok()?).wrapping_add(delta);
-        want[at..at + 4].copy_from_slice(&a.to_le_bytes());
+        let w = want.get_mut(at..at + 4)?;
+        let a = u32::from_le_bytes((&*w).try_into().ok()?).wrapping_add(delta);
+        w.copy_from_slice(&a.to_le_bytes());
     }
     (code.get(..want.len())? == want).then(|| {
-        ENTRY_ADDRS.map(|at| u32::from_le_bytes(want[at..at + 4].try_into().unwrap_or_default()))
+        ENTRY_ADDRS.map(|at| {
+            want.get(at..at + 4)
+                .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap_or_default()))
+        })
     })
 }
 
