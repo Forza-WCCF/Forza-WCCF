@@ -454,22 +454,19 @@ pub struct Catalogue {
     pub view_back: bool,
     /// The stat range sliders shown (STAT RANGES).
     pub ranges_open: bool,
-    /// The detail pane's whole affinity list, not only its best few.
-    pub all_partners: bool,
-    /// The card number the detail pane last drew: the side and the affinity list belong to it.
+    /// The card number the detail pane last drew: the side belongs to it.
     shown: Option<u32>,
     searched: Option<Filter>,
     index: Option<Index>,
 }
 
 impl Catalogue {
-    /// The pane's side and its whole affinity list go with the card they were set on: another card (or none) shows its
-    /// front and its best partners again.
+    /// The pane's side goes with the card it was set on: another card (or none) shows its front again.
     fn set_shown(&mut self, number: Option<u32>) {
         if self.shown == number {
             return;
         }
-        (self.shown, self.view_back, self.all_partners) = (number, false, false);
+        (self.shown, self.view_back) = (number, false);
     }
 
     /// The index made once and the search run again when the filter changed; `true` = the results changed.
@@ -3344,9 +3341,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let results = &c.results;
     let focus = &mut c.focus;
     let message = &mut st.message;
-    let links = &st.links;
     let back = &mut c.view_back;
-    let all_partners = &mut c.all_partners;
     let ppp = ui.ctx().pixels_per_point();
     egui_extras::StripBuilder::new(ui)
         .size(egui_extras::Size::remainder())
@@ -3395,21 +3390,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         if let Some(card) = shown {
-                            let partners = links.affinity.is_some();
-                            let (added, opened) =
-                                stats_pane(ui, card, back, lang, seen.bottom(), partners, |ui| {
-                                    // the game's links known: the card's partners under its stats
-                                    if links.affinity.is_some() {
-                                        affinity_list(
-                                            ui,
-                                            card,
-                                            links,
-                                            &on_table,
-                                            all_partners,
-                                            lang,
-                                        );
-                                    }
-                                });
+                            let (added, opened) = stats_pane(ui, card, back, lang, seen.bottom());
                             if added {
                                 add = Some(card.number);
                             }
@@ -3611,6 +3592,15 @@ pub fn catalogue_detail_rect(ctx: &egui::Context) -> Option<Rect> {
     ctx.data(|d| d.get_temp(detail_rect_id()))
 }
 
+fn picture_rect_id() -> egui::Id {
+    egui::Id::new("catalogue-picture-rect")
+}
+
+/// The catalogue detail pane's picture slot on the last frame (for layout tests).
+pub fn catalogue_picture_rect(ctx: &egui::Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp(picture_rect_id()))
+}
+
 fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
@@ -3630,91 +3620,12 @@ fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)],
         });
 }
 
-/// The partners shown before "+N more".
-const PARTNERS_SHOWN: usize = 5;
-/// The height of a partner row in the detail pane, in points.
-const PARTNER_ROW: f32 = 20.0;
-/// The affinity list's height under ADD with its best five and "+N more": the gap, the header, five rows and the
-/// chip, each followed by the pane's 4-point spacing.
-const AFFINITY_BLOCK: f32 = 6.0 + 20.0 + PARTNERS_SHOWN as f32 * (PARTNER_ROW + 4.0) + 26.0 + 4.0;
-
-/// The card's partners by affinity, best first (from the game's own files), one a row in the detail pane: the name at
-/// the left, a tick when one of its cards is on the table, the dots at the right. The best [`PARTNERS_SHOWN`], or all
-/// of them once `all` is set ("+N more").
-fn affinity_list(
-    ui: &mut Ui,
-    card: &Card,
-    links: &board::Links,
-    on_table: &[u32],
-    all: &mut bool,
-    lang: Lang,
-) {
-    /// The dots' width ([`board::affinity_dots`]) and the tick's room before them.
-    const DOTS: f32 = 46.0;
-    const TICK: f32 = 22.0;
-    caps(ui, &tr!(lang, "cat.affinity"));
-    let partners: Vec<_> = links
-        .affinity
-        .iter()
-        .flat_map(|a| a.partners(card.number))
-        .collect();
-    if partners.is_empty() {
-        ui.label(
-            egui::RichText::new(tr!(lang, "cat.no_partners"))
-                .font(theme::body(HINT))
-                .color(theme::TEXT_DIM),
-        );
-    }
-    let w = ui.available_width();
-    let shown = if *all { partners.len() } else { PARTNERS_SHOWN };
-    for (p, v) in partners.iter().take(shown) {
-        let (r, _) = ui.allocate_exact_size(vec2(w, PARTNER_ROW), Sense::hover());
-        let paint = ui.painter();
-        let g = widgets::fit(
-            paint,
-            &p.name,
-            theme::body(13.0),
-            theme::TEXT,
-            w - DOTS - TICK - 8.0,
-        );
-        paint.galley(
-            pos2(r.left() + 4.0, r.center().y - g.size().y / 2.0),
-            g,
-            theme::TEXT,
-        );
-        let dots = pos2(r.right() - DOTS, r.center().y);
-        if p.cards.iter().any(|n| on_table.contains(n)) {
-            widgets::tone_icon(paint, dots - vec2(TICK / 2.0, 0.0), Tone::Done);
-        }
-        board::affinity_dots(paint, dots, *v);
-    }
-    if partners.len() > PARTNERS_SHOWN {
-        let more = if *all {
-            tr!(lang, "cat.fewer")
-        } else {
-            tr!(lang, "board.more", n = partners.len() - PARTNERS_SHOWN)
-        };
-        if chip(ui, &more, false, None).clicked() {
-            *all = !*all;
-        }
-    }
-}
-
 /// The focused card's detail: its picture at whole pixels in a slot that is the same for both sides
 /// ([`sizing::detail_picture`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
-/// the six stats in a column, ADD, then `below` (the affinity list, when `partners`). The picture gives up its height
-/// so that everything down to the best partners' "+N more" ends above `bottom` (the pane's visible edge), or, when
-/// that leaves it under half the album art, down to ADD. Returns (ADD clicked, the picture clicked: the card view asked
-/// for).
-fn stats_pane(
-    ui: &mut Ui,
-    card: &Card,
-    back: &mut bool,
-    lang: Lang,
-    bottom: f32,
-    partners: bool,
-    below: impl FnOnce(&mut Ui),
-) -> (bool, bool) {
+/// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
+/// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
+/// clicked: the card view asked for).
+fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32) -> (bool, bool) {
     use egui::emath::GuiRounding as _;
     let ppp = ui.ctx().pixels_per_point();
     egui::Frame::new()
@@ -3738,19 +3649,16 @@ fn stats_pane(
             let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
                 .map_or(sizing::ALBUM, |(_, px)| px);
             // the room: the pane's visible height less what goes under the picture, down to ADD as drawn on the
-            // last frame, the affinity's header, best five and "+N more" ([`AFFINITY_BLOCK`]) and the frame's margin.
-            // The slot depends on the room only, so turning the card over (a scan front, an album back, one still
-            // loading) moves nothing.
+            // last frame, and the frame's margin. The slot depends on the room only, so turning the card over (a scan
+            // front, an album back, one still loading) moves nothing.
             let rest_id = ui.id().with("rest");
             let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
             let top = ui.cursor().top();
-            let fit = |extra: f32| vec2(w, (bottom - top - rest - extra - 16.0).max(1.0));
-            let all = fit(AFFINITY_BLOCK);
-            let half =
-                sizing::whole_fit(sizing::ALBUM, all, ppp).y * ppp >= sizing::ALBUM.y / 2.0 - 0.5;
-            let room = if partners && half { all } else { fit(0.0) };
+            let room = vec2(w, (bottom - top - rest - 16.0).max(1.0));
             let (slot_size, size) = sizing::detail_picture(pic, room, ppp);
             let (slot, resp) = ui.allocate_exact_size(vec2(w, slot_size.y), Sense::click());
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(picture_rect_id(), slot));
             let open = resp
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked();
@@ -3825,7 +3733,6 @@ fn stats_pane(
                 ui.ctx().request_repaint();
             }
             ui.add_space(6.0);
-            below(ui);
             (add.clicked(), open)
         })
         .inner
@@ -5278,25 +5185,22 @@ mod tests {
         );
     }
 
-    /// The pane's side and its whole affinity list belong to the card shown: another card shows its front and its best
-    /// partners again.
+    /// The pane's side belongs to the card shown: another card shows its front again.
     #[test]
-    fn the_detail_panes_side_and_affinity_list_belong_to_the_card_shown() {
+    fn the_detail_panes_side_belongs_to_the_card_shown() {
         let mut c = Catalogue::default();
-        // the first card drawn, then BACK and +N more clicked on it
+        // the first card drawn, then BACK clicked on it
         c.set_shown(Some(8));
         c.view_back = true;
-        c.all_partners = true;
         // the same card drawn again keeps what was clicked
         c.set_shown(Some(8));
-        assert!(c.view_back && c.all_partners);
+        assert!(c.view_back);
         c.set_shown(Some(9));
-        assert!(!c.view_back && !c.all_partners);
-        // no card at all (the filter emptied the results) clears them too
+        assert!(!c.view_back);
+        // no card at all (the filter emptied the results) clears it too
         c.view_back = true;
-        c.all_partners = true;
         c.set_shown(None);
-        assert!(!c.view_back && !c.all_partners);
+        assert!(!c.view_back);
     }
 
     fn sheet_of(w: f32, h: f32) -> Rect {

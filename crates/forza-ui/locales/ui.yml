@@ -291,8 +291,6 @@ board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 board.pop_out: {en: "POP OUT FORMATION BOARD", it: "FORMAZIONE IN POP-OUT", ja: "フォーメーションボードをポップアウト"}
 board.dock: {en: "DOCK FORMATION BOARD", it: "RIPORTA LA FORMAZIONE", ja: "フォーメーションボードを戻す"}
 board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
-cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
-cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
 cat.title: {en: "CATALOGUE", it: "CATALOGO", ja: "カタログ"}
@@ -328,7 +326,6 @@ cat.technique: {en: "TECHNIQUE", it: "TECNICA", ja: "技術"}
 cat.power: {en: "POWER", it: "POTENZA", ja: "パワー"}
 cat.speed: {en: "SPEED", it: "VELOCITÀ", ja: "スピード"}
 cat.stamina: {en: "STAMINA", it: "RESISTENZA", ja: "スタミナ"}
-cat.fewer: {en: "SHOW FEWER", it: "MOSTRA MENO", ja: "少なく表示"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}

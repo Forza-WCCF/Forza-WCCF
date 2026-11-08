@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use egui_kittest::{Harness, SnapshotResults};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
-use forza_ui::{installer, launcher, lobby, panel, widgets};
+use forza_ui::{installer, launcher, lobby, panel, sizing, widgets};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
 /// about 1 run in 4 on 2026-10-12); one after another they never did.
@@ -699,7 +699,8 @@ fn board_mat() {
 }
 
 /// Links on the board (synthetic): every stage between pitch cards at rest; a click on card 8 (slot 7) brings its group
-/// forward with its partner list; the catalogue's stats pane lists the same card's affinity, ticks on the team.
+/// forward with its partner list; the catalogue's detail pane shows the same card, its picture in the room the board's
+/// lists take.
 #[test]
 fn board_links() {
     let _gpu = gpu();
@@ -728,13 +729,13 @@ fn board_links() {
     }
     h.hover_at(egui::pos2(500.0, 440.0));
     h.run_steps(4);
-    h.snapshot("panel_catalogue_affinity_en");
+    h.snapshot("panel_catalogue_focus_en");
 }
 
 /// The 2017-18 catalogue at 1920x1080 points, x1 and 125 % in English and at 125 % in Japanese: the grid fills its
 /// width (6 cards a row and more), the detail pane draws the focused card's picture at whole pixels (a made-up
-/// 256x357 pattern of single-pixel lines, blurred if ever scaled by a fraction), its best five partners under the
-/// stats, and its stat labels beside their values at the narrow pane (the Japanese ones are the widest).
+/// 256x357 pattern of single-pixel lines, blurred if ever scaled by a fraction) at its album art's own size, larger
+/// than a grid card, and its stat labels beside their values at the narrow pane (the Japanese ones are the widest).
 #[test]
 fn catalogue_1080() {
     let _gpu = gpu();
@@ -755,8 +756,8 @@ fn catalogue_1080() {
     .expect("a picture written");
     let mut all = SnapshotResults::new();
     let (wide, small) = (Vec2::new(1920.0, 1080.0), panel::SIZE);
-    // (window in points, scale, language, snapshot): at 1920x1080 the pane shows ADD and the best five partners with
-    // "+N more" without scrolling; at 1440x900 it shows ADD
+    // (window in points, scale, language, snapshot): at 1920x1080 the pane shows the picture at the album art's own
+    // points and ADD without scrolling; at 1440x900 it shows ADD
     for (size, ppp, lang, name) in [
         (wide, 1.0, Lang::En, Some("panel_catalogue_1080_en")),
         (wide, 1.25, Lang::En, Some("panel_catalogue_1080_125_en")),
@@ -787,21 +788,31 @@ fn catalogue_1080() {
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
         let seen = panel::catalogue_detail_rect(&h.ctx).expect("the detail pane drawn");
-        let (add, more) = match lang {
-            Lang::En => ("+ ADD", "+1 more"),
-            Lang::It => ("+ AGGIUNGI", "+ altri 1"),
-            Lang::Ja => ("＋追加", "ほか1人"),
+        let add = match lang {
+            Lang::En => "+ ADD",
+            Lang::It => "+ AGGIUNGI",
+            Lang::Ja => "＋追加",
         };
         let add = h.get_by_label(add).rect();
         assert!(
             add.bottom() <= seen.bottom(),
             "{size:?} {ppp} {lang:?}: ADD at {add:?}, the pane shows {seen:?}"
         );
+        // the detail pane lists no affinity: the card's partners and their "+N more" chip are gone (the board's
+        // lists stay; players read affinity in their own tool)
+        assert!(
+            h.query_by_label("+1 more").is_none(),
+            "{size:?} {ppp} {lang:?}: the pane still lists the card's partners"
+        );
         if size == wide {
-            let more = h.get_by_label(more).rect();
+            // the detail picture's slot: the album art at its own pixels, and never under them, so larger than a grid
+            // card (at most 170 points wide, its scan some 240 tall)
+            let pic = panel::catalogue_picture_rect(&h.ctx).expect("the picture drawn");
             assert!(
-                more.bottom() <= seen.bottom(),
-                "{size:?} {ppp} {lang:?}: +N more at {more:?}, the pane shows {seen:?}"
+                pic.width() * ppp >= sizing::ALBUM.x - 1.0
+                    && pic.height() * ppp >= sizing::ALBUM.y - 1.0,
+                "{size:?} {ppp} {lang:?}: the picture {pic:?}, the album art {}",
+                sizing::ALBUM / ppp
             );
         }
         if let Some(name) = name {
