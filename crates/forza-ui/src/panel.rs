@@ -3272,10 +3272,6 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         {
             c.ranges_open = !c.ranges_open;
         }
-        if narrowed && chip(ui, &tr!(lang, "cat.reset"), false, None).clicked() {
-            f.ranges = [(1, 20); 6];
-            f.total = (60, 100);
-        }
     });
     ui.horizontal_wrapped(|ui| {
         field(ui, &tr!(lang, "cat.sort"), label_w);
@@ -3320,6 +3316,12 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                             ui.end_row();
                         }
                         range_slider(ui, &tr!(lang, "cat.total"), &mut f.total, (60, 100), w);
+                        // RESET beside TOTAL, with the sliders it resets (on the RARITY row it wrapped in Japanese)
+                        let narrowed = f.ranges != [(1, 20); 6] || f.total != (60, 100);
+                        if narrowed && chip(ui, &tr!(lang, "cat.reset"), false, None).clicked() {
+                            f.ranges = [(1, 20); 6];
+                            f.total = (60, 100);
+                        }
                         ui.end_row();
                     });
             });
@@ -3386,17 +3388,28 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 });
             });
             strip.cell(|ui| {
+                let seen = ui.max_rect();
+                ui.ctx().data_mut(|d| d.insert_temp(detail_rect_id(), seen));
                 egui::ScrollArea::vertical()
                     .id_salt("detail")
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         if let Some(card) = shown {
-                            let (added, opened) = stats_pane(ui, card, back, lang, |ui| {
-                                // the game's links known: the card's partners under its stats
-                                if links.affinity.is_some() {
-                                    affinity_list(ui, card, links, &on_table, all_partners, lang);
-                                }
-                            });
+                            let partners = links.affinity.is_some();
+                            let (added, opened) =
+                                stats_pane(ui, card, back, lang, seen.bottom(), partners, |ui| {
+                                    // the game's links known: the card's partners under its stats
+                                    if links.affinity.is_some() {
+                                        affinity_list(
+                                            ui,
+                                            card,
+                                            links,
+                                            &on_table,
+                                            all_partners,
+                                            lang,
+                                        );
+                                    }
+                                });
                             if added {
                                 add = Some(card.number);
                             }
@@ -3589,6 +3602,15 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
+fn detail_rect_id() -> egui::Id {
+    egui::Id::new("catalogue-detail-rect")
+}
+
+/// The catalogue detail pane's visible rect on the last frame (for layout tests): what shows without scrolling.
+pub fn catalogue_detail_rect(ctx: &egui::Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp(detail_rect_id()))
+}
+
 fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)], lang: Lang) {
     let all = tr!(lang, "cat.all");
     let shown = if value.is_empty() {
@@ -3610,6 +3632,11 @@ fn combo(ui: &mut Ui, id: &str, value: &mut String, options: &[(String, usize)],
 
 /// The partners shown before "+N more".
 const PARTNERS_SHOWN: usize = 5;
+/// The height of a partner row in the detail pane, in points.
+const PARTNER_ROW: f32 = 20.0;
+/// The affinity list's height under ADD with its best five and "+N more": the gap, the header, five rows and the
+/// chip, each followed by the pane's 4-point spacing.
+const AFFINITY_BLOCK: f32 = 6.0 + 20.0 + PARTNERS_SHOWN as f32 * (PARTNER_ROW + 4.0) + 26.0 + 4.0;
 
 /// The card's partners by affinity, best first (from the game's own files), one a row in the detail pane: the name at
 /// the left, a tick when one of its cards is on the table, the dots at the right. The best [`PARTNERS_SHOWN`], or all
@@ -3641,7 +3668,7 @@ fn affinity_list(
     let w = ui.available_width();
     let shown = if *all { partners.len() } else { PARTNERS_SHOWN };
     for (p, v) in partners.iter().take(shown) {
-        let (r, _) = ui.allocate_exact_size(vec2(w, 20.0), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(w, PARTNER_ROW), Sense::hover());
         let paint = ui.painter();
         let g = widgets::fit(
             paint,
@@ -3675,13 +3702,17 @@ fn affinity_list(
 
 /// The focused card's detail: its picture at whole pixels in a slot that is the same for both sides
 /// ([`sizing::detail_picture`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
-/// the six stats in a column, ADD, then `below` (the affinity list). Returns (ADD clicked, the picture clicked: the
-/// card view asked for).
+/// the six stats in a column, ADD, then `below` (the affinity list, when `partners`). The picture gives up its height
+/// so that everything down to the best partners' "+N more" ends above `bottom` (the pane's visible edge), or, when
+/// that leaves it under half the album art, down to ADD. Returns (ADD clicked, the picture clicked: the card view asked
+/// for).
 fn stats_pane(
     ui: &mut Ui,
     card: &Card,
     back: &mut bool,
     lang: Lang,
+    bottom: f32,
+    partners: bool,
     below: impl FnOnce(&mut Ui),
 ) -> (bool, bool) {
     use egui::emath::GuiRounding as _;
@@ -3706,10 +3737,18 @@ fn stats_pane(
             // the picture's own pixels when it is loaded, else the album art's (the drawn stand-in)
             let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
                 .map_or(sizing::ALBUM, |(_, px)| px);
-            // the room under it: TOTAL, the names, the six stats and ADD take about 310 points (at least 180 for
-            // the picture: the album art's half at 100 %, the pane scrolls); the slot depends on the room only, so
-            // turning the card over (a scan front, an album back, one still loading) moves nothing
-            let room = vec2(w, (ui.available_height() - 310.0).max(180.0));
+            // the room: the pane's visible height less what goes under the picture, down to ADD as drawn on the
+            // last frame, the affinity's header, best five and "+N more" ([`AFFINITY_BLOCK`]) and the frame's margin.
+            // The slot depends on the room only, so turning the card over (a scan front, an album back, one still
+            // loading) moves nothing.
+            let rest_id = ui.id().with("rest");
+            let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
+            let top = ui.cursor().top();
+            let fit = |extra: f32| vec2(w, (bottom - top - rest - extra - 16.0).max(1.0));
+            let all = fit(AFFINITY_BLOCK);
+            let half =
+                sizing::whole_fit(sizing::ALBUM, all, ppp).y * ppp >= sizing::ALBUM.y / 2.0 - 0.5;
+            let room = if partners && half { all } else { fit(0.0) };
             let (slot_size, size) = sizing::detail_picture(pic, room, ppp);
             let (slot, resp) = ui.allocate_exact_size(vec2(w, slot_size.y), Sense::click());
             let open = resp
@@ -3779,10 +3818,15 @@ fn stats_pane(
             ui.add_space(4.0);
             stat_column(ui, card, lang, w);
             ui.add_space(6.0);
-            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true).clicked();
+            let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true);
+            let under = add.rect.bottom() - slot.bottom();
+            if (under - rest).abs() > 0.5 {
+                ui.data_mut(|d| d.insert_temp(rest_id, under));
+                ui.ctx().request_repaint();
+            }
             ui.add_space(6.0);
             below(ui);
-            (add, open)
+            (add.clicked(), open)
         })
         .inner
 }

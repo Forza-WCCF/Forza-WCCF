@@ -754,10 +754,19 @@ fn catalogue_1080() {
     )
     .expect("a picture written");
     let mut all = SnapshotResults::new();
-    for (ppp, lang, name) in [
-        (1.0, Lang::En, "panel_catalogue_1080_en"),
-        (1.25, Lang::En, "panel_catalogue_1080_125_en"),
-        (1.25, Lang::Ja, "panel_catalogue_1080_125_ja"),
+    let (wide, small) = (Vec2::new(1920.0, 1080.0), panel::SIZE);
+    // (window in points, scale, language, snapshot): at 1920x1080 the pane shows ADD and the best five partners with
+    // "+N more" without scrolling; at 1440x900 it shows ADD
+    for (size, ppp, lang, name) in [
+        (wide, 1.0, Lang::En, Some("panel_catalogue_1080_en")),
+        (wide, 1.25, Lang::En, Some("panel_catalogue_1080_125_en")),
+        (wide, 1.25, Lang::Ja, Some("panel_catalogue_1080_125_ja")),
+        (wide, 1.0, Lang::It, None),
+        (wide, 1.0, Lang::Ja, None),
+        (wide, 1.25, Lang::It, None),
+        (small, 1.0, Lang::En, None),
+        (small, 1.0, Lang::It, None),
+        (small, 1.0, Lang::Ja, None),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
         st.links = forza_ui::sample::links();
@@ -765,7 +774,7 @@ fn catalogue_1080() {
         st.catalogue.focus = Some(ci);
         let path = dir.path().to_owned();
         let mut first = true;
-        let mut h = harness(Vec2::new(1920.0, 1080.0), ppp, Edition::E1718, |ui| {
+        let mut h = harness(size, ppp, Edition::E1718, |ui| {
             if first {
                 forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
                 first = false;
@@ -777,8 +786,28 @@ fn catalogue_1080() {
             h.run_steps(1);
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
-        h.snapshot(name);
-        all.extend_harness(&mut h);
+        let seen = panel::catalogue_detail_rect(&h.ctx).expect("the detail pane drawn");
+        let (add, more) = match lang {
+            Lang::En => ("+ ADD", "+1 more"),
+            Lang::It => ("+ AGGIUNGI", "+ altri 1"),
+            Lang::Ja => ("＋追加", "ほか1人"),
+        };
+        let add = h.get_by_label(add).rect();
+        assert!(
+            add.bottom() <= seen.bottom(),
+            "{size:?} {ppp} {lang:?}: ADD at {add:?}, the pane shows {seen:?}"
+        );
+        if size == wide {
+            let more = h.get_by_label(more).rect();
+            assert!(
+                more.bottom() <= seen.bottom(),
+                "{size:?} {ppp} {lang:?}: +N more at {more:?}, the pane shows {seen:?}"
+            );
+        }
+        if let Some(name) = name {
+            h.snapshot(name);
+            all.extend_harness(&mut h);
+        }
     }
     all.unwrap();
 }
