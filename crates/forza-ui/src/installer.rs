@@ -14,6 +14,9 @@ use super::widgets::{
 use crate::theme::Accent;
 use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
+/// The width of a row's label on the Where and Files pages; the text boxes and the notes under them start after it.
+const ROW_LABEL: f32 = 120.0;
+
 pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);
 
 /// What the install needs on disk, for the free-space bar and its message.
@@ -104,6 +107,30 @@ pub enum Latest {
     Failed,
 }
 
+/// What the key row's file turned out to be, checked when it changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyCheck {
+    /// A key in it opens the disc image.
+    Found,
+    /// A key list, but nothing in it opens this disc image.
+    NoKey,
+    NotKeyList,
+    /// The Forza-WCCF package, put in the key row.
+    IsPackage,
+}
+
+/// What the package row's file turned out to be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackageCheck {
+    /// A package of this edition (or of an edition not yet known).
+    Ok(Edition),
+    /// A package of another edition than the game's.
+    Wrong(Edition),
+    NotPackage,
+    /// The key list, put in the package row.
+    IsKeyList,
+}
+
 /// What a click asked the program to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -116,6 +143,8 @@ pub enum Action {
     /// The person grabbed the window's own title area.
     Drag,
     Browse(Field),
+    /// "Add files…": pick several files, each sorted into its row as when dropped.
+    AddFiles,
     OpenFolder,
     /// START LAUNCHER on the Done page: run the edition's Launcher.exe, then close the installer.
     StartLauncher,
@@ -149,6 +178,10 @@ pub struct InstallerState {
     pub detected: Option<Edition>,
     /// The disc image has a size no supported edition has.
     pub unsupported: bool,
+    /// What the key row's file is; `None` while there is nothing to say.
+    pub key_check: Option<KeyCheck>,
+    /// What the package row's file is; `None` while it is empty.
+    pub package_check: Option<PackageCheck>,
     /// Editions already installed in the folder.
     pub installed: Vec<Edition>,
     /// Use the installed `edition` instead of a disc image.
@@ -193,6 +226,8 @@ impl InstallerState {
             confirm: false,
             detected: None,
             unsupported: false,
+            key_check: None,
+            package_check: None,
             installed: vec![],
             reuse: false,
             edition: Edition::E1011,
@@ -218,6 +253,8 @@ impl InstallerState {
             iso: r"D:\Images\disc-2010-11.iso".into(),
             key: r"D:\Images\disc-2010-11.key".into(),
             detected: Some(Edition::E1011),
+            key_check: Some(KeyCheck::Found),
+            package_check: Some(PackageCheck::Ok(Edition::E1011)),
             installed: vec![Edition::E1718],
             options: [true, true, false, true],
             setup_possible: true,
@@ -613,7 +650,7 @@ fn path_row(
     out: &mut Option<Action>,
 ) {
     ui.horizontal(|ui| {
-        let label = field(ui, label, 120.0);
+        let label = field(ui, label, ROW_LABEL);
         let browse = tr!(lang, "launcher.browse");
         let bw = ui
             .painter()
@@ -745,6 +782,56 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
 }
 
 fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
+    // the hints and the per-row checks take room: a short window scrolls instead of hiding a row
+    egui::ScrollArea::vertical().show(ui, |ui| files_body(ui, st, lang, out));
+}
+
+/// A line under a file row, lined up with its text box: the row's hint (no tone) or what its file was found to be.
+fn row_note(ui: &mut Ui, tone: Option<Tone>, text: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(ROW_LABEL + ui.spacing().item_spacing.x);
+        let color = match tone {
+            Some(t) => {
+                let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                widgets::tone_icon(ui.painter(), r.center(), t);
+                theme::TEXT
+            }
+            None => theme::TEXT_DIM,
+        };
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(text)
+                    .font(theme::body(13.0))
+                    .color(color),
+            )
+            .wrap(),
+        );
+    });
+}
+
+/// A file row with its hint and, once checked, what its file is.
+fn file_row(
+    ui: &mut Ui,
+    [label, hint]: [&str; 2],
+    value: &mut String,
+    lang: Lang,
+    which: Field,
+    note: Option<(Tone, String)>,
+    out: &mut Option<Action>,
+) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 3.0;
+        path_row(ui, label, value, lang, which, out);
+        // a note line is as tall as its text, not a button's height
+        ui.spacing_mut().interact_size.y = 18.0;
+        row_note(ui, None, hint);
+        if let Some((tone, text)) = note {
+            row_note(ui, Some(tone), &text);
+        }
+    });
+}
+
+fn files_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
     if !st.installed.is_empty() {
         toggle_row(
             ui,
@@ -754,7 +841,7 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
         );
         if st.reuse && st.installed.len() > 1 {
             ui.horizontal(|ui| {
-                field(ui, &tr!(lang, "installer.detected"), 120.0);
+                field(ui, &tr!(lang, "installer.detected"), ROW_LABEL);
                 for e in st.installed.clone() {
                     if chip(ui, e.label(), st.edition == e, Some(e.accent())).clicked() {
                         st.edition = e;
@@ -765,20 +852,46 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
     }
     let disc = !st.reuse;
     ui.add_enabled_ui(disc, |ui| {
-        path_row(
+        let iso_note = if !disc {
+            None
+        } else if let Some(e) = st.detected {
+            Some((
+                Tone::Done,
+                tr!(lang, "installer.iso_ok", edition = e.label()),
+            ))
+        } else if st.unsupported {
+            Some((Tone::Refused, tr!(lang, "installer.iso_unsupported")))
+        } else {
+            None
+        };
+        file_row(
             ui,
-            &tr!(lang, "installer.iso"),
+            [
+                &tr!(lang, "installer.iso"),
+                &tr!(lang, "installer.iso_hint"),
+            ],
             &mut st.iso,
             lang,
             Field::Iso,
+            iso_note,
             out,
         );
-        path_row(
+        let key_note = st.key_check.filter(|_| disc).map(|k| match k {
+            KeyCheck::Found => (Tone::Done, tr!(lang, "installer.key_found")),
+            KeyCheck::NoKey => (Tone::Refused, tr!(lang, "installer.key_none")),
+            KeyCheck::NotKeyList => (Tone::Refused, tr!(lang, "installer.key_not_list")),
+            KeyCheck::IsPackage => (Tone::Refused, tr!(lang, "installer.key_is_package")),
+        });
+        file_row(
             ui,
-            &tr!(lang, "installer.key"),
+            [
+                &tr!(lang, "installer.key"),
+                &tr!(lang, "installer.key_hint"),
+            ],
             &mut st.key,
             lang,
             Field::Key,
+            key_note,
             out,
         );
     });
@@ -791,7 +904,7 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
     if let Some(v) = &newest {
         let mut pick = usize::from(!(st.use_latest && st.package.trim().is_empty()));
         ui.horizontal(|ui| {
-            field(ui, &tr!(lang, "installer.package"), 120.0);
+            field(ui, &tr!(lang, "installer.package"), ROW_LABEL);
             let labels = [
                 tr!(lang, "installer.pkg_newest", version = v),
                 tr!(lang, "installer.pkg_file"),
@@ -815,19 +928,33 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
         }
     }
     if from_file {
-        path_row(
-            ui,
-            &tr!(
-                lang,
-                if newest.is_some() {
-                    "installer.pkg_file_row"
-                } else {
-                    "installer.package"
-                }
+        let note = st.package_check.map(|c| match c {
+            PackageCheck::Ok(e) => (
+                Tone::Done,
+                tr!(lang, "installer.pkg_ok", edition = e.label()),
             ),
+            PackageCheck::Wrong(e) => (
+                Tone::Refused,
+                tr!(lang, "installer.pkg_wrong", edition = e.label()),
+            ),
+            PackageCheck::NotPackage => (Tone::Refused, tr!(lang, "installer.pkg_not")),
+            PackageCheck::IsKeyList => (Tone::Refused, tr!(lang, "installer.pkg_is_key")),
+        });
+        let label = tr!(
+            lang,
+            if newest.is_some() {
+                "installer.pkg_file_row"
+            } else {
+                "installer.package"
+            }
+        );
+        file_row(
+            ui,
+            [&label, &tr!(lang, "installer.package_hint")],
             &mut st.package,
             lang,
             Field::Package,
+            note,
             out,
         );
     }
@@ -843,7 +970,7 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
         }
     }
     ui.horizontal(|ui| {
-        field(ui, &tr!(lang, "installer.detected"), 120.0);
+        field(ui, &tr!(lang, "installer.detected"), ROW_LABEL);
         if let Some(e) = st.target() {
             widgets::badge(ui, e);
         }
@@ -858,20 +985,20 @@ fn files(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Acti
                 edition = edition_name(st.edition)
             ),
         );
-    } else if let Some(e) = st.detected {
-        status_line(
-            ui,
-            Tone::Done,
-            &tr!(lang, "installer.iso_ok", edition = e.label()),
-        );
-    } else if st.unsupported {
-        status_line(ui, Tone::Refused, &tr!(lang, "installer.iso_unsupported"));
     }
-    ui.label(
-        egui::RichText::new(tr!(lang, "installer.drop_hint"))
-            .font(theme::body(12.0))
-            .color(theme::TEXT_DIM),
-    );
+    ui.horizontal(|ui| {
+        if action(ui, &tr!(lang, "installer.add_files")).clicked() {
+            out.get_or_insert(Action::AddFiles);
+        }
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(tr!(lang, "installer.drop_hint"))
+                    .font(theme::body(12.0))
+                    .color(theme::TEXT_DIM),
+            )
+            .wrap(),
+        );
+    });
 }
 
 fn installing(ui: &mut Ui, st: &mut InstallerState, lang: Lang) {

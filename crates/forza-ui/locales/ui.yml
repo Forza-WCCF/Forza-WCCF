@@ -156,11 +156,23 @@ installer.layout: {en: "WHAT GOES WHERE", it: "COSA VA DOVE", ja: "インスト�
 installer.this_install: {en: "← this install", it: "← questa installazione", ja: "← 今回のインストール"}
 installer.space_ok: {en: "Enough space.", it: "Spazio sufficiente.", ja: "空き容量は十分です。"}
 installer.iso: {en: "DISC IMAGE", it: "IMMAGINE DISCO", ja: "ディスクイメージ"}
-installer.key: {en: "KEY FILE", it: "FILE CHIAVE", ja: "キーファイル"}
-installer.package: {en: "PACKAGE", it: "PACCHETTO", ja: "パッケージ"}
+installer.key: {en: "KEY LIST", it: "ELENCO CHIAVI", ja: "キーリスト"}
+installer.package: {en: "FORZA-WCCF ZIP", it: "ZIP FORZA-WCCF", ja: "FORZA-WCCF ZIP"}
+installer.iso_hint: {en: "The .iso file of the game disc.", it: "Il file .iso del disco del gioco.", ja: "ゲームディスクの .iso ファイルです。"}
+installer.key_hint: {en: "The ZIP or web page with the table of game keys. The installer finds the right key.", it: "Lo ZIP o la pagina web con la tabella delle chiavi. L'installazione trova la chiave giusta.", ja: "ゲームキーの表が入った ZIP または Web ページです。正しいキーはインストーラーが探します。"}
+installer.package_hint: {en: "The Forza-WCCF ZIP for this edition. It sets up the game.", it: "Lo ZIP di Forza-WCCF per questa edizione. Prepara il gioco.", ja: "このエディション用の Forza-WCCF の ZIP です。ゲームをセットアップします。"}
+installer.key_found: {en: "Key found for this disc.", it: "Chiave trovata per questo disco.", ja: "このディスクのキーが見つかりました。"}
+installer.key_none: {en: "This file has no key for this disc.", it: "Questo file non ha la chiave per questo disco.", ja: "このファイルにはこのディスクのキーがありません。"}
+installer.key_not_list: {en: "Not a key list.", it: "Non è un elenco di chiavi.", ja: "キーリストではありません。"}
+installer.key_is_package: {en: "This is the Forza-WCCF ZIP, not the key list.", it: "Questo è lo ZIP di Forza-WCCF, non l'elenco chiavi.", ja: "これは Forza-WCCF の ZIP で、キーリストではありません。"}
+installer.pkg_ok: {en: "Forza-WCCF package for the %{edition} edition.", it: "Pacchetto Forza-WCCF per l'edizione %{edition}.", ja: "%{edition} エディション用の Forza-WCCF パッケージです。"}
+installer.pkg_wrong: {en: "This package is for the %{edition} edition, not this game.", it: "Questo pacchetto è per l'edizione %{edition}, non per questo gioco.", ja: "このパッケージは %{edition} エディション用で、このゲーム用ではありません。"}
+installer.pkg_not: {en: "Not a Forza-WCCF package.", it: "Non è un pacchetto Forza-WCCF.", ja: "Forza-WCCF のパッケージではありません。"}
+installer.pkg_is_key: {en: "This is the key list, not the Forza-WCCF ZIP.", it: "Questo è l'elenco chiavi, non lo ZIP di Forza-WCCF.", ja: "これはキーリストで、Forza-WCCF の ZIP ではありません。"}
+installer.add_files: {en: "Add files…", it: "Aggiungi file…", ja: "ファイルを追加…"}
 installer.detected: {en: "EDITION", it: "EDIZIONE", ja: "エディション"}
 installer.iso_ok: {en: "Disc image recognised: the %{edition} edition.", it: "Immagine del disco riconosciuta: edizione %{edition}.", ja: "ディスクイメージを認識しました：%{edition} エディション。"}
-installer.reuse_hint: {en: "Uses the game files already in this folder, so the disc image and the key file are not needed.", it: "Usa i file del gioco già presenti in questa cartella: l'immagine del disco e il file chiave non servono.", ja: "このフォルダーにあるゲームファイルを使うため、ディスクイメージとキーファイルは不要です。"}
+installer.reuse_hint: {en: "Uses the game files already in this folder, so the disc image and the key list are not needed.", it: "Usa i file del gioco già presenti in questa cartella: l'immagine del disco e l'elenco chiavi non servono.", ja: "このフォルダーにあるゲームファイルを使うため、ディスクイメージとキーリストは不要です。"}
 installer.opt_shortcuts: {en: "Desktop shortcuts", it: "Collegamenti sul desktop", ja: "デスクトップにショートカット"}
 installer.opt_shortcuts_hint: {en: "Each installed edition gets a desktop shortcut with its own name.", it: "Ogni edizione installata riceve un collegamento sul desktop con il proprio nome.", ja: "インストールしたエディションごとに、その名前のショートカットをデスクトップに作ります。"}
 installer.back: {en: "Back", it: "Indietro", ja: "戻る"}
@@ -190,7 +202,7 @@ installer.ascii_tip: {en: "The folder name has letters outside English. Use a pa
 installer.reuse: {en: "Use the game files already here", it: "Usa i file del gioco già presenti", ja: "ここにあるゲームファイルを使う"}
 installer.reusing: {en: "Using the %{edition} files already in this folder.", it: "Uso i file %{edition} già presenti in questa cartella.", ja: "このフォルダーにある %{edition} のファイルを再利用します。"}
 installer.iso_unsupported: {en: "Unsupported image size. Use the 2010–11 Rev D or the 2017–18 v2.00.00 disc image.", it: "Dimensione dell'immagine non supportata. Usa l'immagine 2010–11 Rev D o 2017–18 v2.00.00.", ja: "未対応のイメージサイズです。2010–11 Rev D または 2017–18 v2.00.00 のディスクイメージを使ってください。"}
-installer.drop_hint: {en: "Dropping the files on this window works too.", it: "I file si possono anche trascinare su questa finestra.", ja: "ファイルはこのウィンドウにドラッグしても選べます。"}
+installer.drop_hint: {en: "Dropping the files on this window works too: each one goes in its own row.", it: "I file si possono anche trascinare su questa finestra: ognuno va nella sua riga.", ja: "ファイルはこのウィンドウにドラッグしても選べます。各ファイルは自動で正しい行に入ります。"}
 installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
 installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configurato (nessun pacchetto)", ja: "ゲームは未設定（パッケージなし）"}
 installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul desktop aggiunti", ja: "デスクトップにショートカットを追加しました"}
@@ -230,7 +242,7 @@ installer.err_window: {en: "The installer cannot open its window.\n\n%{detail}",
 installer.err_launcher: {en: "Cannot start %{path}: %{detail}", it: "Impossibile avviare %{path}: %{detail}", ja: "%{path} を起動できません：%{detail}"}
 installer.err_folder: {en: "Choose an install folder.", it: "Scegli una cartella di installazione.", ja: "インストール先フォルダーを選んでください。"}
 installer.err_iso: {en: "Choose the disc image (.iso) file.", it: "Scegli il file dell'immagine del disco (.iso).", ja: "ディスクイメージ（.iso）を選んでください。"}
-installer.err_key: {en: "Choose the key file.", it: "Scegli il file chiave.", ja: "キーファイルを選んでください。"}
+installer.err_key: {en: "Choose the key list.", it: "Scegli l'elenco chiavi.", ja: "キーリストを選んでください。"}
 installer.err_key_read: {en: "Cannot read the key file: %{e}", it: "Impossibile leggere il file chiave: %{e}", ja: "キーファイルを読み込めません：%{e}"}
 installer.err_key_entry: {en: "This key file has no key for %{id}.", it: "Questo file chiave non contiene la chiave per %{id}.", ja: "このキーファイルに %{id} のキーはありません。"}
 installer.err_download: {en: "Download failed: %{detail}", it: "Download non riuscito: %{detail}", ja: "ダウンロードに失敗しました：%{detail}"}

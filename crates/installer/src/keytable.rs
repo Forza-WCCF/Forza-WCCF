@@ -37,6 +37,12 @@ pub fn candidates(raw: &[u8], game_id: &str) -> Option<Vec<[u8; 16]>> {
     found
 }
 
+/// Whether `raw` can hold a disc key: a key table (HTML or a ZIP with one), or one key, 16 bytes or 32 hex digits.
+pub fn is_key_list(raw: &[u8]) -> bool {
+    let text: String = String::from_utf8_lossy(raw).split_whitespace().collect();
+    raw.len() == 16 || hex16(&text).is_some() || candidates(raw, "").is_some()
+}
+
 fn hex16(s: &str) -> Option<[u8; 16]> {
     let s = s.trim();
     if s.len() != 32 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -129,6 +135,10 @@ mod tests {
         assert_eq!(c, [h(KF), h(K1), h(K2), h(IV)]); // the keyfile first
         assert!(candidates(html.as_bytes(), "XXXX").unwrap().is_empty()); // a table, but no entry
         assert!(candidates(b"0011223344", "SDDY").is_none());
+        assert!(
+            is_key_list(html.as_bytes()) && is_key_list(&[7; 16]) && is_key_list(K1.as_bytes())
+        );
+        assert!(!is_key_list(b"0011223344") && !is_key_list(b"<p>a web page</p>"));
         assert!(
             candidates(
                 b"<table><tr><th>Game ID</th><th>Game Key</th></tr></table>",

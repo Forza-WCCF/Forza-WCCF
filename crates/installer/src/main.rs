@@ -21,7 +21,9 @@ mod install;
 mod keytable;
 
 use eframe::egui;
-use forza_ui::installer::{self, Action, Field, InstallerState, Latest, Page, Space, Step};
+use forza_ui::installer::{
+    self, Action, Field, InstallerState, KeyCheck, Latest, PackageCheck, Page, Space, Step,
+};
 use forza_ui::theme::{self, Edition};
 use forza_ui::{Lang, text};
 use install::{Event, Plan};
@@ -49,6 +51,9 @@ struct App {
     /// animation) with the same inputs must not probe the disc, the folder and the drive again, where a drive that
     /// went away or a typed UNC path blocks the UI thread.
     refreshed: Option<String>,
+    /// The disc image, key list, package and edition the row checks last ran for: they read the files, so only a
+    /// change of these runs them again.
+    checked: Option<String>,
 }
 
 fn default_dest() -> String {
@@ -97,6 +102,7 @@ impl App {
             run: None,
             lookup: None,
             refreshed: None,
+            checked: None,
         }
     }
 
@@ -171,6 +177,45 @@ impl App {
             },
         });
         st.ascii_tip = !st.folder.is_ascii();
+        let (iso, key, target) = (clean(&st.iso), clean(&st.key), st.target());
+        let files = format!(
+            "{iso:?}|{key:?}|{kit:?}|{target:?}|{found:?}",
+            found = found.map(|d| d.game_id)
+        );
+        if self.checked.as_deref() != Some(files.as_str()) {
+            st.key_check = key_check(&iso, found, &key);
+            st.package_check = kit.and_then(|k| package_check(&k, target));
+            self.checked = Some(files);
+        }
+    }
+
+    fn slot(&mut self, field: Field) -> &mut String {
+        let st = &mut self.st;
+        match field {
+            Field::Folder => &mut st.folder,
+            Field::Iso => &mut st.iso,
+            Field::Key => &mut st.key,
+            Field::Package => &mut st.package,
+        }
+    }
+
+    /// A dropped or added file, in the row [`row_for`] picks.
+    fn place(&mut self, p: &Path) {
+        *self.slot(row_for(p)) = p.display().to_string();
+    }
+
+    /// "Add files…": several files at once, each sorted into its row as when dropped.
+    fn add_files(&mut self) {
+        let picked = rfd::FileDialog::new()
+            .set_title(self.t("installer.add_files"))
+            .add_filter(
+                self.t("installer.files"),
+                &["iso", "zip", "html", "htm", "key", "txt", "bin"],
+            )
+            .pick_files();
+        for p in picked.into_iter().flatten() {
+            self.place(&p);
+        }
     }
 
     /// [`App::refresh`] when the inputs changed since its last run: a repaint alone changes no answer.
@@ -328,18 +373,11 @@ impl App {
             }
         };
         if let Some(p) = picked {
-            let st = &mut self.st;
-            let slot = match field {
-                Field::Folder => &mut st.folder,
-                Field::Iso => &mut st.iso,
-                Field::Key => &mut st.key,
-                Field::Package => &mut st.package,
-            };
             let p = match field {
                 Field::Folder => install::install_folder(&p),
                 _ => p,
             };
-            *slot = p.display().to_string();
+            *self.slot(field) = p.display().to_string();
         }
     }
 
@@ -418,6 +456,68 @@ impl App {
     }
 }
 
+/// The row a file belongs in, by what it is: the disc image, the Forza-WCCF package, else the key list. Dropped files
+/// and "Add files…" both go through here.
+fn row_for(p: &Path) -> Field {
+    let ext = p.extension().map(|e| e.to_ascii_lowercase());
+    match ext.as_deref().and_then(|e| e.to_str()) {
+        Some("iso") => Field::Iso,
+        // a zip is a package, unless it is not one (a zip with the key table)
+        Some("zip") if install::check_kit_zip(p).is_ok() => Field::Package,
+        _ => Field::Key,
+    }
+}
+
+/// A key list is a small file: a bigger one (a disc image in the wrong row) is never read whole to check it.
+const KEY_LIST_MAX: u64 = 64 << 20;
+
+/// What the key row's file is, as INSTALL would find it: the package by mistake, no key list, or whether a key in it
+/// opens the disc image (`disc`: the one `iso` is, by its size). `None`: nothing to say yet. Measured on a 2017-18
+/// image: 9-21 ms in a release build (it reads the slot's checksum table and tries each key), so it runs in place.
+fn key_check(iso: &Path, disc: Option<&disc::Disc>, key: &Path) -> Option<KeyCheck> {
+    let len = std::fs::metadata(key).ok().filter(|m| m.is_file())?.len();
+    if install::check_kit_zip(key).is_ok() {
+        return Some(KeyCheck::IsPackage);
+    }
+    if len > KEY_LIST_MAX {
+        return Some(KeyCheck::NotKeyList);
+    }
+    let raw = std::fs::read(key).ok()?;
+    if !keytable::is_key_list(&raw) {
+        return Some(KeyCheck::NotKeyList);
+    }
+    let disc = disc?;
+    // a table without the disc's game id: no need to read the disc image
+    if keytable::candidates(&raw, disc.game_id).is_some_and(|c| c.is_empty()) {
+        return Some(KeyCheck::NoKey);
+    }
+    match disc::open(iso, &raw) {
+        Ok(_) => Some(KeyCheck::Found),
+        Err(e) => match e.downcast_ref::<err::InstallError>() {
+            Some(err::InstallError::WrongKey | err::InstallError::NoKeyEntry { .. }) => {
+                Some(KeyCheck::NoKey)
+            }
+            _ => None, // the disc image's own fault: its row and INSTALL report it
+        },
+    }
+}
+
+/// What the package row's file is: a package of the game's edition (`game`), of another, or the key list by mistake.
+fn package_check(pkg: &Path, game: Option<Edition>) -> Option<PackageCheck> {
+    let len = std::fs::metadata(pkg).ok().filter(|m| m.is_file())?.len();
+    Some(match install::check_kit_zip(pkg) {
+        Ok(e) if game.is_some_and(|g| g != e) => PackageCheck::Wrong(e),
+        Ok(e) => PackageCheck::Ok(e),
+        Err(_)
+            if len <= KEY_LIST_MAX
+                && std::fs::read(pkg).is_ok_and(|r| keytable::is_key_list(&r)) =>
+        {
+            PackageCheck::IsKeyList
+        }
+        Err(_) => PackageCheck::NotPackage,
+    })
+}
+
 fn open_folder(p: &Path) {
     let opener = if cfg!(windows) {
         "explorer"
@@ -440,16 +540,7 @@ impl eframe::App for App {
         self.poll();
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
             if self.st.page == Page::Files {
-                let p = f.path();
-                let ext = p.extension().map(|e| e.to_ascii_lowercase());
-                let st = &mut self.st;
-                let field = match ext.as_deref().and_then(|e| e.to_str()) {
-                    Some("iso") => &mut st.iso,
-                    // a zip is a package, unless it is not one (a zip with the key table)
-                    Some("zip") if install::check_kit_zip(p).is_ok() => &mut st.package,
-                    _ => &mut st.key,
-                };
-                *field = p.display().to_string();
+                self.place(f.path());
             }
         }
         self.look_up_latest(&ctx);
@@ -484,6 +575,7 @@ impl eframe::App for App {
                 }
             }
             Some(Action::Browse(f)) => self.browse(f),
+            Some(Action::AddFiles) => self.add_files(),
             Some(Action::OpenFolder) => open_folder(Path::new(&self.st.done_path)),
             None => {}
         }
@@ -755,6 +847,92 @@ mod tests {
             vec![Edition::E1011],
             "a typed path refreshes"
         );
+    }
+
+    /// A scratch folder with a package, a key list (as a ZIP and as a web page, rows for 2010-11 only) and an image.
+    fn sample_files(name: &str) -> (PathBuf, [PathBuf; 4]) {
+        let dir = std::env::temp_dir().join(format!("installer-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = zip::write::SimpleFileOptions::default();
+        let html = "<table><tr><th>Game ID</th><th>Keyfile</th></tr>\
+            <tr><td>SBWG</td><td>00112233445566778899aabbccddeeff</td></tr></table>";
+        let zip = |file: &str, entries: &[(&str, &str)]| {
+            let path = dir.join(file);
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            for (n, body) in entries {
+                z.start_file(*n, o).unwrap();
+                std::io::Write::write_all(&mut z, body.as_bytes()).unwrap();
+            }
+            z.finish().unwrap();
+            path
+        };
+        let package = zip("pkg.zip", &[("Launcher.exe", ""), ("bin/x.dll", "")]);
+        let keys = zip("keys.zip", &[("list/keys.html", html)]);
+        let page = dir.join("keys.html");
+        std::fs::write(&page, html).unwrap();
+        let iso = dir.join("disc.iso");
+        std::fs::write(&iso, b"not an image").unwrap();
+        (dir, [iso, package, keys, page])
+    }
+
+    /// Dropped files and "Add files…" share one sorter: the image, the package and the key list each find their row.
+    #[test]
+    fn each_file_goes_in_its_own_row() {
+        let (dir, [iso, package, keys, page]) = sample_files("rows");
+        assert_eq!(row_for(&iso), Field::Iso);
+        assert_eq!(row_for(&package), Field::Package);
+        assert_eq!(row_for(&keys), Field::Key);
+        assert_eq!(row_for(&page), Field::Key);
+        let mut app = App::new();
+        for p in [&page, &package, &iso] {
+            app.place(p);
+        }
+        assert_eq!(
+            [&app.st.iso, &app.st.key, &app.st.package].map(PathBuf::from),
+            [iso, page, package]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file in the wrong row is flagged as soon as it is chosen, not at INSTALL.
+    #[test]
+    fn a_file_in_the_wrong_row_is_flagged_before_install() {
+        let (dir, [iso, package, keys, page]) = sample_files("wrong-row");
+        let mut app = App::new();
+        app.st.page = Page::Files;
+        app.st.key = package.display().to_string();
+        app.st.package = keys.display().to_string();
+        app.refresh_if_changed();
+        assert_eq!(app.st.key_check, Some(KeyCheck::IsPackage));
+        assert_eq!(app.st.package_check, Some(PackageCheck::IsKeyList));
+        app.st.package = page.display().to_string();
+        app.st.key = iso.display().to_string();
+        app.refresh_if_changed();
+        assert_eq!(app.st.package_check, Some(PackageCheck::IsKeyList));
+        assert_eq!(app.st.key_check, Some(KeyCheck::NotKeyList));
+        // the right files: the package is the 2017-18 one, against a 2010-11 game
+        assert_eq!(
+            package_check(&package, Some(Edition::E1011)),
+            Some(PackageCheck::Wrong(Edition::E1718))
+        );
+        assert_eq!(
+            package_check(&package, None),
+            Some(PackageCheck::Ok(Edition::E1718))
+        );
+        assert_eq!(package_check(&iso, None), Some(PackageCheck::NotPackage));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A key list whose rows are all for the other game says so on the key row, without reading the disc image.
+    #[test]
+    fn a_key_list_without_the_disc_says_no_key_for_this_disc() {
+        let (dir, [iso, _, keys, page]) = sample_files("no-key");
+        let sddy = disc::DISCS.iter().find(|d| d.game_id == "SDDY");
+        for k in [&keys, &page] {
+            assert_eq!(key_check(&iso, sddy, k), Some(KeyCheck::NoKey));
+            assert_eq!(key_check(&iso, None, k), None, "no disc image yet");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
