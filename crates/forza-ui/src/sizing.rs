@@ -73,12 +73,6 @@ pub fn detail_width(ppp: f32) -> f32 {
     (ALBUM.x * k / ppp + 24.0 + slack).clamp(250.0, 330.0)
 }
 
-/// The most the results header (the card count and the affinity row) may take of a cell `cell_h` points tall: the rest
-/// is at least one row of `card_h` cards and the gap above them, however long the expanded affinity list is.
-pub fn header_cap(cell_h: f32, card_h: f32) -> f32 {
-    (cell_h - card_h - GAP).max(48.0)
-}
-
 /// A picture of `pic_px` pixels drawn whole in `room` points: its size in points at the largest of x2, x1, 1/2, 1/3 or
 /// 1/4 of its pixels that fits (the smallest when none does). Every drawn pixel is then a whole number of the
 /// picture's, or a whole number of them in one, so it is never soft at any window size or Windows scaling.
@@ -87,6 +81,19 @@ pub fn whole_fit(pic_px: Vec2, room: Vec2, ppp: f32) -> Vec2 {
     let fits = |k: f32| pic_px.x * k <= room.x * ppp + 0.01 && pic_px.y * k <= room.y * ppp + 0.01;
     let k = steps.into_iter().find(|&k| fits(k)).unwrap_or(0.25);
     (pic_px * k).floor() / ppp
+}
+
+/// The detail pane's picture of `pic_px` pixels in `room` points: (the slot, the picture). The slot is the album art's
+/// [`whole_fit`] whatever the picture, so both sides of a card (a scan front, an album back, one still loading) take
+/// the same room; the picture is the largest whole step of its pixels inside the slot, or (a large scan in a very
+/// small window, when even a quarter does not fit) the slot itself, which [`crate::board::card_side`] letterboxes.
+pub fn detail_picture(pic_px: Vec2, room: Vec2, ppp: f32) -> (Vec2, Vec2) {
+    let slot = whole_fit(ALBUM, room, ppp);
+    // a pixel of slack: the slot's floored size (178 of the album's 178.5 at half) still takes the album art's step
+    (
+        slot,
+        whole_fit(pic_px, slot + Vec2::splat(1.0 / ppp), ppp).min(slot),
+    )
 }
 
 #[cfg(test)]
@@ -171,7 +178,7 @@ mod tests {
             let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(w, h) / ppp);
             let page = crate::panel::layout(sheet, false).pages;
             // the pane's inner width less its frame, and the height its picture has under the rest of the pane
-            let room = vec2(detail_width(ppp) - 24.0, page.height() - 300.0);
+            let room = vec2(detail_width(ppp) - 24.0, page.height() - 350.0);
             let picture = whole_fit(ALBUM, room, ppp) * ppp;
             assert!(close(picture, ALBUM * 2.0), "{ppp} px a point: {picture:?}");
             assert!(
@@ -182,14 +189,25 @@ mod tests {
         }
     }
 
-    /// The header's cap always leaves the grid a row of cards and the gap above it.
+    /// FRONT and BACK take the same slot whatever their pictures (the pack's scan, the album art, a large scan, the
+    /// stand-in while one loads), and each picture fits inside it.
     #[test]
-    fn the_catalogue_header_leaves_a_row_of_cards() {
-        for cell in [300.0, 650.0, 900.0] {
-            for card in [20.0, 120.0, 170.0] {
-                let cap = header_cap(cell, card);
-                assert!(cap >= 48.0, "{cell} {card}: {cap}");
-                assert!(cell - cap >= card + GAP, "{cell} {card}: {cap}");
+    fn both_sides_of_the_detail_picture_take_the_same_slot() {
+        for ppp in [0.625, 1.0, 1.25, 1.5, 2.0] {
+            for room in [vec2(226.0, 200.0), vec2(306.0, 420.0), vec2(282.0, 700.0)] {
+                let (slot, album) = detail_picture(ALBUM, room, ppp);
+                assert_eq!(
+                    album, slot,
+                    "{ppp} {room:?}: the album art fills its own slot"
+                );
+                for pic in [NATIVE, ALBUM, vec2(664.0, 911.0)] {
+                    let (s, size) = detail_picture(pic, room, ppp);
+                    assert_eq!(s, slot, "{ppp} {room:?} {pic:?}");
+                    assert!(
+                        size.x <= slot.x + 0.01 && size.y <= slot.y + 0.01,
+                        "{ppp} {pic:?}"
+                    );
+                }
             }
         }
     }

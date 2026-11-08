@@ -296,8 +296,6 @@ board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
 board.pop_out: {en: "POP OUT BOARD", it: "FORMAZIONE IN FINESTRA", ja: "別ウィンドウで表示"}
 board.dock: {en: "DOCK BOARD", it: "RIPORTA NEL GIOCO", ja: "ボードを戻す"}
 board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
-cat.affinity: {en: "AFFINITY", it: "AFFINITÀ", ja: "相性"}
-cat.no_partners: {en: "No partners listed.", it: "Nessuna affinità.", ja: "相性の選手なし。"}
 
 # ---- catalogue ----
 cat.title: {en: "CARDS", it: "CARTE", ja: "カード"}
@@ -325,8 +323,14 @@ cat.pow: {en: "POW", it: "POT", ja: "パワー"}
 cat.spd: {en: "SPD", it: "VEL", ja: "スピード"}
 cat.sta: {en: "STA", it: "RES", ja: "スタミナ"}
 cat.reset: {en: "RESET", it: "AZZERA", ja: "リセット"}
-cat.ranges: {en: "STAT RANGES", it: "FASCE STATISTICHE", ja: "能力値の範囲"}
-cat.fewer: {en: "SHOW FEWER", it: "MOSTRA MENO", ja: "少なく表示"}
+cat.ranges: {en: "FILTER BY STATS", it: "FILTRA PER STATISTICHE", ja: "能力値で絞り込む"}
+cat.ranges_hint: {en: "Shows sliders that keep only the cards whose stats fall in the ranges you set.", it: "Mostra i cursori che tengono solo le carte con le statistiche negli intervalli scelti.", ja: "能力値の範囲を決めるスライダーを表示し、その範囲のカードだけを残します。"}
+cat.offence: {en: "OFFENCE", it: "ATTACCO", ja: "攻撃"}
+cat.defence: {en: "DEFENCE", it: "DIFESA", ja: "守備"}
+cat.technique: {en: "TECHNIQUE", it: "TECNICA", ja: "技術"}
+cat.power: {en: "POWER", it: "POTENZA", ja: "パワー"}
+cat.speed: {en: "SPEED", it: "VELOCITÀ", ja: "スピード"}
+cat.stamina: {en: "STAMINA", it: "RESISTENZA", ja: "スタミナ"}
 cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}
