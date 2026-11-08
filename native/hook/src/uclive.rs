@@ -311,7 +311,9 @@ fn patch_code<R>(
 /// Client sub_80EDF0, which sends a Universal Cup winner's DATA_VS_ENTRY, from the program's base (ASLR moves it):
 /// `cmp byte [6D9F24F],1 / mov byte [6D9F258],0 / jnz / mov eax,[6D9F288] / cmp byte [eax+0D1h],0 / mov bl,1 / jnz /
 /// mov bl,[683653F] / mov al,[6D9F25A] / mov [esp+7],al`: it sends when bl (the online flag, 0x80EE07) is set and
-/// [6D9F25A] is 0, and then sets [6D9F258] (0x80EE38).
+/// [6D9F25A] is 0, and then sets [6D9F258] (0x80EE38). [6D9F25A] is "dataVSWeek is 0": sub_80EE60 sets it to 1 when
+/// the week it reads is 0 or unreadable (0x80EE92, 0x80EEA7), else 0 (0x80EEAF); sub_80ECF0 then logs
+/// "DVSES_DATA_VS_WEEK_IS_ZERO" (0x80ECF8).
 pub const ENTRY: usize = 0x40_EDF0;
 /// The original bytes, absolute addresses as at image base 0x400000.
 pub const ENTRY_SIG: [u8; 49] = [
@@ -321,7 +323,7 @@ pub const ENTRY_SIG: [u8; 49] = [
     0x07,
 ];
 /// Where [`ENTRY_SIG`] holds the globals' addresses: the gate [6D9F24F], sent [6D9F258], the online object's pointer
-/// [6D9F288] (its +209 = 0xD1 byte), the second online flag [683653F] (HIBYTE of dword_683653C), entered [6D9F25A].
+/// [6D9F288] (its +209 = 0xD1 byte), the second online flag [683653F] (HIBYTE of dword_683653C), week-is-0 [6D9F25A].
 pub const ENTRY_ADDRS: [usize; 5] = [3, 11, 19, 36, 41];
 
 /// The globals' addresses from `code` (sub_80EDF0's first bytes in the running client, its base `delta` above
@@ -337,20 +339,36 @@ pub fn entry_globals(code: &[u8], delta: u32) -> Option<[u32; 5]> {
     })
 }
 
-/// The client's entry line: the gate, the two online flags (`a` = [[6D9F288]+209], None when unreadable), entered and
-/// sent, and what they mean for DATA_VS_ENTRY.
-pub fn entry_line(gate: u8, a: Option<u8>, b: u8, entered: u8, sent: u8) -> String {
-    let online = a.unwrap_or(0) != 0 || b != 0;
-    let why = match (sent != 0, gate == 1, online, entered != 0) {
-        (true, ..) => "DATA_VS_ENTRY sent",
-        (_, false, ..) => "no entry due (gate not 1)",
+/// The client's entry line: the gate, the two online flags (`a` = [[6D9F288]+209]), week-is-0 and sent (each None
+/// when unreadable, printed `?`), and what they mean for DATA_VS_ENTRY.
+pub fn entry_line(
+    gate: Option<u8>,
+    a: Option<u8>,
+    b: Option<u8>,
+    week0: Option<u8>,
+    sent: Option<u8>,
+) -> String {
+    let on = |v: Option<u8>| v.is_some_and(|v| v != 0);
+    let why = match (sent, gate, on(a) || on(b), week0) {
+        (Some(s), ..) if s != 0 => "DATA_VS_ENTRY sent",
+        (None, ..) | (_, None, ..) => "not all flags readable",
+        (_, Some(g), ..) if g != 1 => "no entry due (gate not 1)",
+        (_, _, false, _) if a.is_none() || b.is_none() => "not all flags readable",
         (_, _, false, _) => "entry due but NOT sent: the online flag is off",
-        (_, _, _, true) => "entry due but not sent: already entered",
+        (.., Some(w)) if w != 0 => {
+            "entry due but NOT sent: dataVSWeek is 0 (DVSES_DATA_VS_WEEK_IS_ZERO)"
+        }
+        (.., None) => "not all flags readable",
         _ => "entry due, not sent yet",
     };
-    let a = a.map_or("?".to_owned(), |a| a.to_string());
+    let t = |v: Option<u8>| v.map_or("?".to_owned(), |v| v.to_string());
     format!(
-        "UC entry (client 0x80EDF0): gate {gate}, online [6D9F288]+209 {a} / [683653F] {b}, entered {entered}, sent {sent} - {why}"
+        "UC entry (client 0x80EDF0): gate {}, online [6D9F288]+209 {} / [683653F] {}, week 0 {}, sent {} - {why}",
+        t(gate),
+        t(a),
+        t(b),
+        t(week0),
+        t(sent)
     )
 }
 
@@ -384,12 +402,12 @@ fn watch_entry() {
         log!("UC entry: client 0x80EDF0 is not the code studied - its flags are not logged");
         return;
     };
-    log!("UC entry: watching client 0x80EDF0's flags (read-only)");
-    std::thread::spawn(move || {
+    // Builder, not spawn: DllMain must not panic; the first read waits 1 s, past the loader lock
+    let watch = std::thread::Builder::new().spawn(move || {
         let mut last = String::new();
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            let byte = |at: u32| peek::<1>(at).map_or(0, |b| b[0]);
+            let byte = |at: u32| peek::<1>(at).map(|b| b[0]);
             let a = peek::<4>(g[2])
                 .map(u32::from_le_bytes)
                 .filter(|&p| p != 0)
@@ -402,6 +420,10 @@ fn watch_entry() {
             }
         }
     });
+    match watch {
+        Ok(_) => log!("UC entry: watching client 0x80EDF0's flags (read-only)"),
+        Err(e) => log!("UC entry: no watch on client 0x80EDF0's flags (thread not started: {e})"),
+    }
 }
 
 #[cfg(target_arch = "x86")]
@@ -637,13 +659,20 @@ mod tests {
         other[24] = 0xB9;
         assert_eq!(entry_globals(&other, 0), None, "another build");
         assert_eq!(entry_globals(&ENTRY_SIG[..48], 0), None, "short");
-        assert!(entry_line(1, Some(0), 0, 0, 0).ends_with("NOT sent: the online flag is off"));
-        assert!(entry_line(1, Some(1), 0, 0, 1).ends_with("- DATA_VS_ENTRY sent"));
-        assert!(entry_line(1, None, 1, 1, 0).ends_with("already entered"));
-        assert!(entry_line(0, Some(1), 1, 0, 0).ends_with("(gate not 1)"));
+        let (z, o) = (Some(0), Some(1));
+        assert!(entry_line(o, z, z, z, z).ends_with("NOT sent: the online flag is off"));
+        assert!(entry_line(o, o, z, z, o).ends_with("- DATA_VS_ENTRY sent"));
+        assert!(
+            entry_line(o, None, o, o, z).ends_with("dataVSWeek is 0 (DVSES_DATA_VS_WEEK_IS_ZERO)")
+        );
+        assert!(entry_line(z, o, o, z, z).ends_with("(gate not 1)"));
+        // an unreadable byte is "?", never a 0 that would read as a reason
+        assert!(entry_line(None, o, o, z, z).ends_with("gate ?, online [6D9F288]+209 1 / [683653F] 1, week 0 0, sent 0 - not all flags readable"));
+        assert!(entry_line(o, None, z, z, z).ends_with("not all flags readable"));
+        assert!(entry_line(o, o, z, None, z).ends_with("not all flags readable"));
         assert_eq!(
-            entry_line(1, Some(1), 0, 0, 0),
-            "UC entry (client 0x80EDF0): gate 1, online [6D9F288]+209 1 / [683653F] 0, entered 0, sent 0 - entry due, not sent yet"
+            entry_line(o, o, z, z, z),
+            "UC entry (client 0x80EDF0): gate 1, online [6D9F288]+209 1 / [683653F] 0, week 0 0, sent 0 - entry due, not sent yet"
         );
     }
 
