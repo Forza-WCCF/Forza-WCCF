@@ -358,9 +358,13 @@ unsafe extern "system" fn relay_sendto(
     let was = {
         let mut peers = PEER.lock().unwrap_or_else(|e| e.into_inner());
         let Some(slot) = peers.get_mut(seat) else {
-            // relay_peer gives seats 1-8 only
-            // SAFETY: the caller's arguments, unchanged.
-            return unsafe { real_sendto()(s, buf, len, flags, to, tolen) };
+            // relay_peer gives seats 1-8 only; fail closed as below, never past the relay
+            say(&format!(
+                "relay: dropped a {len}-byte packet for seat {seat}: no such seat"
+            ));
+            // SAFETY: sets this thread's Winsock error, nothing else.
+            unsafe { WSASetLastError(WSAEMSGSIZE) };
+            return SOCKET_ERROR;
         };
         std::mem::replace(slot, addr)
     };
