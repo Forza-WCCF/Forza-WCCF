@@ -256,6 +256,8 @@ pub struct Params {
     /// 2010-11: every program must load the kit's hook through its renamed import (`guard::hook_1011`).  Off only in
     /// tests whose stand-ins are no game programs.
     pub hook_imports: bool,
+    /// 2017-18: where a game folder whose path is not plain ASCII gets its ASCII junction (`alias`).
+    pub run_links: PathBuf,
 }
 
 impl Params {
@@ -280,6 +282,7 @@ impl Params {
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             hook_imports: true,
+            run_links: crate::alias::base(),
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -1051,6 +1054,8 @@ pub struct Run<'a> {
     /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
     /// may be hidden: the championship plays unseen then.
     projector: bool,
+    /// 2017-18: a game folder could not get its ASCII junction, and the player was told.
+    told_path: bool,
     _lock: OwnedHandle,
 }
 
@@ -1173,6 +1178,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         uc_seen: None,
         uc_told: None,
         projector: false,
+        told_path: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1542,6 +1548,26 @@ impl Run<'_> {
         } else {
             format!("_{}", dir.file_name().unwrap_or_default().to_string_lossy())
         };
+        // 2017-18: the original programs take ASCII paths only; the guard checked the real folder this points at
+        let from = if self.edition == Edition::E1718 {
+            match crate::alias::for_dir(dir, &self.p.run_links) {
+                Ok(link) => link,
+                Err(e) => {
+                    if !self.told_path {
+                        self.told_path = true;
+                        self.tell("  ", &Text::key("launcher.run_path_not_ascii"));
+                        crate::logs::append(
+                            &self.logs().join("run_launcher.txt"),
+                            &format!("no ASCII junction for {}: {e}", dir.display()),
+                        );
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let dir = from.as_deref().unwrap_or(dir);
         let index = self.kit.dir().join(r"code\hardware\ghidra_out_1011_classes");
         let stop = Arc::new(AtomicBool::new(false));
         let opts = Options {
