@@ -3426,7 +3426,9 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
     // SAFETY: the window's own message, on its thread
     std::panic::catch_unwind(|| unsafe { panel_wndproc(h, m, wp, lp) }).unwrap_or_else(|_| {
         DEAD.store(true, Relaxed);
-        log("window: a message panicked - the panel stops, the game gets its messages");
+        latch_up(); // no frame is left to let it go
+        DRAWN.store(false, Relaxed); // later messages skip the panel and reach the game
+        log("window: a message panicked - the panel stops, this and later messages go to the game");
         // SAFETY: the procedure we replaced, with the message as it came
         unsafe {
             CallWindowProcW(
