@@ -2015,7 +2015,11 @@ impl Render {
             }
         }
         let dealt = self.st.deal.as_ref().map(|d| d.back);
+        // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
+        // follows the pointer, as before
+        let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
         let st = &mut self.st;
+        st.down = keys_held(&st.keys, ours);
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
         match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
             (Some(_), None) => log("deal: closed"),
@@ -2100,7 +2104,11 @@ impl Render {
             .native_pixels_per_point = Some(ppp);
         self.table_in();
         self.st.desk = true;
+        // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
+        // follows the pointer, as before
+        let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
         let st = &mut self.st;
+        st.down = keys_held(&st.keys, ours);
         let out = self.board_ctx.run_ui(raw, |ui| panel::show(ui, st));
         self.st.desk = false;
         self.import();
@@ -3078,7 +3086,6 @@ impl Render {
             log(&format!("button {action} -> key 0x{vk:02X}"));
             kit::send_key(vk, false, log);
             self.key = Some((vk, Instant::now()));
-            self.st.held = Some(action);
             self.mouse_down = true;
         }
         if self.mouse_down
@@ -3094,7 +3101,6 @@ impl Render {
         {
             kit::send_key(vk, true, log);
             self.key = None;
-            self.st.held = None;
         }
     }
 
@@ -3564,6 +3570,18 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
 fn modifiers() -> Modifiers {
     // SAFETY: plain key state queries
     modifiers_with(|vk| unsafe { GetKeyState(i32::from(vk)) } < 0)
+}
+
+/// The cabinet actions whose key is down now, `ours` (the keys the panel sent down itself) left out: the async state
+/// follows the key whichever window has the focus.
+fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
+    panel::keys_down(keys, |vk| {
+        if ours.contains(&vk) {
+            return false;
+        }
+        // SAFETY: a plain key state query
+        (unsafe { GetAsyncKeyState(vk as i32) }) < 0
+    })
 }
 
 fn modifiers_with(down: impl Fn(u16) -> bool) -> Modifiers {

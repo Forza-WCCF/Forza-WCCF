@@ -676,8 +676,9 @@ pub struct PanelState {
     pub board_changed: bool,
     /// A cabinet button pressed this frame: its action's name in keys.txt (START, PRESS, SHOOT, UP, ...).
     pub pressed: Option<&'static str>,
-    /// The cabinet button whose key is down (lit until the key goes up).
-    pub held: Option<&'static str>,
+    /// The actions (by [`forza::keys::NAMES`] index) whose bound key is down this frame ([`keys_down`]): their
+    /// cabinet buttons draw pressed, as under a click.
+    pub down: [bool; forza::keys::COUNT],
     /// The card taken off the board last and when (the frame's time): UNDO puts it back for [`UNDO_SECS`].
     pub undo: Option<(board::Removed, f64)>,
     /// A take-off refused during a match: when (the frame's time) the note under the board shows for [`UNDO_SECS`].
@@ -813,7 +814,7 @@ impl PanelState {
             picture_rect: None,
             board_changed: false,
             pressed: None,
-            held: None,
+            down: [false; forza::keys::COUNT],
             latched: None,
             undo: None,
             add: None,
@@ -932,7 +933,6 @@ impl PanelState {
             },
             club: super::sample::club_view(),
             projector: (edition == Edition::E1718).then_some(true),
-            held: Some("KEYPLAYER"), // lit on the design sheets
             ..Self::new(
                 edition,
                 lang,
@@ -2195,9 +2195,15 @@ pub fn deck_layout(area: Rect) -> Vec<DeckItem> {
 fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem> {
     let [left, mid, _] = deck_plates(area, both, 1.0, stack);
     let (cy, my) = (left.center().y, mid.center().y);
-    let c = pos2(left.left() + 132.0, cy);
+    // 2017-18 (no machine plate): the pad drawn 1.3 times the art's base size, the room above and below it free since
+    // CENTRAL and COUNTER print their names beside their arrows. 2010-11 keeps its deck as it was.
+    let pad = !both;
+    let c = pos2(left.left() + if pad { 134.0 } else { 132.0 }, cy);
+    let (beside, (up, down)) = (Some(Dir::Right), (Some(Dir::Up), Some(Dir::Down)));
+    let (central, counter) = if pad { (beside, beside) } else { (up, down) };
     // the art's proportions: the triangles are 8/7 as wide as tall
-    let (sq, tl, g) = (32.0, 28.0, 2.0);
+    let k = if pad { 1.3 } else { 1.0 };
+    let (sq, tl, g) = (32.0 * k, 28.0 * k, 2.0 * k);
     let off = sq / 2.0 + g + tl / 2.0;
     let item = |key, action, kind, shape, centre: Pos2, size: egui::Vec2, label, tactic| DeckItem {
         key,
@@ -2224,7 +2230,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Up),
             c - vec2(0.0, off),
             tall,
-            Some(Dir::Up),
+            central,
             Some(0),
         ),
         item(
@@ -2234,7 +2240,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             tri(Dir::Down),
             c + vec2(0.0, off),
             tall,
-            Some(Dir::Down),
+            counter,
             Some(1),
         ),
         item(
@@ -2272,7 +2278,7 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
             "DATA",
             Cab::Data,
             Shape::Square,
-            pos2(left.right() - 32.0, cy),
+            pos2(left.right() - if pad { 22.0 } else { 32.0 }, cy),
             vec2(25.0, 40.0),
             Some(Dir::Down),
             None,
@@ -2320,6 +2326,77 @@ fn deck_layout_for(area: Rect, both: bool, s: f32, stack: bool) -> Vec<DeckItem>
     ]
 }
 
+/// The width a deck button's name and keycap may take on `side` (`plate`: the button's plate; `data`: the DATA
+/// lamp's rect; `others`: the deck's buttons; `both`: 2010-11, which keeps its old room).
+fn deck_label_room(
+    rect: Rect,
+    side: Dir,
+    plate: Rect,
+    data: Rect,
+    others: &[Rect],
+    both: bool,
+) -> f32 {
+    match side {
+        Dir::Left => rect.left() - plate.left() - 8.0,
+        _ if both => 110.0,
+        // CENTRAL, COUNTER, R-SIDE (2017-18): 4 points short of the DATA lamp and of its name centred under it (as
+        // wide as the room below allows)
+        Dir::Right => {
+            data.left().min(2.0 * data.center().x - plate.right() + 4.0) - 8.0 - rect.right()
+        }
+        // a name centred under (or over) its button stays 4 points inside the plate and clear of the name of a
+        // button of the same height beside it (SHOOT and KEEPER)
+        Dir::Up | Dir::Down => {
+            let x = rect.center().x;
+            let half = (x - plate.left()).min(plate.right() - x) - 4.0;
+            let near = others
+                .iter()
+                .filter(|o| **o != rect && o.y_range() == rect.y_range())
+                .map(|o| (o.center().x - x).abs() - 4.0)
+                .fold(f32::INFINITY, f32::min);
+            (2.0 * half).min(near).min(110.0)
+        }
+    }
+}
+
+/// A deck button's name and the width of its keycap after it (0: none) in `room`. With `fit` (2017-18), a label too
+/// wide shrinks the name (down to 70 %), else drops the keycap, so it does not run into the next button; 2010-11
+/// keeps its look.
+fn deck_label_parts(
+    p: &egui::Painter,
+    name: &str,
+    cap: &str,
+    room: f32,
+    fit: bool,
+) -> (std::sync::Arc<egui::Galley>, f32) {
+    let full = p.layout_no_wrap(name.to_owned(), theme::display(14.0), theme::TEXT_DIM);
+    let cap_w = keycap_width(p, cap, room - full.size().x - 4.0);
+    let w = full.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+    if !fit || w <= room {
+        return (full, cap_w);
+    }
+    let shrink = |max| widgets::fit(p, name, theme::display(14.0), theme::TEXT_DIM, max);
+    let small = shrink(room - 4.0 - cap_w);
+    if cap_w > 0.0 && small.size().x + 4.0 + cap_w <= room {
+        (small, cap_w)
+    } else {
+        (shrink(room), 0.0)
+    }
+}
+
+/// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
+/// way, never past `plate`'s right edge (DATA sits close to it).
+fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
+    let (w, h) = (size.x, size.y);
+    let (left, cy) = match side {
+        Dir::Up => (rect.center().x - w / 2.0, rect.top() - 4.0 - h / 2.0),
+        Dir::Down => (rect.center().x - w / 2.0, rect.bottom() + 4.0 + h / 2.0),
+        Dir::Left => (rect.left() - 4.0 - w, rect.center().y),
+        Dir::Right => (rect.right() + 4.0, rect.center().y),
+    };
+    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 - w), cy - h / 2.0), size)
+}
+
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
 fn card_key(area: Rect, s: f32, stack: bool) -> Rect {
     Rect::from_center_size(
@@ -2364,12 +2441,19 @@ fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
 
 /// The cabinet's controls under the picture, one row: the tactic diamond, the play buttons, the machine.
 fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32, stack: bool) {
-    // a press sends the action's key down (the panel DLL lets it up after the release); the buttons do not light.
+    // a press sends the action's key down (the panel DLL lets it up after the release); a button draws pressed while
+    // its key is down (st.down), whether a click or the hotkey put it down.
     // A right-click on KEY PLAYER or KEEPER latches it down until the next click on it ([`latch_click`]).
     let mut pressed = None;
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
+    let down = if st.edition == Edition::E1718 {
+        st.down
+    } else {
+        [false; forza::keys::COUNT]
+    };
     let mut put = |ui: &mut Ui,
                    r: Rect,
                    key: &str,
@@ -2378,8 +2462,21 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                    shape: Shape,
                    lit: bool,
                    inside: bool| {
+        // the action's key held (a hotkey, or the key a click sent) presses the button as the mouse does
+        let key_down = action
+            .and_then(|a| forza::keys::NAMES.iter().position(|n| *n == a))
+            .is_some_and(|i| down[i]);
         let resp = ui.put(r, |ui: &mut Ui| {
-            cabinet_shaped(ui, r.size(), &tr!(lang, key), kind, shape, lit, inside)
+            cabinet_shaped(
+                ui,
+                r.size(),
+                &tr!(lang, key),
+                kind,
+                shape,
+                lit,
+                inside,
+                key_down,
+            )
         });
         let hit = |b| {
             ui.input(|i| {
@@ -2420,7 +2517,13 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             StrokeKind::Inside,
         );
     }
-    for it in deck_layout_for(area, both, s, stack) {
+    let items = deck_layout_for(area, both, s, stack);
+    let data = items
+        .iter()
+        .find(|i| i.action == "DATA")
+        .map_or(area, |i| i.rect);
+    let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+    for it in items {
         let on = held == Some(it.action);
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         // a name printed beside the button is not printed in it too
@@ -2454,30 +2557,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         let p = ui.painter();
         if let Some(side) = it.label {
             // the name, and the keycap after it, on one line beside the button
-            let name = p.layout_no_wrap(tr!(lang, it.key), theme::display(14.0), theme::TEXT_DIM);
-            let room = match side {
-                Dir::Left => it.rect.left() - deck_plates(area, both, s, stack)[0].left() - 8.0,
-                _ => 110.0,
-            };
-            let cap_w = keycap_width(p, &cap, room - name.size().x - 4.0);
-            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-            let h = name.size().y;
-            let (left, cy) = match side {
-                Dir::Up => (it.rect.center().x - w / 2.0, it.rect.top() - 4.0 - h / 2.0),
-                Dir::Down => (
-                    it.rect.center().x - w / 2.0,
-                    it.rect.bottom() + 4.0 + h / 2.0,
-                ),
-                Dir::Left => (it.rect.left() - 4.0 - w, it.rect.center().y),
-                Dir::Right => (it.rect.right() + 4.0, it.rect.center().y),
-            };
-            // never past the plate's edge (DATA sits close to it)
             let plate = deck_plates(area, both, s, stack)
                 .into_iter()
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
-            let left = left.min(plate.right() - 4.0 - w);
-            p.galley(pos2(left, cy - h / 2.0), name.clone(), theme::TEXT_DIM);
+            let room = deck_label_room(it.rect, side, plate, data, &rects, both);
+            let (name, cap_w) = deck_label_parts(p, &tr!(lang, it.key), &cap, room, !both);
+            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+            let at = deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+            let (left, cy) = (at.left(), at.center().y);
+            p.galley(at.min, name.clone(), theme::TEXT_DIM);
             if cap_w > 0.0 {
                 let r = Rect::from_min_size(
                     pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
@@ -2525,6 +2614,15 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     }
     st.pressed = st.pressed.or(pressed);
     st.latched = latch;
+}
+
+/// Which actions' bound keys are down, from `down` (the key's live state, polled every frame): a key let go reads up
+/// on the next frame wherever the focus went, so no button stays pressed. Unbound actions (key 0) are never down.
+pub fn keys_down(
+    keys: &[u32; forza::keys::COUNT],
+    down: impl Fn(u32) -> bool,
+) -> [bool; forza::keys::COUNT] {
+    keys.map(|vk| vk != 0 && down(vk))
 }
 
 /// The buttons a right-click holds down until the next click on them: one mouse cannot hold KEY PLAYER (or KEEPER)
@@ -5651,6 +5749,136 @@ mod tests {
         assert_eq!(latch_kept(on, false, true), on);
         assert_eq!(latch_kept(on, true, true), None);
         assert_eq!(latch_kept(on, false, false), None);
+    }
+
+    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), the pad
+    /// is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
+    /// Alt) overlaps another or leaves its plate, in EN, IT and JA, in the row and stacked.
+    #[test]
+    fn the_pad_names_sit_beside_their_arrows() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let p = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+        // no keycap (Alt up), a short one and a long one (Alt held)
+        for cap in ["", "X", "Button 12"] {
+            for lang in [Lang::En, Lang::It, Lang::Ja] {
+                for stack in [false, true] {
+                    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                    let plates = deck_plates(area, false, 1.0, stack);
+                    let items = deck_layout_for(area, false, 1.0, stack);
+                    let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
+                    assert!(at("PRESS").width() > 40.0, "the pad is drawn bigger");
+                    // every button and every printed label, each with its plate
+                    let mut boxes = Vec::new();
+                    for it in &items {
+                        let plate = *plates
+                            .iter()
+                            .find(|p| p.contains(it.rect.center()))
+                            .unwrap();
+                        boxes.push((it.action.to_owned(), it.rect, plate));
+                        if let Some(side) = it.label {
+                            let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+                            let room =
+                                deck_label_room(it.rect, side, plate, at("DATA"), &rects, false);
+                            let (name, cap_w) =
+                                deck_label_parts(&p, &tr!(lang, it.key), cap, room, true);
+                            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+                            let label =
+                                deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+                            let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
+                            if matches!(it.action, "UP" | "DOWN") {
+                                assert!(
+                                    label.left() >= it.rect.right() + 3.0,
+                                    "{why}: right of its arrow"
+                                );
+                                assert!(
+                                    (label.center().y - it.rect.center().y).abs() < 0.5,
+                                    "{why}: centred on its arrow"
+                                );
+                            }
+                            boxes.push((format!("{why} label"), label, plate));
+                        }
+                    }
+                    for (n, (a, ra, pa)) in boxes.iter().enumerate() {
+                        assert!(
+                            pa.contains_rect(*ra),
+                            "{a} leaves its plate ({ra:?} in {pa:?})"
+                        );
+                        for (b, rb, _) in &boxes[n + 1..] {
+                            assert!(!ra.intersects(*rb), "{a} overlaps {b}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 2010-11 keeps its deck: a 32-point PRESS at the plate's 132, CENTRAL above and COUNTER below their arrows,
+    /// DATA 32 in from the plate's right, 110 points of room right of a button.
+    #[test]
+    fn the_2010_11_pad_is_unchanged() {
+        let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 148.0));
+        let left = deck_plates(area, true, 1.0, false)[0];
+        let items = deck_layout_for(area, true, 1.0, false);
+        let it = |a: &str| items.iter().find(|i| i.action == a).unwrap();
+        let c = pos2(left.left() + 132.0, left.center().y);
+        assert_eq!(
+            it("PRESS").rect,
+            Rect::from_center_size(c, vec2(32.0, 32.0))
+        );
+        assert_eq!(
+            it("UP").rect,
+            Rect::from_center_size(c - vec2(0.0, 32.0), vec2(32.0, 28.0))
+        );
+        assert_eq!(
+            it("RIGHT").rect,
+            Rect::from_center_size(c + vec2(32.0, 0.0), vec2(28.0, 32.0))
+        );
+        assert_eq!(
+            (it("UP").label, it("DOWN").label),
+            (Some(Dir::Up), Some(Dir::Down))
+        );
+        assert_eq!(
+            it("DATA").rect,
+            Rect::from_center_size(pos2(left.right() - 32.0, c.y), vec2(25.0, 40.0))
+        );
+        let r = it("RIGHT").rect;
+        assert_eq!(
+            deck_label_room(r, Dir::Right, left, it("DATA").rect, &[], true),
+            110.0
+        );
+    }
+
+    /// A held hotkey presses its button for exactly the frames the key is down: repeats change nothing, the release
+    /// (also one made while another window had the focus) reads up on the next poll; unbound actions never press.
+    #[test]
+    fn held_keys_press_their_buttons() {
+        let mut keys = [0u32; forza::keys::COUNT];
+        let shoot = forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "SHOOT")
+            .unwrap();
+        let up = forza::keys::NAMES.iter().position(|n| *n == "UP").unwrap();
+        keys[shoot] = 0x53; // S
+        keys[up] = 0x26; // arrow up (a tactic lamp: pressed the same way as a click)
+        let frame = |held: &[u32]| keys_down(&keys, |vk| held.contains(&vk));
+        let only = |i: usize| (0..forza::keys::COUNT).map(|j| j == i).collect::<Vec<_>>();
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot));
+        assert_eq!(frame(&[0x53]).to_vec(), only(shoot)); // still held (key repeat): still pressed
+        assert_eq!(frame(&[0x26]).to_vec(), only(up));
+        // S let go while the game window had the focus: the next poll reads it up, nothing stays pressed
+        assert_eq!(frame(&[]).to_vec(), vec![false; forza::keys::COUNT]);
+        // key 0 (unbound) is never down, even if a poll said so
+        assert!(
+            keys_down(&[0; forza::keys::COUNT], |_| true)
+                .iter()
+                .all(|d| !d)
+        );
     }
 
     /// The game window, the board popped out: the left part holds the picture (centred, 16:10) over the toast line and
