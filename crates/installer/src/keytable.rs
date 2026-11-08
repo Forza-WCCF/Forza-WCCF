@@ -36,16 +36,15 @@ fn candidates_within(raw: &[u8], game_id: &str, zip_left: u64) -> Option<Vec<[u8
             let name = f.name().map(|n| n.to_ascii_lowercase()).unwrap_or_default();
             if (name.ends_with(".html") || name.ends_with(".htm")) && zip_left > 0 {
                 let mut buf = Vec::new();
-                if f.take(zip_left + 1).read_to_end(&mut buf).is_err() {
+                // a damaged member (a bad CRC comes at its end) still costs its bytes
+                let read = f.take(zip_left + 1).read_to_end(&mut buf);
+                // a member that does not fit the rest is past the budget: no key table is this big
+                let fits = buf.len() as u64 <= zip_left;
+                zip_left = if fits { zip_left - buf.len() as u64 } else { 0 };
+                if read.is_err() || !fits {
                     continue;
                 }
-                // a member that does not fit the rest is past the budget: no key table is this big
-                if buf.len() as u64 > zip_left {
-                    zip_left = 0;
-                } else {
-                    zip_left -= buf.len() as u64;
-                    add(&String::from_utf8_lossy(&buf));
-                }
+                add(&String::from_utf8_lossy(&buf));
             }
         }
     } else if raw.contains(&b'<') {
@@ -194,6 +193,20 @@ mod tests {
         let one = page(K1).len() as u64;
         assert_eq!(candidates_within(&raw, "SDDY", one).unwrap(), [k1]);
         assert!(candidates_within(&raw, "SDDY", one - 1).is_none());
+        // a member whose CRC is wrong is read in full before the reader says so: its bytes count too
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let stored = o.compression_method(zip::CompressionMethod::Stored);
+        z.start_file("bad.html", stored).unwrap();
+        z.write_all(page(K2).as_bytes()).unwrap();
+        z.start_file("good.html", o).unwrap();
+        z.write_all(page(K1).as_bytes()).unwrap();
+        let mut raw = z.finish().unwrap().into_inner();
+        let at = raw.windows(8).position(|w| w == b"bad.html").unwrap();
+        let name = usize::from(u16::from_le_bytes([raw[at - 4], raw[at - 3]]));
+        let extra = usize::from(u16::from_le_bytes([raw[at - 2], raw[at - 1]]));
+        raw[at + name + extra] ^= 0xff; // stored data, so the header's CRC no longer matches
+        assert_eq!(candidates(&raw, "SDDY").unwrap(), [k1]); // read, then dropped on the bad checksum
+        assert!(candidates_within(&raw, "SDDY", one).is_none()); // spent, so good.html is not read
     }
 
     #[test]
