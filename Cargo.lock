@@ -7162,6 +7162,7 @@ dependencies = [
  "iroh-relay",
  "lz4_flex",
  "rustls-pki-types",
+ "socket2",
  "tokio",
 ]
 
