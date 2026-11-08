@@ -53,6 +53,7 @@ fn options(exe: PathBuf, top: &Path, role: Role) -> Options {
         env: Vec::new(),
         stop: None,
         hang_after: HANG_AFTER,
+        checked: None,
     }
 }
 

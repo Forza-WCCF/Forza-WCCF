@@ -17,12 +17,12 @@ pub fn base() -> PathBuf {
     base_in(env::var_os("ProgramData"))
 }
 
-/// `base` for a ProgramData value: an empty or relative one counts as unset, so the junctions never depend on the
-/// Launcher's working folder.
+/// `base` for a ProgramData value: an empty, relative or non-ASCII one counts as unset, so the junctions never depend
+/// on the Launcher's working folder and their paths stay ASCII.
 fn base_in(program_data: Option<std::ffi::OsString>) -> PathBuf {
     program_data
         .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
+        .filter(|p| p.is_absolute() && is_ascii(p))
         .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
         .join("Forza-WCCF")
         .join("run")
@@ -75,11 +75,11 @@ pub fn for_dir(dir: &Path, base: &Path) -> io::Result<Option<PathBuf>> {
             Err(e) => why.push(format!("{}: {e}", link.display())),
         }
     }
-    Err(io::Error::other(format!(
-        "no junction name is free for {}: {}",
-        dir.display(),
-        why.join("; ")
-    )))
+    // AlreadyExists: the run tells the player which folder to clean
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("no junction name is free for {}: {}", dir.display(), why.join("; ")),
+    ))
 }
 
 /// Makes `link` lead to `dir` (on disk `real`), or says why that name cannot be used.
@@ -273,7 +273,9 @@ mod tests {
         for n in &names[2..] {
             fs::write(n, b"taken").unwrap();
         }
-        let e = for_dir(&real, &base).unwrap_err().to_string();
+        let e = for_dir(&real, &base).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        let e = e.to_string();
         assert!(e.contains("no junction name is free"), "{e}");
         assert!(names.iter().all(|n| n.exists()));
     }
@@ -281,7 +283,13 @@ mod tests {
     #[test]
     fn an_empty_or_relative_program_data_falls_back_to_the_system_folder() {
         let system = PathBuf::from(r"C:\ProgramData\Forza-WCCF\run");
-        for v in [None, Some(""), Some("ProgramData"), Some(r"Forza\run")] {
+        for v in [
+            None,
+            Some(""),
+            Some("ProgramData"),
+            Some(r"Forza\run"),
+            Some(r"D:\数据"),
+        ] {
             assert_eq!(base_in(v.map(Into::into)), system, "{v:?}");
         }
         assert_eq!(base_in(Some(r"D:\PD".into())), PathBuf::from(r"D:\PD\Forza-WCCF\run"));
@@ -296,13 +304,22 @@ mod tests {
         let file = top.path().join("ProgramData");
         fs::write(&file, b"a file where the folder should be").unwrap();
         assert!(for_dir(&real, &file.join("run")).is_err());
-        let line = crate::run::Text::key("launcher.run_path_not_ascii");
-        let all = [forza_ui::Lang::En, forza_ui::Lang::It, forza_ui::Lang::Ja].map(|l| line.get(l));
+        for key in ["launcher.run_path_not_ascii", "launcher.run_path_taken"] {
+            let line = crate::run::Text::key(key).arg("folder", r"C:\ProgramData\Forza-WCCF\run");
+            let all = [forza_ui::Lang::En, forza_ui::Lang::It, forza_ui::Lang::Ja].map(|l| line.get(l));
+            assert!(
+                all.iter()
+                    .all(|t| !t.is_empty() && !t.contains(key) && !t.contains("%{")),
+                "{all:?}"
+            );
+            assert!(all[0] != all[1] && all[1] != all[2], "{all:?}");
+        }
         assert!(
-            all.iter().all(|t| !t.is_empty() && !t.contains("run_path_not_ascii")),
-            "{all:?}"
+            crate::run::Text::key("launcher.run_path_taken")
+                .arg("folder", "X:\\run")
+                .en()
+                .contains("X:\\run")
         );
-        assert!(all[0] != all[1] && all[1] != all[2], "{all:?}");
     }
 
     /// The guard's hash check reads the same bytes through the junction as by the real path: a changed file is

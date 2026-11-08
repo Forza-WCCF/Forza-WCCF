@@ -104,8 +104,11 @@ impl Job {
     /// that then runs the debug loop (`WaitForDebugEvent` answers only the thread that created the process).  `follow`
     /// debugs its children too (`DEBUG_PROCESS`), else only it (`DEBUG_ONLY_THIS_PROCESS`).  The process is created
     /// suspended and resumed once it is in the job: it runs no instruction, and its debug events start, only then.
-    /// `hide` starts its windows hidden (`SW_HIDE`).  `env` is added to this process's environment.  It ends when the
+    /// `hide` starts its windows hidden (`SW_HIDE`).  `checked`: the program `exe` must turn out to be (it starts
+    /// through a junction someone else could re-point between the guard's check and the start): before the resume,
+    /// the image Windows reports for the new process is compared with it, and a different one is ended unrun.  `env` is added to this process's environment.  It ends when the
     /// calling thread ends (Windows' kill-on-exit for debuggers), or with the job.
+    #[allow(clippy::too_many_arguments)] // `checked` (the junction start's program) added the eighth
     pub fn spawn_debug(
         &self,
         exe: &Path,
@@ -114,8 +117,22 @@ impl Job {
         env: &[(&str, &str)],
         follow: bool,
         hide: bool,
+        checked: Option<&Path>,
     ) -> io::Result<Debuggee> {
         let (child, thread) = create_debug_suspended(exe, args, dir, env, follow, hide)?;
+        if let Some(want) = checked {
+            let got = crate::procs::image(child.pid);
+            if !got.as_deref().is_some_and(|got| is_program(got, want)) {
+                // SAFETY: the process handle is ours; it has run no instruction.
+                unsafe { TerminateProcess(child.process.as_raw_handle(), 1) };
+                return Err(io::Error::other(format!(
+                    "{} runs {}, not the checked {}: not started",
+                    exe.display(),
+                    got.map_or_else(|| "an unknown program".to_owned(), |g| g.display().to_string()),
+                    want.display()
+                )));
+            }
+        }
         // SAFETY: both handles are live and ours.
         let ok = unsafe {
             AssignProcessToJobObject(self.job.as_raw_handle(), child.process.as_raw_handle()) != 0
@@ -208,6 +225,13 @@ impl Job {
             list.ids[..list.listed as usize].iter().map(|&p| p as u32).collect()
         }
     }
+}
+
+/// Whether a process's image (`procs::image`, junctions resolved) is the file at `want`.  Case folded as Windows
+/// paths are: a folder differing only in case in a case-sensitive directory beside the real one would pass, which
+/// needs write access to the installation's own folder.
+fn is_program(image: &Path, want: &Path) -> bool {
+    crate::procs::normcase(image) == crate::procs::same_form(want)
 }
 
 /// A process `spawn_debug` started: its id and its own handle (all access).
@@ -543,6 +567,39 @@ mod tests {
             }
         }
         assert!(job.wait_empty(Duration::from_secs(10)));
+    }
+
+    /// A program started through a junction runs only when Windows reports it as the checked file: the right folder
+    /// starts, a junction that leads elsewhere is ended unrun.
+    #[test]
+    fn a_junction_start_runs_only_the_checked_program() {
+        let me = env::current_exe().unwrap();
+        let real = me.parent().unwrap();
+        let top = tempfile::tempdir().unwrap();
+        let link = top.path().join("run");
+        junction::create(real, &link).unwrap();
+        let through = link.join(me.file_name().unwrap());
+        let args = ["stand_in_entry".to_owned(), "--nocapture".to_owned()];
+        let job = Job::new().unwrap();
+        let env = [(MODE, "sleep")];
+        let ok = job
+            .spawn_debug(&through, &args, &link, &env, false, true, Some(&me))
+            .unwrap();
+        let image = crate::procs::image(ok.pid).unwrap();
+        assert!(is_program(&image, &me), "image reported under the target: {image:?}");
+        assert!(
+            is_program(&image, &through),
+            "the checked path may itself go through the junction"
+        );
+        // SAFETY: the handle is ours.
+        unsafe { TerminateProcess(ok.process.as_raw_handle(), 1) };
+        let other = top.path().join("other.exe");
+        let Err(e) = job.spawn_debug(&through, &args, &link, &env, false, true, Some(&other)) else {
+            panic!("a junction to another program started");
+        };
+        let e = e.to_string();
+        assert!(e.contains("not the checked") && e.contains("other.exe"), "{e}");
+        assert!(!is_program(&image, &other));
     }
 
     #[test]

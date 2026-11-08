@@ -1555,7 +1555,12 @@ impl Run<'_> {
                 Err(e) => {
                     if !self.told_path {
                         self.told_path = true;
-                        self.tell("  ", &Text::key("launcher.run_path_not_ascii"));
+                        let line = if e.kind() == io::ErrorKind::AlreadyExists {
+                            Text::key("launcher.run_path_taken").arg("folder", self.p.run_links.display())
+                        } else {
+                            Text::key("launcher.run_path_not_ascii")
+                        };
+                        self.tell("  ", &line);
                         crate::logs::append(
                             &self.logs().join("run_launcher.txt"),
                             &format!("no ASCII junction for {}: {e}", dir.display()),
@@ -1567,6 +1572,8 @@ impl Run<'_> {
         } else {
             None
         };
+        // through a junction: the started process must be the program the guard checked (job::Job::spawn_debug)
+        let checked = from.is_some().then(|| dir.join(exe));
         let dir = from.as_deref().unwrap_or(dir);
         let index = self.kit.dir().join(r"code\hardware\ghidra_out_1011_classes");
         let stop = Arc::new(AtomicBool::new(false));
@@ -1594,6 +1601,7 @@ impl Run<'_> {
             env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
             stop: Some(stop.clone()),
             hang_after: crate::debug::HANG_AFTER,
+            checked,
         };
         let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
