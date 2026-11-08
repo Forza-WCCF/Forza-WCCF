@@ -334,7 +334,7 @@ impl LauncherState {
                             - RESET LINEUP puts the board back to the start of the match.\n\
                             - The Launcher shows these notes in your language.",
                         Lang::It => "Un breve blocco della rete non passa più la partita alla CPU.\n\nPer i giocatori\n\n\
-                            - RESET LINEUP riporta la lavagna all'inizio della partita.\n\
+                            - RESET LINEUP riporta la formazione all'inizio della partita.\n\
                             - Il Launcher mostra queste note nella tua lingua.",
                         Lang::Ja => "短いネットワークの停止で試合が CPU に渡らなくなりました。\n\nプレイヤー向け\n\n\
                             - RESET LINEUP でボードが試合開始時に戻ります。\n\

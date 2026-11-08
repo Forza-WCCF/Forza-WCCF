@@ -8,7 +8,7 @@ COS'È
   World Club Champion Football 2017-18 su un solo PC Windows, con un posto, dai vostri file di gioco. Il VS online
   contro un'altra casa è facoltativo. Forza-WCCF fa le veci dell'hardware e dei server della sala giochi: il server di
   gioco (club e salvataggi), rete e keychip, lettore di carte Aime e scheda I/O. Intorno alla finestra del gioco c'è
-  un pannello con i pulsanti del cabinato e una lavagna della formazione per le vostre carte. Forza-WCCF non contiene
+  un pannello con i pulsanti del cabinato e la formazione per le vostre carte. Forza-WCCF non contiene
   file originali: tutto viene dalla vostra copia.
 
 COSA SERVE
@@ -55,7 +55,7 @@ TASTI
       I       carta Aime dentro / fuori   5   moneta
   I pulsanti del pannello fanno lo stesso: i triangoli (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT,
   KEEPER, KEY PLAYER e START. Tasti e pulsanti del controller si cambiano in TASTI.
-  Lavagna della formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
+  Formazione: trascinate una carta per spostarla, rilasciatela su un'altra per scambiarle. + CARTA apre
   il CATALOGO.
   Le carte rare con codice 2D funzionano.
 
