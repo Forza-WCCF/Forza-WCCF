@@ -39,8 +39,10 @@ const DECK_MIN: f32 = 148.0;
 /// The layout's column and the 2010-11 board use this.
 const BOARD_PER_W: f32 = 1.455;
 const BOARD_EXTRA: f32 = 101.0;
-/// The 2017-18 game window's board besides its pitch: its foot is taller, a gap 4, the row of buttons 32 (the theme's
-/// buttons, drawn taller than their 22-point rects), [`FOOT_GAP`] 8 and the hint's line 24 under them.
+/// The 2017-18 game window's board besides its pitch: the margins 32, the gap under the pitch 12, the foot 8 under the
+/// bench (its item spacing 4 and a space 4), the row of buttons 32 (the theme's buttons, drawn taller than their
+/// 22-point rects), [`FOOT_GAP`] 8 and the hint's line. Its 24 points take 116, 4 past this; 112 holds a 20-point
+/// line, the drawn hint (17) inside the board's 16-point margin at 1440x900.
 const BOARD_EXTRA_1718: f32 = 112.0;
 /// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
 /// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
@@ -3046,7 +3048,7 @@ fn import_undo_line(ui: &mut Ui, st: &mut PanelState, lang: Lang, now: f64) -> b
     true
 }
 
-/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (24 points,
+/// UNDO under a board: 22 high in the type of the buttons above it, so its row fits the hint's line (23 points,
 /// [`BOARD_EXTRA`]).
 fn foot_undo(ui: &mut Ui, lang: Lang) -> egui::Response {
     ui.add(
@@ -5375,15 +5377,21 @@ mod tests {
                 let l = layout(sheet_of(w, h), compact);
                 let col = l.board.shrink(16.0);
                 // the 2017-18 pitch, as board_strip narrows it to the board's height
-                let w = col
+                let pitch_w = col
                     .width()
                     .min((l.board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
-                let pitch = board::pitch_rect(pos2(col.center().x - w / 2.0, col.top()), w);
-                let tile = board::card_size(pitch.width());
-                // the bench (8 + its well), the gap 4 and the row of buttons 32 with the hint's line 24 FOOT_GAP under
-                // it, as board_strip lays them out
-                let hint_bottom =
-                    pitch.bottom() + 8.0 + tile.y * 0.8 + 12.0 + 4.0 + 32.0 + FOOT_GAP + 24.0;
+                let pitch =
+                    board::pitch_rect(pos2(col.center().x - pitch_w / 2.0, col.top()), pitch_w);
+                // the board's row (the pitch, its gap of 12 and the bench strip), the foot 8 under the bench, the row
+                // of buttons 32 (drawn taller than their 22-point rects) and the hint's 24-point line FOOT_GAP under
+                // them, as board_strip and board_foot lay them out
+                let hint_bottom = pitch.bottom() + board::row_height(pitch_w)
+                    - pitch_w * board::PITCH_ASPECT
+                    + 8.0
+                    + 32.0
+                    + FOOT_GAP
+                    + 24.0;
+                let win = format!("{w}x{h} compact {compact}");
                 for card_y in [
                     pitch.top() + 40.0,
                     pitch.bottom() - 40.0,
@@ -5391,8 +5399,7 @@ mod tests {
                 ] {
                     let (pane, tier) =
                         board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
-                    let at =
-                        format!("{w}x{h} compact {compact} card at {card_y}: {pane:?} {tier:?}");
+                    let at = format!("{win} card at {card_y}: {pane:?} {tier:?}");
                     assert!(l.board.contains_rect(pane), "{at}");
                     assert!(
                         !pane.intersects(l.picture) && !pane.intersects(l.deck),
@@ -5414,9 +5421,13 @@ mod tests {
                     board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
                 };
                 match (w as u32, h as u32, compact) {
-                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom),
-                    (1920, 1080, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Strip),
-                    (2560, 1440, false) => assert_eq!(docked(pitch.top()).1, board::Tier::Large),
+                    (1440, 900, _) => assert!(docked(pitch.top()).0.top() < hint_bottom, "{win}"),
+                    (1920, 1080, false) => {
+                        assert_eq!(docked(pitch.top()).1, board::Tier::Strip, "{win}")
+                    }
+                    (2560, 1440, false) => {
+                        assert_eq!(docked(pitch.top()).1, board::Tier::Large, "{win}")
+                    }
                     _ => {}
                 }
             }
