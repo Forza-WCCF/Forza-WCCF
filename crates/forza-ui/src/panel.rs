@@ -2453,6 +2453,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    widgets::smooth_deck_art(ui.ctx(), st.edition == Edition::E1718);
     // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
     let down = if st.edition == Edition::E1718 {
         st.down
