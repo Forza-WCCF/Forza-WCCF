@@ -10,8 +10,8 @@
 //! the game copied before that keeps its Japanese until the game builds it again.
 //!
 //! The club and nationality names (`forza::cards::codes`, one table for the card catalogue and the game) are too
-//! long for their slots, so the game's two pointer tables to them are pointed at our names instead: an entry is
-//! changed only when it still points at the original name.
+//! long for their slots, so the entries of the pointer table the game reads them from are pointed at our names
+//! instead: an entry is changed only when it still points at the original name.
 
 use forza::kit::Kit;
 use sha2::{Digest, Sha256};
@@ -256,7 +256,7 @@ fn imm32<const N: usize>(at: usize) -> usize {
     at + N - 4
 }
 
-/// Point the club and nationality name tables at our names; how many entries changed.
+/// Point the club and nationality name table at our names; how many entries changed.
 fn names(base: usize, size: usize, italian: bool) -> usize {
     use forza::cards::codes::{NAME_TABLES_1718, game_names_1718};
     let names = game_names_1718(italian);

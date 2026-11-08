@@ -28,8 +28,8 @@ INSTALL (once)
 LAUNCHER
   PLAY      WHERE TO PLAY (This PC or Online), then PLAY. STOP THE GAME closes the game (during a match: CLICK AGAIN).
   SETUP     game folder, SET UP, UNDO SETUP; CARD PICTURES (From the game, or High-quality pack with Choose pack);
-            Skip the tutorial; CLEAN UP AFTER A CRASH (removes what a crash or a dropped arcade visit left; your club is
-            kept, a copy goes to data\backup first; not while the game runs).
+            CLEAN UP AFTER A CRASH (removes what a crash or a dropped arcade visit left; your club is kept, a copy goes
+            to data\backup first; not while the game runs).
   UPDATE    lists the published releases: pick one, then UPDATE. The game is set up again by itself; your clubs and
             settings are kept.
   DETAILS   what the Launcher did, with Copy and SAVE LOGS.
@@ -39,8 +39,7 @@ LAUNCHER
 PLAY
   Press PLAY. The game starts in about 30 seconds. The Aime card is emulated. Your club and saves are in
   data\save\gamesvr: back that folder up.
-  A new card starts with the manager licence, a 5-play tutorial and the club set-up (about 30 minutes). To skip them,
-  tick Skip the tutorial under SETUP before PLAY: a new card gets a ready club and goes to the main screen.
+  A new card starts with the manager licence, a 5-play tutorial and the club set-up (about 30 minutes).
   Put your card in soon after the start. After a match take it out (I), then close the game window.
 
 KEYS
@@ -52,7 +51,7 @@ KEYS
       I       Aime card in / out   5   coin
   The panel's buttons do the same: the triangles (CENTRAL, COUNTER, L-SIDE, R-SIDE), PRESS, DATA, SHOOT, KEEPER,
   KEY PLAYER and START. Change keys and controller buttons under KEYS.
-  Formation board: drag a card to move it, drop it on another to swap. + CARD opens the CATALOGUE.
+  Formation board: drag a card to move it, drop it on another to swap. The CARDS button opens the CARDS page.
   Rare 2D-code cards work.
 
 ONLINE

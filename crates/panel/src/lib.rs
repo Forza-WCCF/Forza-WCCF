@@ -96,6 +96,8 @@ type ResetFn = unsafe extern "system" fn(*mut c_void, *mut D3DPRESENT_PARAMETERS
 
 /// The game's frame, as the painter knows it.
 const GAME: TextureId = TextureId::User(0);
+/// RESET LINEUP's table (2017-18), beside the card table: the table the last match began with.
+const KEPT_TABLE: &str = "fpr_table0.before-match.txt";
 
 /// The trampolines (the detoured functions' first bytes, then a jump back).
 static PRESENT: AtomicUsize = AtomicUsize::new(0);
@@ -818,6 +820,14 @@ fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) ->
     playing || card
 }
 
+/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. In 2017-18 the card
+/// stays in for the whole club session, so the card-in answer (`.0`) would hold the server's notice off in the club
+/// office and the menus between matches, where it belongs. The banner is 2017-18 only, so 2010-11's card session never
+/// reaches this gate.
+fn notice_waits((_, playing, _): (bool, bool, String)) -> bool {
+    playing
+}
+
 /// The clipboard's text, at most 64K characters; `None`: no text there, or another program holds the clipboard (tried
 /// twice). `WCCFPANEL_IMPORTTEST=FILE` reads that file instead (fakegame: the player's clipboard is left alone).
 fn clipboard_text() -> Option<String> {
@@ -1410,6 +1420,8 @@ struct Render {
     /// The notice on the message line, waiting for a frame to paint it: its id and its text as shown. The id goes to
     /// data\notice_seen.txt only once the line has drawn it.
     notice_pending: Option<(String, String)>,
+    /// The id of the notice on the banner, for the log line when it goes off early ([`banner_off`]).
+    notice_shown: Option<String>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1466,6 +1478,21 @@ impl Render {
         let lang = files.lang();
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
         let mut st = PanelState::new(files.edition, lang, cards::board(&placed, &cards), cards);
+        // RESET LINEUP's table from the last match of an earlier run
+        let kept = table.table.with_file_name(KEPT_TABLE);
+        if files.edition == theme::Edition::E1718
+            && let (Ok(text), Ok(at)) = (
+                std::fs::read(&kept),
+                std::fs::metadata(&kept).and_then(|m| m.modified()),
+            )
+        {
+            panel::keep_saved(&mut st, cards::parse_table(&text), at);
+            log(&format!(
+                "board: {} - {} card(s) for RESET LINEUP",
+                kept.display(),
+                st.before_match.as_ref().map_or(0, Vec::len)
+            ));
+        }
         // both files are read once and then written whole: a failed read is remembered, and nothing is written back
         let panel_ok = match files.panel_text() {
             Ok(text) => {
@@ -1533,6 +1560,7 @@ impl Render {
             notice_stamp: None,
             notice: None,
             notice_pending: None,
+            notice_shown: None,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -2005,7 +2033,11 @@ impl Render {
             }
         }
         let dealt = self.st.deal.as_ref().map(|d| d.back);
+        // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
+        // follows the pointer, as before
+        let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
         let st = &mut self.st;
+        st.down = keys_held(&st.keys, ours);
         let out = self.ctx.run_ui(raw, |ui| panel::show(ui, st));
         match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
             (Some(_), None) => log("deal: closed"),
@@ -2090,7 +2122,11 @@ impl Render {
             .native_pixels_per_point = Some(ppp);
         self.table_in();
         self.st.desk = true;
+        // the keys the panel itself holds down (a click's 140 ms, the latch) do not press the look: a click's press
+        // follows the pointer, as before
+        let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
         let st = &mut self.st;
+        st.down = keys_held(&st.keys, ours);
         let out = self.board_ctx.run_ui(raw, |ui| panel::show(ui, st));
         self.st.desk = false;
         self.import();
@@ -2521,12 +2557,13 @@ impl Render {
         }
     }
 
-    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, looked at every 5 s), shown once per id
-    /// (data\notice_seen.txt keeps the id shown last, across runs) on the message line in the panel's language, at a
-    /// calm moment: no match on this seat and no other message on the line. The id is kept only after the line has
-    /// shown the text (a notice the panel could not show is offered again on the next start).
+    /// 2017-18: the server's notice, as the Launcher wrote it (data\notice.json, asked of the server every minute while
+    /// the game runs too, looked at here every 5 s), shown once per id (data\notice_seen.txt keeps the id shown last,
+    /// across runs) across the top of the game picture in the panel's language for [`panel::BANNER_SECS`], at a calm
+    /// moment: no match on this seat. A match that starts or a notice the server took back (the file gone) takes it
+    /// off at once. The id is kept only after a frame has drawn it (a notice never drawn is offered again on the next
+    /// start).
     fn notice_in(&mut self) {
-        use forza_ui::widgets::Tone;
         let Some(f) = FILES.get().filter(|f| f.edition == theme::Edition::E1718) else {
             return;
         };
@@ -2535,7 +2572,7 @@ impl Render {
         // kept; a text the panel never got to draw stays pending and is not marked seen
         let painted = self.notice_pending.as_ref().is_some_and(|(_, text)| {
             self.st
-                .message
+                .banner
                 .as_ref()
                 .is_some_and(|m| m.started() && &m.text == text)
         });
@@ -2558,6 +2595,13 @@ impl Render {
             if st.is_none() {
                 self.notice_stamp = None;
                 self.notice = None;
+                if let Some(l) = banner_off(
+                    &mut self.st.banner,
+                    self.notice_shown.as_deref(),
+                    "withdrawn",
+                ) {
+                    log(&l);
+                }
             } else {
                 match read_notice(&path) {
                     // a file there but not read (held by a scanner, say): looked at again on the next tick
@@ -2580,13 +2624,33 @@ impl Render {
                 }
             }
         }
-        if self.notice.is_none() || self.st.message.is_some() || match_check().0 {
+        if self.notice.is_none() && self.st.banner.is_none() {
+            return;
+        }
+        if notice_waits(match_check()) {
+            // the top of a match screen is the score and the clock: the banner waits for the match's end
+            if let Some(l) = banner_off(
+                &mut self.st.banner,
+                self.notice_shown.as_deref(),
+                "off for the match",
+            ) {
+                log(&l);
+            }
             return;
         }
         let Some(n) = self.notice.take() else { return };
+        // a newer notice replaces the one on the banner at once: the server's file changed, the old text is stale
+        if let Some(l) = banner_off(
+            &mut self.st.banner,
+            self.notice_shown.as_deref(),
+            "replaced",
+        ) {
+            log(&l);
+        }
         log(&format!("notice: {} shown", n.id));
+        self.notice_shown = Some(n.id.clone());
         let text = n.text(self.st.lang.code()).to_owned();
-        self.st.message = Some(panel::Note::long(Tone::Notice, text.clone()));
+        self.st.banner = Some(panel::Note::banner(text.clone()));
         self.notice_pending = Some((n.id, text));
     }
 
@@ -2845,7 +2909,7 @@ impl Render {
         }
     }
 
-    /// 2017-18: the table kept when a match begins (the seat state read every frame, the full match state once a
+    /// 2017-18: the table kept when a match begins (also written to [`KEPT_TABLE`], so the next run offers it) (the seat state read every frame, the full match state once a
     /// second), and RESET LINEUP writing it back like a card move.
     fn lineup(&mut self) {
         if self.st.edition != theme::Edition::E1718 {
@@ -2870,6 +2934,10 @@ impl Render {
                 "board: match began, {} card(s) kept for RESET LINEUP",
                 self.placed.len()
             ));
+            let kept = self.table.table.with_file_name(KEPT_TABLE);
+            if let Err(e) = std::fs::write(&kept, cards::table_text(&self.placed)) {
+                log(&format!("board: {} not written ({e})", kept.display()));
+            }
         }
         // the click is served on the match state now, not the last second's
         let fresh = self.st.reset_lineup && match_check().0;
@@ -3036,7 +3104,6 @@ impl Render {
             log(&format!("button {action} -> key 0x{vk:02X}"));
             kit::send_key(vk, false, log);
             self.key = Some((vk, Instant::now()));
-            self.st.held = Some(action);
             self.mouse_down = true;
         }
         if self.mouse_down
@@ -3052,7 +3119,6 @@ impl Render {
         {
             kit::send_key(vk, true, log);
             self.key = None;
-            self.st.held = None;
         }
     }
 
@@ -3168,6 +3234,14 @@ fn big_enough(iconic: bool, client: Option<(i32, i32)>) -> bool {
 
 fn stamp(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
+}
+
+/// The server's notice taken off the banner before its time (`why`: withdrawn, replaced, off for the match): the log
+/// line naming it, none when the banner showed nothing (its 30 s had run out).
+fn banner_off(banner: &mut Option<panel::Note>, id: Option<&str>, why: &str) -> Option<String> {
+    banner
+        .take()
+        .map(|_| format!("notice: {} {why}", id.unwrap_or("?")))
 }
 
 /// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
@@ -3540,6 +3614,18 @@ fn modifiers() -> Modifiers {
     modifiers_with(|vk| unsafe { GetKeyState(i32::from(vk)) } < 0)
 }
 
+/// The cabinet actions whose key is down now, `ours` (the keys the panel sent down itself) left out: the async state
+/// follows the key whichever window has the focus.
+fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
+    panel::keys_down(keys, |vk| {
+        if ours.contains(&vk) {
+            return false;
+        }
+        // SAFETY: a plain key state query
+        (unsafe { GetAsyncKeyState(vk as i32) }) < 0
+    })
+}
+
 fn modifiers_with(down: impl Fn(u16) -> bool) -> Modifiers {
     let ctrl = down(VK_CONTROL.0);
     Modifiers {
@@ -3610,6 +3696,8 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
                 unit: egui::MouseWheelUnit::Line,
                 delta: vec2(0.0, f32::from((wp.0 >> 16) as i16) / 120.0),
                 phase: egui::TouchPhase::Move,
+                // WM_MOUSEWHEEL says nothing about a wheel or a touchpad: both arrive the same
+                source: egui::MouseWheelSource::Unknown,
                 modifiers,
             }],
             false,
@@ -3700,7 +3788,26 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, cards, read_notice, take_off_lines};
+    use super::{NOTICE_MAX, banner_off, cards, read_notice, take_off_lines};
+
+    /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
+    /// one); a banner whose time had run out is gone already and logs nothing.
+    #[test]
+    fn a_notice_taken_off_early_is_logged() {
+        let mut b = Some(forza_ui::panel::Note::banner(
+            "Server update at 23:00".into(),
+        ));
+        assert_eq!(
+            banner_off(&mut b, Some("n1"), "withdrawn").as_deref(),
+            Some("notice: n1 withdrawn")
+        );
+        assert!(b.is_none(), "the banner is off");
+        assert_eq!(
+            banner_off(&mut b, Some("n1"), "withdrawn"),
+            None,
+            "nothing on the banner: no line"
+        );
+    }
 
     /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
     /// is ignored rather than retried on every tick.
@@ -3747,7 +3854,7 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{big_enough, clock_text, game_point, game_title, match_now};
+    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
     use egui::{Rect, pos2};
 
     #[test]
@@ -3818,6 +3925,31 @@ mod tests {
         assert!(!match_now(false, None, Some(7), false));
         assert!(match_now(false, None, None, true));
         assert!(match_now(true, Some(3), Some(1), true));
+    }
+
+    /// The server's notice waits for this seat's match, not for the card session: the club office and the menus between
+    /// matches keep it on (2017-18 keeps the card in for the whole session), and a match takes it off.
+    #[test]
+    fn the_notice_waits_for_the_match_not_the_card() {
+        // match_check's answers for this seat in an arcade state, the card in or not (its third field is the log line)
+        let check = |seat: Option<u32>, arcade: Option<u32>, card: bool| {
+            (
+                match_now(true, seat, arcade, card),
+                match_now(true, seat, arcade, false),
+                String::new(),
+            )
+        };
+        // the card in, no match (the menus): match_check calls it busy for the club card alone, this gate does not
+        let office = check(Some(19), Some(1), true);
+        assert_eq!((office.0, office.1), (true, false), "the card in, no match");
+        assert!(!notice_waits(office), "the notice shows there");
+        // a match on this seat: off, the card in or not
+        assert!(notice_waits(check(Some(19), Some(4), true)));
+        assert!(notice_waits(check(Some(19), Some(4), false)));
+        // another seat's match: the office keeps the notice
+        assert!(!notice_waits(check(Some(3), Some(5), false)));
+        // a card session is still a match for IMPORT LINEUP, which asks a different question
+        assert!(match_now(true, Some(19), Some(1), true));
     }
 
     /// The game's windows are ANSI: the whole edition survives as ASCII.

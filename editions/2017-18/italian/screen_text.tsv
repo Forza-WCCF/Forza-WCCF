@@ -4788,9 +4788,9 @@ SYS_SYS_cloose_0009	Ora non si possono creare nuovi club
 SYS_SYS_cloose_0010	La manutenzione del server sta per iniziare: il gioco termina
 SYS_CARDLIST_label_0010	Numero
 SYS_CARDLIST_label_0011	Nascita
-SYS_CARDLIST_label_0012	Altezza
+SYS_CARDLIST_label_0012	Alt.
 SYS_CARDLIST_label_0013	Peso
-SYS_CARDLIST_label_0014	Nazione
+SYS_CARDLIST_label_0014	Naz.
 SYS_CARDLIST_label_0015	Versione
 SYS_CARDLIST_label_0016	N. carta
 SYS_CARDLIST_search_0000	Mostra tutti
@@ -5177,7 +5177,7 @@ MAN_MENU_button_0038	Scegli chi allenare
 MAN_MENU_button_0039	Negozio
 MAN_MENU_button_0040	Acquista
 MAN_MENU_button_0042	Ascolta
-SYS_QRSEQ_guidance_0000	Registra / elimina carta giocatore (codice 2D)
+SYS_QRSEQ_guidance_0000	Registra / elimina carte (codice 2D)
 SYS_QRSEQ_guidance_0001	Metti la carta giocatore sulla posizione di lettura
 SYS_QRSEQ_guidance_0002	- Se ne sono registrate piu' di una, saranno eliminate tutte
 SYS_QRSEQ_guidance_0003	- Una carta digitale eliminata non si puo' recuperare
@@ -6284,7 +6284,7 @@ INF_WEEKLYCHAMPION_message_0002	Sei il $c[FF0000FF]campione settimanale d'area$c
 INF_WEEKLYCHAMPION_message_0003	La tua reputazione cresce ogni giorno.\nContinua a giocare $c[FF0000FF]all'altezza dell'onore di numero 1 dell'area$c.
 INF_058_message_0000	Sei il $c[FF0000FF]campione dell'Area Championship$c.\nComplimenti.
 INF_058_TOPICS_title_0000	Notizie dai tifosi
-INF_058_TOPICS_message_0000	I tifosi sembrano aver dato un soprannome alla squadra.\nPare che vi chiamino\n$c[FF0000FF]"%s%s"$c.
+INF_058_TOPICS_message_0000	I tifosi sembrano aver dato un soprannome alla squadra.\nPare che vi chiamino\n$c[FF0000FF]"%s %s"$c.
 INF_060_message_0000	Sei il $c[FF0000FF]campione della Japan Winners Championship$c.\nComplimenti.
 INF_060_TOPICS_title_0000	Segnalazione di scontento
 INF_060_TOPICS_message_0000	$c[FF0000FF]%s$c e' parso irritato di recente,\nforse insoddisfatto di $c[FF0000FF]%s$c.\nDagli una parola prima che lo scontento esploda.
@@ -10375,36 +10375,36 @@ INF_SPO_name_0079	Dummy
 INF_SPO_name_0080	Dummy
 INF_SPO_name_0081	Dummy
 INF_SPO_name_0082	Dummy
-INF_SUPPORTER_adj_0130	Serbi
-INF_SUPPORTER_adj_0131	Dorati
-INF_SUPPORTER_adj_0132	Argentati
-INF_SUPPORTER_adj_0133	Classici
-INF_SUPPORTER_adj_0134	Globali
-INF_SUPPORTER_adj_0135	Impetuosi
-INF_SUPPORTER_adj_0136	Ardenti
-INF_SUPPORTER_adj_0137	Medievali
-INF_SUPPORTER_adj_0138	Nascenti
+INF_SUPPORTER_adj_0130	Serbia
+INF_SUPPORTER_adj_0131	Oro
+INF_SUPPORTER_adj_0132	Argento
+INF_SUPPORTER_adj_0133	Classic
+INF_SUPPORTER_adj_0134	Mondo
+INF_SUPPORTER_adj_0135	Onda
+INF_SUPPORTER_adj_0136	Fuoco
+INF_SUPPORTER_adj_0137	Medioevo
+INF_SUPPORTER_adj_0138	Nuova Alba
 INF_SUPPORTER_adj_0140	Emirati
-INF_SUPPORTER_adj_0141	Indiani
-INF_SUPPORTER_adj_0142	Indonesiani
-INF_SUPPORTER_adj_0143	Singaporiani
-INF_SUPPORTER_adj_0144	Thailandesi
-INF_SUPPORTER_adj_0145	Filippini
-INF_SUPPORTER_adj_0146	Vietnamiti
-INF_SUPPORTER_adj_0147	Malesi
-INF_SUPPORTER_adj_0148	Birmani
-INF_SUPPORTER_adj_0149	Britannici
-INF_SUPPORTER_adj_0150	Austriaci
-INF_SUPPORTER_adj_0151	Greci
-INF_SUPPORTER_adj_0152	Svizzeri
-INF_SUPPORTER_adj_0153	Sloveni
-INF_SUPPORTER_adj_0154	Angolani
-INF_SUPPORTER_adj_0155	Egiziani
-INF_SUPPORTER_adj_0156	Ghanesi
-INF_SUPPORTER_adj_0157	Ivoriani
-INF_SUPPORTER_adj_0158	Togolesi
-INF_SUPPORTER_adj_0159	Trinidadiani
-INF_SUPPORTER_adj_0160	Boliviani
+INF_SUPPORTER_adj_0141	India
+INF_SUPPORTER_adj_0142	Indonesia
+INF_SUPPORTER_adj_0143	Singapore
+INF_SUPPORTER_adj_0144	Thailandia
+INF_SUPPORTER_adj_0145	Filippine
+INF_SUPPORTER_adj_0146	Vietnam
+INF_SUPPORTER_adj_0147	Malesia
+INF_SUPPORTER_adj_0148	Birmania
+INF_SUPPORTER_adj_0149	Britannia
+INF_SUPPORTER_adj_0150	Austria
+INF_SUPPORTER_adj_0151	Grecia
+INF_SUPPORTER_adj_0152	Svizzera
+INF_SUPPORTER_adj_0153	Slovenia
+INF_SUPPORTER_adj_0154	Angola
+INF_SUPPORTER_adj_0155	Egitto
+INF_SUPPORTER_adj_0156	Ghana
+INF_SUPPORTER_adj_0157	Costa d'Avorio
+INF_SUPPORTER_adj_0158	Togo
+INF_SUPPORTER_adj_0159	Trinidad
+INF_SUPPORTER_adj_0160	Bolivia
 INF_SUPPORTER_adj_0161	Kiwi
 INF_SUPPORTER_noun_0012	Ercole
 INF_SUPPORTER_noun_0013	Generali
@@ -11132,3 +11132,302 @@ INF_072_title_0000	★★★  Asia Championship  ★★★
 INF_095_title_0000	★★★  UNIVERSAL CUP  ★★★
 INF_134_title_0000	★★★  %s  ★★★
 SYS_shop_normal_0024	JPY 100
+INF_SUPPORTER_adj_0000	Nessuno
+INF_SUPPORTER_adj_0001	Rosa Confetto
+INF_SUPPORTER_adj_0002	Viola Ametista
+INF_SUPPORTER_adj_0003	Blu
+INF_SUPPORTER_adj_0004	Giallo Oro
+INF_SUPPORTER_adj_0005	Verde Prato
+INF_SUPPORTER_adj_0006	Rosso Fuoco
+INF_SUPPORTER_adj_0007	Arancio
+INF_SUPPORTER_adj_0008	Nero Notte
+INF_SUPPORTER_adj_0009	Bianco Ghiaccio
+INF_SUPPORTER_adj_0010	Acquamarina
+INF_SUPPORTER_adj_0011	Grigio Perla
+INF_SUPPORTER_adj_0012	Africa
+INF_SUPPORTER_adj_0013	Asia
+INF_SUPPORTER_adj_0014	Nord Europa
+INF_SUPPORTER_adj_0015	Ovest Europa
+INF_SUPPORTER_adj_0016	Est Europa
+INF_SUPPORTER_adj_0017	Nord America
+INF_SUPPORTER_adj_0018	Caraibi
+INF_SUPPORTER_adj_0019	Emisfero Sud
+INF_SUPPORTER_adj_0020	Latin
+INF_SUPPORTER_adj_0021	Sol Levante
+INF_SUPPORTER_adj_0022	Oriente
+INF_SUPPORTER_adj_0023	Estremo Oriente
+INF_SUPPORTER_adj_0024	Zipangu
+INF_SUPPORTER_adj_0025	Giappone
+INF_SUPPORTER_adj_0026	Iran
+INF_SUPPORTER_adj_0027	Corea
+INF_SUPPORTER_adj_0028	Arabia
+INF_SUPPORTER_adj_0029	Cina
+INF_SUPPORTER_adj_0030	Irlanda
+INF_SUPPORTER_adj_0031	Italia
+INF_SUPPORTER_adj_0032	Inghilterra
+INF_SUPPORTER_adj_0033	Ucraina
+INF_SUPPORTER_adj_0034	Olanda
+INF_SUPPORTER_adj_0035	Croazia
+INF_SUPPORTER_adj_0036	Svezia
+INF_SUPPORTER_adj_0037	Scozia
+INF_SUPPORTER_adj_0038	Spagna
+INF_SUPPORTER_adj_0039	Slovenia
+INF_SUPPORTER_adj_0040	Cechia
+INF_SUPPORTER_adj_0041	Danimarca
+INF_SUPPORTER_adj_0042	Germania
+INF_SUPPORTER_adj_0043	Turchia
+INF_SUPPORTER_adj_0044	Norvegia
+INF_SUPPORTER_adj_0045	Francia
+INF_SUPPORTER_adj_0046	Bulgaria
+INF_SUPPORTER_adj_0047	Belgio
+INF_SUPPORTER_adj_0048	Polonia
+INF_SUPPORTER_adj_0049	Portogallo
+INF_SUPPORTER_adj_0050	Jugoslavia
+INF_SUPPORTER_adj_0051	Romania
+INF_SUPPORTER_adj_0052	Russia
+INF_SUPPORTER_adj_0053	Camerun
+INF_SUPPORTER_adj_0054	Senegal
+INF_SUPPORTER_adj_0055	Tunisia
+INF_SUPPORTER_adj_0056	Nigeria
+INF_SUPPORTER_adj_0057	Sudafrica
+INF_SUPPORTER_adj_0058	Marocco
+INF_SUPPORTER_adj_0059	America
+INF_SUPPORTER_adj_0060	Canada
+INF_SUPPORTER_adj_0061	Costa Rica
+INF_SUPPORTER_adj_0062	Giamaica
+INF_SUPPORTER_adj_0063	Messico
+INF_SUPPORTER_adj_0064	Argentina
+INF_SUPPORTER_adj_0065	Uruguay
+INF_SUPPORTER_adj_0066	Ecuador
+INF_SUPPORTER_adj_0067	Colombia
+INF_SUPPORTER_adj_0068	Cile
+INF_SUPPORTER_adj_0069	Paraguay
+INF_SUPPORTER_adj_0070	Brasile
+INF_SUPPORTER_adj_0071	Australia
+INF_SUPPORTER_adj_0072	Deserto
+INF_SUPPORTER_adj_0073	Giungla
+INF_SUPPORTER_adj_0074	Savana
+INF_SUPPORTER_adj_0075	Tropico
+INF_SUPPORTER_adj_0076	Neve
+INF_SUPPORTER_adj_0077	Tundra
+INF_SUPPORTER_adj_0078	Isola
+INF_SUPPORTER_adj_0079	Europa
+INF_SUPPORTER_adj_0080	Nord
+INF_SUPPORTER_adj_0081	Tohoku
+INF_SUPPORTER_adj_0082	Kanto Nord
+INF_SUPPORTER_adj_0083	Kanto
+INF_SUPPORTER_adj_0084	Grande Kanto
+INF_SUPPORTER_adj_0085	Koshinetsu
+INF_SUPPORTER_adj_0086	Hokuriku
+INF_SUPPORTER_adj_0087	Tokai
+INF_SUPPORTER_adj_0088	Kinki
+INF_SUPPORTER_adj_0089	Kansai
+INF_SUPPORTER_adj_0090	San'in
+INF_SUPPORTER_adj_0091	San'yo
+INF_SUPPORTER_adj_0092	Shikoku
+INF_SUPPORTER_adj_0093	Kyushu
+INF_SUPPORTER_adj_0094	Antipodi
+INF_SUPPORTER_adj_0095	Rosso Ciliegia
+INF_SUPPORTER_adj_0096	Rosa Pesca
+INF_SUPPORTER_adj_0097	Abisso
+INF_SUPPORTER_adj_0098	Mare
+INF_SUPPORTER_adj_0099	Vento
+INF_SUPPORTER_adj_0100	Cielo
+INF_SUPPORTER_adj_0101	Acqua
+INF_SUPPORTER_adj_0102	Sorgente
+INF_SUPPORTER_adj_0103	Sabbia
+INF_SUPPORTER_adj_0104	Luce
+INF_SUPPORTER_adj_0105	Luna Piena
+INF_SUPPORTER_adj_0106	Splendore
+INF_SUPPORTER_adj_0107	Verde Bosco
+INF_SUPPORTER_adj_0108	Foresta
+INF_SUPPORTER_adj_0109	Campo
+INF_SUPPORTER_adj_0110	Crepuscolo
+INF_SUPPORTER_adj_0111	Tramonto
+INF_SUPPORTER_adj_0112	Fiamma
+INF_SUPPORTER_adj_0113	Brace
+INF_SUPPORTER_adj_0114	Cremisi
+INF_SUPPORTER_adj_0115	Ombra
+INF_SUPPORTER_adj_0116	Nero Pece
+INF_SUPPORTER_adj_0117	Penombra
+INF_SUPPORTER_adj_0118	Nebbia
+INF_SUPPORTER_adj_0119	Bianco Neve
+INF_SUPPORTER_adj_0120	Camice Bianco
+INF_SUPPORTER_adj_0121	Mimetica
+INF_SUPPORTER_adj_0122	Pois
+INF_SUPPORTER_adj_0123	Zebra
+INF_SUPPORTER_adj_0124	Leopardo
+INF_SUPPORTER_adj_0125	Raggio di Sole
+INF_SUPPORTER_adj_0126	Bagliore
+INF_SUPPORTER_adj_0127	Medio Oriente
+INF_SUPPORTER_adj_0128	Sud America
+INF_SUPPORTER_adj_0129	Oceania
+INF_SUPPORTER_adj_0139	Vento
+INF_SUPPORTER_noun_0000	Nessuno
+INF_SUPPORTER_noun_0001	Grandi
+INF_SUPPORTER_noun_0002	Triplete
+INF_SUPPORTER_noun_0003	Armata Invincibile
+INF_SUPPORTER_noun_0004	Valorosi
+INF_SUPPORTER_noun_0005	Tesoro
+INF_SUPPORTER_noun_0006	Dominatori
+INF_SUPPORTER_noun_0007	Re
+INF_SUPPORTER_noun_0008	Imperatori
+INF_SUPPORTER_noun_0009	Leggende
+INF_SUPPORTER_noun_0010	Nobili Casate
+INF_SUPPORTER_noun_0011	Invincibili
+INF_SUPPORTER_noun_0019	Hitmaker
+INF_SUPPORTER_noun_0021	Forzuti
+INF_SUPPORTER_noun_0023	Elite
+INF_SUPPORTER_noun_0034	Sette Meraviglie
+INF_SUPPORTER_noun_0035	Fenomeni
+INF_SUPPORTER_noun_0036	Miracoli
+INF_SUPPORTER_noun_0037	Miracoli
+INF_SUPPORTER_noun_0038	Pulcini
+INF_SUPPORTER_noun_0039	Allegri Compari
+INF_SUPPORTER_noun_0040	Circoli
+INF_SUPPORTER_noun_0041	Amiconi
+INF_SUPPORTER_noun_0042	Dilettanti
+INF_SUPPORTER_noun_0049	Eterni Sfavoriti
+INF_SUPPORTER_noun_0050	Scartati
+INF_SUPPORTER_noun_0051	Commedianti
+INF_SUPPORTER_noun_0052	Zimbelli
+INF_SUPPORTER_noun_0054	Tragici
+INF_SUPPORTER_noun_0055	Emarginati
+INF_SUPPORTER_noun_0056	Melanzane
+INF_SUPPORTER_noun_0064	Scalmanati
+INF_SUPPORTER_noun_0066	Fulmini
+INF_SUPPORTER_noun_0067	Minacce
+INF_SUPPORTER_noun_0068	Testate Nucleari
+INF_SUPPORTER_noun_0069	Bombe
+INF_SUPPORTER_noun_0070	Signori del Tuono
+INF_SUPPORTER_noun_0072	Cacciatori di Gol
+INF_SUPPORTER_noun_0073	Macchine da Gol
+INF_SUPPORTER_noun_0074	Cecchini
+INF_SUPPORTER_noun_0076	Armi Finali
+INF_SUPPORTER_noun_0083	Catenaccio
+INF_SUPPORTER_noun_0084	Giganti
+INF_SUPPORTER_noun_0085	Demoni
+INF_SUPPORTER_noun_0087	Scudi
+INF_SUPPORTER_noun_0089	Barriere
+INF_SUPPORTER_noun_0097	Fantasie
+INF_SUPPORTER_noun_0098	Misteri
+INF_SUPPORTER_noun_0099	Fate
+INF_SUPPORTER_noun_0100	Acrobati
+INF_SUPPORTER_noun_0101	Conquistatori
+INF_SUPPORTER_noun_0102	Artigiani
+INF_SUPPORTER_noun_0103	Artisti
+INF_SUPPORTER_noun_0104	Spettacolo
+INF_SUPPORTER_noun_0109	Maghi
+INF_SUPPORTER_noun_0110	Macchine di Precisione
+INF_SUPPORTER_noun_0111	Enigmi
+INF_SUPPORTER_noun_0112	Diavoli
+INF_SUPPORTER_noun_0114	Stregoni
+INF_SUPPORTER_noun_0115	Buchi Neri
+INF_SUPPORTER_noun_0116	Supercomputer
+INF_SUPPORTER_noun_0117	Cervelli
+INF_SUPPORTER_noun_0118	Cerchi nel Grano
+INF_SUPPORTER_noun_0120	Cerchi nel Grano
+INF_SUPPORTER_noun_0125	Aquile Selvagge
+INF_SUPPORTER_noun_0126	Tempeste
+INF_SUPPORTER_noun_0127	Comete
+INF_SUPPORTER_noun_0128	Lampi
+INF_SUPPORTER_noun_0131	Supernove
+INF_SUPPORTER_noun_0132	Velocisti
+INF_SUPPORTER_noun_0137	Fulmini
+INF_SUPPORTER_noun_0150	Mostri
+INF_SUPPORTER_noun_0151	Carri Armati
+INF_SUPPORTER_noun_0152	Furia
+INF_SUPPORTER_noun_0153	Tori Furiosi
+INF_SUPPORTER_noun_0154	Tigri Feroci
+INF_SUPPORTER_noun_0155	Squadra di Mostri
+INF_SUPPORTER_noun_0156	Veterani
+INF_SUPPORTER_noun_0157	Calcia e Corri
+INF_SUPPORTER_noun_0158	Nuovi Ricchi
+INF_SUPPORTER_noun_0159	Milionari
+INF_SUPPORTER_noun_0160	Miliardari
+INF_SUPPORTER_noun_0161	Banche
+INF_SUPPORTER_noun_0162	Gentiluomini
+INF_SUPPORTER_noun_0168	Squadra di Stelle
+INF_SUPPORTER_noun_0170	Eroi
+INF_SUPPORTER_noun_0171	Squadra di Idoli
+INF_SUPPORTER_noun_0172	All Star
+INF_SUPPORTER_noun_0173	Superstar
+INF_SUPPORTER_noun_0174	Reparto d'Elite
+INF_SUPPORTER_noun_0175	Galacticos
+INF_SUPPORTER_noun_0179	Grifoni
+INF_SUPPORTER_noun_0180	Fenici
+INF_SUPPORTER_noun_0181	Fenici
+INF_SUPPORTER_noun_0182	Triplettisti
+INF_SUPPORTER_noun_0183	Diavoli
+INF_SUPPORTER_noun_0184	Tridenti
+INF_SUPPORTER_noun_0185	Liceali
+INF_SUPPORTER_noun_0186	Club Calcio del Liceo
+INF_SUPPORTER_noun_0187	Leoni
+INF_SUPPORTER_noun_0188	Leoni
+INF_SUPPORTER_noun_0189	Giocatori Fulmine
+INF_SUPPORTER_noun_0193	Soli
+INF_SUPPORTER_noun_0201	Showman
+INF_SUPPORTER_noun_0202	Squadra Sexy
+INF_SUPPORTER_noun_0203	Simboli
+INF_SUPPORTER_noun_0204	Ambasciatori
+INF_SUPPORTER_noun_0205	Cresciuti in Casa
+INF_SUPPORTER_noun_0206	Undici
+INF_SUPPORTER_noun_0211	Campioni della WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0212	Campioni della 1a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0213	Campioni della 2a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0214	Campioni della 3a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0215	Campioni della 4a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0216	Campioni della 5a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0217	Campioni della 6a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0218	Campioni della 7a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0219	Campioni della 8a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0220	Campioni della 9a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0221	Campioni della 10a WCCF Cup Winner's Cup
+INF_SUPPORTER_noun_0222	Campioni della 1a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0223	Campioni della 2a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0224	Campioni della 3a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0225	Campioni della 4a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0226	Campioni della 5a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0227	Campioni della 6a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0228	Campioni della 7a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0229	Campioni della 8a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0230	Campioni della 9a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0231	Campioni della 10a Copa Vencedores WCCF
+INF_SUPPORTER_noun_0232	Campioni del Japan Winner's Championship
+INF_SUPPORTER_noun_0233	Dominatori del Japan Winner's Championship
+INF_SUPPORTER_noun_0234	Campioni del Campionato Regionale Hokkaido/Tohoku
+INF_SUPPORTER_noun_0235	Dominatori del Campionato Regionale Hokkaido/Tohoku
+INF_SUPPORTER_noun_0236	Campioni del Campionato Regionale Kanto
+INF_SUPPORTER_noun_0237	Dominatori del Campionato Regionale Kanto
+INF_SUPPORTER_noun_0238	Campioni del Campionato Regionale Tokyo/Kanagawa
+INF_SUPPORTER_noun_0239	Dominatori del Campionato Regionale Tokyo/Kanagawa
+INF_SUPPORTER_noun_0240	Campioni del Campionato Regionale Chubu
+INF_SUPPORTER_noun_0241	Dominatori del Campionato Regionale Chubu
+INF_SUPPORTER_noun_0242	Campioni del Campionato Regionale Tokai
+INF_SUPPORTER_noun_0243	Dominatori del Campionato Regionale Tokai
+INF_SUPPORTER_noun_0244	Campioni del Campionato Regionale Kinki
+INF_SUPPORTER_noun_0245	Dominatori del Campionato Regionale Kinki
+INF_SUPPORTER_noun_0246	Campioni del Campionato Regionale Chushikoku
+INF_SUPPORTER_noun_0247	Dominatori del Campionato Regionale Chushikoku
+INF_SUPPORTER_noun_0248	Campioni del Campionato Regionale Kyushu
+INF_SUPPORTER_noun_0249	Dominatori del Campionato Regionale Kyushu
+INF_SUPPORTER_noun_0250	Nazionale
+INF_SUPPORTER_noun_0251	Campioni Uscenti
+INF_SUPPORTER_noun_0252	Campioni in Carica
+INF_SUPPORTER_noun_0253	Ex Dominatori
+INF_SUPPORTER_noun_0254	Campioni
+INF_SUPPORTER_noun_0255	Dominatori
+INF_SUPPORTER_noun_0270	Speranza
+INF_SUPPORTER_noun_0272	Condottieri
+INF_SUPPORTER_noun_0273	Orgoglio
+INF_SUPPORTER_noun_0274	Urla
+INF_SUPPORTER_noun_0275	Squadra Multinazionale
+INF_SUPPORTER_noun_0276	Soli
+INF_SUPPORTER_noun_0277	Gioielli
+INF_SUPPORTER_noun_0278	Dittatori
+SYS_TEAM_style_0271	Catenaccio
+SYS_TEAM_style_0275	Armata Invincibile
+SYS_TEAM_style_0436	Mago
+SYS_TEAM_style_0693	Lampo
+SYS_TEAM_style_0749	Signore del Tuono
+MAN_DATA_contents_0009	V%d S%d P%d

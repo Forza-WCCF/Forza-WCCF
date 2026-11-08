@@ -44,4 +44,7 @@
  "mng_dataview_coachdata_asia": ["Risultati aree", "Area", "Titoli", "Vinte", "Tifosi"],
  "agm_matchreport": ["Voto squadra", "Pagella", "Pagella"],
  "sys_wccfpoint_window": ["Punti WCCF", "Voto partita"],
- "mng_dataview_challengetour": ["Esito", "Club", "Gara1", "Gara2", "Gara3"]}
+ "mng_dataview_challengetour": ["Esito", "Club", "Gara1", "Gara2", "Gara3"],
+ "wpl_title_tag": ["Album"],
+ "mng_dataview_playerdata": ["Attacco", "Difesa", "Tecnica", "Pot.", "Veloc.", "Resist."],
+ "mng_itemlist_detail": ["EXP", "Attacco", "Difesa", "Tecnica", "Pot.", "Veloc.", "Resist."]}

@@ -914,7 +914,7 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
         let said = ui.text();
         assert_eq!(rc, run::NOT_GUARDED, "{what}: {said}");
         assert!(
-            said.contains("the network guard is not in place") && said.contains(part),
+            said.contains("the network protection Forza-WCCF puts in place is missing") && said.contains(part),
             "{what}: {said}"
         );
         assert!(!run::is_on(&kit, Kind::Run));
@@ -991,7 +991,10 @@ fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
         said.contains("Not started: the game could not be set up again") && said.contains("Press SET UP"),
         "{said}"
     );
-    assert!(!said.contains("the network guard is not in place"), "{said}");
+    assert!(
+        !said.contains("the network protection Forza-WCCF puts in place is missing"),
+        "{said}"
+    );
     assert_eq!(fs::read(&path).unwrap(), before, "the record is untouched");
     assert!(!run::is_on(&kit, Kind::Run));
     assert!(!kit.logs().exists(), "no logs");

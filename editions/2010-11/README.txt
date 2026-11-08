@@ -59,10 +59,10 @@ KEYS
     Changes work at once and are kept in data\keys.txt. Reset keys (or deleting that file) restores the keys above.
 
 PANEL
-  Around seat 1's picture: the cabinet buttons, the formation board and the pages + CARD, KEYS, SETTINGS, CLUB CARD
+  Around seat 1's picture: the cabinet buttons, the formation board and the pages CARDS, KEYS, SETTINGS, CLUB CARD
   and PAUSE.
   Formation board: your cards on a table. Drag to move, drop on a card to swap, right-click to take one off.
-  + CARD opens the CATALOGUE of all 3,909 player cards: search, filters, sort, a slider per stat. A click puts a card
+  CARDS opens the CARDS page: all 3,909 player cards, search, filters, sort, a slider per stat. A click puts a card
   on your table.
 
 PAUSE

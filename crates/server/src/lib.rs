@@ -22,14 +22,14 @@ pub mod desync;
 pub mod relay;
 
 pub use forza::service::Log;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use time::{OffsetDateTime, UtcOffset};
 
 /// Which edition's clients the server talks to. Only the seat desk and the relay differ (see [`desk::DeskConfig`],
@@ -139,9 +139,24 @@ impl Drop for Handle {
 
 /// Ends a connection after our last line. Closing with the PC's bytes still unread makes the OS send a reset, which
 /// can discard the answer before the PC reads it (a refusal sent while the upload is still arriving). So: FIN after
-/// the answer, then read off what the PC still sends (a little, briefly) until it hangs up.
+/// the answer, then read off what the PC still sends (at most 1 MiB, for [`HANG_UP`] in all) until it hangs up. The
+/// total limit matters: a PC that trickles a byte now and then would otherwise keep the thread and socket for good.
 pub(crate) fn hang_up(conn: TcpStream) {
     let _ = conn.shutdown(std::net::Shutdown::Write);
-    let _ = conn.set_read_timeout(Some(Duration::from_secs(2)));
-    let _ = io::copy(&mut (&conn).take(1 << 20), &mut io::sink());
+    let end = Instant::now() + HANG_UP;
+    let mut left = 1usize << 20;
+    let mut buf = [0u8; 4096];
+    while left > 0 {
+        let wait = end.saturating_duration_since(Instant::now());
+        if wait.is_zero() || conn.set_read_timeout(Some(wait)).is_err() {
+            break;
+        }
+        match (&conn).read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => left = left.saturating_sub(n),
+        }
+    }
 }
+
+/// How long [`hang_up`] waits in all for the PC to hang up.
+pub const HANG_UP: Duration = Duration::from_secs(3);

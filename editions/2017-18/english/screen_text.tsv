@@ -4081,7 +4081,9 @@ SYS_TEAM_style_0430	Inti Raimi
 SYS_TEAM_style_0431	One of a Kind
 SYS_TEAM_style_0432	100/100
 SYS_TEAM_style_0433	Asian Libero
+SYS_TEAM_style_0434	Kaiser
 SYS_TEAM_style_0435	Titan
+SYS_TEAM_style_0436	Magician
 SYS_TEAM_style_0437	Ala Jisamba
 SYS_TEAM_style_0438	Gold Coast
 SYS_TEAM_style_0439	Dummy Wing
@@ -8331,9 +8333,9 @@ SYS_SYS_cloose_0010	Server maintenance starts soon, so the game will end
 SYS_CARDLIST_label_0009	Club
 SYS_CARDLIST_label_0010	Number
 SYS_CARDLIST_label_0011	Birth date
-SYS_CARDLIST_label_0012	Height
-SYS_CARDLIST_label_0013	Weight
-SYS_CARDLIST_label_0014	Nationality
+SYS_CARDLIST_label_0012	Ht
+SYS_CARDLIST_label_0013	Wt
+SYS_CARDLIST_label_0014	Nat.
 SYS_CARDLIST_label_0015	Version
 SYS_CARDLIST_label_0016	Card No.
 SYS_CARDLIST_search_0000	Show all
@@ -8668,7 +8670,7 @@ MAN_MENU_button_0038	Select player to train
 MAN_MENU_button_0039	Store
 MAN_MENU_button_0040	Buy
 MAN_MENU_button_0042	Listen
-SYS_QRSEQ_guidance_0000	Register / delete Player Card (2D code scan)
+SYS_QRSEQ_guidance_0000	Register / delete cards (2D code)
 SYS_QRSEQ_guidance_0001	Place the Player Card on the reading position
 SYS_QRSEQ_guidance_0002	- If several are registered, all will be deleted
 SYS_QRSEQ_guidance_0003	- A deleted digital card cannot be restored
@@ -9582,7 +9584,7 @@ NET_TWIT_week_0005	Fri
 NET_TWIT_week_0006	Sat
 INF_TITLE_message_0001	□To mark your title, a $c[FF0000FF]star of honor$c has been added to the emblem
 INF_058_TOPICS_title_0000	Supporter News
-INF_058_TOPICS_message_0000	The supporters seem to have given the team a nickname lately.\nThey seem to be calling you\n$c[FF0000FF]"%s%s"$c.
+INF_058_TOPICS_message_0000	The supporters seem to have given the team a nickname lately.\nThey seem to be calling you\n$c[FF0000FF]"%s %s"$c.
 INF_060_TOPICS_title_0000	Discontent Report
 INF_060_TOPICS_message_0000	$c[FF0000FF]%s$c has seemed irritated lately,\nperhaps unhappy about $c[FF0000FF]%s$c.\nSay a word to him before his discontent boils over.
 INF_070_TOPICS_title_0000	Manager Contract Renewed

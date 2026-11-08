@@ -8,10 +8,10 @@
 //!    PC to the game with one address in the cabinet's network ([`net`]);
 //!  - both editions' game programs: answer the server's start of logowin.exe themselves ([`logowin`]);
 //!  - control (2010-11 on Windows, 2017-18 on Windows and Wine): gives it the players' messages only whole ([`whole`]);
-//!  - 2017-18 control, opt-in (WCCF_UCLIVE=on): the Universal Championship live on the projector only with a player's
-//!    club in it ([`uclive`]);
-//!  - 2010-11: the program's name lookups and WinInet calls fail for the publisher's network hosts
-//!    ([`forza_native::hosts`]; 2017-18's wccfnet.dll does the same);
+//!  - 2017-18 control, WCCF_UCLIVE=on (the CPU championship off): the Universal Championship live on the projector
+//!    only with a player's club in it ([`uclive`]);
+//!  - both editions' game programs: their name lookups and WinInet calls fail for the publisher's network hosts
+//!    ([`forza_native::hosts`]; in 2017-18 also for the programs without wccfnet.dll, such as the original test mode);
 //!  - a server under Wine (both editions): loads netguard.dll as the second guard ([`net::load_netguard`]); 2010-11
 //!    also fixes three faults of control ([`server`]).
 //!
@@ -65,6 +65,17 @@ const EDITION: &str = if cfg!(feature = "e1011") {
 } else {
     "2017-18 server"
 };
+
+/// Whether this DLL blocks the publisher's hosts ([`forza_native::hosts`]): every game-side hook. 2017-18's client and
+/// control get the block from wccfnet.dll too (the two chain); the original test mode and launcher only from this DLL.
+const BLOCKS_HOSTS: bool = cfg!(any(
+    feature = "e1011",
+    feature = "e1011-server",
+    feature = "e1718"
+));
+// the 2017-18 winmm.dll must keep the block: the build fails without it
+#[cfg(feature = "e1718")]
+const _: () = assert!(BLOCKS_HOSTS);
 
 mod dmi;
 #[cfg_attr(not(feature = "e1011-server"), allow(dead_code))]
@@ -148,10 +159,10 @@ fn install() -> bool {
         if ringedge { "ON - mxsram" } else { "off" }
     );
     let (host, inet) = net::install_address();
-    // 2010-11 (wccfk.dll, the server's winmm.dll): after install_address, whose gethostbyname then sits behind the
-    // check; 2017-18's programs get the same from wccfnet.dll
-    #[cfg(any(feature = "e1011", feature = "e1011-server"))]
-    log!("{}", forza_native::hosts::install(|s| log!("{s}")));
+    // after install_address, whose gethostbyname then sits behind the check
+    if BLOCKS_HOSTS {
+        log!("{}", forza_native::hosts::install(|s| log!("{s}")));
+    }
     #[cfg(any(feature = "e1011", feature = "e1718", feature = "e1718-server"))]
     whole::install();
     #[cfg(any(feature = "e1718", feature = "e1718-server"))]

@@ -1,4 +1,4 @@
-//! CLEAN UP AFTER A CRASH (the 2017-18 SETUP tab): what a crash, a freeze or a dropped arcade visit leaves behind that
+//! CLEAN UP (the 2017-18 SETUP tab): what a crash, a freeze or a dropped arcade visit leaves behind that
 //! can make the next start misbehave.  The bad-ending counter itself is CLEAR BAD ENDINGS' job (the panel; 2017-18:
 //! `club::clear_bad_endings`); this clears the run's leftovers:
 //! - `data\running.json` of a run nobody supervises, and the requests and answers a run left (`*.request`, `*.answer`);

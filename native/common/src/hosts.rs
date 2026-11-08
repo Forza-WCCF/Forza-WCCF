@@ -351,18 +351,19 @@ fn hooks() -> [Hook; 6] {
 }
 
 /// Points the program's imports of the resolvers at the checks, which log through `log`; returns the summary line
-/// (`publisher hosts blocked in: gethostbyname=1 ...`, 0 = not imported or not patched).
+/// (`publisher hosts hooked in: gethostbyname=1 ...`, 0 = not imported or not patched). 1 says the slot was rewritten,
+/// not that calls go through it: only a `blocked publisher host` line proves the block.
 pub fn install(log: fn(&str)) -> String {
     let _ = LOG.set(log);
-    format!("publisher hosts blocked in: {}", patch(&hooks(), &REAL))
+    format!("publisher hosts hooked in: {}", patch(&hooks(), &REAL))
 }
 
 /// Points the program's imports of `connect` and `sendto` at the address checks, which log through `log`; returns the
-/// summary line (`publisher addresses blocked in: connect=1 sendto=1`, 0 = not imported or not patched).
+/// summary line (`publisher addresses hooked in: connect=1 sendto=1`, 0 = not imported or not patched).
 pub fn install_addresses(log: fn(&str)) -> String {
     let _ = LOG.set(log);
     format!(
-        "publisher addresses blocked in: {}",
+        "publisher addresses hooked in: {}",
         patch(&addr_hooks(), &REAL_ADDR)
     )
 }
