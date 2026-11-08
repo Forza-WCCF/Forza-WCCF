@@ -1047,6 +1047,8 @@ pub struct Run<'a> {
     early: [Duration; 2],
     /// 2017-18: the Universal Championship's day file as last read (its time), and the date already looked at.
     uc_seen: Option<SystemTime>,
+    /// The day file's time when it was last read while it changed (logged once).
+    uc_partial: Option<SystemTime>,
     uc_told: Option<u32>,
     /// The player's club last seen in that day's bracket (date, names, swap logged), for the swap line and the run's
     /// summary.
@@ -1174,6 +1176,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         t0,
         early,
         uc_seen: None,
+        uc_partial: None,
         uc_told: None,
         uc_player: None,
         projector: false,
@@ -2683,12 +2686,21 @@ impl Run<'_> {
         if self.uc_seen == Some(at) {
             return;
         }
+        let b = fs::read(&f).unwrap_or_default();
+        let log = self.logs().join("run_launcher.txt");
+        if championship::whole(&b).is_err() {
+            // read while the control writes it: not judged, read again at the next look (one line per change)
+            if self.uc_partial != Some(at) {
+                self.uc_partial = Some(at);
+                crate::logs::append(&log, &championship::line_of(date, &b));
+            }
+            return;
+        }
         self.uc_seen = Some(at);
-        let teams = championship::teams(&fs::read(&f).unwrap_or_default());
+        let teams = championship::teams(&b);
         // every change of the day file gets its line (a few a day): a player's report then shows when the club went
         // in, its fix/hasDvs flags, and a swap for a CPU team
-        let log = self.logs().join("run_launcher.txt");
-        crate::logs::append(&log, &championship_line(&self.game));
+        crate::logs::append(&log, &championship::line_of(date, &b));
         let mine = championship::players(&teams);
         match &mut self.uc_player {
             Some((d, club, told)) if *d == date && mine.is_empty() && !*told => {
