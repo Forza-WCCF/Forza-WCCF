@@ -3959,6 +3959,12 @@ pub fn catalogue_picture_rect(ctx: &egui::Context) -> Option<Rect> {
     ctx.data(|d| d.get_temp(picture_rect_id()))
 }
 
+/// The side the detail pane drew on the last frame and whether it was the picture (`false`: the drawn stand-in while
+/// the file loads), for tests.
+pub fn catalogue_picture_shown(ctx: &egui::Context) -> Option<(bool, bool)> {
+    ctx.data(|d| d.get_temp(picture_rect_id().with("shown")))
+}
+
 fn combo(
     ui: &mut Ui,
     id: &str,
@@ -4017,6 +4023,9 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
             ) {
                 *back = side == 1;
             }
+            // the other side loads with this one: BACK shows its picture on the click's frame, not the drawn stand-in
+            // for the frames a first load takes
+            board::card_picture_px(ui.ctx(), card.number, !*back, false);
             // the picture's own pixels when it is loaded, else the album art's (the drawn stand-in)
             let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
                 .map_or(sizing::ALBUM, |(_, px)| px);
@@ -4042,7 +4051,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 .round_to_pixels(ppp),
                 size,
             );
-            board::card_side(
+            let real = board::card_side(
                 ui.painter(),
                 r,
                 card,
@@ -4050,6 +4059,8 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 size.x * ppp > pic.x + 0.5,
                 lang,
             );
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(picture_rect_id().with("shown"), (*back, real)));
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(card.total.to_string())

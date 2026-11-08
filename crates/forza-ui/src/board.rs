@@ -397,18 +397,22 @@ pub fn card_picture_px(
 }
 
 /// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
-/// from the slot's, or the drawn face or back.
-pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool, lang: Lang) {
+/// from the slot's, or the drawn face or back. `true`: the picture was drawn, not the stand-in.
+pub fn card_side(
+    p: &Painter,
+    rect: Rect,
+    card: &Card,
+    back: bool,
+    nearest: bool,
+    lang: Lang,
+) -> bool {
     // nearest filtering only for a whole multiple of the picture's pixels: a smaller picture letterboxed in the slot
     // stays smooth
     let ppp = p.pixels_per_point();
-    let got = card_picture_px(p.ctx(), card.number, back, nearest).and_then(|(id, size)| {
-        if nearest && ((rect.width() * ppp / size.x).fract().abs() > 0.01) {
-            card_picture_px(p.ctx(), card.number, back, false)
-        } else {
-            Some((id, size))
-        }
-    });
+    // a NEAREST texture still loading: the LINEAR one, not the stand-in
+    let got = card_picture_px(p.ctx(), card.number, back, nearest)
+        .filter(|(_, size)| !nearest || (rect.width() * ppp / size.x).fract().abs() <= 0.01)
+        .or_else(|| card_picture_px(p.ctx(), card.number, back, false));
     match got {
         Some((id, size)) => {
             p.rect_filled(rect, 0, theme::DEEP);
@@ -423,6 +427,7 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
             let uv = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
             mesh.add_rect_with_uv(at, uv, Color32::WHITE);
             p.add(egui::Shape::mesh(mesh));
+            return true;
         }
         None if back => card_back(p, rect, card, lang),
         None => {
@@ -437,6 +442,7 @@ pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool
             );
         }
     }
+    false
 }
 
 /// The pack's real values by card number (`hq_stats.tsv` beside the pictures), read once per folder.
