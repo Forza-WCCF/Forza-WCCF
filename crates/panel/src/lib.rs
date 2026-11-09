@@ -842,6 +842,9 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+/// Set by [`open_page`]'s thread when the shell did not start the browser: the dialog shows it.
+static PAGE_FAILED: AtomicBool = AtomicBool::new(false);
+
 /// `url` in the default browser, on its own thread (a browser start can take a moment; the frame never waits). It opens
 /// over the game's window, which stays windowed (no exclusive mode to lose); Alt+Tab comes back. `WCCFPANEL_IMPORTTEST`
 /// set: logged only (fakegame opens no browser).
@@ -865,7 +868,11 @@ fn open_page(url: &'static str) {
             )
         };
         // ShellExecuteW: above 32 is success, else an error code
-        log(&format!("import: open {url} -> {}", h.0 as isize));
+        let code = h.0 as isize;
+        log(&format!("import: open {url} -> {code}"));
+        if code <= 32 {
+            PAGE_FAILED.store(true, Relaxed);
+        }
     });
 }
 
@@ -2867,6 +2874,10 @@ impl Render {
         if std::mem::take(&mut self.st.site_open) {
             open_page(panel::LINEUP_PAGE);
         }
+        if PAGE_FAILED.swap(false, Relaxed) && self.st.import_help {
+            self.st
+                .say_site(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_opened");
+        }
         if std::mem::take(&mut self.st.site_copy) {
             self.st.site_copied = set_clipboard_text(panel::LINEUP_PAGE);
             log(&format!(
@@ -2875,7 +2886,7 @@ impl Render {
             ));
             if !self.st.site_copied {
                 self.st
-                    .say(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_copied");
+                    .say_site(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_copied");
             }
         }
         if std::mem::take(&mut self.st.import_undone)
