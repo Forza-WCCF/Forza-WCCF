@@ -52,9 +52,9 @@ A release ships the bytes CI built for its candidate, never a local package.
 
 1. `next` = `origin/main` plus the picked PRs: `git switch -C next origin/main`, then `git merge --no-ff` of each
    pick's head (with `rerere.enabled`). `next` is a throwaway branch: force-pushed on a re-cut, deleted on merge.
-2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. That
-   PR runs no CI while it is a draft (`ci.yml` skips it by design; the candidate build is the dispatch below): the long
-   jobs start when it is marked ready, after the play test (step 5).
+2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. While it
+   is a draft only `ci-ok` runs there, and fails on purpose (`ci.yml` skips the other jobs; the candidate build is the
+   dispatch below): the long jobs start when it is marked ready, after the play test (step 5).
 3. Dispatch the candidate: `gh workflow run release.yml --ref next -f version=<x.y.z>`. The build runs with
    `FORZA_VERSION=<x.y.z>` (semver; it wins over `git describe`), the file-name check expects that version, and the
    job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days:
@@ -80,8 +80,8 @@ A release ships the bytes CI built for its candidate, never a local package.
 CI is the gate, on the candidate:
 
 - the candidate dispatch: build, VirusTotal (Microsoft finds nothing) and the reproducibility job;
-- the PR CI on the `chore(release)` PR, which runs once it is marked ready (it is a draft before the play test, and a
-  draft there runs no CI);
+- the PR CI on the `chore(release)` PR, which runs once it is marked ready (it is a draft before the play test, where
+  `ci-ok` fails on purpose);
 - the per-file antivirus check on the candidate's files ([Antivirus verdicts](#antivirus-verdicts)): a local
   Defender scan of every `.exe` and `.dll` in the ZIP plus the installer, and a VirusTotal lookup of each; Microsoft
   must find nothing in any of them. The workflow's VirusTotal job scans only the three packages.
