@@ -66,18 +66,33 @@ pub(crate) fn folder_step(kit: &Kit, folder: &str, undo: bool, ui: &dyn Ui) -> i
     kit_setup(ed, kit.dir(), &folder, undo, false, &|lead, l| tell_line(ui, lead, l))
 }
 
-/// 2017-18, before a start's guard check: a runtime an older Forza-WCCF set up (an update, new files unzipped over it;
-/// `e1718::stale`) is set up again, said in one line and its result. False: it could not be, and nothing may start.
-pub(crate) fn again_if_stale(kit: &Kit, game: &Path, ui: &dyn Ui) -> bool {
-    let Some(why) = e1718::stale(kit.dir(), game) else {
-        return true;
-    };
-    tell(ui, "", &Text::key("launcher.run_setup_again").arg("why", why));
+/// 2017-18, before a start's guard check: why its runtime needs setup again. An older Forza-WCCF set it up (an update,
+/// new files unzipped over it; `e1718::stale`), or else `check`, the guard check, refuses it (no or an unreadable
+/// setup-hashes.json, a guarded file an update or an antivirus put back). None: it passes as it is.
+pub(crate) fn why_again(kit: &Kit, game: &Path, check: impl Fn() -> Result<(), String>) -> Option<Text> {
+    match e1718::stale(kit.dir(), game) {
+        Some(why) => Some(Text::key("launcher.run_setup_again").arg("why", why)),
+        None => check()
+            .err()
+            .map(|why| Text::key("launcher.run_setup_guard").arg("why", why)),
+    }
+}
+
+/// 2017-18 inside a start: the runtime set up again once with `set_up` (`run::Params::setup_1718`), `why` said first
+/// and its result after. False: it could not be, and nothing may start.
+pub(crate) fn again(
+    kit: &Kit,
+    game: &Path,
+    why: &Text,
+    set_up: fn(&Path, &Path) -> Result<(), String>,
+    ui: &dyn Ui,
+) -> bool {
+    tell(ui, "", why);
     if running(game, "launcher.run_running_setup", ui) {
         return false;
     }
-    match e1718::setup_game(kit.dir(), game, &e1718::Spec::game()) {
-        Ok(_) => {
+    match set_up(kit.dir(), game) {
+        Ok(()) => {
             tell(ui, "  ok    ", &Text::key("launcher.run_setup_again_done"));
             true
         }
@@ -90,6 +105,13 @@ pub(crate) fn again_if_stale(kit: &Kit, game: &Path, ui: &dyn Ui) -> bool {
             false
         }
     }
+}
+
+/// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`).
+pub(crate) fn setup_1718(kit: &Path, game: &Path) -> Result<(), String> {
+    e1718::setup_game(kit, game, &e1718::Spec::game())
+        .map(drop)
+        .map_err(|e| e.to_string())
 }
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.

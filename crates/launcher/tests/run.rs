@@ -159,6 +159,7 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         scenes: Names::scratch(&format!("wccftest_{tag}_{pid}")),
         maps: None,
         hook_imports: false, // fakegame.exe imports no WINMM.dll; a_program_without_the_hook_starts_nothing checks it
+        setup_1718: set_up_nothing,
         shared,
         extra_watch: Default::default(),
     }
@@ -885,6 +886,15 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         )
         .unwrap();
     }
+    record_1718(top);
+    let kit = Kit::at(kit);
+    assert_eq!(kit.edition(), launcher::Edition::E1718);
+    kit
+}
+
+/// setup-hashes.json as setup writes it for the stand-ins of [`scratch_kit_1718`].
+fn record_1718(top: &Path) {
+    let (game, seat) = (top.join("game"), top.join("seat1"));
     let hashes = serde_json::json!({
         "standin_client.exe": {"original": "-", "guarded": sha(&game.join("standin_client.exe"))},
         "standin_control.exe": {"original": "-", "guarded": sha(&game.join("standin_control.exe"))},
@@ -896,13 +906,34 @@ fn scratch_kit_1718(top: &Path) -> Kit {
         "setup-version": forza::setup::e1718::VERSION.to_string(),
     });
     fs::write(top.join("setup-hashes.json"), hashes.to_string()).unwrap();
-    let kit = Kit::at(kit);
-    assert_eq!(kit.edition(), launcher::Edition::E1718);
-    kit
+}
+
+/// Setup's stand-in for a start (`Params::setup_1718`): it changes nothing; each run is a line in `top\set_ups.txt`.
+fn set_up_nothing(_kit: &Path, game: &Path) -> Result<(), String> {
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(game.parent().unwrap().join("set_ups.txt"))
+        .map_err(|e| e.to_string())?;
+    writeln!(f, "set up").map_err(|e| e.to_string())
+}
+
+/// [`set_up_nothing`], then seat 1's guarded client and the record made again, as setup makes them.
+fn set_up_again(kit: &Path, game: &Path) -> Result<(), String> {
+    set_up_nothing(kit, game)?;
+    let top = game.parent().unwrap();
+    guarded_copy(&top.join(r"seat1\standin_client.exe"));
+    record_1718(top);
+    Ok(())
+}
+
+fn set_ups(top: &Path) -> usize {
+    fs::read_to_string(top.join("set_ups.txt")).map_or(0, |s| s.lines().count())
 }
 
 /// A changed guarded program, a record that is gone, or a program that imports IPHLPAPI.DLL: the start is refused
-/// before anything of the run exists - no lock, no logs, nothing running.
+/// before anything of the run exists - no lock, no logs, nothing running.  Each start sets the runtime up again once
+/// first (here a setup that repairs nothing), and the guard check after it still decides.
 #[test]
 fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
@@ -910,9 +941,15 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
     let (game, seat) = (top.path().join("game"), top.path().join("seat1"));
     let refused = |what: &str, part: &str| {
         let ui = Said::default();
+        let before = set_ups(top.path());
         let rc = run::command(&kit, &params("unguarded", Shared::new()), &["local".into()], &ui);
         let said = ui.text();
         assert_eq!(rc, run::NOT_GUARDED, "{what}: {said}");
+        assert_eq!(set_ups(top.path()), before + 1, "{what}: set up again once: {said}");
+        assert!(
+            said.contains("Setting the game up again first") && said.contains("The game is set up again."),
+            "{what}: {said}"
+        );
         assert!(
             said.contains("the network protection Forza-WCCF puts in place is missing") && said.contains(part),
             "{what}: {said}"
@@ -980,7 +1017,9 @@ fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
     fs::write(&path, record.to_string()).unwrap();
     let before = fs::read(&path).unwrap();
     let ui = Said::default();
-    let rc = run::command(&kit, &params("stale", Shared::new()), &["local".into()], &ui);
+    let mut p = params("stale", Shared::new());
+    p.setup_1718 = |_, _| Err("no original game programs here".into());
+    let rc = run::command(&kit, &p, &["local".into()], &ui);
     let said = ui.text();
     assert_eq!(rc, run::NOT_GUARDED, "{said}");
     assert!(
@@ -992,7 +1031,8 @@ fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
         "{said}"
     );
     assert!(
-        !said.contains("the network protection Forza-WCCF puts in place is missing"),
+        said.contains("no original game programs here")
+            && !said.contains("the network protection Forza-WCCF puts in place is missing"),
         "{said}"
     );
     assert_eq!(fs::read(&path).unwrap(), before, "the record is untouched");
@@ -1001,13 +1041,14 @@ fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
     assert!(running_from(top.path()).is_empty());
 }
 
-/// 2017-18 on a scratch server: the guard passes, the Aime reader, AiMeDB, the network and I/O board stand-ins come
-/// up, seat 1 starts; closing its window ends the run with nothing left.
+/// 2017-18 on a scratch server copied without its record: set up again once, the guard passes, the Aime reader, AiMeDB,
+/// the network and I/O board stand-ins come up, seat 1 starts; closing its window ends the run with nothing left.
 #[test]
 fn closing_seat_1_ends_the_2017_18_run() {
     let top = tempfile::Builder::new().prefix("wccf-1718-").tempdir().unwrap();
     let kit = scratch_kit_1718(top.path());
-    let p = params("close1718", Shared::new());
+    let mut p = params("close1718", Shared::new());
+    p.setup_1718 = set_up_again;
     let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
     let _desk = seat_desk(p.seat_port);
     // no seat in a shared arcade with data\settings.json "shop_1718": false; on when the key is missing
@@ -1022,6 +1063,9 @@ fn closing_seat_1_ends_the_2017_18_run() {
     );
     assert!(!kit.logs().exists(), "refused before anything of the run exists");
     fs::write(kit.settings_file(), "{}").unwrap();
+    // a runtime copied without its record, its guarded client put back: the start sets it up again once and starts
+    fs::remove_file(top.path().join("setup-hashes.json")).unwrap();
+    fs::write(top.path().join(r"seat1\standin_client.exe"), b"not the guarded copy").unwrap();
     let aimedb = p.aimedb_port;
     // the stand-in panel never shows a frame: its log says it did, as the real one would
     let shown = Arc::new(AtomicBool::new(false));
@@ -1042,6 +1086,11 @@ fn closing_seat_1_ends_the_2017_18_run() {
     shown.store(true, Ordering::Relaxed);
     writer.join().unwrap();
     let said = ui.text();
+    assert!(
+        said.contains("Setting the game up again first") && said.contains("setup-hashes.json cannot be read"),
+        "{said}"
+    );
+    assert_eq!(set_ups(top.path()), 1, "set up again once: {said}");
     assert!(said.contains("Starting WCCF 2017-18 from"), "{said}");
     assert!(
         said.contains("cabinet (card file data\\save\\seat1_aime.txt)"),

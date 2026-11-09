@@ -256,6 +256,9 @@ pub struct Params {
     /// 2010-11: every program must load the kit's hook through its renamed import (`guard::hook_1011`).  Off only in
     /// tests whose stand-ins are no game programs.
     pub hook_imports: bool,
+    /// 2017-18: setup run again by a start (`setup::setup_1718`) with the kit's and the game's folders.  Tests put a
+    /// stand-in here: their runtimes hold no original game programs.
+    pub setup_1718: fn(&Path, &Path) -> Result<(), String>,
 }
 
 impl Params {
@@ -280,6 +283,7 @@ impl Params {
             scenes: scenes::Names::game(),
             maps: Some(debug::maps::GAME_ID.into()),
             hook_imports: true,
+            setup_1718: crate::setup::setup_1718,
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -1130,14 +1134,21 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_busy"));
         return Err(REFUSED);
     };
-    // a runtime an older setup made is set up again first; the guard check below still decides
-    if edition == Edition::E1718 && !crate::setup::again_if_stale(kit, &game, ui) {
+    let check = || guard::check(&game, &seat, p.client(), p.control(), p.matcher());
+    // a runtime an older setup made or the guard check refuses is set up again, once; the check after it decides
+    let again = (edition == Edition::E1718)
+        .then(|| crate::setup::why_again(kit, &game, check))
+        .flatten();
+    if let Some(why) = &again
+        && !crate::setup::again(kit, &game, why, p.setup_1718, ui)
+    {
         return Err(NOT_GUARDED);
     }
     let setup_done = t0.elapsed();
-    // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md)
-    if edition == Edition::E1718
-        && let Err(why) = guard::check(&game, &seat, p.client(), p.control(), p.matcher())
+    // before anything of the run exists: no game program may start unguarded (docs/SAFETY.md); with no setup again the
+    // check passed in why_again (2010-11 has its own: ensure_hook)
+    if again.is_some()
+        && let Err(why) = check()
     {
         tell(ui, "", &Text::key("launcher.run_not_guarded").arg("why", why));
         return Err(NOT_GUARDED);
