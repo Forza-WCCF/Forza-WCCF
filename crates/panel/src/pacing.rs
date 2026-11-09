@@ -88,9 +88,13 @@ fn summary(times: &mut [f32]) -> (usize, f32, f32, f32, usize) {
     }
     times.sort_by(f32::total_cmp);
     let avg = times.iter().sum::<f32>() / n as f32;
-    let p99 = times[(n * 99).div_ceil(100) - 1];
+    let p99 = times
+        .get((n * 99).div_ceil(100) - 1)
+        .copied()
+        .unwrap_or_default();
     let over = times.iter().filter(|&&t| t > 50.0).count();
-    (n, avg, p99, times[n - 1], over)
+    let max = times.last().copied().unwrap_or_default();
+    (n, avg, p99, max, over)
 }
 
 /// One match's line (the caller puts the date in front).

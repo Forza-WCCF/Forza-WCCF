@@ -62,8 +62,11 @@ fn translate(level: u32, minf: Option<u32>, maxa: Option<u32>) -> (u32, u32) {
 
 /// The original SetSamplerState of the vtable `vt`, `None` if that vtable was never replaced.
 fn orig_of(vt: usize) -> Option<SetSamplerFn> {
-    let k = VTABLES.iter().position(|v| v.load(Acquire) == vt)?;
-    let f = ORIGS[k].load(Relaxed);
+    let (_, orig) = VTABLES
+        .iter()
+        .zip(&ORIGS)
+        .find(|(v, _)| v.load(Acquire) == vt)?;
+    let f = orig.load(Relaxed);
     // SAFETY: a nonzero entry is the slot's value read before it was replaced: d3d9's SetSamplerState for that vtable
     (f != 0).then(|| unsafe { std::mem::transmute::<usize, SetSamplerFn>(f) })
 }
@@ -85,17 +88,23 @@ unsafe fn sampler_game(orig: SetSamplerFn, dev: *mut c_void, smp: u32, t: u32, v
         return unsafe { orig(dev, smp, t, v) };
     }
     let i = smp as usize;
+    let (Some(game_minf), Some(game_maxa), Some(sent_maxa)) =
+        (GAME_MINF.get(i), GAME_MAXA.get(i), SENT_MAXA.get(i))
+    else {
+        // SAFETY: as above (smp < 16, so not reached)
+        return unsafe { orig(dev, smp, t, v) };
+    };
     let bit = 1u32 << smp;
     if t == MINF {
-        GAME_MINF[i].store(v, Relaxed);
+        game_minf.store(v, Relaxed);
         SEEN_MINF.fetch_or(bit, Relaxed);
     } else {
-        GAME_MAXA[i].store(v, Relaxed);
+        game_maxa.store(v, Relaxed);
         SEEN_MAXA.fetch_or(bit, Relaxed);
     }
     if level() == 0 {
         if t == MAXA {
-            SENT_MAXA[i].store(v, Relaxed);
+            sent_maxa.store(v, Relaxed);
         }
         // SAFETY: as above
         return unsafe { orig(dev, smp, t, v) };
@@ -108,16 +117,21 @@ unsafe fn sampler_game(orig: SetSamplerFn, dev: *mut c_void, smp: u32, t: u32, v
 /// MINFILTER when `minf` (the game's call, or the replay of a new choice).
 unsafe fn apply(orig: SetSamplerFn, dev: *mut c_void, smp: u32, minf: bool) -> HRESULT {
     let i = smp as usize;
+    let (Some(game_minf), Some(game_maxa), Some(sent_maxa)) =
+        (GAME_MINF.get(i), GAME_MAXA.get(i), SENT_MAXA.get(i))
+    else {
+        return HRESULT(0); // smp < 16 from both callers: not reached
+    };
     let bit = 1u32 << smp;
     let seen = |set: &AtomicU32, val: &AtomicU32| {
         (set.load(Relaxed) & bit != 0).then(|| val.load(Relaxed))
     };
     let (f, m) = translate(
         level(),
-        seen(&SEEN_MINF, &GAME_MINF[i]),
-        seen(&SEEN_MAXA, &GAME_MAXA[i]),
+        seen(&SEEN_MINF, game_minf),
+        seen(&SEEN_MAXA, game_maxa),
     );
-    if SENT_MAXA[i].swap(m, Relaxed) != m {
+    if sent_maxa.swap(m, Relaxed) != m {
         // SAFETY: the original, on the device it was called for
         let _ = unsafe { orig(dev, smp, MAXA, m) };
     }
@@ -161,7 +175,11 @@ pub fn reset() {
 /// # Safety
 /// `vt` points at a live vtable of at least `SLOT + 1` pointers, called only on this thread.
 unsafe fn install(vt: *mut usize) -> bool {
-    let Some(k) = VTABLES.iter().position(|v| v.load(Relaxed) == 0) else {
+    let Some((vt_kept, orig_kept)) = VTABLES
+        .iter()
+        .zip(&ORIGS)
+        .find(|(v, _)| v.load(Relaxed) == 0)
+    else {
         return false;
     };
     // SAFETY: one pointer-sized vtable slot made writable, swapped, its protection put back; the game calls it on this
@@ -179,8 +197,8 @@ unsafe fn install(vt: *mut usize) -> bool {
         {
             return false;
         }
-        ORIGS[k].store(*slot, Relaxed);
-        VTABLES[k].store(vt as usize, Release);
+        orig_kept.store(*slot, Relaxed);
+        vt_kept.store(vt as usize, Release);
         *slot = hook_sampler as *const () as usize;
         let _ = VirtualProtect(slot as *const c_void, size_of::<usize>(), old, &mut old);
     }

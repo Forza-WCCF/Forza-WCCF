@@ -1946,7 +1946,11 @@ impl Render {
                 "own swap chain {w}x{h} (game {}x{}), vsync {} (the game's interval 0x{:X})",
                 ip.BackBufferWidth,
                 ip.BackBufferHeight,
-                ["the game's", "off", "on"][usize::from(vsync.min(VSYNC_ON))],
+                match vsync {
+                    VSYNC_ON => "on",
+                    VSYNC_OFF => "off",
+                    _ => "the game's",
+                },
                 ip.PresentationInterval
             ));
             let sc = sc?;
