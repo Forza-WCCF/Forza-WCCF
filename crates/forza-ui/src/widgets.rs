@@ -398,27 +398,122 @@ fn art_light(kind: Cab, f: Face) -> (Color32, f32) {
     }
 }
 
+const SMOOTH_ART: &str = "smooth_deck_art";
+
+/// Whether the deck draws its art resampled to the exact drawn pixel size (2017-18). The game's painter samples
+/// textures bilinearly without mipmaps, so art about twice its drawn size looks jagged; 2010-11 keeps egui's loader.
+pub fn smooth_deck_art(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(Id::unique(SMOOTH_ART), on));
+}
+
+/// Decoded art (premultiplied) and its textures, one per art and drawn pixel size.
+#[derive(Clone, Default)]
+struct ArtCache {
+    decoded: std::collections::HashMap<&'static str, Arc<image::Rgba32FImage>>,
+    sized: std::collections::HashMap<(&'static str, [usize; 2]), egui::TextureHandle>,
+}
+
+/// `src` resampled (Lanczos3, premultiplied so transparent edges keep no dark fringe) to the physical pixel size of
+/// `rect` at `ppp`; made once per size and reused.
+fn sized_art(
+    ctx: &egui::Context,
+    src: &egui::ImageSource<'static>,
+    rect: Rect,
+    ppp: f32,
+) -> Option<egui::TextureHandle> {
+    let egui::ImageSource::Bytes {
+        uri: std::borrow::Cow::Borrowed(uri),
+        bytes: egui::load::Bytes::Static(bytes),
+    } = src
+    else {
+        return None;
+    };
+    let size = [
+        (rect.width() * ppp).round() as usize,
+        (rect.height() * ppp).round() as usize,
+    ];
+    if size.contains(&0) {
+        return None;
+    }
+    let id = Id::unique(SMOOTH_ART);
+    let (cached, decoded) = ctx.data_mut(|d| {
+        let c = d.get_temp_mut_or_default::<ArtCache>(id);
+        (
+            c.sized.get(&(*uri, size)).cloned(),
+            c.decoded.get(uri).cloned(),
+        )
+    });
+    if cached.is_some() {
+        return cached;
+    }
+    let decoded = match decoded {
+        Some(d) => d,
+        None => {
+            let mut img = image::load_from_memory(bytes).ok()?.to_rgba32f();
+            for px in img.pixels_mut() {
+                let a = px[3];
+                px[0] *= a;
+                px[1] *= a;
+                px[2] *= a;
+            }
+            Arc::new(img)
+        }
+    };
+    let small = image::imageops::resize(
+        &*decoded,
+        size[0] as u32,
+        size[1] as u32,
+        image::imageops::FilterType::Lanczos3,
+    );
+    // Lanczos rings: clamp so each colour stays within its alpha (valid premultiplied)
+    let rgba: Vec<u8> = small
+        .pixels()
+        .flat_map(|px| {
+            let a = px[3].clamp(0.0, 1.0);
+            let c = |v: f32| (v.clamp(0.0, a) * 255.0).round() as u8;
+            [c(px[0]), c(px[1]), c(px[2]), (a * 255.0).round() as u8]
+        })
+        .collect();
+    let tex = ctx.load_texture(
+        format!("{uri}@{}x{}", size[0], size[1]),
+        egui::ColorImage::from_rgba_premultiplied(size, &rgba),
+        egui::TextureOptions::LINEAR,
+    );
+    ctx.data_mut(|d| {
+        let c = d.get_temp_mut_or_default::<ArtCache>(id);
+        if c.sized.len() >= 32 {
+            c.sized.clear(); // a window resize leaves old sizes behind
+        }
+        c.sized.insert((*uri, size), tex.clone());
+        c.decoded.insert(uri, decoded);
+    });
+    Some(tex)
+}
+
 fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: Face) {
     // the art, once its loader has it (the first frames draw the plain shape); it carries no label
-    if let Some(src) = art(kind, shape)
-        && let Ok(egui::load::TexturePoll::Ready { texture }) = src.load(
+    let smooth = p.ctx().data(|d| d.get_temp::<bool>(Id::unique(SMOOTH_ART))) == Some(true);
+    let tex = art(kind, shape).and_then(|src| {
+        if smooth {
+            sized_art(p.ctx(), &src, rect, p.ctx().pixels_per_point()).map(|t| t.id())
+        } else if let Ok(egui::load::TexturePoll::Ready { texture }) = src.load(
             p.ctx(),
             egui::TextureOptions::LINEAR,
             egui::SizeHint::default(),
-        )
-    {
+        ) {
+            Some(texture.id)
+        } else {
+            None
+        }
+    });
+    if let Some(tex) = tex {
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
         let (tint, up) = art_light(kind, f);
-        p.image(texture.id, rect, uv, tint);
+        p.image(tex, rect, uv, tint);
         if up > 0.0 {
             // the art again with zero alpha: premultiplied blending adds it, so the face brightens inside its outline
             let k = (255.0 * up) as u8;
-            p.image(
-                texture.id,
-                rect,
-                uv,
-                Color32::from_rgba_premultiplied(k, k, k, 0),
-            );
+            p.image(tex, rect, uv, Color32::from_rgba_premultiplied(k, k, k, 0));
         }
         return;
     }
@@ -1572,6 +1667,22 @@ mod shape_tests {
         // a left triangle: apex at the left middle
         assert!(!shape_contains(Shape::Tri(Dir::Left), r, corner));
         assert!(shape_contains(Shape::Tri(Dir::Left), r, pos2(39.0, 1.0)));
+    }
+
+    /// The 2017-18 deck art is resampled to exactly its drawn pixel size, once per size.
+    #[test]
+    fn deck_art_matches_its_drawn_pixels_and_is_cached() {
+        let ctx = egui::Context::default();
+        let src = art(Cab::Shoot, Shape::Round).unwrap();
+        let rect = Rect::from_min_size(pos2(10.3, 20.0), vec2(90.0, 91.0));
+        for (ppp, want) in [(1.0, [90, 91]), (1.25, [113, 114])] {
+            let t = sized_art(&ctx, &src, rect, ppp).unwrap();
+            assert_eq!(t.size(), want);
+            let n = ctx.tex_manager().read().num_allocated();
+            let again = sized_art(&ctx, &src, rect, ppp).unwrap();
+            assert_eq!(again.id(), t.id());
+            assert_eq!(ctx.tex_manager().read().num_allocated(), n);
+        }
     }
 
     #[test]
