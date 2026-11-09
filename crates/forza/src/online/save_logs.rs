@@ -4,7 +4,9 @@
 //! In the ZIP: `data\logs` (this run and the one before, not the zipped archive), the panel's logs, `panel.txt`,
 //! `keys.txt`, `running.json` and `version.txt`, each its last 2 MB at most. What points at the
 //! person is replaced in the text: the user folder and any other `X:\Users\NAME` (`%USERPROFILE%`), the user name
-//! (`USER`) and the PC's name (`PC`). 2017-18: control's `wccfnet.log` from the game folder too. The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
+//! (`USER`) and the PC's name (`PC`). A name of two ASCII letters goes only as a word of its own (a PC called `Al`
+//! leaves `also` and `local` alone, a standalone `an` goes) and a single ASCII letter stays; 2017-18: control's
+//! `wccfnet.log` from the game folder too. The newest [`DUMPS_SENT`] lean crash snapshots go whole, with the same names blanked to underscores (also
 //! in UTF-16) so the file keeps its layout. A note (the player's words, why it was made) goes in as `report.txt`.
 //! The save data goes whole under `save/`: `data\save`'s own files (the club card) up to [`SAVE_MAX`] each, never the
 //! card's access code (`seat1_aime.txt`) or a `*.tmp`; `aimedb.json` with each access code turned into a short hash, so
@@ -480,50 +482,121 @@ impl Scrub {
         }
     }
 
-    /// The names as bytes in each encoding: UTF-8, then Latin-1 (what the Python takes on Linux; Windows' ANSI page
-    /// is close), a name Latin-1 cannot hold skipped; `utf16` adds Windows' own text for binary files.
-    fn encodings(name: &str, utf16: bool) -> Vec<Vec<u8>> {
-        let mut v = vec![name.as_bytes().to_vec()];
-        if let Some(l) = name
-            .chars()
-            .map(|c| u8::try_from(u32::from(c)).ok())
-            .collect::<Option<Vec<u8>>>()
-        {
-            v.push(l);
+    /// The names as needles in each encoding: UTF-8, then Latin-1 (what the Python takes on Linux; Windows' ANSI
+    /// page is close), then the same in lower and upper case (the match itself folds ASCII only: `É` against `é`),
+    /// then CP932 (a Japanese Windows' ANSI page, which the 2017-18 game writes); `utf16` adds Windows' own text for
+    /// binary files. A form an encoding cannot hold is skipped, one equal to an earlier form ASCII case aside is
+    /// dropped, and so is a form [`Self::short`] for `min` by its own script (`ı` upper-cases to a lone `I`).
+    fn encodings(name: &str, utf16: bool, min: usize) -> Vec<Needle> {
+        // shortcut: whole-string lower and upper case only, so a name mixing cases in two non-ASCII letters ("Éè")
+        // is matched only as written, lower or upper; fold per character if such names turn up
+        let forms: Vec<String> = [name.to_owned(), name.to_lowercase(), name.to_uppercase()]
+            .into_iter()
+            .filter(|f| !Self::short(f, min))
+            .collect();
+        let mut all: Vec<Needle> = vec![];
+        for f in &forms {
+            all.extend(
+                [
+                    Needle::new(f, utf8_char, true),
+                    Needle::new(f, latin1_char, false),
+                ]
+                .into_iter()
+                .flatten(),
+            );
         }
+        all.extend(
+            forms
+                .iter()
+                .filter_map(|f| Needle::new(f, cp932_char, false)),
+        );
         if utf16 {
-            v.push(name.encode_utf16().flat_map(u16::to_le_bytes).collect());
+            all.extend(
+                forms
+                    .iter()
+                    .filter_map(|f| Needle::new(f, utf16_char, false)),
+            );
+        }
+        let mut v: Vec<Needle> = vec![];
+        for n in all {
+            if !v.iter().any(|o| o.key() == n.key()) {
+                v.push(n);
+            }
         }
         v
     }
 
-    /// (needle, replacement, whole word) in the order they apply to text.
-    fn text_pairs(&self) -> Vec<(Vec<u8>, &'static [u8], bool)> {
+    /// Too short to take out: under `ascii` characters for an ASCII name, under `ascii - 1` for any other. Text takes
+    /// 2 and 1: a 2-letter ASCII name goes as a whole word, a single ASCII letter ("a", "I") would wreck every line
+    /// and points at nobody, a single kanji goes. Binary files take 3 and 2, so a blank stays rare in a snapshot.
+    fn short(name: &str, ascii: usize) -> bool {
+        name.chars().count() < if name.is_ascii() { ascii } else { ascii - 1 }
+    }
+
+    /// (needle, replacement, what ends it) in the order they apply to text: a name goes where it sits unless it is
+    /// ASCII (Japanese has no spaces between words, so a non-ASCII name inside a longer word only over-scrubs, which a
+    /// log can lose), and a home is a path, which ends where a name cannot continue in any script.
+    fn text_pairs(&self) -> Vec<(Needle, &'static [u8], Ends)> {
+        let forward = self.home.replace('\\', "/");
+        let names = [
+            (self.home.as_str(), &b"%USERPROFILE%"[..], Ends::Path),
+            (forward.as_str(), b"%USERPROFILE%", Ends::Path),
+            (self.user.as_str(), b"USER", Ends::Word),
+            (self.pc.as_str(), b"PC", Ends::Word),
+        ]
+        .map(|(old, new, ends)| (Self::encodings(old, false, 2), new, ends));
+        let most = names.iter().map(|n| n.0.len()).max().unwrap_or(0);
         let mut out = vec![];
-        for enc in 0..2 {
-            let forward = self.home.replace('\\', "/");
-            for (old, new, whole) in [
-                (self.home.as_str(), &b"%USERPROFILE%"[..], false),
-                (forward.as_str(), b"%USERPROFILE%", false),
-                (self.user.as_str(), b"USER", true),
-                (self.pc.as_str(), b"PC", true),
-            ] {
-                // too short to take out of text without breaking it
-                if old.chars().count() < 3 {
-                    continue;
-                }
-                if let Some(n) = Self::encodings(old, false).into_iter().nth(enc) {
-                    out.push((n, new, whole));
+        // each encoding in turn, the home before the names inside it
+        for enc in 0..most {
+            for (encs, new, ends) in &names {
+                if let Some(n) = encs.get(enc) {
+                    out.push((n.clone(), *new, *ends));
                 }
             }
         }
         out
     }
 
-    /// Text: the names replaced (case-insensitively), the user and PC names only as whole words.
-    pub fn scrub(&self, mut data: Vec<u8>) -> Vec<u8> {
-        for (needle, new, whole) in self.text_pairs() {
-            data = replace(&data, &needle, whole, |_| new.to_vec());
+    /// Text: the names replaced (case-insensitively), the ASCII user and PC names only as whole words.
+    pub fn scrub(&self, data: Vec<u8>) -> Vec<u8> {
+        self.scrub_part(data, true)
+    }
+
+    /// [`Scrub::scrub`] of bytes that can start inside a character: `aligned` is false for the tail of a bigger file,
+    /// cut at an arbitrary offset, where a byte cannot be placed in its character.
+    fn scrub_part(&self, mut data: Vec<u8>, aligned: bool) -> Vec<u8> {
+        // this project writes UTF-8, where a Latin-1 or CP932 form's one byte cuts a character in half (`0xE7` leads
+        // 火 and 田, `0xB1` sits inside 米), so those forms run only on data that is not text. A log read while it is
+        // written ends inside a character, and is still text.
+        let text = match std::str::from_utf8(&data) {
+            Ok(_) => true,
+            Err(e) => e.error_len().is_none(),
+        };
+        // the CP932 character starts are known only where the data is CP932 from its first byte: a name must never go
+        // unscubbed because a byte was read as the middle of a character when it was not
+        let clean_cp932 = || {
+            encoding_rs::SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(&data)
+                .is_some()
+        };
+        let chars = match text {
+            true => Chars::Text,
+            false if aligned && clean_cp932() => Chars::Cp932,
+            false => Chars::Unknown,
+        };
+        for (needle, new, ends) in self.text_pairs() {
+            if text && !needle.utf8 {
+                continue;
+            }
+            let ends = match ends {
+                // a name that is not ASCII sits where it sits: Japanese has no word breaks
+                Ends::Word if !needle.ascii => Ends::Any,
+                e => e,
+            };
+            data = replace(&data, &needle.bytes, &needle.fold, ends, chars, |_| {
+                new.to_vec()
+            });
         }
         if self.folders {
             data = user_folders(&data);
@@ -534,20 +607,102 @@ impl Scrub {
     /// A binary file: each match turned into as many underscores, nothing moves, so a snapshot stays a valid file.
     pub fn blank(&self, mut data: Vec<u8>) -> Vec<u8> {
         for old in [&self.home, &self.user, &self.pc] {
-            if old.chars().count() < 3 {
-                continue;
-            }
-            for needle in Self::encodings(old, true) {
-                data = replace(&data, &needle, false, |m| vec![b'_'; m.len()]);
+            for n in Self::encodings(old, true, 3) {
+                data = replace(&data, &n.bytes, &n.fold, Ends::Any, Chars::Unknown, |m| {
+                    vec![b'_'; m.len()]
+                });
             }
         }
         data
     }
 }
 
+/// What ends a match: anything (a name may sit inside a word), a byte that is not a letter or digit (a whole word),
+/// or such a byte after it only (a path, which ends the same way in every script, the Japanese one included).
+#[derive(Clone, Copy, PartialEq)]
+enum Ends {
+    Any,
+    Word,
+    Path,
+}
+
+/// Which characters `data` is known to hold: this project's own UTF-8 text, a whole file of CP932, or bytes whose
+/// character starts cannot be known (a tail cut at an arbitrary offset, or bytes that are neither).
+#[derive(Clone, Copy, PartialEq)]
+enum Chars {
+    Text,
+    Cp932,
+    Unknown,
+}
+
+/// A name in one encoding: its bytes, which of them may match in either ASCII case (only those of an ASCII
+/// character: a CP932 or UTF-16 byte of a kanji is often an ASCII letter, and 人 is not 伸), whether the form is
+/// ASCII (then it goes as a whole word), and whether it is the UTF-8 form (the only one this project's text takes).
+#[derive(Clone, Debug)]
+struct Needle {
+    bytes: Vec<u8>,
+    fold: Vec<bool>,
+    ascii: bool,
+    utf8: bool,
+}
+
+impl Needle {
+    /// `form` one character at a time through `one`; None if a character has no form there.
+    fn new(form: &str, one: fn(char) -> Option<Vec<u8>>, utf8: bool) -> Option<Self> {
+        let (mut bytes, mut fold) = (vec![], vec![]);
+        for c in form.chars() {
+            let b = one(c)?;
+            fold.extend(std::iter::repeat_n(c.is_ascii(), b.len()));
+            bytes.extend(b);
+        }
+        Some(Self {
+            bytes,
+            fold,
+            ascii: form.is_ascii(),
+            utf8,
+        })
+    }
+
+    /// The bytes with the foldable ones in lower case: two needles with one key match the same text.
+    fn key(&self) -> Vec<u8> {
+        self.bytes
+            .iter()
+            .zip(&self.fold)
+            .map(|(b, f)| if *f { b.to_ascii_lowercase() } else { *b })
+            .collect()
+    }
+}
+
+fn utf8_char(c: char) -> Option<Vec<u8>> {
+    Some(c.to_string().into_bytes())
+}
+
+fn latin1_char(c: char) -> Option<Vec<u8>> {
+    u8::try_from(u32::from(c)).ok().map(|b| vec![b])
+}
+
+/// CP932 is Shift-JIS as Windows has it.
+fn cp932_char(c: char) -> Option<Vec<u8>> {
+    let s = c.to_string();
+    let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(&s);
+    (!bad).then(|| b.into_owned())
+}
+
+fn utf16_char(c: char) -> Option<Vec<u8>> {
+    Some(
+        c.encode_utf16(&mut [0; 2])
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect(),
+    )
+}
+
 /// Every `X:\Users\NAME` (any drive, any case, `\`, `/` or doubled separators) turned into `%USERPROFILE%`: the
 /// folders of other Windows users, or of this one under another drive letter. NAME runs to the next separator, quote or
 /// control character, so a name with spaces goes whole (one cannot start with a space).
+///
+/// shortcut: CP932 is not decoded, so a name is cut at a kanji whose second byte is a separator (`表` is `95 5C`, so
+/// `D:\Users\表田` leaves `田`); decode as CP932 once a collected path holds such a kanji.
 pub fn user_folders(data: &[u8]) -> Vec<u8> {
     let sep = |b: u8| b == b'\\' || b == b'/';
     let seps = |i: usize| {
@@ -583,27 +738,65 @@ pub fn user_folders(data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `data` with every ASCII-case-insensitive, non-overlapping match of `needle` (left to right) replaced; `whole`: only
-/// where no ASCII letter or digit sits on either side.
-fn replace(data: &[u8], needle: &[u8], whole: bool, with: impl Fn(&[u8]) -> Vec<u8>) -> Vec<u8> {
+/// `data` with every non-overlapping match of `needle` (left to right) replaced, the bytes `fold` marks in either ASCII
+/// case (one past its end: exact); `ends`: what makes a match part of a longer word, and `chars`: how much is known
+/// about the characters of `data`. A match that would start inside a character is never taken.
+fn replace(
+    data: &[u8],
+    needle: &[u8],
+    fold: &[bool],
+    ends: Ends,
+    chars: Chars,
+    with: impl Fn(&[u8]) -> Vec<u8>,
+) -> Vec<u8> {
     if needle.is_empty() {
         return data.to_vec();
     }
     let alnum = |b: Option<&u8>| b.is_some_and(u8::is_ascii_alphanumeric);
     let mut out = Vec::with_capacity(data.len());
     let mut i = 0;
+    // whether the byte at `i` starts a CP932 character, and whether the one before it is the second byte of one; in
+    // data of unknown characters both stay as they are, so no match is refused for a character it cannot be placed in
+    let (mut start, mut trail) = (true, false);
     while i < data.len() {
         let end = i + needle.len();
+        let before = alnum(i.checked_sub(1).and_then(|p| data.get(p)));
+        let after = alnum(data.get(end));
+        // a letter or digit of a word of its own, not the second byte of a kanji (人 is `90 6C`)
+        let word = match chars {
+            Chars::Text => before,
+            Chars::Cp932 => before && !trail,
+            // the byte before the match may be the second byte of a kanji whose first is two back
+            Chars::Unknown => {
+                before && !(i >= 2 && matches!(data[i - 2], 0x81..=0x9F | 0xE0..=0xFC))
+            }
+        };
         let hit = end <= data.len()
-            && data[i..end].eq_ignore_ascii_case(needle)
-            && !(whole
-                && (alnum(i.checked_sub(1).and_then(|p| data.get(p))) || alnum(data.get(end))));
+            && data[i..end]
+                .iter()
+                .zip(needle)
+                .enumerate()
+                .all(|(k, (a, b))| {
+                    a == b || (fold.get(k) == Some(&true) && a.eq_ignore_ascii_case(b))
+                })
+            && start
+            && match ends {
+                Ends::Any => true,
+                Ends::Path => !after,
+                Ends::Word => !(word || after),
+            };
         if hit {
             out.extend(with(&data[i..end]));
             i = end;
+            trail = false;
         } else {
-            out.push(data[i]);
+            let (b, was) = (data[i], start);
+            out.push(b);
             i += 1;
+            if chars == Chars::Cp932 {
+                start = !(was && matches!(b, 0x81..=0x9F | 0xE0..=0xFC));
+                trail = !was;
+            }
         }
     }
     out
@@ -694,7 +887,11 @@ pub fn pack_within(
                 z.start_file(arc, opts).map_err(zip_err)?;
                 let mut data = scrub.blank(data);
                 for code in &dump_codes {
-                    data = replace(&data, code, false, |m| vec![b'_'; m.len()]);
+                    // either case: a code may be written in lower or upper case, as the stand-in that logs it does
+                    let fold = vec![true; code.len()];
+                    data = replace(&data, code, &fold, Ends::Any, Chars::Unknown, |m| {
+                        vec![b'_'; m.len()]
+                    });
                 }
                 z.write_all(&data)?;
                 n += 1;
@@ -715,19 +912,54 @@ pub fn pack_within(
             {
                 continue;
             }
-            if size > tail {
-                let mut head = format!(
-                    "[... the first {} bytes left out - the last {tail} follow]\n",
-                    size - tail
-                )
-                .into_bytes();
+            // what the head of the file said, kept until the scrub is done: a name in it must not rewrite it
+            let head = if size > tail {
+                // the cut can land inside a character: its remaining bytes come first, the tail starts after them
+                let cut = data
+                    .iter()
+                    .take(3)
+                    .take_while(|&&b| matches!(b, 0x80..=0xBF))
+                    .count();
+                data.drain(..cut);
+                Some(format!(
+                    "[... the first {} bytes left out - the last {} follow]\n",
+                    size - data.len(),
+                    data.len()
+                ))
+            } else {
+                None
+            };
+            // the championship's day files are binary: an underscore keeps a file's length and its layout
+            let keep = arc.ends_with("_uc.bin");
+            z.start_file(arc, opts).map_err(zip_err)?;
+            let mut data = if keep {
+                scrub.blank(data)
+            } else {
+                // a cut tail starts in the middle of a file: its bytes cannot be placed in CP932 characters
+                scrub.scrub_part(data, head.is_none())
+            };
+            for code in &codes {
+                // either case: the aimedb stand-in logs its hex in lower case, a reading may be upper
+                let fold = vec![true; code.len()];
+                data = replace(
+                    &data,
+                    code.as_bytes(),
+                    &fold,
+                    Ends::Any,
+                    Chars::Unknown,
+                    |m| {
+                        if keep {
+                            vec![b'_'; m.len()]
+                        } else {
+                            b"ACCESS-CODE".to_vec()
+                        }
+                    },
+                );
+            }
+            if let Some(head) = head {
+                let mut head = head.into_bytes();
                 head.append(&mut data);
                 data = head;
-            }
-            z.start_file(arc, opts).map_err(zip_err)?;
-            let mut data = scrub.scrub(data);
-            for code in &codes {
-                data = replace(&data, code.as_bytes(), false, |_| b"ACCESS-CODE".to_vec());
             }
             z.write_all(&data)?;
             n += 1;
@@ -817,12 +1049,41 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    /// Whether `data` still holds `needle` anywhere, ASCII case aside (the way [`Scrub`] itself matches).
-    fn holds(data: &[u8], needle: &[u8]) -> bool {
-        !needle.is_empty()
-            && data
-                .windows(needle.len())
-                .any(|w| w.eq_ignore_ascii_case(needle))
+    type Enc = fn(&str) -> Option<Vec<u8>>;
+
+    /// Whether `data` still holds `needle` in encoding `enc` anywhere, the case of its ASCII characters aside (the way
+    /// [`Scrub`] itself matches; the other bytes exactly, as a kanji's CP932 byte may be an ASCII letter).
+    fn holds(data: &[u8], needle: &str, enc: Enc) -> bool {
+        let (mut b, mut f) = (vec![], vec![]);
+        for c in needle.chars() {
+            let Some(e) = enc(&c.to_string()) else {
+                return false;
+            };
+            f.extend(std::iter::repeat_n(c.is_ascii(), e.len()));
+            b.extend(e);
+        }
+        !b.is_empty()
+            && data.windows(b.len()).any(|w| {
+                w.iter()
+                    .zip(&b)
+                    .zip(&f)
+                    .all(|((x, y), f)| x == y || (*f && x.eq_ignore_ascii_case(y)))
+            })
+    }
+
+    /// `data` without every one of `cuts`.
+    fn without(data: &[u8], cuts: [&[u8]; 3]) -> Vec<u8> {
+        let (mut out, mut i) = (vec![], 0);
+        while i < data.len() {
+            match cuts.iter().find(|c| data[i..].starts_with(c)) {
+                Some(c) => i += c.len(),
+                None => {
+                    out.push(data[i]);
+                    i += 1;
+                }
+            }
+        }
+        out
     }
 
     /// `text` in the other two encodings a log takes: Latin-1 (None for a char it cannot hold) and UTF-16LE.
@@ -832,81 +1093,137 @@ mod tests {
             .collect()
     }
 
-    fn utf16(text: &str) -> Vec<u8> {
-        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    fn utf16(text: &str) -> Option<Vec<u8>> {
+        Some(text.encode_utf16().flat_map(u16::to_le_bytes).collect())
     }
 
-    // The scrub's promise, stated as a rule: the user name, the PC name and the home path sit at any offset of the
-    // text, in both encodings it comes in, and none of them survives. `before`/`mid`/`after` keep them apart, as a
-    // whole word needs a non-letter beside it; a name the placeholder spells itself ("Use" in "USER") cannot be
-    // looked for in the output, so it is left out.
+    fn utf8(text: &str) -> Option<Vec<u8>> {
+        Some(text.as_bytes().to_vec())
+    }
+
+    /// `text` as CP932, None for a char it cannot hold (the test's own copy, so it also runs against older scrubs).
+    fn sjis(text: &str) -> Option<Vec<u8>> {
+        let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(text);
+        (!bad).then(|| b.into_owned())
+    }
+
+    /// `s` in one of four cases: lower, upper, as written, or every other letter upper.
+    fn vary(s: &str, case: u8) -> String {
+        match case {
+            0 => s.to_lowercase(),
+            1 => s.to_uppercase(),
+            2 => s.to_owned(),
+            _ => s
+                .chars()
+                .enumerate()
+                .map(|(i, c)| match i % 2 {
+                    0 => c.to_uppercase().collect::<String>(),
+                    _ => c.to_lowercase().collect(),
+                })
+                .collect(),
+        }
+    }
+
+    /// User names as Windows has them: Latin with an accent, ASCII with digits (2 letters and up), kanji, kana (one
+    /// character and up).
+    fn user_name() -> impl Strategy<Value = String> {
+        prop_oneof![
+            "[a-z]{2,5}[éeèü]",
+            "[A-Za-z][a-z0-9]{1,6}",
+            "[太郎花子田中翔]{2,3}",
+            "[あいうかき]{1,2}",
+        ]
+    }
+
+    /// PC names: a word, the `DESKTOP-AB12CD` Windows makes up, two or three letters and digits, kanji.
+    fn pc_name() -> impl Strategy<Value = String> {
+        prop_oneof![
+            "[A-Z][a-z]{2,6}",
+            "(DESKTOP|LAPTOP)-[A-Z0-9]{4,7}",
+            "[A-Z0-9]{2,3}",
+            "[太郎花子田中]{2,3}",
+        ]
+    }
+
+    /// A name the placeholders spell themselves ("use" in "USER", "PC") cannot be looked for in the output.
+    fn in_placeholder(n: &str) -> bool {
+        holds(b"USER %USERPROFILE% PC", n, utf8)
+    }
+
+    // The scrub's promise, stated as a rule for what these generators make: the user name, the PC name and the home
+    // path (with `\` and with `/`), each in any case, sit at any offset of the text, in every encoding it comes in
+    // (UTF-8, Latin-1, CP932), and none of them survives; the home goes as one `%USERPROFILE%`, with or without
+    // `folders`. A non-ASCII name may touch letters, digits and kana ("glue"), as in Japanese; an ASCII one is
+    // generated alone, as the whole-word rule spares a letter beside it. The case of a name is spelled out whole, so
+    // the mixed-case `shortcut` above is not exercised here; the UTF-8 text stays UTF-8.
     proptest! {
         #[test]
         fn scrub_leaves_no_name_behind(
-            user in "[a-z]{2,5}[éeèü]",
-            pc in "[A-Z][a-z]{2,6}",
+            user in user_name(),
+            pc in pc_name(),
             drive in "[A-Za-z]",
-            (before, mid, after) in ("[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}"),
+            (cu, cp, ch) in (0..4u8, 0..4u8, 0..4u8),
+            ends in ["[ ._\\\\/:,;()#!\n-]{0,3}"; 2],
+            cores in ["[ ._\\\\/:,;()#!\n-]{1,3}"; 3],
+            glue in ["[a-zA-Z0-9あ日本]{0,3}"; 4],
+            folders in any::<bool>(),
         ) {
-            // the scrub takes out names of 3 characters and more, and a name the placeholders spell themselves ("use"
-            // in "USER") cannot be looked for in the output: both are left out here rather than taken on trust from the
-            // patterns above, which a reported case does not always stay inside
-            prop_assume!(user.chars().count() >= 3 && pc.chars().count() >= 3);
-            prop_assume!([&user, &pc].iter().all(|n| {
-                !"USER %USERPROFILE%".to_ascii_lowercase().contains(&n.to_ascii_lowercase())
-            }));
+            prop_assume!(!in_placeholder(&user) && !in_placeholder(&pc));
+            prop_assume!(glue.iter().all(|g| [&user, &pc].iter().all(|n| !holds(g.as_bytes(), n, utf8))));
             let home = format!("{drive}:\\Users\\{user}");
             let scrub = Scrub {
                 home: home.clone(),
                 user: user.clone(),
                 pc: pc.clone(),
-                folders: true,
+                folders,
             };
-            let text = format!("{before}|{user}|{mid}|{pc}|{after}|{home}|");
-            // only text Latin-1 can hold has a Latin-1 form to check
-            prop_assume!(latin1(&text).is_some());
-            // the same text as UTF-8 and as Latin-1, each name looked for in the encoding it went in as
-            for latin in [false, true] {
-                let enc = |s: &str| match latin {
-                    false => s.as_bytes().to_vec(),
-                    true => latin1(s).unwrap(),
-                };
-                let data = enc(&text);
+            let g = |name: &str, i: usize| if name.is_ascii() { "" } else { glue[i].as_str() };
+            let (u, p, h) = (vary(&user, cu), vary(&pc, cp), vary(&home, ch));
+            let f = h.replace('\\', "/");
+            let text = format!(
+                "{}{}{u}{}{}{}{p}{}{}{h}{}{f}{}",
+                ends[0], g(&user, 0), g(&user, 1), cores[0], g(&pc, 2), g(&pc, 3), cores[1], cores[2], ends[1]
+            );
+            for (enc, text_enc) in [(utf8 as Enc, true), (latin1, false), (sjis, false)] {
+                // only text the encoding can hold is checked in it
+                let Some(data) = enc(&text) else { continue };
                 let out = scrub.scrub(data.clone());
-                for needle in [&user, &pc, &home] {
-                    let form = enc(needle);
-                    prop_assert!(holds(&data, &form), "{needle:?} was never in the text");
-                    prop_assert!(
-                        !holds(&out, &form),
-                        "{needle:?} survived as {form:02x?} in {:?}",
-                        String::from_utf8_lossy(&out)
-                    );
+                // what this project wrote as UTF-8 stays valid UTF-8
+                if text_enc {
+                    prop_assert!(std::str::from_utf8(&out).is_ok(), "{:?}", String::from_utf8_lossy(&out));
                 }
+                let shown = String::from_utf8_lossy(&out);
+                // a name can be spelled by a letter of the text beside a placeholder ("E" before "USER"): the
+                // placeholders are no player's text, so they come out before a name is looked for
+                let rest = without(&out, [b"USER", b"%USERPROFILE%", b"PC"]);
+                for needle in [&u, &p, &h, &f] {
+                    prop_assert!(holds(&data, needle, enc), "{needle:?} was never in the text");
+                    prop_assert!(!holds(&rest, needle, enc), "{needle:?} survived in {shown:?}");
+                }
+                let homes = out.windows(13).filter(|w| w == b"%USERPROFILE%").count();
+                prop_assert_eq!(homes, 2, "{:?}", shown);
             }
         }
 
-        // A binary file (`blank`): the three encodings, UTF-16LE included, and nothing moves, so a snapshot stays one.
+        // A binary file (`blank`): every encoding, UTF-16LE and upper case included, and nothing moves, so a snapshot
+        // stays one.
         #[test]
         fn blank_keeps_the_length_and_every_encoding_goes(
-            user in "[a-z]{2,5}[éeèü]",
-            pc in "[A-Z][a-z]{2,6}",
+            user in prop_oneof!["[a-z]{2,5}[éeèü]", "[太郎花子田中翔]{2,3}"],
+            pc in prop_oneof!["[A-Z][a-z]{2,6}", "(DESKTOP|LAPTOP)-[A-Z0-9]{4,7}"],
             drive in "[A-Za-z]",
             (before, mid, after) in ("[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}", "[ ._\\\\/:,;()#!-]{0,10}"),
         ) {
-            // the scrub takes out names of 3 characters and more, and a name the placeholders spell themselves ("use"
-            // in "USER") cannot be looked for in the output: both are left out here rather than taken on trust from the
-            // patterns above, which a reported case does not always stay inside
-            prop_assume!(user.chars().count() >= 3 && pc.chars().count() >= 3);
-            prop_assume!([&user, &pc].iter().all(|n| {
-                !"USER %USERPROFILE%".to_ascii_lowercase().contains(&n.to_ascii_lowercase())
-            }));
             let home = format!("{drive}:\\Users\\{user}");
-            let text = format!("{before}|{user}|{mid}|{pc}|{after}|{home}|");
-            // only text Latin-1 can hold has a Latin-1 form to check
-            prop_assume!(latin1(&text).is_some());
-            let mut dump = text.clone().into_bytes();
-            dump.extend(latin1(&text).unwrap());
-            dump.extend(utf16(&text));
+            let text = format!("{before}{user}{mid}{pc}{after}{home}|");
+            let upper = text.to_uppercase();
+            let mut dump = vec![];
+            for t in [&text, &upper] {
+                dump.extend(t.as_bytes());
+                dump.extend(latin1(t).unwrap_or_default());
+                dump.extend(sjis(t).unwrap_or_default());
+                dump.extend(utf16(t).unwrap());
+            }
             let scrub = Scrub {
                 home: home.clone(),
                 user: user.clone(),
@@ -916,13 +1233,12 @@ mod tests {
             let out = scrub.blank(dump.clone());
             prop_assert_eq!(out.len(), dump.len());
             for needle in [&user, &pc, &home] {
-                for form in [
-                    needle.as_bytes().to_vec(),
-                    latin1(needle).unwrap(),
-                    utf16(needle),
-                ] {
-                    prop_assert!(holds(&dump, &form), "{needle:?} was never in the dump");
-                    prop_assert!(!holds(&out, &form), "{needle:?} left in as {form:02x?}");
+                for n in [needle.clone(), needle.to_uppercase()] {
+                    let encs: [Enc; 4] = [utf8, latin1, sjis, utf16];
+                    for enc in encs.into_iter().filter(|e| e(&n).is_some()) {
+                        prop_assert!(holds(&dump, &n, enc), "{n:?} was never in the dump");
+                        prop_assert!(!holds(&out, &n, enc), "{n:?} left in as {:02x?}", enc(&n));
+                    }
                 }
             }
         }
@@ -971,6 +1287,265 @@ mod tests {
             r"C:\Users\ then C:\Program Files\x"
         );
         assert_eq!(s("no path here: Users"), "no path here: Users");
+    }
+
+    #[test]
+    fn a_cp932_folder_name_keeps_its_tail() {
+        // shortcut: 表 is 95 5C, so the separator ends the name and 田 stays; the test pins today's output
+        let s = |t: &str| user_folders(&sjis(t).unwrap());
+        assert_eq!(
+            s(r"D:\Users\表田\x"),
+            [b"%USERPROFILE%\\".to_vec(), sjis("田\\x").unwrap()].concat()
+        );
+    }
+
+    #[test]
+    fn two_letter_names_leave_text() {
+        let scrub = Scrub {
+            home: "C:\\Users\\太郎".into(),
+            user: "太郎".into(),
+            pc: "Al".into(),
+            folders: false,
+        };
+        let out = scrub.scrub(
+            "太郎さん on Al: 山田太郎, Also AL. C:/Users/太郎/x"
+                .as_bytes()
+                .to_vec(),
+        );
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "USERさん on PC: 山田USER, Also PC. %USERPROFILE%/x"
+        );
+        // a single ASCII letter stays (it would take every "a" with it), a single kana goes
+        let one = |user: &str, text: &str| {
+            let s = Scrub {
+                user: user.into(),
+                ..Scrub::default()
+            };
+            String::from_utf8(s.scrub(text.as_bytes().to_vec())).unwrap()
+        };
+        assert_eq!(one("a", "a file"), "a file");
+        assert_eq!(one("あ", "あさん"), "USERさん");
+        // a one-letter name whose other case is a lone ASCII letter keeps only its own form; an ASCII form of two
+        // letters goes as a whole word
+        assert_eq!(one("ı", "INFO: ı"), "INFO: USER");
+        assert_eq!(one("ſ", "Save ſ"), "Save USER");
+        assert_eq!(one("ſt", "STOP ST xſty"), "STOP USER xUSERy");
+        // a 2-letter ASCII name goes only as a word of its own, so a standalone word of that shape goes too
+        assert_eq!(one("Al", "also local Al al"), "also local USER USER");
+        assert_eq!(one("An", "an input"), "USER input");
+        assert_eq!(
+            one("IT", "lobby.wccf.it is not an address"),
+            "lobby.wccf.USER is not an address"
+        );
+    }
+
+    #[test]
+    fn a_two_letter_name_beside_a_cp932_kanji_goes() {
+        // 人 is 90 6C: the second byte is an "l", and it is no word beside the name
+        let scrub = Scrub {
+            pc: "Al".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            scrub.scrub(sjis("人Al 田Al 年Al").unwrap()),
+            sjis("人PC 田PC 年PC").unwrap()
+        );
+    }
+
+    #[test]
+    fn a_name_beside_a_multibyte_character_keeps_the_word_rule() {
+        // あ ends in E3 81 82, whose last byte is a CP932 lead byte: "Also" is a word, not the name "Al"
+        let al = Scrub {
+            pc: "Al".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            String::from_utf8(al.scrub("あAlso ミAlpha".as_bytes().to_vec())).unwrap(),
+            "あAlso ミAlpha"
+        );
+        // 伸 is 90 4C: a match starting on its second byte would rewrite the kanji
+        let lo = Scrub {
+            pc: "Lo".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(lo.scrub(sjis("伸o").unwrap()), sjis("伸o").unwrap());
+    }
+
+    #[test]
+    fn one_byte_names_leave_utf8_text_whole() {
+        // ç is E7 in Latin-1 and ｱ is B1 in CP932; in UTF-8 E7 leads 火 and 田, B1 is the middle of 米, so neither
+        // form may touch text that decodes
+        let text = "クラブ 火 田 生 私 空 終 線 米 ç ｱ";
+        for user in ["ç", "ｱ"] {
+            let scrub = Scrub {
+                user: user.into(),
+                ..Scrub::default()
+            };
+            let out = scrub.scrub(text.as_bytes().to_vec());
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                text.replace(user, "USER"),
+                "{user}"
+            );
+        }
+        // a log torn while it is written ends inside a character: still text, its last character incomplete
+        let torn = ["私 ç ".as_bytes(), &[0xE7][..]].concat();
+        let scrub = Scrub {
+            user: "ç".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            scrub.scrub(torn.clone()),
+            ["私 USER ".as_bytes(), &[0xE7][..]].concat()
+        );
+    }
+
+    #[test]
+    fn a_tail_cut_inside_a_character_starts_at_the_next_one() {
+        let d = tempfile::tempdir().unwrap();
+        let logs = d.path().join("data/logs");
+        fs::create_dir_all(&logs).unwrap();
+        // 3 bytes each, so a tail of 8 starts on the second byte of one
+        let text = "あいう".repeat(100);
+        fs::write(logs.join("run.txt"), &text).unwrap();
+        let scrub = Scrub {
+            user: "ç".into(),
+            ..Scrub::default()
+        };
+        let (blob, _) = pack_within(d.path(), None, &scrub, 8, None, LIMIT).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "logs/run.txt");
+        let shown = String::from_utf8(out).unwrap();
+        // the two bytes left over from the cut character go, and the tail starts at the next one
+        assert_eq!(
+            shown,
+            "[... the first 894 bytes left out - the last 6 follow]\nいう"
+        );
+    }
+
+    #[test]
+    fn a_cp932_tail_cut_before_a_name_still_loses_it() {
+        // the cut lands on the second byte of 一 (88 EA), so the characters after it cannot be placed: Bob still goes
+        let d = tempfile::tempdir().unwrap();
+        let logs = d.path().join("data/logs");
+        fs::create_dir_all(&logs).unwrap();
+        let text = sjis("ログ一丁Bob です").unwrap();
+        fs::write(logs.join("run.txt"), &text).unwrap();
+        let scrub = Scrub {
+            user: "Bob".into(),
+            ..Scrub::default()
+        };
+        // 11 of the 16 bytes, from 一's second byte
+        let (blob, _) = pack_within(d.path(), None, &scrub, text.len() - 5, None, LIMIT).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "logs/run.txt");
+        assert!(!out.windows(3).any(|w| w == b"Bob"), "{:02x?}", out);
+        assert!(out.windows(4).any(|w| w == b"USER"), "{:02x?}", out);
+    }
+
+    #[test]
+    fn a_stray_byte_does_not_keep_a_name() {
+        // one byte that is not UTF-8 makes a log not text, and its CP932 reading is not clean either: Bob still goes
+        let scrub = Scrub {
+            user: "Bob".into(),
+            ..Scrub::default()
+        };
+        let out = scrub.scrub([b"\xe3\x83\x96".as_slice(), b"Bob", &[0xFF]].concat());
+        assert!(!out.windows(3).any(|w| w == b"Bob"), "{:02x?}", out);
+        assert!(out.windows(4).any(|w| w == b"USER"), "{:02x?}", out);
+    }
+
+    #[test]
+    fn a_kanji_name_does_not_break_a_cp932_character() {
+        // 田 is 93 63 and ン is 83 93: a match on ン's second byte would rewrite it
+        let scrub = Scrub {
+            user: "田".into(),
+            ..Scrub::default()
+        };
+        let text = sjis("ンcxあ").unwrap();
+        assert_eq!(scrub.scrub(text.clone()), text);
+    }
+
+    #[test]
+    fn a_name_in_another_script_is_not_split_by_a_longer_home() {
+        let scrub = Scrub {
+            home: r"C:\Users\José".into(),
+            user: "José".into(),
+            folders: true,
+            ..Scrub::default()
+        };
+        assert_eq!(note(r"C:\Users\Joséphine\x", &scrub), r"%USERPROFILE%\x");
+    }
+
+    #[test]
+    fn the_line_about_what_was_left_out_is_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let logs = d.path().join("data/logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(logs.join("run.txt"), "x".repeat(20)).unwrap();
+        let scrub = Scrub {
+            pc: "the".into(),
+            ..Scrub::default()
+        };
+        let (blob, _) = pack_within(d.path(), None, &scrub, 10, None, LIMIT).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = String::from_utf8(read(&mut z, "logs/run.txt")).unwrap();
+        assert!(
+            out.starts_with("[... the first 10 bytes left out - the last 10 follow]\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn another_accounts_home_that_starts_with_this_one_is_not_split() {
+        let scrub = |folders| Scrub {
+            home: r"C:\Users\Al".into(),
+            user: "Al".into(),
+            folders,
+            ..Scrub::default()
+        };
+        assert_eq!(note(r"C:\Users\Alice\x", &scrub(true)), r"%USERPROFILE%\x");
+        assert_eq!(
+            note(r"C:\Users\Alice\x", &scrub(false)),
+            r"C:\Users\Alice\x"
+        );
+    }
+
+    #[test]
+    fn cp932_names_leave_text() {
+        let scrub = Scrub {
+            home: "C:\\Users\\田中".into(),
+            user: "田中".into(),
+            pc: "DESKTOP-AB12CD".into(),
+            folders: false,
+        };
+        let out = scrub.scrub(sjis("田中のクラブ desktop-ab12cd C:\\Users\\田中\\save").unwrap());
+        assert_eq!(out, sjis("USERのクラブ PC %USERPROFILE%\\save").unwrap());
+        // 人 is 90 6C and 伸 90 4C in CP932: only the ASCII characters of a name match in either case
+        let one = Scrub {
+            user: "人".into(),
+            ..Scrub::default()
+        };
+        let text = sjis("伸 と人, 伸人").unwrap();
+        assert_eq!(one.scrub(text), sjis("伸 とUSER, 伸USER").unwrap());
+        let two = Scrub {
+            user: "人人".into(),
+            ..Scrub::default()
+        };
+        let want = [sjis("伸伸 ").unwrap(), vec![b'_'; 4]].concat();
+        assert_eq!(two.blank(sjis("伸伸 人人").unwrap()), want);
+        // the same in UTF-16: Ł is 41 01, š 61 01
+        let pl = Scrub {
+            user: "Łuk".into(),
+            ..Scrub::default()
+        };
+        let (l, s) = (utf16("ŁUK łuk").unwrap(), utf16("šuk ŠUK").unwrap());
+        assert_eq!(
+            pl.blank(l),
+            [vec![b'_'; 6], utf16(" ").unwrap(), vec![b'_'; 6]].concat()
+        );
+        assert_eq!(pl.blank(s.clone()), s);
     }
 
     #[test]
@@ -1133,6 +1708,50 @@ mod tests {
             "[SAVE LOGS] save/gamesvr/gamesvr.db left out: bigger than 3 MB\n"
         );
         drop(live);
+    }
+
+    #[test]
+    fn an_access_code_goes_in_either_case() {
+        let d = tempfile::tempdir().unwrap();
+        let (save, logs) = (d.path().join("data/save"), d.path().join("data/logs"));
+        fs::create_dir_all(&save).unwrap();
+        fs::create_dir_all(&logs).unwrap();
+        // a 20-character hex code: aimedb's stand-in writes it in lower case, a reading may hold upper
+        let code = "5ABCDEF0123456789ABC";
+        fs::write(save.join("aimedb.json"), format!(r#"{{"{code}": 1}}"#)).unwrap();
+        fs::write(
+            logs.join("run.log"),
+            format!("card {} read", code.to_lowercase()),
+        )
+        .unwrap();
+        let (blob, _) = pack(d.path(), None, &Scrub::default(), TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        assert_eq!(
+            read(&mut z, "logs/run.log"),
+            b"card ACCESS-CODE read".to_vec()
+        );
+    }
+
+    #[test]
+    fn a_championship_day_file_keeps_its_length() {
+        let d = tempfile::tempdir().unwrap();
+        let (game, logs) = (d.path().join("seat1"), d.path().join("data/logs"));
+        fs::create_dir_all(&logs).unwrap();
+        fs::create_dir_all(game.join("log")).unwrap();
+        let file = [b"\x01\x02".as_slice(), b"Alice", &[0x00, 0x02]].concat();
+        fs::write(game.join("log/20261108_uc.bin"), &file).unwrap();
+        let scrub = Scrub {
+            user: "Alice".into(),
+            ..Scrub::default()
+        };
+        let (blob, _) = pack(d.path(), Some(&game), &scrub, TAIL, None).unwrap();
+        let mut z = zip::ZipArchive::new(Cursor::new(blob)).unwrap();
+        let out = read(&mut z, "game/log/20261108_uc.bin");
+        assert_eq!(out.len(), file.len());
+        assert_eq!(
+            out,
+            [b"\x01\x02".as_slice(), b"_____", &[0x00, 0x02]].concat()
+        );
     }
 
     #[test]
