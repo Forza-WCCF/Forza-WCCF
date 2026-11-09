@@ -126,10 +126,11 @@ impl Job {
                 // SAFETY: the process handle is ours; it has run no instruction.
                 unsafe { TerminateProcess(child.process.as_raw_handle(), 1) };
                 return Err(io::Error::other(format!(
-                    "{} runs {}, not the checked {}: not started",
+                    "{} runs {}, not the checked {} (pid {}): not started",
                     exe.display(),
                     got.map_or_else(|| "an unknown program".to_owned(), |g| g.display().to_string()),
-                    want.display()
+                    want.display(),
+                    child.pid
                 )));
             }
         }
@@ -570,9 +571,15 @@ mod tests {
     }
 
     /// A program started through a junction runs only when Windows reports it as the checked file: the right folder
-    /// starts, a junction that leads elsewhere is ended unrun.
+    /// starts; when the junction leads elsewhere than the checked copy, the process is ended unrun (its exit arrives).
     #[test]
     fn a_junction_start_runs_only_the_checked_program() {
+        use std::fs;
+        use windows_sys::Win32::Foundation::{CloseHandle, DBG_CONTINUE};
+        use windows_sys::Win32::System::Diagnostics::Debug::{
+            CREATE_PROCESS_DEBUG_EVENT, ContinueDebugEvent, DEBUG_EVENT, EXIT_PROCESS_DEBUG_EVENT, WaitForDebugEvent,
+        };
+
         let me = env::current_exe().unwrap();
         let real = me.parent().unwrap();
         let top = tempfile::tempdir().unwrap();
@@ -593,13 +600,50 @@ mod tests {
         );
         // SAFETY: the handle is ours.
         unsafe { TerminateProcess(ok.process.as_raw_handle(), 1) };
-        let other = top.path().join("other.exe");
+        // the guard checked a copy in another folder; the junction leads elsewhere (to the test's own folder)
+        let guarded = top.path().join("guarded");
+        fs::create_dir(&guarded).unwrap();
+        let other = guarded.join(me.file_name().unwrap());
+        fs::copy(&me, &other).unwrap();
         let Err(e) = job.spawn_debug(&through, &args, &link, &env, false, true, Some(&other)) else {
             panic!("a junction to another program started");
         };
         let e = e.to_string();
-        assert!(e.contains("not the checked") && e.contains("other.exe"), "{e}");
+        assert!(
+            e.contains("not the checked") && e.contains(&other.display().to_string()),
+            "{e}"
+        );
         assert!(!is_program(&image, &other));
+        // it was ended, never resumed: its exit reaches this thread, its debugger
+        let pid: u32 = e
+            .rsplit_once("(pid ")
+            .unwrap()
+            .1
+            .split(')')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let t = Instant::now();
+        loop {
+            assert!(t.elapsed() < Duration::from_secs(20), "pid {pid} was not ended");
+            let mut de: DEBUG_EVENT = Default::default();
+            // SAFETY: the event is a live local; this thread is the debugger of both children.
+            if unsafe { WaitForDebugEvent(&mut de, 500) } == FALSE {
+                continue;
+            }
+            let code = de.dwDebugEventCode;
+            // SAFETY: the event's file handle is ours (a process start); the event is answered once.
+            unsafe {
+                if code == CREATE_PROCESS_DEBUG_EVENT {
+                    CloseHandle(de.u.CreateProcessInfo.hFile);
+                }
+                ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
+            }
+            if code == EXIT_PROCESS_DEBUG_EVENT && de.dwProcessId == pid {
+                break;
+            }
+        }
     }
 
     #[test]

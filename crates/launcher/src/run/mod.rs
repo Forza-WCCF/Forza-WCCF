@@ -1559,6 +1559,8 @@ impl Run<'_> {
                             Text::key("launcher.run_path_taken").arg("folder", self.p.run_links.display())
                         } else {
                             Text::key("launcher.run_path_not_ascii")
+                                .arg("folder", self.p.run_links.display())
+                                .arg("error", &e)
                         };
                         self.tell("  ", &line);
                         crate::logs::append(

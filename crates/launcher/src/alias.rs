@@ -61,7 +61,7 @@ pub fn for_dir(dir: &Path, base: &Path) -> io::Result<Option<PathBuf>> {
     }
     let real = fs::canonicalize(dir)?;
     let id = id(dir);
-    let mut why = Vec::new();
+    let (mut why, mut taken) = (Vec::new(), true);
     for n in 0..NAMES {
         let link = base.join(if n == 0 { id.clone() } else { format!("{id}-{n}") });
         if !is_ascii(&link) {
@@ -72,14 +72,32 @@ pub fn for_dir(dir: &Path, base: &Path) -> io::Result<Option<PathBuf>> {
         }
         match take(&link, dir, &real) {
             Ok(()) => return Ok(Some(link)),
-            Err(e) => why.push(format!("{}: {e}", link.display())),
+            Err(e) => {
+                taken &= e.kind() == io::ErrorKind::AlreadyExists;
+                why.push(format!("{}: {e}", link.display()));
+            }
         }
     }
-    // AlreadyExists: the run tells the player which folder to clean
+    // AlreadyExists only when every name is held (the run tells the player which folder to clean); anything else, such
+    // as a run folder this user may not create, is reported as itself
+    let (kind, what) = if taken {
+        (io::ErrorKind::AlreadyExists, "no junction name is free")
+    } else {
+        (io::ErrorKind::Other, "no junction could be made")
+    };
     Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        format!("no junction name is free for {}: {}", dir.display(), why.join("; ")),
+        kind,
+        format!("{what} for {}: {}", dir.display(), why.join("; ")),
     ))
+}
+
+/// A failure to make the run folder or the link is not a name someone holds, whatever Windows calls it (a file where
+/// the run folder should be answers "already exists").
+fn not_held(e: io::Error) -> io::Error {
+    match e.kind() {
+        io::ErrorKind::AlreadyExists => io::Error::other(e),
+        _ => e,
+    }
 }
 
 /// Makes `link` lead to `dir` (on disk `real`), or says why that name cannot be used.
@@ -88,16 +106,21 @@ fn take(link: &Path, dir: &Path, real: &Path) -> io::Result<()> {
         match fs::canonicalize(link) {
             Ok(to) if to == real && junction::exists(link).unwrap_or(false) => return Ok(()),
             Ok(_) if junction::exists(link).unwrap_or(false) => {
-                return Err(io::Error::other("leads to another folder"));
+                return Err(io::Error::new(io::ErrorKind::AlreadyExists, "leads to another folder"));
             }
             // broken (its target is gone) or an empty folder: removes the link only, never what it points at
             // (RemoveDirectoryW); a file or a folder with files stays and the name is skipped
-            _ => fs::remove_dir(link)?,
+            _ => fs::remove_dir(link).map_err(|e| match e.kind() {
+                io::ErrorKind::NotADirectory | io::ErrorKind::DirectoryNotEmpty => {
+                    io::Error::new(io::ErrorKind::AlreadyExists, e)
+                }
+                _ => e,
+            })?,
         }
     } else if let Some(parent) = link.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).map_err(not_held)?;
     }
-    junction::create(dir, link)?;
+    junction::create(dir, link).map_err(not_held)?;
     if fs::canonicalize(link).ok().as_deref() != Some(real) {
         let _ = fs::remove_dir(link);
         return Err(io::Error::other(format!("does not lead to {}", dir.display())));
@@ -303,16 +326,20 @@ mod tests {
         fs::create_dir(&real).unwrap();
         let file = top.path().join("ProgramData");
         fs::write(&file, b"a file where the folder should be").unwrap();
-        assert!(for_dir(&real, &file.join("run")).is_err());
+        let e = for_dir(&real, &file.join("run")).unwrap_err();
+        assert_ne!(e.kind(), io::ErrorKind::AlreadyExists, "not a full folder: {e}");
+        assert!(e.to_string().contains("no junction could be made"), "{e}");
         for key in ["launcher.run_path_not_ascii", "launcher.run_path_taken"] {
-            let line = crate::run::Text::key(key).arg("folder", r"C:\ProgramData\Forza-WCCF\run");
+            let line = crate::run::Text::key(key)
+                .arg("folder", r"C:\ProgramData\Forza-WCCF\run")
+                .arg("error", "access denied");
             let all = [forza_ui::Lang::En, forza_ui::Lang::It, forza_ui::Lang::Ja].map(|l| line.get(l));
             assert!(
                 all.iter()
                     .all(|t| !t.is_empty() && !t.contains(key) && !t.contains("%{")),
                 "{all:?}"
             );
-            assert!(all[0] != all[1] && all[1] != all[2], "{all:?}");
+            assert!(all[0] != all[1] && all[1] != all[2] && all[0] != all[2], "{all:?}");
         }
         assert!(
             crate::run::Text::key("launcher.run_path_taken")
