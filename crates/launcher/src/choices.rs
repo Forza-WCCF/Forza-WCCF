@@ -272,6 +272,25 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// FRAME CAP and VSYNC as the Launcher saves them and forza_panel.dll reads them back (defaults: cap on, vsync off).
+    #[test]
+    fn frame_pacing_settings_persist() {
+        use forza::kit::{frame_cap, read_settings, vsync};
+        let dir = std::env::temp_dir().join(format!("wccf-pacing-test-{}", std::process::id()));
+        let path = dir.join("settings.json");
+        let _ = fs::remove_dir_all(&dir);
+        assert!(frame_cap(&read_settings(&path)) && !vsync(&read_settings(&path))); // no file: the defaults
+        set_setting_bool(&path, "frame_cap", false).unwrap();
+        set_setting_bool(&path, "vsync", true).unwrap();
+        let s = read_settings(&path);
+        assert!(!frame_cap(&s) && vsync(&s));
+        set_setting_bool(&path, "frame_cap", true).unwrap();
+        set_setting_bool(&path, "vsync", false).unwrap();
+        let s = read_settings(&path);
+        assert!(frame_cap(&s) && !vsync(&s));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// PLAY reads panel.txt and writes it back whole: a file it cannot read now (a scanner or a viewer holding it) is
     /// an error, never the empty text the defaults would be saved from.
     #[test]

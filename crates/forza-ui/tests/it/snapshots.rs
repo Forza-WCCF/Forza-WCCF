@@ -562,6 +562,33 @@ fn panel_compact() {
     all.unwrap();
 }
 
+/// 2017-18: the FPS counter over the game picture, and SETTINGS with texture filtering at 8x and the counter on.
+#[test]
+fn panel_fps_and_textures_1718() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    st.fps = Some(30); // SETTINGS > FPS COUNTER on
+    snap(
+        &mut all,
+        "panel_game_fps_1718_en",
+        panel::SIZE,
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
+    // the longest text
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::Ja, panel::Page::Settings);
+    (st.file.textures, st.file.fps) = (8, true);
+    snap(
+        &mut all,
+        "panel_settings_textures_1718_ja",
+        panel::SIZE,
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
+    all.unwrap();
+}
+
 /// The server's notice: across the top of the game picture (2017-18 game page) and under the Launcher's status line.
 #[test]
 fn server_notice() {
