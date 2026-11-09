@@ -165,7 +165,8 @@ fn long_name(path: &Path) -> PathBuf {
 
 /// The game's programs running from this game's folders (the game folder and the seat1 and misc folders beside it).
 pub fn game_processes(game: &Path) -> Vec<Proc> {
-    let game = std::path::absolute(game).unwrap_or_else(|_| game.to_path_buf());
+    // resolved before its parent is taken: a seat's own folder may be a run junction (`launcher::alias`)
+    let game = PathBuf::from(same_form(game));
     let root = same_form(game.parent().unwrap_or(&game)) + "\\";
     processes()
         .into_iter()

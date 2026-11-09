@@ -170,7 +170,8 @@ impl App {
                     .to_string()
             },
         });
-        st.ascii_tip = !st.folder.is_ascii();
+        // 2017-18's Launcher starts the game through a plain-ASCII junction (launcher::alias); 2010-11 has none
+        st.ascii_tip = !st.folder.is_ascii() && st.target() != Some(Edition::E1718);
     }
 
     /// [`App::refresh`] when the inputs changed since its last run: a repaint alone changes no answer.

@@ -1893,7 +1893,8 @@ fn main() -> ExitCode {
     if args.is_empty() {
         match link::first_run(kit.dir(), kit.edition()) {
             link::Outcome::Restart(to) if link::restart(&to) => return ExitCode::SUCCESS,
-            link::Outcome::InPlace { warn: Some(msg) } => {
+            // 2017-18 starts its game through ASCII junctions (launcher::alias) and says so itself when it cannot
+            link::Outcome::InPlace { warn: Some(msg) } if kit.edition() == Edition::E1011 => {
                 log(&msg);
                 say(msg, 0);
             }

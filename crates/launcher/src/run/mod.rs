@@ -259,6 +259,8 @@ pub struct Params {
     /// 2017-18: setup run again by a start (`setup::setup_1718`) with the kit's and the game's folders.  Tests put a
     /// stand-in here: their runtimes hold no original game programs.
     pub setup_1718: fn(&Path, &Path) -> Result<(), String>,
+    /// 2017-18: where a game folder whose path is not plain ASCII gets its ASCII junction (`alias`).
+    pub run_links: PathBuf,
 }
 
 impl Params {
@@ -284,6 +286,7 @@ impl Params {
             maps: Some(debug::maps::GAME_ID.into()),
             hook_imports: true,
             setup_1718: crate::setup::setup_1718,
+            run_links: crate::alias::base(),
             shared: io_board::Shared::new(),
             extra_watch: Mutex::default(),
         }
@@ -966,6 +969,17 @@ enum Role {
     Seat,
 }
 
+/// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
+/// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
+fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
+    let r = match (edition, role) {
+        (Edition::E1718, Role::Projector) => "projector",
+        (Edition::E1718, Role::Seat) => "seat",
+        _ => return None,
+    };
+    Some(("WCCFPANEL_ROLE".into(), r.into()))
+}
+
 impl Role {
     fn log(self) -> &'static str {
         match self {
@@ -1094,6 +1108,8 @@ pub struct Run<'a> {
     /// The projector program runs (2017-18: the CPU championship is on, and this PC holds the projector). Its window
     /// may be hidden: the championship plays unseen then.
     projector: bool,
+    /// 2017-18: a game folder could not get its ASCII junction, and the player was told.
+    told_path: bool,
     _lock: OwnedHandle,
 }
 
@@ -1225,6 +1241,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         uc_told: None,
         uc_player: None,
         projector: false,
+        told_path: false,
         _lock: lock,
     };
     // requests left by a run that ended are never carried out
@@ -1594,6 +1611,35 @@ impl Run<'_> {
         } else {
             format!("_{}", dir.file_name().unwrap_or_default().to_string_lossy())
         };
+        // 2017-18: the original programs take ASCII paths only; the guard checked the real folder this points at
+        let from = if self.edition == Edition::E1718 {
+            match crate::alias::for_dir(dir, &self.p.run_links) {
+                Ok(link) => link,
+                Err(e) => {
+                    if !self.told_path {
+                        self.told_path = true;
+                        let line = if e.kind() == io::ErrorKind::AlreadyExists {
+                            Text::key("launcher.run_path_taken").arg("folder", self.p.run_links.display())
+                        } else {
+                            Text::key("launcher.run_path_not_ascii")
+                                .arg("folder", self.p.run_links.display())
+                                .arg("error", &e)
+                        };
+                        self.tell("  ", &line);
+                        crate::logs::append(
+                            &self.logs().join("run_launcher.txt"),
+                            &format!("no ASCII junction for {}: {e}", dir.display()),
+                        );
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        // through a junction: the started process must be the program the guard checked (job::Job::spawn_debug)
+        let checked = from.is_some().then(|| dir.join(exe));
+        let dir = from.as_deref().unwrap_or(dir);
         let index = self.kit.dir().join(r"code\hardware\ghidra_out_1011_classes");
         let stop = Arc::new(AtomicBool::new(false));
         let opts = Options {
@@ -1617,9 +1663,16 @@ impl Run<'_> {
             above_normal: self.edition == Edition::E1718,
             background: role == Role::Projector && self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
-            env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
+            env: self
+                .kit_env()
+                .into_iter()
+                .chain(panel_role(self.edition, role))
+                .chain(env)
+                .chain([game_dpi()])
+                .collect(),
             stop: Some(stop.clone()),
             hang_after: crate::debug::HANG_AFTER,
+            checked,
         };
         let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
@@ -3348,6 +3401,24 @@ mod tests {
         for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
             let s = n.get(lang);
             assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
+        }
+    }
+
+    /// A 2017-18 game in a non-ASCII folder starts through a run junction, so the panel cannot tell the projector
+    /// by its folder (WCCF_GAME is the real one): every client is told its role, 2010-11's are not.
+    #[test]
+    fn the_2017_18_clients_are_told_their_panel_role() {
+        use super::{Edition, Role, panel_role};
+        let role = |e, r| panel_role(e, r).map(|(k, v)| format!("{k}={v}"));
+        assert_eq!(
+            role(Edition::E1718, Role::Projector).as_deref(),
+            Some("WCCFPANEL_ROLE=projector")
+        );
+        // any other value is a seat for the panel (`is_projector`)
+        assert_eq!(role(Edition::E1718, Role::Seat).as_deref(), Some("WCCFPANEL_ROLE=seat"));
+        assert_eq!(role(Edition::E1718, Role::Server), None);
+        for r in [Role::Server, Role::Projector, Role::Seat] {
+            assert_eq!(role(Edition::E1011, r), None, "2010-11 stays as it is");
         }
     }
 

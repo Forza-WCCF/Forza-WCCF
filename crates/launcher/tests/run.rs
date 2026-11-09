@@ -160,6 +160,7 @@ fn params(tag: &str, shared: Arc<Shared>) -> Params {
         maps: None,
         hook_imports: false, // fakegame.exe imports no WINMM.dll; a_program_without_the_hook_starts_nothing checks it
         setup_1718: set_up_nothing,
+        run_links: env::temp_dir().join(format!("wccftest_links_{tag}_{pid}")),
         shared,
         extra_watch: Default::default(),
     }
@@ -982,6 +983,32 @@ fn a_2017_18_kit_that_is_not_guarded_starts_nothing() {
 
     fs::remove_file(top.path().join("setup-hashes.json")).unwrap();
     refused("no record", "setup-hashes.json cannot be read");
+}
+
+/// A runtime whose path is not plain ASCII is checked by its real path before any ASCII junction exists (launcher::alias):
+/// a changed program is refused, named by its real path, and no junction is made.
+#[test]
+fn a_2017_18_runtime_in_a_non_ascii_folder_is_checked_by_its_real_path() {
+    let top = tempfile::Builder::new()
+        .prefix("wccf-1718-テスト游戏-")
+        .tempdir()
+        .unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let seat = top.path().join("seat1");
+    fs::write(seat.join("standin_client.exe"), b"not the guarded copy").unwrap();
+    let p = params("unguarded_cjk", Shared::new());
+    let ui = Said::default();
+    let rc = run::command(&kit, &p, &["local".into()], &ui);
+    let said = ui.text();
+    assert_eq!(rc, run::NOT_GUARDED, "{said}");
+    assert!(
+        said.contains("is not the file Setup made")
+            && said.contains(&seat.join("standin_client.exe").display().to_string()),
+        "{said}"
+    );
+    assert!(!p.run_links.exists(), "no junction before the guard passes");
+    assert!(!run::is_on(&kit, Kind::Run));
+    assert!(running_from(top.path()).is_empty());
 }
 
 /// A program an antivirus took (FPR_Emu.exe, the panel) refuses the start with its name, before anything of the run
