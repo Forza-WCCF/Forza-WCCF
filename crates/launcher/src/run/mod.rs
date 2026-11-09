@@ -931,6 +931,17 @@ enum Role {
     Seat,
 }
 
+/// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
+/// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
+fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
+    let r = match (edition, role) {
+        (Edition::E1718, Role::Projector) => "projector",
+        (Edition::E1718, Role::Seat) => "seat",
+        _ => return None,
+    };
+    Some(("WCCFPANEL_ROLE".into(), r.into()))
+}
+
 impl Role {
     fn log(self) -> &'static str {
         match self {
@@ -1600,7 +1611,13 @@ impl Run<'_> {
             above_normal: self.edition == Edition::E1718,
             background: role == Role::Projector && self.edition == Edition::E1718,
             msgguard: (self.edition == Edition::E1011).then(|| env::var("WCCF_MSGGUARD").map_or(true, |v| v != "0")),
-            env: self.kit_env().into_iter().chain(env).chain([game_dpi()]).collect(),
+            env: self
+                .kit_env()
+                .into_iter()
+                .chain(panel_role(self.edition, role))
+                .chain(env)
+                .chain([game_dpi()])
+                .collect(),
             stop: Some(stop.clone()),
             hang_after: crate::debug::HANG_AFTER,
             checked,
@@ -3246,6 +3263,24 @@ mod tests {
         for lang in [forza_ui::Lang::It, forza_ui::Lang::Ja] {
             let s = n.get(lang);
             assert!(s.contains(&hhmm) && s != n.en() && !s.contains("%{"), "{lang:?}: {s}");
+        }
+    }
+
+    /// A 2017-18 game in a non-ASCII folder starts through a run junction, so the panel cannot tell the projector
+    /// by its folder (WCCF_GAME is the real one): every client is told its role, 2010-11's are not.
+    #[test]
+    fn the_2017_18_clients_are_told_their_panel_role() {
+        use super::{Edition, Role, panel_role};
+        let role = |e, r| panel_role(e, r).map(|(k, v)| format!("{k}={v}"));
+        assert_eq!(
+            role(Edition::E1718, Role::Projector).as_deref(),
+            Some("WCCFPANEL_ROLE=projector")
+        );
+        // any other value is a seat for the panel (`is_projector`)
+        assert_eq!(role(Edition::E1718, Role::Seat).as_deref(), Some("WCCFPANEL_ROLE=seat"));
+        assert_eq!(role(Edition::E1718, Role::Server), None);
+        for r in [Role::Server, Role::Projector, Role::Seat] {
+            assert_eq!(role(Edition::E1011, r), None, "2010-11 stays as it is");
         }
     }
 
