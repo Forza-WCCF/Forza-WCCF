@@ -165,6 +165,34 @@ The seat desk and match relay are `forza-server`'s (the built-in ones speak the 
 port listens (in this prefix), four `match_Release` run and a `mxhook_<pid>.log` per live process (five) in `logs/<start time>/` say
 `edition: 2017-18 server` with none saying `REFUSED`; the supervisor checks this again every 10 s and stops the arcade on a refusal. `status` and `stop` take the same `WCCF_ROOT`.
 
+### The hourly cup arcade
+
+A server can run a 2017-18 arcade of its own that holds a Universal Cup every hour, so online players find a cup
+without a player hosting one. The `forza-1718-cup*` units in `deploy/linux` run it beside `forza-1718.service`:
+
+- `forza-1718-cup.service`: `wccf-linux-server cups --edition 2017-18` (control and engines under Wine, as above) in a
+  network namespace of its own: control binds UDP 20020, as the 2010-11 control does, so it never shares the host's.
+- `forza-1718-cup-gmsvr.service`: the arcade's own game server in that namespace, with `--no-timed-cups` (GAME_CTRL
+  1172 = 0): control opens no cup at its open times and never the Universal Championship.
+- `forza-1718-cup-desk.service`: the arcade's seat desk and match relay on loopback (`WCCF_DESK_TUNNEL=1`).
+- `forza-1718-cup-control.socket` and `.service`: the control port on loopback, forwarded into the namespace.
+- `forza-1718-cup-tunnel.service`: `forza-arcade host`, the arcade's room in this host's lobby and the host side of
+  the arcade tunnel. Players join it from ARCADES like a player's arcade, over iroh (the relay of section 8, or
+  directly): no new inbound port.
+
+`cups` writes control's `local/schedule_option.conf` before each run: friendly slots, then the cup, then friendlies.
+It starts the run so that the cup opens 15 s before the hour (05:10 for the 05:00 hour: control's day starts at
+05:00, and no cup runs across it). A run holds the cups the slot grid brings within 2 minutes of their hour: on a
+2-core host under Wine (508 s friendly slots, a cup of about 40 minutes) that is one. After the run's last final is
+matched, `cups` stops control at the first moment no seat has been paired for a match in the last 460 s, then plans
+the next run. A restart too late for the hour opens the cup at 10 past, else that hour has none. The slot lengths
+are `cups::OVH1` in `crates/linux-host/src/cups.rs`; measure your host's from `game.log` before you rely on them.
+Install as for the arcade above in the units' tree (`/srv/forza-wccf/1718-cup/arcade`), with
+`deploy/linux/ctrl_user_option-1718-cup.conf` as `runtime/local/ctrl_user_option.conf`, then
+`systemctl enable --now forza-1718-cup-gmsvr forza-1718-cup forza-1718-cup-desk forza-1718-cup-control.socket
+forza-1718-cup-tunnel`. `journalctl -u forza-1718-cup` shows each plan (`plan: start ..., cups 03:00:00 (opens
+02:59:45)`), the cup's rounds and each restart.
+
 ## 7. The 2010-11 server
 
 Packages (root):

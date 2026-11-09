@@ -1,0 +1,24 @@
+# /etc/systemd/system/forza-1718-cup-desk.service: the hourly cup arcade's seat desk and match relay, on loopback for
+# the arcade tunnel (forza-1718-cup-tunnel.service), as a Launcher's HOST ARCADE runs them: guests bring their clubs
+# into the arcade's store, which its game server reads.
+[Unit]
+Description=Forza-WCCF hourly cup arcade: seat desk TCP 21132 and match relay UDP 21142 (loopback)
+After=network.target
+
+[Service]
+User=wccf
+Group=wccf
+Environment=WCCF_BIND=127.0.0.1 WCCF_DESK_TUNNEL=1 WCCF_CLUB_DB=/srv/forza-wccf/1718-cup/data/gamesvr.db
+ExecStart=/srv/forza-wccf/1718-cup/bin/forza-server --edition 2017-18 all --no-gmsvr --desk-port 21132 --relay-port 21142 315360000 /srv/forza-wccf/1718-cup/logs
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf/1718-cup/data /srv/forza-wccf/1718-cup/logs
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -133,6 +133,10 @@ struct GmsvrOpts {
     /// UDP port of the loopback reflect address given to PCs that run vslink (`127.0.0.1:<port>`)
     #[arg(long, default_value_t = 20090)]
     vslink_port: u16,
+    /// GAME_CTRL 1172 = 0: the control schedules no cup at its open times and never opens the Universal Championship;
+    /// cups come only from its `schedule_option.conf` (the hourly arcade, `wccf-linux-server cups`)
+    #[arg(long)]
+    no_timed_cups: bool,
 }
 
 impl GmsvrOpts {
@@ -324,6 +328,7 @@ fn start_gmsvr(
         vs: g.vs(),
         matcher,
         sessions,
+        no_timed_cups: g.no_timed_cups,
     };
     let mut handles = Vec::new();
     if let Some(cfg) = o.vs {

@@ -1,0 +1,20 @@
+# /etc/systemd/system/forza-1718-cup-gmsvr.service: the hourly cup arcade's own game server, in the arcade's network
+# namespace (forza-1718-cup.service): loopback only, its own store. --no-timed-cups: control never opens the
+# Universal Championship and takes its cups only from the schedule `cups` writes.
+[Unit]
+Description=Forza-WCCF hourly cup arcade: its game server (private network, beside its control)
+PartOf=forza-1718-cup.service
+
+[Service]
+User=wccf
+Group=wccf
+ExecStart=/srv/forza-wccf/1718-cup/bin/forza-server --edition 2017-18 gmsvr --port 21160 --store /srv/forza-wccf/1718-cup/data --game-data /srv/forza-wccf/1718-cup/game-data --no-timed-cups
+Restart=always
+RestartSec=3
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf/1718-cup/data
+ProtectHome=yes
+MemoryMax=256M

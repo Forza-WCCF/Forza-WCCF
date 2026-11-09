@@ -1,0 +1,18 @@
+# /etc/systemd/system/forza-1718-cup-control.service: forwards forza-1718-cup-control.socket's connections to control
+# inside the arcade's network namespace (systemd-socket-proxyd's own example). A control restart drops them; the seats
+# connect again.
+[Unit]
+Description=Forza-WCCF hourly cup arcade: control port proxy
+Requires=forza-1718-cup-gmsvr.service
+After=forza-1718-cup-gmsvr.service
+JoinsNamespaceOf=forza-1718-cup-gmsvr.service
+
+[Service]
+User=wccf
+Group=wccf
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:21102
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes

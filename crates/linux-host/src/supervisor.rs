@@ -2,6 +2,7 @@
 //! built-in seat broker and match relay (off with `WCCF_EXTERNAL_DESK=1`, when `forza-server` serves TCP 20030 and UDP
 //! 20040). `--edition 2017-18` runs a 2017-18 arcade from its own tree (own Wine prefix and display): the two editions use
 //! the same shared-memory names, so they never share a prefix.
+use crate::cups;
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
@@ -719,7 +720,7 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
         children.push(spawn_log(&mut xvfb, &logs.join("xvfb.log"))?);
         let mut env = Command::new(wine_tool(root, "wineboot"));
         let private_wine = root.join("tools/bin/wine").exists();
-        let wine_env = [
+        let mut wine_env = vec![
             ("WINEPREFIX", root.join("wineprefix").display().to_string()),
             (
                 "WINEARCH",
@@ -735,6 +736,10 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
                 wine_tool(root, "wineserver").display().to_string(),
             ),
         ];
+        if edition == Edition::E1718 {
+            // the hook's whole messages follow control's players' port (2010-11's stays the hook's 20002)
+            wine_env.push(("MXHOOK_CONTROL_PORT", control_port.to_string()));
+        }
         // every Wine process runs with its working directory in the tree, or verify_prefix refuses cleanup at stop
         env.envs(wine_env.clone()).args(["-u"]).current_dir(root);
         run_bounded(&mut env, &logs.join("wineboot.log"), 45)?;
@@ -917,6 +922,211 @@ fn serve(root: &Path, edition: Edition) -> io::Result<()> {
     let _ = fs::remove_file(root.join("run/stop"));
     result
 }
+/// Local seconds now: Unix seconds plus the host's UTC offset, the clock control reads (`localtime`).
+fn local_now() -> i64 {
+    #[repr(C)]
+    struct Tm {
+        fields: [i32; 9],
+        gmtoff: i64, // long on 64-bit Linux
+        zone: *const std::ffi::c_char,
+    }
+    unsafe extern "C" {
+        fn localtime_r(t: *const i64, tm: *mut Tm) -> *mut Tm;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let mut tm = Tm {
+        fields: [0; 9],
+        gmtoff: 0,
+        zone: std::ptr::null(),
+    };
+    // SAFETY: glibc's localtime_r with a time_t (64-bit) and a struct tm of its layout on 64-bit Linux, both ours
+    let ok = !unsafe { localtime_r(&now, &mut tm) }.is_null();
+    now + if ok { tm.gmtoff } else { 0 }
+}
+
+/// New whole lines of a growing file since the last call.
+struct Tail {
+    path: PathBuf,
+    at: u64,
+    rest: Vec<u8>,
+}
+impl Tail {
+    fn lines(&mut self) -> Vec<String> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut new = Vec::new();
+        if let Ok(mut f) = fs::File::open(&self.path)
+            && f.seek(SeekFrom::Start(self.at)).is_ok()
+            && let Ok(n) = f.read_to_end(&mut new)
+        {
+            self.at += n as u64;
+        }
+        self.rest.extend_from_slice(&new);
+        let Some(end) = self.rest.iter().rposition(|&b| b == b'\n') else {
+            return Vec::new();
+        };
+        let whole: Vec<u8> = self.rest.drain(..=end).collect();
+        String::from_utf8_lossy(&whole)
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+/// `cups`: the hourly Universal Cup (2017-18, [`cups`]). Plans a run, writes its `schedule_option.conf`, starts the
+/// arcade (`serve`) at the run's start, and once its last final is over stops it at a moment no seat is in a match
+/// (no pairing in control's log for [`cups::MATCH_SECS`]); then the next run. Stopping this stops the arcade.
+fn cups(root: &Path, binary: &Path) -> io::Result<()> {
+    // SAFETY: as in serve: a handler that only stores to an atomic
+    unsafe {
+        signal(2, stop_signal);
+        signal(15, stop_signal);
+    }
+    let say = |line: &str| println!("{} {line}", cups::clock(local_now()));
+    let stopped = || STOP.load(Ordering::Relaxed);
+    let pause = |secs: u64| {
+        for _ in 0..secs {
+            if stopped() {
+                return;
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
+    };
+    let stop = |child: &mut Child, why: &str| -> io::Result<()> {
+        say(&format!("stopping the arcade: {why}"));
+        fs::write(root.join("run/stop"), format!("cups: {why}\n"))?;
+        for _ in 0..90 {
+            if child.try_wait()?.is_some() {
+                return Ok(());
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
+        say("the arcade did not stop in 90 s: killed");
+        child.kill()?;
+        child.wait().map(drop)
+    };
+    while !stopped() {
+        let run = cups::plan(local_now(), cups::OVH1);
+        fs::write(
+            root.join("runtime/local/schedule_option.conf"),
+            run.schedule(),
+        )?;
+        let cups_text: Vec<String> = run
+            .cups
+            .iter()
+            .map(|c| format!("{} (opens {})", cups::clock(c.target), cups::clock(c.opens)))
+            .collect();
+        say(&format!(
+            "plan: start {}, friendlies {:?}, cups {}, restart from {}",
+            cups::clock(run.start),
+            run.friendlies,
+            cups_text.join(", "),
+            cups::clock(run.ends())
+        ));
+        while local_now() < run.start && !stopped() {
+            thread::sleep(Duration::from_millis(500));
+        }
+        if stopped() {
+            break;
+        }
+        let _ = fs::remove_file(root.join("run/stop"));
+        let _ = fs::remove_file(root.join("run/ready"));
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(root.join("logs/supervisor.log"))?;
+        let mut child = Command::new(binary)
+            .args(["serve", "--edition", "2017-18"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log))
+            .spawn()?;
+        let end = Instant::now() + Duration::from_secs(270);
+        let ready = loop {
+            if let Ok(r) = fs::read_to_string(root.join("run/ready")) {
+                break Some(r);
+            }
+            if child.try_wait()?.is_some() || Instant::now() >= end || stopped() {
+                break None;
+            }
+            thread::sleep(Duration::from_millis(500));
+        };
+        let Some(ready) = ready else {
+            stop(&mut child, "not ready in 270 s (logs/supervisor.log)")?;
+            pause(60);
+            continue;
+        };
+        say(&format!("up: {}", ready.trim()));
+        let logs = ready.split_once("logs=").map_or("", |(_, l)| l.trim());
+        let mut tail = Tail {
+            path: Path::new(logs).join("game.log"),
+            at: 0,
+            rest: Vec::new(),
+        };
+        let mut paired: Option<i64> = None;
+        let (mut slots, mut in_cup, mut done) = (cups::Slots::default(), false, 0);
+        // the restart is due after the run's last cup, or after a cup whose rounds ran so long (or short) that the next
+        // one would miss its time; when control's log says nothing, half an hour after the plan's end
+        let mut due = false;
+        let why = loop {
+            if stopped() {
+                break "stop asked";
+            }
+            if child.try_wait()?.is_some() {
+                break "";
+            }
+            let now = local_now();
+            for l in tail.lines() {
+                if cups::pairs_a_seat(&l) {
+                    paired = Some(now);
+                }
+                // a cup is over at its final's matching (one pair), or the friendly after it should a final escape that
+                let ended = match slots.feed(&l) {
+                    Some(cups::Slot::CupRound(n)) if !in_cup && n > 1 => {
+                        in_cup = true;
+                        say(&format!(
+                            "cup {} of the run: first round's matching",
+                            done + 1
+                        ));
+                        None
+                    }
+                    Some(cups::Slot::CupRound(1)) if in_cup => Some(now + cups::FINAL_SECS),
+                    Some(cups::Slot::Friendly) if in_cup => Some(now - cups::MATCHING_SECS),
+                    _ => None,
+                };
+                if let Some(ended) = ended {
+                    in_cup = false;
+                    done += 1;
+                    let keep = cups::next_on_time(&run, done, ended, cups::OVH1);
+                    say(&format!(
+                        "cup {done} of the run over (its last slot ends about {}); {}",
+                        cups::clock(ended),
+                        if keep {
+                            "the next one stays on time"
+                        } else {
+                            "restart due"
+                        }
+                    ));
+                    due |= !keep;
+                }
+            }
+            due |= now >= run.ends() + 1800;
+            if due && paired.is_none_or(|t| now - t >= cups::MATCH_SECS) {
+                break "the run's cups are over and no seat is in a match";
+            }
+            thread::sleep(Duration::from_secs(2));
+        };
+        if why.is_empty() {
+            say("the arcade ended by itself (logs/supervisor.log); planning again in 30 s");
+            pause(30);
+        } else {
+            stop(&mut child, why)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn main() -> io::Result<()> {
     let root = root()?;
     let binary = std::env::current_exe()?;
@@ -924,6 +1134,10 @@ pub fn main() -> io::Result<()> {
     let edition = Edition::from_args(&args).map_err(io::Error::other)?;
     match args.first().map_or("status", String::as_str) {
         "serve" => serve(&root, edition),
+        "cups" if edition == Edition::E1718 => cups(&root, &binary),
+        "cups" => Err(io::Error::other(
+            "cups runs a 2017-18 arcade: add --edition 2017-18",
+        )),
         "start" => {
             if let Ok(pid) = fs::read_to_string(root.join("run/server.pid")) {
                 if alive(pid.trim().parse().unwrap_or(0), &binary) {
@@ -1007,7 +1221,7 @@ pub fn main() -> io::Result<()> {
             Ok(())
         }
         _ => Err(io::Error::other(
-            "usage: wccf-linux-server start|stop|status|serve [--edition 2010-11|2017-18]",
+            "usage: wccf-linux-server start|stop|status|serve|cups [--edition 2010-11|2017-18]",
         )),
     }
 }

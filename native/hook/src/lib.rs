@@ -80,7 +80,10 @@ const _: () = assert!(BLOCKS_HOSTS);
 mod dmi;
 #[cfg_attr(not(feature = "e1011-server"), allow(dead_code))]
 mod fixes;
-#[cfg_attr(not(any(feature = "e1011", feature = "e1718")), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "e1011", feature = "e1718", feature = "e1718-server")),
+    allow(dead_code)
+)]
 mod logowin;
 mod ports;
 #[cfg_attr(any(feature = "e1011", feature = "e1011-server"), allow(dead_code))]
@@ -167,8 +170,9 @@ fn install() -> bool {
     whole::install();
     #[cfg(any(feature = "e1718", feature = "e1718-server"))]
     uclive::install();
-    // 2017-18: the kit ships no stand-in logowin.exe any more, so a miss here lets the original's white screen show
-    #[cfg(feature = "e1718")]
+    // 2017-18: the kit ships no stand-in logowin.exe any more, so a miss here lets the original's white screen show (on a
+    // Linux server, under Xvfb, the original spins a core until control closes it)
+    #[cfg(any(feature = "e1718", feature = "e1718-server"))]
     if logowin::install() {
         log!("logowin: answered in-process (CreateProcessA hooked)");
     } else {

@@ -1703,6 +1703,10 @@ pub struct Options {
     /// Who is connected, when another service shares it (`forza-server all`: the desk counts the cards in its lobby
     /// row); None = a new one
     pub sessions: Option<Arc<Sessions>>,
+    /// GAME_CTRL 1172 = 0 in answer 238: the control never inserts a cup at its open times, so it never counts four cups
+    /// held and never opens the Universal Championship; cups come only from `schedule_option.conf` (the ovh1 hourly
+    /// arcade, crates/linux-host `cups`)
+    pub no_timed_cups: bool,
 }
 
 impl Default for Options {
@@ -1716,6 +1720,7 @@ impl Default for Options {
             vs: None,
             matcher: None,
             sessions: None,
+            no_timed_cups: false,
         }
     }
 }
@@ -1781,6 +1786,7 @@ pub fn spawn_opts(
         vs,
         matcher,
         sessions,
+        no_timed_cups,
     } = opts;
     let sessions = sessions.unwrap_or_default();
     let vs = vs.map(|cfg| {
@@ -1906,7 +1912,10 @@ pub fn spawn_opts(
                 vs.as_deref().map(|v| (v, peer.ip())),
                 &log,
             ) {
-                Some((rcmd, body, refused)) => {
+                Some((rcmd, mut body, refused)) => {
+                    if rcmd == 238 && no_timed_cups {
+                        body[16 + 1172] = 0;
+                    }
                     for line in session.request(cmd, &payload, refused.as_deref()) {
                         log(&line);
                     }

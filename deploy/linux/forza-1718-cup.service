@@ -1,0 +1,34 @@
+# /etc/systemd/system/forza-1718-cup.service: the hourly Universal Cup arcade's control and four match engines under
+# Wine (docs/SELF-HOSTING.md "The hourly cup arcade"). `wccf-linux-server cups` plans each control run (a cup on the hour;
+# one a run on a 2-core host under Wine), starts it and restarts it between cups when no seat is in a match. A network namespace of its own, shared
+# only with its game server: control binds UDP 20020 as the 2010-11 server's control does, and nothing under Wine
+# reaches a network. The arcade tunnel reaches control through forza-1718-cup-control.socket.
+[Unit]
+Description=Forza-WCCF 2017-18 hourly Universal Cup arcade (control under Wine, private network)
+Requires=forza-1718-cup-gmsvr.service
+After=forza-1718-cup-gmsvr.service
+JoinsNamespaceOf=forza-1718-cup-gmsvr.service
+
+[Service]
+User=wccf
+Group=wccf
+Environment=WCCF_ROOT=/srv/forza-wccf/1718-cup/arcade HOME=/srv/forza-wccf/1718-cup
+ExecStart=/srv/forza-wccf/1718-cup/arcade/target/release/wccf-linux-server cups --edition 2017-18
+# the stop goes to cups alone, which asks its arcade to stop (run/stop) and waits for Wine's cleanup
+KillMode=mixed
+TimeoutStopSec=150
+Restart=on-failure
+RestartSec=60
+PrivateNetwork=yes
+PrivateTmp=yes
+# the players' own services first: a small CPU share, below forza-1718 and the 2010-11 server
+Nice=10
+CPUWeight=20
+MemoryMax=1500M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf/1718-cup
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

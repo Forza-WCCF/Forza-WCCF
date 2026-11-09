@@ -1,0 +1,25 @@
+# /etc/systemd/system/forza-1718-cup-tunnel.service: the hourly cup arcade's room in the lobby (this host's 2017-18
+# desk, forza-1718.service) and the arcade tunnel's host side: guests reach control, desk and relay over iroh, so the
+# arcade needs no open port. Its key file gives the arcade the same tunnel id on every start. --public lists the room
+# under its name in the Launcher's ARCADES.
+[Unit]
+Description=Forza-WCCF hourly cup arcade: lobby room and arcade tunnel
+After=network-online.target forza-1718.service forza-1718-cup-desk.service forza-1718-cup-control.socket
+Wants=network-online.target forza-1718-cup-desk.service forza-1718-cup-control.socket
+
+[Service]
+User=wccf
+Group=wccf
+ExecStart=/srv/forza-wccf/1718-cup/bin/forza-arcade host --lobby 127.0.0.1:20032 --key /srv/forza-wccf/1718-cup/data/arcade.key --control 21102 --desk 21132 --relay 21142 --name "Universal Cup every hour" --public
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/forza-wccf/1718-cup/data
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

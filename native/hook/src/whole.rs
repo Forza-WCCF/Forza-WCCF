@@ -9,14 +9,16 @@ use crate::log::log;
 use crate::patch::{Real, exe_is, patch};
 use crate::wholemsg::{MAX_BATCH, whole};
 use forza_native::By;
+use std::sync::atomic::{AtomicU16, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, PoisonError};
 use windows_sys::Win32::Networking::WinSock::{
     AF_INET, INVALID_SOCKET, SOCKADDR, SOCKADDR_IN, SOCKET, SOCKET_ERROR, WSAEWOULDBLOCK,
     WSAGetLastError, WSASetLastError, getsockname,
 };
 
-/// The players' port: CONTROL port in the settings.
-const PORT: u16 = 20002;
+/// The players' port: CONTROL_PORT in the settings, 20002 unless MXHOOK_CONTROL_PORT names another (a Linux 2017-18
+/// arcade beside the 2010-11 one, crates/linux-host).
+static PORT: AtomicU16 = AtomicU16::new(20002);
 const SOCKS: usize = 64;
 /// Never full: an unfinished batch is under MAX_BATCH, and it is read only when no whole one is waiting.
 const CAP: usize = MAX_BATCH * 2;
@@ -68,6 +70,14 @@ pub fn install() {
             return;
         }
     }
+    if let Some(p) = std::env::var("MXHOOK_CONTROL_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .filter(|&p| p != 0)
+    {
+        PORT.store(p, Relaxed);
+    }
+    let port = PORT.load(Relaxed);
     // ws2_32 ordinals: 3 closesocket, 1 accept, 16 recv, in this order, so a recv is followed only once the other two
     // are in place (a hook that cannot follow a connection reads it as before)
     let c = patch(
@@ -79,7 +89,7 @@ pub fn install() {
     let a = c && patch(&REAL_ACCEPT, "ws2_32.dll", By::Ordinal(1), hook_accept);
     let r = a && patch(&REAL_RECV, "ws2_32.dll", By::Ordinal(16), hook_recv);
     log!(
-        "whole messages: {} (closesocket={} accept={} recv={}) - the server gets the players' batches on port {PORT} only whole",
+        "whole messages: {} (closesocket={} accept={} recv={}) - the server gets the players' batches on port {port} only whole",
         if r { "ON" } else { "NOT installed" },
         u8::from(c),
         u8::from(a),
@@ -110,7 +120,7 @@ unsafe extern "system" fn hook_accept(ls: SOCKET, addr: *mut SOCKADDR, alen: *mu
         // SAFETY: the listening socket the game gave, and our own buffer
         || unsafe { getsockname(ls, (&raw mut me).cast(), &mut n) } != 0
         || me.sin_family != AF_INET
-        || u16::from_be(me.sin_port) != PORT
+        || u16::from_be(me.sin_port) != PORT.load(Relaxed)
     {
         return s;
     }
