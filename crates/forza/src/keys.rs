@@ -27,6 +27,11 @@ pub fn is_allowed(vk: i128) -> bool {
         | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x78 | 0x7B..=0x87 | 0xBA..=0xC0 | 0xDB..=0xDF)
 }
 
+/// [`is_allowed`] for one action: PAUSE is seen only in key messages (`pause.rs`), so never a mouse side button.
+pub fn fits(action: usize, vk: u32) -> bool {
+    is_allowed(i128::from(vk)) && !(action == PAUSE && matches!(vk, 0x05 | 0x06))
+}
+
 /// Controller controls are numbers above every key code, so keys and controls share one set: 0x100 + n = button n
 /// (1-32); 0x200 + 2 * axis + (1 for +) = a stick or axis direction (axes X Y Z R U V; up is Y-); 0x300 + n = the
 /// hat's up/right/down/left. The KEYS panel (`wccfpanel.dll`) reads controllers the same way: keep these numbers, the
@@ -230,7 +235,7 @@ pub fn pause_key(raw: &[u8], default: u32, taken: &[u32]) -> u32 {
             Some(hex) => u32::from_str_radix(hex, 16).ok(),
             None => val.parse().ok(),
         };
-        if let Some(n) = n.filter(|n| is_allowed(i128::from(*n))) {
+        if let Some(n) = n.filter(|n| fits(PAUSE, *n)) {
             vk = n;
         }
     }
@@ -308,7 +313,8 @@ PAD SHOOT=B3\nPAD UP=HAT UP\n"
         assert!(!is_allowed(0x01) && !is_allowed(0x02) && !is_allowed(0x04));
         let keys = std::array::from_fn(|i| if i == 5 { 0x06 } else { 0 });
         assert!(keys_text(true, &keys, &[0; COUNT]).contains("\nKEYPLAYER=0x06\n"));
-        assert_eq!(pause_key(b"PAUSE=0x05\n", 0x50, &[0x06]), 0x05);
+        assert_eq!(pause_key(b"PAUSE=0x05\n", 0x50, &[0x06]), 0x50);
+        assert!(fits(5, 0x05) && !fits(PAUSE, 0x05) && !fits(PAUSE, 0x06) && fits(PAUSE, 0x50));
     }
 
     /// New settings leave the operator's TEST unbound; SERVICE keeps its key (existing keys.txt files are read as saved).

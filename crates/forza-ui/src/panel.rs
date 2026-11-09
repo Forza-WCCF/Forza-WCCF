@@ -4187,6 +4187,7 @@ pub fn keys_input(st: &mut PanelState) {
         }
         let Some(k) = st.capturing else { continue };
         let old = st.keys[k];
+        let other = (0..ACTIONS.len()).find(|&j| j != k && st.keys[j] == vk);
         if vk == 0x1B || vk == old {
             st.capturing = None;
             let key = key_name(lang, old);
@@ -4194,7 +4195,10 @@ pub fn keys_input(st: &mut PanelState) {
                 Tone::Notice,
                 tr!(lang, "keys.msg_keeps", action = label(k), key = key),
             );
-        } else if alt || !forza::keys::is_allowed(i128::from(vk)) {
+        } else if alt
+            || !forza::keys::fits(k, vk)
+            || other.is_some_and(|j| !forza::keys::fits(j, old))
+        {
             let key = if alt && vk != 0x12 {
                 "Alt".into()
             } else {
@@ -4202,7 +4206,6 @@ pub fn keys_input(st: &mut PanelState) {
             };
             st.note(Tone::Refused, tr!(lang, "keys.msg_refused", key = key));
         } else {
-            let other = (0..ACTIONS.len()).find(|&j| j != k && st.keys[j] == vk);
             st.keys[k] = vk;
             if let Some(j) = other {
                 st.keys[j] = old;
@@ -6864,5 +6867,12 @@ mod tests {
                 .unwrap();
             assert_eq!((keys[at], notes), (0x05, Vec::<String>::new()));
         }
+        // PAUSE reads key messages only: a side button is refused and the cell keeps waiting
+        let pause = forza::keys::PAUSE;
+        st.capturing = Some(pause);
+        st.vk_down = vec![(0x06, false)];
+        keys_input(&mut st);
+        assert_eq!(st.capturing, Some(pause));
+        assert_ne!(st.keys[pause], 0x06);
     }
 }
