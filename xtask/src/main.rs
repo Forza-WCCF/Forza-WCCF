@@ -197,17 +197,42 @@ fn target_lock(dir: &Path) -> Result<std::fs::File> {
         .truncate(false)
         .open(&path)
         .with_context(|| path.display().to_string())?;
-    if lock.try_lock().is_err() {
-        let last = std::fs::read_to_string(dir.join(".forza-worktree")).unwrap_or_default();
-        // the holder writes the marker only once it has marked its files new, so name the folder's last worktree
-        println!(
-            "waiting for another `cargo xtask` run on the shared CARGO_TARGET_DIR {} (last built from {}) ...",
-            dir.display(),
-            last.trim()
-        );
-        lock.lock()?;
+    let (mut waited, mut say_at) = (0u64, 30u64);
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(lock),
+            // no contention: the folder implements no byte-range locks (a share) or a filter denies access, and the
+            // wait below would never end
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(e).with_context(|| format!("cannot lock {}", path.display()));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {}
+        }
+        // a hung holder blocks every worktree on the folder, and a build takes a while: keep waiting, say so now and
+        // then (the holder writes the marker only once it has marked its files new)
+        if waited == 0 {
+            let last = std::fs::read_to_string(dir.join(".forza-worktree")).unwrap_or_default();
+            println!(
+                "waiting for another `cargo xtask` run on the shared CARGO_TARGET_DIR {} (last built from {}) ...",
+                dir.display(),
+                last.trim()
+            );
+            println!(
+                "  lock: {}; it frees when that run ends (kill a hung one, the OS frees the lock with it; deleting \
+                 the file does not)",
+                path.display()
+            );
+        } else if waited >= say_at {
+            say_at += 30;
+            println!(
+                "still waiting ({waited} s) for another `cargo xtask` run on {} (lock: {})",
+                dir.display(),
+                path.display()
+            );
+        }
+        std::thread::sleep(Duration::from_secs(1));
+        waited += 1;
     }
-    Ok(lock)
 }
 
 /// A `CARGO_TARGET_DIR` shared by several worktrees holds one copy of each workspace crate: cargo names the artifacts by
@@ -229,18 +254,24 @@ fn shared_target(root: &Path) -> Result<Option<std::fs::File>> {
     let here = std::env::var_os("CARGO_MANIFEST_DIR")
         .and_then(|m| Path::new(&m).parent().map(Path::to_path_buf))
         .context("CARGO_MANIFEST_DIR is not set: with a shared CARGO_TARGET_DIR start xtask with `cargo xtask`")?;
-    let lock = target_lock(&dir)?;
+    shared_target_in(&dir, root, &here).map(Some)
+}
+
+/// [`shared_target`] with the folder and the worktree given. The lock comes before the marker is read or written, and
+/// only a run that goes on to build this worktree writes it.
+fn shared_target_in(dir: &Path, root: &Path, here: &Path) -> Result<std::fs::File> {
+    let lock = target_lock(dir)?;
     let marker = dir.join(".forza-worktree");
     let last = std::fs::read_to_string(&marker).unwrap_or_default();
     let todo = switch(
-        &here.display().to_string(),
-        &root.display().to_string(),
+        &real_path(here).display().to_string(),
+        &real_path(root).display().to_string(),
         &last,
     );
     if todo == Switch::Same {
-        return Ok(Some(lock));
+        return Ok(lock);
     }
-    touch_tracked(&here)?;
+    touch_tracked(here)?;
     // the marker is written only by a run that goes on to build this worktree
     ensure!(
         todo == Switch::Touch,
@@ -249,7 +280,13 @@ fn shared_target(root: &Path) -> Result<Option<std::fs::File>> {
         here.display()
     );
     fs::write(&marker, here.display().to_string())?;
-    Ok(Some(lock))
+    Ok(lock)
+}
+
+/// `p` in the filesystem's own spelling: a junction, a `subst` drive or an 8.3 name is the same folder under another
+/// name, else `p` as given.
+fn real_path(p: &Path) -> PathBuf {
+    fs::canonicalize(p).unwrap_or_else(|_| p.to_owned())
 }
 
 /// Sets every tracked file of the worktree to the current time.
@@ -624,6 +661,11 @@ fn rust_shipped(root: &Path) -> Command {
 /// The `--config` arguments of `rust_shipped`. The tests in the kits' profile pass them too: other target rustflags give
 /// every crate another hash, and the test build would compile the whole workspace a second time after the kits.
 fn remap_config(root: &Path) -> Vec<String> {
+    remap_flags(shared_dir().as_deref(), root)
+}
+
+/// [`remap_config`] with the shared folder (`CARGO_TARGET_DIR`) given.
+fn remap_flags(shared: Option<&Path>, root: &Path) -> Vec<String> {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
     let cargo = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
@@ -631,24 +673,24 @@ fn remap_config(root: &Path) -> Vec<String> {
     // the build scripts' OUT_DIR is the only path of the worktree left in the programs (cargo passes the workspace crates'
     // sources as relative paths); a shared CARGO_TARGET_DIR is mapped to where `target\` would be, so the bytes stay the
     // same and the flags name no worktree (they are part of every crate's hash: one copy of the dependencies per slot)
-    let local = match shared_dir() {
-        Some(t) => (t, Path::new("forza-wccf").join("target")),
+    let local = match shared {
+        Some(t) => (t.to_owned(), Path::new("forza-wccf").join("target")),
         None => (root.to_owned(), PathBuf::from("forza-wccf")),
     };
-    let flags: Vec<String> = [
-        (home, PathBuf::from("~")),
-        (cargo, PathBuf::from("cargo")),
-        (Some(local.0), local.1),
-    ]
-    .into_iter()
-    .filter_map(|(from, to)| {
-        Some(format!(
-            "'--remap-path-prefix={}={}'",
-            from?.display(),
-            to.display()
-        ))
-    })
-    .collect();
+    let in_both_separators = dir_spellings(&local.0)
+        .into_iter()
+        .map(|from| (Some(from), local.1.clone()));
+    let flags: Vec<String> = [(home, PathBuf::from("~")), (cargo, PathBuf::from("cargo"))]
+        .into_iter()
+        .chain(in_both_separators)
+        .filter_map(|(from, to)| {
+            Some(format!(
+                "'--remap-path-prefix={}={}'",
+                from?.display(),
+                to.display()
+            ))
+        })
+        .collect();
     [TARGET, PANEL_TARGET]
         .into_iter()
         .flat_map(|t| {
@@ -658,6 +700,19 @@ fn remap_config(root: &Path) -> Vec<String> {
             ]
         })
         .collect()
+}
+
+/// The spellings of a shared folder that `--remap-path-prefix` must match: cargo builds `OUT_DIR` from the raw
+/// `CARGO_TARGET_DIR` value, so a `/` there stays in the prefix, and the flag compares it as a literal string.
+fn dir_spellings(dir: &Path) -> Vec<PathBuf> {
+    let mut seen = vec![dir.to_owned()];
+    if cfg!(windows) {
+        let slash = PathBuf::from(dir.display().to_string().replace('\\', "/"));
+        if slash.display().to_string() != dir.display().to_string() {
+            seen.push(slash);
+        }
+    }
+    seen
 }
 
 /// A shipped program that still holds a user folder path (see `rust_shipped`).
@@ -3052,6 +3107,76 @@ mod tests {
         assert!(other.try_lock().is_ok());
         drop(other);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_wait_ends_when_the_other_run_lets_go() {
+        let dir = std::env::temp_dir().join(format!("forza-xtask-wait-{}", std::process::id()));
+        let held = target_lock(&dir).unwrap();
+        let sooner = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(held);
+        });
+        let got = target_lock(&dir).unwrap();
+        sooner.join().unwrap();
+        drop(got);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_run_locks_the_folder_before_it_writes_the_marker() {
+        let dir = std::env::temp_dir().join(format!("forza-xtask-order-{}", std::process::id()));
+        let (shared, here) = (dir.join("t"), dir.join("w"));
+        fs::create_dir_all(&here).unwrap();
+        // a repository with no tracked file: the touch writes no mtime
+        let init = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&here)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let held = target_lock(&shared).unwrap();
+        let (d, h) = (shared.clone(), here.clone());
+        let waiter = std::thread::spawn(move || shared_target_in(&d, &h, &h));
+        std::thread::sleep(Duration::from_millis(500));
+        // the waiting run has marked nothing: the marker is written under the lock
+        assert!(!shared.join(".forza-worktree").exists());
+        drop(held);
+        waiter.join().unwrap().unwrap();
+        assert_eq!(
+            fs::read_to_string(shared.join(".forza-worktree")).unwrap(),
+            here.display().to_string()
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn one_folder_under_two_spellings_is_no_worktree_switch() {
+        let dir = std::env::temp_dir().join(format!("forza-xtask-canon-{}", std::process::id()));
+        let here = dir.join("w");
+        fs::create_dir_all(here.join(".")).unwrap();
+        // the folder already holds this worktree's build; `w\.` is the same folder (so is a junction or a `subst`
+        // drive), so this is Same, not the switch that touches files (none is a repository here) and exits
+        let shared = dir.join("t");
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join(".forza-worktree"), here.display().to_string()).unwrap();
+        let held = shared_target_in(&shared, &here.join("."), &here).unwrap();
+        drop(held);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_shared_folder_is_remapped_in_both_separators() {
+        let flags = remap_flags(Some(Path::new(r"E:\cargo-target")), Path::new(r"E:\wccf"));
+        let remap = |from: &str| {
+            flags
+                .iter()
+                .any(|f| f.contains(&format!("--remap-path-prefix={from}=")))
+        };
+        assert!(remap(r"E:\cargo-target"), "{flags:?}");
+        // cargo keeps the raw variable's `/` in OUT_DIR
+        #[cfg(windows)]
+        assert!(remap("E:/cargo-target"), "{flags:?}");
     }
 
     #[test]
