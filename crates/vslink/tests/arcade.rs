@@ -1120,6 +1120,69 @@ fn a_bad_flow_frame_closes_the_link_and_a_fresh_one_carries_flows() {
     p._rt.block_on(guest.close());
 }
 
+/// A host whose flow stream always opens with a frame over the cap: the join side closes each link and dials again,
+/// spaced by its backoff (1 s, 2 s, 4 s ...), not in a tight loop, one log line per drop.
+#[test]
+fn a_host_that_always_breaks_its_flow_stream_is_dialled_ever_slower() {
+    let p = pair("badhost", 0, false);
+    let host = p._rt.block_on(async {
+        let ep = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Custom(p.relay.clone()))
+            .ca_tls_config(CaTlsConfig::insecure_skip_verify())
+            .clear_address_lookup()
+            .alpns(vec![arcade::ARCADE_ALPN_3.to_vec()])
+            .bind()
+            .await
+            .unwrap();
+        ep.online().await;
+        ep
+    });
+    let dials: Arc<Mutex<Vec<Instant>>> = Arc::default();
+    let (h, d) = (host.clone(), dials.clone());
+    p._rt.spawn(async move {
+        while let Some(incoming) = h.accept().await {
+            let Ok(conn) = incoming.await else { continue };
+            d.lock().unwrap().push(Instant::now());
+            tokio::spawn(async move {
+                if let Ok(mut w) = conn.open_uni().await {
+                    let _ = w.write_all(&u16::MAX.to_le_bytes()).await;
+                }
+                let _ = conn.closed().await;
+            });
+        }
+    });
+    let (log, lines) = logger("badhost join");
+    let ports = Ports {
+        control: free_tcp(),
+        desk: free_tcp(),
+        relay: free_udp(),
+    };
+    let cfg = p.config(
+        Role::Join(*host.id().as_bytes()),
+        ports,
+        "badhost-join.key",
+        log,
+        Duration::ZERO,
+    );
+    let join = arcade::spawn(cfg).unwrap();
+    wait_logged(&lines, "(bad flow stream 3)");
+    let t = dials.lock().unwrap().clone();
+    assert!(t.len() >= 3, "{t:?}");
+    assert!(t[1] - t[0] >= Duration::from_millis(900), "{t:?}");
+    assert!(t[2] - t[1] >= Duration::from_millis(1900), "{t:?}");
+    let downs = lines
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains("link to the arcade down"))
+        .count();
+    assert!(downs <= 3, "one line per drop: {downs}");
+    assert!(logged(&lines, "dialling again in 1 s (bad flow stream 1)"));
+    assert!(logged(&lines, "dialling again in 2 s (bad flow stream 2)"));
+    drop(join);
+    p._rt.block_on(host.close());
+}
+
 /// A new side with a 0.7.1 side (lz4 streams, datagram flows) or a 0.6.3 one (plain streams, datagram flows), either
 /// way round: the link is what the old side speaks today, both ends say so, and the packets and control bytes cross.
 #[test]

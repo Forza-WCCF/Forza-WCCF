@@ -73,6 +73,11 @@ pub const CLOSE_ARCADE_CLOSED: u8 = 6;
 /// Either side's close code when the other side's flow stream ([`ARCADE_ALPN_3`] only) ends, breaks or sends a bad
 /// frame: the join side dials again onto fresh streams, as after a host restart.
 pub const CLOSE_BAD_FLOWS: u8 = 7;
+/// Join, after a bad flow stream: the first wait before dialling again, doubled after each link that lived less than
+/// [`HEALTHY_LINK`], up to [`BACKOFF_CAP`].
+const BACKOFF_FIRST: Duration = Duration::from_secs(1);
+const BACKOFF_CAP: Duration = Duration::from_secs(30);
+const HEALTHY_LINK: Duration = Duration::from_secs(60);
 /// Bytes the streams may hold on this side together (per guest on the host) before the one that overflows is closed.
 pub const STREAM_BUF: usize = 4 << 20;
 /// Streams a guest may hold open at once (the control, the projector-less seat's reconnects, the desk).
@@ -277,6 +282,14 @@ impl Drop for Live {
     }
 }
 
+/// Join: whether the link went down over a bad flow stream: the host's [`CLOSE_BAD_FLOWS`], or this side's own close
+/// (the join closes a link only in [`recv_flow`], with that code).
+fn bad_flows(why: &iroh::endpoint::ConnectionError) -> bool {
+    use iroh::endpoint::ConnectionError::{ApplicationClosed, LocallyClosed};
+    matches!(why, LocallyClosed)
+        || matches!(why, ApplicationClosed(c) if c.error_code == CLOSE_BAD_FLOWS.into())
+}
+
 /// Join: whether the link went down because the host closed the arcade: its [`CLOSE_ARCADE_CLOSED`], or code 0, the
 /// endpoint close a 0.6.1 host sends when it stops (iroh's `Endpoint::close`; every other close here has its own code).
 pub fn closed_by_host(why: &iroh::endpoint::ConnectionError) -> bool {
@@ -376,13 +389,16 @@ fn flow_frame(d: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// The next frame's flow and datagram from a flow stream; an error, for the log, when the stream ends or breaks
-/// (between or inside frames) or sends a frame over [`MAX_FLOW_PACKET`].
+/// (between or inside frames) or sends a frame under 4 bytes (no flow number) or over [`MAX_FLOW_PACKET`].
 async fn read_flow<R: AsyncRead + Unpin>(r: &mut R) -> Result<Vec<u8>, String> {
     let mut len = [0u8; 2];
     r.read_exact(&mut len)
         .await
         .map_err(|e| format!("between frames: {e}"))?;
     let n = usize::from(u16::from_le_bytes(len));
+    if n < 4 {
+        return Err(format!("a {n}-byte frame, under the 4-byte flow number"));
+    }
     if n > MAX_FLOW_PACKET {
         return Err(format!(
             "a {n}-byte frame, over the {MAX_FLOW_PACKET}-byte cap"
@@ -982,7 +998,10 @@ impl Join {
     /// Keeps the link to the host up: `first` is the one [`spawn`] made; a dropped link is dialled again.
     async fn keep(self: Arc<Self>, first: Connection) {
         let mut conn = first;
+        let mut wait = Duration::ZERO;
+        let mut bad = 0u32;
         loop {
+            let up = Instant::now();
             self.link.send_replace(Some(conn.clone()));
             tokio::spawn(watch_path(self.sh.log.clone(), conn.clone()));
             let inbound = tokio::spawn(self.clone().from_host(conn.clone()));
@@ -1002,7 +1021,22 @@ impl Join {
                 );
                 return;
             }
-            (self.sh.log)(&format!("link to the arcade down: {why}; dialling again"));
+            if bad_flows(&why) {
+                // a peer that keeps breaking its flow stream: dial again ever slower, so the log and the relay stay calm
+                wait = if up.elapsed() >= HEALTHY_LINK {
+                    BACKOFF_FIRST
+                } else {
+                    (wait * 2).clamp(BACKOFF_FIRST, BACKOFF_CAP)
+                };
+                bad += 1;
+                (self.sh.log)(&format!(
+                    "link to the arcade down: {why}; dialling again in {} s (bad flow stream {bad})",
+                    wait.as_secs()
+                ));
+                sleep(wait).await;
+            } else {
+                (self.sh.log)(&format!("link to the arcade down: {why}; dialling again"));
+            }
             conn = loop {
                 match self.dial().await {
                     Ok(c) => break c,
@@ -1426,10 +1460,14 @@ mod tests {
     async fn flow_stream_frames() {
         let big = vec![7u8; MAX_FLOW_PACKET];
         let mut wire = flow_frame(&big).expect("the largest frame");
-        wire.extend(flow_frame(b"ab").unwrap());
+        wire.extend(flow_frame(b"abcd").unwrap());
         let mut r = &wire[..];
         assert_eq!(read_flow(&mut r).await.as_deref(), Ok(&big[..]));
-        assert_eq!(read_flow(&mut r).await.as_deref(), Ok(&b"ab"[..]));
+        assert_eq!(read_flow(&mut r).await.as_deref(), Ok(&b"abcd"[..]));
+        assert_eq!(
+            read_flow(&mut &flow_frame(b"abc").unwrap()[..]).await,
+            Err("a 3-byte frame, under the 4-byte flow number".into())
+        );
         let end = read_flow(&mut r).await.unwrap_err();
         assert!(
             end.starts_with("between frames: "),
@@ -1505,11 +1543,20 @@ mod tests {
         };
         assert!(closed_by_host(&app(CLOSE_ARCADE_CLOSED)));
         assert!(closed_by_host(&app(0)), "a 0.6.1 host's endpoint close");
-        for code in [1, 3, CLOSE_NOT_IN_ROOM, CLOSE_NO_ANSWER] {
+        for code in [1, 3, CLOSE_NOT_IN_ROOM, CLOSE_NO_ANSWER, CLOSE_BAD_FLOWS] {
             assert!(!closed_by_host(&app(code)), "code {code}");
         }
         assert!(!closed_by_host(&ConnectionError::TimedOut));
         assert_ne!(CLOSE_ARCADE_CLOSED, CLOSE_NOT_IN_ROOM);
+        assert!(
+            bad_flows(&app(CLOSE_BAD_FLOWS)),
+            "the host's close over a bad flow stream"
+        );
+        assert!(
+            bad_flows(&ConnectionError::LocallyClosed),
+            "this side's own"
+        );
+        assert!(!bad_flows(&app(CLOSE_ARCADE_CLOSED)));
     }
 
     /// The real closes, not made-up ones: a 0.6.1 host's stop (iroh's `Endpoint::close`, code 0) reads as the host
