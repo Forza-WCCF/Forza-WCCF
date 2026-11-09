@@ -500,3 +500,19 @@ fn the_lobby_row_counts_the_cards_on_the_game_server() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn no_timed_cups_turns_off_the_cup_insertion_byte_only() {
+    let answer = |extra: &[&str], name: &str| {
+        let dir = std::env::temp_dir().join(format!("forza_gmsvr_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (_srv, mut c) = start_with(&dir, extra);
+        let (rc, body) = ask(&mut c, 237, &req(20, 16));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(rc, 238);
+        // payload +16 is GAME_CTRL: 1172 = timed cups on, 1173 = slot minutes, 1174 = minutes before the first
+        (body[16 + 1172], body[16 + 1173], body[16 + 1174])
+    };
+    assert_eq!(answer(&[], "cups"), (1, 9, 20));
+    assert_eq!(answer(&["--no-timed-cups"], "nocups"), (0, 9, 20));
+}
