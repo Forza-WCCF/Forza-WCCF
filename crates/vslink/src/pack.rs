@@ -1,4 +1,4 @@
-//! lz4 frames for the arcade tunnel's streams, when both ends speak [`crate::arcade::ARCADE_ALPN_LZ4`]. Each TCP read
+//! lz4 frames for the arcade tunnel's streams, when both ends speak [`crate::arcade::ARCADE_ALPN_LZ4`] or newer. Each TCP read
 //! (at most [`MAX_RAW`] bytes) crosses at once as one frame, so nothing waits for more data:
 //! `[kind u8][raw length u16 LE][stored length u16 LE][stored bytes]`, kind [`RAW`] (stored = raw) or [`LZ4`] (an lz4
 //! block). Each block is compressed against the last [`HISTORY`] raw bytes of its direction, which both ends keep the
