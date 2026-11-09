@@ -406,6 +406,80 @@ fn installer_pages() {
     all.unwrap();
 }
 
+/// The Files page at the default size: each row's hint and check sit right under it, lined up with the text boxes, and
+/// "Add files…" stays above the footer in every language.
+#[test]
+fn installer_files_rows_fit() {
+    let _gpu = gpu();
+    for lang in Lang::ALL {
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+        let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let t = |key: &str| forza_ui::text(lang, key, &[]);
+        let rect = |key: &str| h.get_by_label(&t(key)).rect();
+        let mut browse: Vec<_> = h
+            .get_all_by_label(&t("launcher.browse"))
+            .map(|b| b.rect())
+            .collect();
+        browse.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        assert_eq!(browse.len(), 3, "{lang:?}: three file rows");
+        let rows = [
+            ("installer.iso_hint", "installer.iso_ok"),
+            ("installer.key_hint", "installer.key_found"),
+            ("installer.package_hint", "installer.pkg_ok"),
+        ];
+        let left = rect(rows[0].0).left();
+        for (i, (hint, check)) in rows.into_iter().enumerate() {
+            let hint = rect(hint);
+            let check = h
+                .get_by_label(&forza_ui::text(lang, check, &[("edition", "2010–11")]))
+                .rect();
+            assert!(
+                (0.0..=12.0).contains(&(check.top() - hint.bottom())),
+                "{lang:?} row {i}: check {check:?} not right under its hint {hint:?}"
+            );
+            let gap = hint.top() - browse[i].bottom();
+            assert!(
+                (0.0..=8.0).contains(&gap),
+                "{lang:?} row {i}: hint {gap} px under its row"
+            );
+            assert_eq!(hint.left(), left, "{lang:?} row {i}: hints line up");
+            assert!(
+                left > 196.0 + 24.0 + 120.0,
+                "{lang:?}: hint left of the text box"
+            );
+            if let Some(next) = browse.get(i + 1) {
+                assert!(
+                    check.bottom() < next.top(),
+                    "{lang:?} row {i}: check overlaps the next row"
+                );
+            }
+        }
+        let add = rect("installer.add_files");
+        assert!(
+            add.bottom() <= installer::SIZE.y - 64.0,
+            "{lang:?}: Add files at {add:?} under the footer"
+        );
+    }
+    // a refusal is at the top of the scrolled content, not laid out below the visible page: at the shortest window
+    // the rows scroll, and a line under the scroll area would be clipped
+    let refusal_text = forza_ui::text(Lang::En, "installer.err_iso", &[]);
+    let mut st = installer::InstallerState::sample(Lang::En, installer::Page::Files);
+    st.error = Some(refusal_text.clone());
+    let short = egui::vec2(installer::SIZE.x, 520.0);
+    let mut h = harness(short, 1.0, Edition::E1011, |ui| {
+        installer::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    let refusal = h.get_by_label(&refusal_text).rect();
+    assert!(
+        refusal.top() > 0.0 && refusal.bottom() < short.y - 64.0,
+        "the refusal at {refusal:?} is under the footer"
+    );
+}
+
 #[test]
 fn panel_pages() {
     let _gpu = gpu();
