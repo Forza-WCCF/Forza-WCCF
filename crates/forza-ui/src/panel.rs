@@ -911,6 +911,7 @@ impl PanelState {
             tactics,
             online,
             ping_ms,
+            fps,
             message,
             banner,
             catalogue,
@@ -949,6 +950,11 @@ impl PanelState {
             latched,
             add,
             import,
+            import_help,
+            site_open,
+            site_copy,
+            site_copied,
+            site_note,
             import_ask,
             import_go,
             import_undo,
@@ -995,7 +1001,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 89] = [
+        let parts: [&dyn std::fmt::Debug; 95] = [
             edition,
             lang,
             page,
@@ -1008,6 +1014,7 @@ impl PanelState {
             tactics,
             online,
             ping_ms,
+            fps,
             message,
             banner,
             filter,
@@ -1053,6 +1060,11 @@ impl PanelState {
             latched,
             add,
             import,
+            import_help,
+            site_open,
+            site_copy,
+            site_copied,
+            site_note,
             import_ask,
             import_go,
             import_undo,
