@@ -279,14 +279,23 @@ fn shared_target_in(dir: &Path, root: &Path, here: &Path) -> Result<std::fs::Fil
         root.display(),
         here.display()
     );
-    fs::write(&marker, here.display().to_string())?;
+    fs::write(&marker, real_path(here).display().to_string())?;
     Ok(lock)
 }
 
-/// `p` in the filesystem's own spelling: a junction, a `subst` drive or an 8.3 name is the same folder under another
-/// name, else `p` as given.
+/// `p` in the filesystem's own spelling: a junction, a `subst` drive or an 8.3 name (`RUNNER~1`) is the same folder
+/// under another name; else `p` as given. The `\\?\` form `canonicalize` returns is dropped for messages and the
+/// folder's marker, which `norm_path` reads the same way.
 fn real_path(p: &Path) -> PathBuf {
-    fs::canonicalize(p).unwrap_or_else(|_| p.to_owned())
+    let real = fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
+    let shown = real.display().to_string();
+    let Some(rest) = shown.strip_prefix("\\\\?\\") else {
+        return real;
+    };
+    PathBuf::from(match rest.strip_prefix("UNC\\") {
+        Some(share) => format!("\\\\{share}"),
+        None => rest.to_owned(),
+    })
 }
 
 /// Sets every tracked file of the worktree to the current time.
@@ -3145,7 +3154,7 @@ mod tests {
         waiter.join().unwrap().unwrap();
         assert_eq!(
             fs::read_to_string(shared.join(".forza-worktree")).unwrap(),
-            here.display().to_string()
+            real_path(&here).display().to_string()
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -3153,15 +3162,21 @@ mod tests {
     #[test]
     fn one_folder_under_two_spellings_is_no_worktree_switch() {
         let dir = std::env::temp_dir().join(format!("forza-xtask-canon-{}", std::process::id()));
-        let here = dir.join("w");
-        fs::create_dir_all(here.join(".")).unwrap();
-        // the folder already holds this worktree's build; `w\.` is the same folder (so is a junction or a `subst`
-        // drive), so this is Same, not the switch that touches files (none is a repository here) and exits
-        let shared = dir.join("t");
-        fs::create_dir_all(&shared).unwrap();
-        fs::write(shared.join(".forza-worktree"), here.display().to_string()).unwrap();
-        let held = shared_target_in(&shared, &here.join("."), &here).unwrap();
-        drop(held);
+        let (shared, here) = (dir.join("t"), dir.join("w"));
+        fs::create_dir_all(&here).unwrap();
+        let init = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&here)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        // first run: marks the folder as this worktree's, in the folder's own spelling
+        drop(shared_target_in(&shared, &here, &here).unwrap());
+        fs::remove_dir_all(here.join(".git")).unwrap();
+        // `w\.` is the same folder (so is a junction or a `subst` drive), so this is Same and runs no `git ls-files`
+        let again = shared_target_in(&shared, &here.join("."), &here);
+        assert!(again.is_ok(), "{:?}", again.err());
+        drop(again);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
