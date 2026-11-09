@@ -103,7 +103,9 @@ fn tables() {
         .map(|x| i128::from(x.as_i64().unwrap()))
         .collect();
     for vk in -2..0x400i128 {
-        assert_eq!(is_allowed(vk), allowed.contains(&vk), "key {vk:#x}");
+        // the mouse's side buttons are allowed since the recording (keyboard.py refused every mouse button)
+        let want = allowed.contains(&vk) || matches!(vk, 0x05 | 0x06);
+        assert_eq!(is_allowed(vk), want, "key {vk:#x}");
     }
 }
 
@@ -115,7 +117,13 @@ fn labels_and_words() {
         .iter()
         .enumerate()
     {
-        assert_eq!(key_label(vk as u32), l.as_str().unwrap(), "key {vk:#x}");
+        // the mouse's side buttons got names since the recording
+        let want = match vk {
+            0x05 => "Mouse 4",
+            0x06 => "Mouse 5",
+            _ => l.as_str().unwrap(),
+        };
+        assert_eq!(key_label(vk as u32), want, "key {vk:#x}");
     }
     let r = &of_kind("pad_codes")[0];
     for (code, c) in r["codes"].as_array().unwrap().iter().enumerate() {

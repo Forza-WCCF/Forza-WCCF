@@ -6833,4 +6833,36 @@ mod tests {
             Some("PAD DATA=B3")
         );
     }
+
+    /// The mouse's back side button (VK_XBUTTON1) binds KEY PLAYER like a key, and keys.txt keeps it for the key driver.
+    #[test]
+    fn a_mouse_side_button_binds_an_action() {
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        let kp = forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "KEYPLAYER")
+            .unwrap();
+        st.capturing = Some(kp);
+        st.vk_down = vec![(0x05, false)];
+        keys_input(&mut st);
+        assert_eq!((st.keys[kp], st.capturing), (0x05, None));
+        assert!(st.keys_changed);
+        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER = Mouse 4");
+        let text = forza::keys::keys_text(true, &st.keys, &st.pads);
+        assert!(text.contains("\nKEYPLAYER=0x05\n"));
+        #[cfg(windows)]
+        {
+            let (keys, notes) = forza::keys::load_keys(text.as_bytes());
+            let at = forza::keys::ACTIONS
+                .iter()
+                .position(|a| a.name == "KEYPLAYER")
+                .unwrap();
+            assert_eq!((keys[at], notes), (0x05, Vec::<String>::new()));
+        }
+    }
 }
