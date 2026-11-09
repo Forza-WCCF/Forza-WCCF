@@ -68,7 +68,14 @@ builds on plain Linux (`cargo build --release -p forza-server`).
      keeps the workspace crates incremental, the other profiles build them non-incremental so sccache can serve them.
      Or share the dependencies with one output
      folder (`setx CARGO_TARGET_DIR E:\cargo-target`): the kits stay in each worktree's `target\`, but two builds
-     in two worktrees then wait for each other. Add that folder to the Defender exclusions too.
+     in two worktrees then wait for each other. Add that folder to the Defender exclusions too. The worktrees share
+     one copy of each workspace crate there, and cargo would take another worktree's copy for yours when your files
+     are older: `cargo xtask` marks every tracked file new when the folder's last worktree (`.forza-worktree`) was
+     another one, so the workspace crates rebuild once per switch, and one `cargo xtask` run uses the folder at a
+     time (a second one prints `waiting for another cargo xtask run` and starts when the first ends). Give
+     the folder as a full path. Plain `cargo` takes no part in this: run it after a `cargo xtask` command following
+     a switch, and not while another worktree builds. Copy built programs from the worktree's `target\kit\`, not
+     from the shared folder, which the next build replaces.
 
 WSL is optional and only for the reverse-engineering tools and the Linux server deploy (`deploy/`). Do not start the
 build or the games from a WSL shell ([docs/SAFETY.md](docs/SAFETY.md)).
