@@ -358,6 +358,14 @@ cat.msg_same_player: {en: "%{name}: another card of this player is on the table 
 cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
 cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
+cat.import_help: {en: "Build a lineup on the Lineup page of db.wccf.it, then press Copy link there (or Export, then Copy). Come back and press IMPORT FROM CLIPBOARD to put its cards on the table.", it: "Crea una formazione nella pagina Rosa di db.wccf.it, poi premi Copia link (o Esporta, poi Copia). Torna qui e premi IMPORTA DAGLI APPUNTI per mettere le carte sul tavolo.", ja: "db.wccf.it の「編成」ページで編成を作り、「リンクをコピー」（または「書き出し」→「コピー」）を押してください。ここに戻って「クリップボードから読み込む」を押すと、カードがテーブルに置かれます。"}
+cat.import_paste: {en: "IMPORT FROM CLIPBOARD", it: "IMPORTA DAGLI APPUNTI", ja: "クリップボードから読み込む"}
+cat.site_open: {en: "OPEN THE SITE", it: "APRI IL SITO", ja: "サイトを開く"}
+cat.site_copy: {en: "COPY", it: "COPIA", ja: "コピー"}
+cat.site_copied: {en: "COPIED", it: "COPIATO", ja: "コピー済み"}
+cat.site_hint: {en: "COPY replaces what is on the clipboard. The site opens in your browser over the game window; Alt+Tab brings the game back.", it: "COPIA sostituisce il contenuto degli appunti. Il sito si apre nel browser sopra la finestra del gioco; Alt+Tab ti riporta al gioco.", ja: "「コピー」はクリップボードの内容を置き換えます。サイトはゲーム画面の上にブラウザで開き、Alt+Tab でゲームに戻れます。"}
+cat.msg_site_not_copied: {en: "The address could not be copied. Try again.", it: "Impossibile copiare l'indirizzo. Riprova.", ja: "アドレスをコピーできませんでした。もう一度お試しください。"}
+cat.msg_site_not_opened: {en: "The site could not be opened. Open the address above in your browser.", it: "Impossibile aprire il sito. Apri l'indirizzo qui sopra nel browser.", ja: "サイトを開けませんでした。上のアドレスをブラウザで開いてください。"}
 cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
 cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
 cat.msg_import_kp: {en: "The lineup on db.wccf.it has this key player: %{name}. Set it in the game.", it: "La formazione su db.wccf.it indica questo giocatore chiave: %{name}. Sceglilo nel gioco.", ja: "db.wccf.it の編成ではキープレイヤーは %{name} です。ゲーム内で設定してください。"}

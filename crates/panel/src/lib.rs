@@ -905,6 +905,40 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+/// Set by [`open_page`]'s thread when the shell did not start the browser: the dialog shows it.
+static PAGE_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// `url` in the default browser, on its own thread (a browser start can take a moment; the frame never waits). It opens
+/// over the game's window, which stays windowed (no exclusive mode to lose); Alt+Tab comes back. `WCCFPANEL_IMPORTTEST`
+/// set: logged only (fakegame opens no browser).
+fn open_page(url: &'static str) {
+    if std::env::var_os("WCCFPANEL_IMPORTTEST").is_some() {
+        log(&format!("import: would open {url}"));
+        return;
+    }
+    std::thread::spawn(move || {
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::core::{HSTRING, PCWSTR, w};
+        // SAFETY: plain call; the strings outlive it
+        let h = unsafe {
+            ShellExecuteW(
+                None,
+                w!("open"),
+                &HSTRING::from(url),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW: above 32 is success, else an error code
+        let code = h.0 as isize;
+        log(&format!("import: open {url} -> {code}"));
+        if code <= 32 {
+            PAGE_FAILED.store(true, Relaxed);
+        }
+    });
+}
+
 /// `text` on the clipboard as Unicode text; `false`: the clipboard could not be opened or taken.
 /// `WCCFPANEL_IMPORTTEST=FILE` writes `FILE.copy` instead (fakegame: the player's clipboard is left alone).
 fn set_clipboard_text(text: &str) -> bool {
@@ -3050,6 +3084,25 @@ impl Render {
     fn import(&mut self) {
         self.formations();
         self.lineup();
+        // IMPORT LINEUP's dialog: the db.wccf.it Lineup page opened or its address copied
+        if std::mem::take(&mut self.st.site_open) {
+            open_page(panel::LINEUP_PAGE);
+        }
+        if PAGE_FAILED.swap(false, Relaxed) && self.st.import_help {
+            self.st
+                .say_site(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_opened");
+        }
+        if std::mem::take(&mut self.st.site_copy) {
+            self.st.site_copied = set_clipboard_text(panel::LINEUP_PAGE);
+            log(&format!(
+                "import: lineup page copied {}",
+                self.st.site_copied
+            ));
+            if !self.st.site_copied {
+                self.st
+                    .say_site(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_copied");
+            }
+        }
         if std::mem::take(&mut self.st.import_undone)
             && let Some(old) = panel::undo_import(&mut self.st, in_match())
         {

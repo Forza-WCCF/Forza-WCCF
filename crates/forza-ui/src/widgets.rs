@@ -1720,3 +1720,26 @@ mod shape_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The stat scale the catalogue and the board share: 1-9 dim, 10-14 cyan, 15-17 green, 18-20 amber.
+    #[test]
+    fn stat_colours_follow_the_scale() {
+        let dim = Color32::from_rgb(0x4A, 0x7B, 0xA8);
+        for (v, c) in [
+            (1, dim),
+            (9, dim),
+            (10, theme::CYAN),
+            (14, theme::CYAN),
+            (15, theme::GREEN),
+            (17, theme::GREEN),
+            (18, theme::AMBER),
+            (20, theme::AMBER),
+        ] {
+            assert_eq!(stat_color(v), c, "{v}");
+        }
+    }
+}

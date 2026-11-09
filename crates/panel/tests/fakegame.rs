@@ -129,6 +129,92 @@ fn panel_draws_in_fakegame() {
     let _ = fs::remove_dir_all(&t);
 }
 
+/// 2017-18 IMPORT LINEUP's dialog through the DLL (WCCF_EDITION, WCCFPANEL_IMPORTTEST leaves the player's clipboard and
+/// browser alone): COPY puts the Lineup page on the clipboard, OPEN THE SITE asks for it, and Esc closes the dialog
+/// without reading the clipboard.
+#[test]
+#[cfg(target_arch = "x86")] // forza is the 32-bit panel's own dependency
+fn import_help_dialog_dll_side() {
+    use forza_ui::panel;
+
+    for f in ["fakegame.exe", "forza_panel.dll"] {
+        assert!(
+            Path::new(BUILD).join(f).is_file(),
+            "{BUILD}/{f} is missing: run cargo xtask build first"
+        );
+    }
+    let t = env::temp_dir().join(format!("forza-panel-site-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    for d in ["programs", "data", "seat1"] {
+        fs::create_dir_all(t.join(d)).unwrap();
+    }
+    fs::copy(
+        Path::new(BUILD).join("fakegame.exe"),
+        t.join("seat1/fakegame.exe"),
+    )
+    .unwrap();
+    fs::copy(
+        Path::new(BUILD).join("forza_panel.dll"),
+        t.join("programs/forza_panel.dll"),
+    )
+    .unwrap();
+    copy_dir(Path::new("../../assets/fonts"), &t.join("fonts"));
+    let lineup = t.join("lineup.txt");
+    fs::write(&lineup, "# WCCF DB lineup\ngame 1718\nP 101 50 92\n").unwrap();
+    let seat = t.join("seat1");
+    // CATALOGUE's page button from the panel's own layout at 1440x900 (one point per pixel)
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+    let cat = panel::page_button(panel::layout(sheet, false).tabs, 0).center();
+    let steps = [
+        READY.to_owned(),
+        "wait:300".to_owned(),
+        format!("click:{},{}", cat.x as i32, cat.y as i32),
+        "wait:400".to_owned(),
+        "click:760,99".to_owned(), // IMPORT LINEUP, at the search line's right end
+        "wait:400".to_owned(),
+        "click:933,430".to_owned(), // COPY, in the dialog's address row (the panel's layout at 1440x900, English)
+        "wait:300".to_owned(),
+        "click:823,430".to_owned(), // OPEN THE SITE
+        "wait:300".to_owned(),
+        "key:27".to_owned(), // Esc: closed, nothing imported
+        "wait:400".to_owned(),
+    ];
+    let out = Command::new(seat.join("fakegame.exe"))
+        .env("WCCFPANEL_FULLSCREEN", "0")
+        .env("WCCFPANEL_IMPORTTEST", &lineup)
+        .env("WCCF_EDITION", "2017-18")
+        .env("WCCF_KIT_LANG", "en") // the dialog's layout below is the English one
+        .env("WCCF_DATA", t.join("data"))
+        .current_dir(&seat)
+        .arg("../programs/forza_panel.dll")
+        .args(&steps)
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stdout);
+    println!("fakegame:\n{said}");
+    assert!(out.status.success(), "fakegame ended with {}", out.status);
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    for line in [
+        "edition 2017–18",
+        "import: lineup page copied true",
+        "import: would open https://db.wccf.it/#/board",
+    ] {
+        assert!(log.contains(line), "the panel's log has no '{line}'");
+    }
+    assert_eq!(
+        fs::read_to_string(t.join("lineup.txt.copy")).unwrap(),
+        "https://db.wccf.it/#/board"
+    );
+    // Esc was the dialog's: the catalogue behind still had the page, and nothing was imported
+    assert!(!log.contains("import: 1 card(s)"), "Esc imported:\n{log}");
+    assert!(
+        !log.contains("page game"),
+        "Esc reached the page behind:\n{log}"
+    );
+    let _ = fs::remove_dir_all(&t);
+}
+
 /// The panel with real data in a scratch kit: a synthetic catalogue (the real column layout, made-up cards) and
 /// made-up pictures, keys.txt, panel.txt and settings.json, the card table in the game's folder. Checked: a card's
 /// picture on its card, the heat zone while a card is dragged, a drag from the bench to the pitch and a drag off
