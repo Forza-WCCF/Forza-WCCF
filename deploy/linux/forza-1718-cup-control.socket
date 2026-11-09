@@ -1,0 +1,10 @@
+# /etc/systemd/system/forza-1718-cup-control.socket: the hourly cup arcade's control port on this host's loopback,
+# forwarded into the arcade's network namespace (forza-1718-cup-control.service), where control listens.
+[Unit]
+Description=Forza-WCCF hourly cup arcade: control TCP 21102 (loopback, into the arcade's network)
+
+[Socket]
+ListenStream=127.0.0.1:21102
+
+[Install]
+WantedBy=sockets.target

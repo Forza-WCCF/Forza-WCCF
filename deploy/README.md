@@ -22,6 +22,12 @@ in the units if you pick others. Replace the placeholders (`203.0.113.10`, `rela
 | `precheck.sh` | run as root before an update | is anyone connected or in the game, what runs, hashes of what an update replaces |
 | `cpu.sh` | run as root | CPU of control and the four match engines over 30 s |
 | `Dockerfile.forza-server` | build machine | `forza-server` for another architecture (e.g. arm64) |
+| `forza-1718-cup.service` | `/etc/systemd/system/` | the hourly Universal Cup arcade: `wccf-linux-server cups`, control under Wine in a network namespace of its own |
+| `forza-1718-cup-gmsvr.service` | `/etc/systemd/system/` | that arcade's game server in its namespace, `--no-timed-cups` (no Universal Championship) |
+| `forza-1718-cup-desk.service` | `/etc/systemd/system/` | that arcade's seat desk and match relay on loopback |
+| `forza-1718-cup-control.socket`, `.service` | `/etc/systemd/system/` | its control port on loopback, forwarded into the namespace |
+| `forza-1718-cup-tunnel.service` | `/etc/systemd/system/` | `forza-arcade host`: its room in the lobby and the arcade tunnel (no inbound port) |
+| `ctrl_user_option-1718-cup.conf` | `$FORZA_HOME/1718-cup/arcade/runtime/local/ctrl_user_option.conf` | that arcade's control settings (ports 21102/21103, its game server 21160) |
 
 ## iroh-relay/
 
