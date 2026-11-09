@@ -706,6 +706,9 @@ pub struct PanelState {
     pub site_copy: bool,
     /// The panel DLL copied it: COPY reads COPIED until the dialog closes.
     pub site_copied: bool,
+    /// The dialog's last COPY or OPEN THE SITE failure ([`PanelState::say_site`]): shown in the dialog, where the
+    /// page's note line would sit behind its backdrop.
+    pub site_note: Option<Note>,
     /// A lineup read and checked, waiting for the import dialog's CONFIRM or CANCEL.
     pub import_ask: Option<ImportAsk>,
     /// CONFIRM clicked: the panel DLL takes `import_ask` and calls [`import_lineup`].
@@ -836,6 +839,7 @@ impl PanelState {
             site_open: false,
             site_copy: false,
             site_copied: false,
+            site_note: None,
             import_ask: None,
             import_go: false,
             import_undo: None,
@@ -891,6 +895,11 @@ impl PanelState {
     /// A message by its text key, in the panel's language.
     pub fn say(&mut self, tone: Tone, key: &str) {
         self.note(tone, tr!(self.lang, key));
+    }
+
+    /// A message for the IMPORT LINEUP dialog's own line: the page's note line is behind its backdrop.
+    pub fn say_site(&mut self, tone: Tone, key: &str) {
+        self.site_note = Some(Note::new(tone, tr!(self.lang, key)));
     }
 
     pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
@@ -1835,8 +1844,9 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 }
 
 /// 2017-18 IMPORT LINEUP: where a lineup comes from (the db.wccf.it Lineup page, its Copy link or Export), the page's
-/// address with OPEN THE SITE (the browser opens over the game window) and COPY, then IMPORT FROM CLIPBOARD (or Enter):
-/// the panel DLL reads the clipboard as before. CANCEL or Esc leaves.
+/// address with OPEN THE SITE (the browser opens over the game window) and COPY, then IMPORT FROM CLIPBOARD (or Enter,
+/// unless another button has the focus): the panel DLL reads the clipboard as before. A COPY or OPEN that failed says so
+/// in the dialog. CANCEL or Esc leaves.
 fn import_help_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let copied = st.site_copied;
     let w = 520.0;
@@ -1896,6 +1906,8 @@ fn import_help_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .font(theme::body(HINT))
                         .color(theme::TEXT_DIM),
                 );
+                // a failed COPY or OPEN, in the dialog itself: the page's note line is behind the backdrop
+                note_line(ui, &mut st.site_note);
                 ui.add_space(4.0);
                 let go = widgets::cabinet(
                     ui,
@@ -1920,10 +1932,14 @@ fn import_help_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     st.site_copy |= copy;
     let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
     let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-    if cancel || esc || go || enter {
+    // Enter is the dialog's either way (the catalogue behind would add a card), but it starts the import only when no
+    // other button has it: on COPY or OPEN THE SITE it is that button's, as CONFIRM's is in `reset_dialog`'s shape
+    let import = go || (enter && !copy && !open);
+    if cancel || esc || import {
         st.import_help = false;
-        st.import |= go || enter;
+        st.import |= import;
         st.site_copied = false;
+        st.site_note = None;
     }
 }
 
@@ -4086,6 +4102,12 @@ pub fn catalogue_picture_shown(ctx: &egui::Context) -> Option<(bool, bool)> {
     ctx.data(|d| d.get_temp(picture_rect_id().with("shown")))
 }
 
+/// Whether the detail pane's other side has its picture loaded on the last frame, for tests: it loads while the card
+/// sits in the pane, not on the toggle's click.
+pub fn catalogue_other_side_ready(ctx: &egui::Context) -> Option<bool> {
+    ctx.data(|d| d.get_temp(picture_rect_id().with("other-ready")))
+}
+
 fn combo(
     ui: &mut Ui,
     id: &str,
@@ -4151,9 +4173,24 @@ fn stats_pane(
             ) {
                 *back = side == 1;
             }
-            // the other side loads with this one: BACK shows its picture on the click's frame, not the drawn stand-in
-            // for the frames a first load takes
-            board::card_picture_px(ui.ctx(), card.number, !*back, false);
+            // the other side loads once this card has been the pane's for two frames: BACK then shows its picture on
+            // the click's frame, not the drawn stand-in for the frames a first load takes, and a mouse swept across
+            // the grid starts no load per card passed
+            let since_id = egui::Id::unique("catalogue-side-since");
+            let now = ui.ctx().cumulative_pass_nr();
+            let first = match ui.data(|d| d.get_temp::<(u32, u64)>(since_id)) {
+                Some((no, at)) if no == card.number => at,
+                _ => {
+                    ui.data_mut(|d| d.insert_temp(since_id, (card.number, now)));
+                    now
+                }
+            };
+            let other = (now - first >= 2)
+                .then(|| board::card_picture_px(ui.ctx(), card.number, !*back, false))
+                .flatten();
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(picture_rect_id().with("other-ready"), other.is_some())
+            });
             // the picture's own pixels when it is loaded, else the album art's (the drawn stand-in)
             let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
                 .map_or(sizing::ALBUM, |(_, px)| px);

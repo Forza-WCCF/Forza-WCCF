@@ -1010,7 +1010,7 @@ fn catalogue_rects(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
 /// BACK in the detail pane (a scan front smaller than the album art, an album back, as an install has them) moves
 /// nothing: every rect (the search line, its buttons, the filters, the grid, the pane, the picture slot, the stats,
 /// ADD) is the same on the frame before the click, while it is pressed, right after it and as the frames go on; and
-/// the back's picture is ready when BACK is clicked (loaded with the front), so no drawn stand-in flashes.
+/// the back's picture loads while the card sits in the pane, before BACK is clicked, so no drawn stand-in flashes.
 #[test]
 fn catalogue_back_keeps_still() {
     let _gpu = gpu();
@@ -1034,6 +1034,7 @@ fn catalogue_back_keeps_still() {
         (panel::SIZE, 1.0),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.message = None; // the sample's note line at the pane's foot is no part of the claim
         st.catalogue.filter = Default::default();
         st.catalogue.filter.search = st.cards[ci].name.clone();
         st.catalogue.focus = Some(ci);
@@ -1046,11 +1047,22 @@ fn catalogue_back_keeps_still() {
             }
             panel::show(ui, &mut st)
         });
-        // the front loads on a thread: step until it shows, then a while longer (a player reads the card first)
-        for _ in 0..40 {
+        // the front (the grid's own picture) is ready at once; the pane starts the back two frames after the card
+        // arrives. Waiting for that load is the claim: a change that starts it a second later, or on the click as
+        // before, leaves the back unloaded past the 30 frames a player's read takes here.
+        let mut loaded = false;
+        for _ in 0..30 {
             h.run_steps(1);
+            loaded = panel::catalogue_other_side_ready(&h.ctx) == Some(true);
+            if loaded {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
+        assert!(
+            loaded,
+            "{size:?} {ppp}: the back's picture is not loaded before the click"
+        );
         assert_eq!(
             panel::catalogue_picture_shown(&h.ctx),
             Some((false, true)),
@@ -1763,7 +1775,8 @@ fn import_dialog() {
 
 /// 2017-18 IMPORT LINEUP: a dialog first, saying where a lineup comes from (the db.wccf.it Lineup page), its address
 /// with OPEN THE SITE and COPY (COPIED once the panel DLL copied it), then IMPORT FROM CLIPBOARD: the clipboard read as
-/// before. 2010-11 reads the clipboard at once.
+/// before. A COPY that fails says so in the dialog, Enter takes the button that has the focus, and Esc closes without
+/// importing. 2010-11 reads the clipboard at once.
 #[test]
 fn catalogue_import_help() {
     let _gpu = gpu();
@@ -1784,19 +1797,44 @@ fn catalogue_import_help() {
             "{lang:?}: the dialog first"
         );
         h.get_by_label(&t(lang, "cat.import_help"));
-        h.get_by_label("db.wccf.it/#/board");
-        assert_eq!(panel::LINEUP_PAGE, "https://db.wccf.it/#/board");
+        // the address the dialog shows is the one the DLL opens and copies, and the import reads the site's share
+        // links off that board route
+        h.get_by_label(panel::LINEUP_PAGE.trim_start_matches("https://"));
+        assert!(
+            forza::cards::lineup::share_id(&format!("{}?s=Ab3dE7x", panel::LINEUP_PAGE)).is_some(),
+            "{} is not the board route the site's share links use",
+            panel::LINEUP_PAGE
+        );
         h.get_by_label(&t(lang, "cat.site_open")).click();
         h.run_steps(1);
         assert!(
             st.borrow().site_open,
             "{lang:?}: OPEN THE SITE asks the DLL"
         );
-        h.get_by_label(&t(lang, "cat.site_copy")).click();
+        // Enter takes the focused button: on COPY it copies and does not start the import
+        h.get_by_label(&t(lang, "cat.site_copy")).focus();
         h.run_steps(1);
-        assert!(st.borrow().site_copy, "{lang:?}: COPY asks the DLL");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(1);
+        assert!(
+            st.borrow().site_copy && !st.borrow().import && st.borrow().import_help,
+            "{lang:?}: Enter on COPY must not import"
+        );
+        // the DLL took both clicks; then its COPY failed: the refusal is drawn in the dialog, not on the page's line
+        st.borrow_mut().site_copy = false;
+        st.borrow_mut().site_open = false;
+        st.borrow_mut().site_copied = false;
+        st.borrow_mut()
+            .say_site(forza_ui::widgets::Tone::Refused, "cat.msg_site_not_copied");
+        h.run_steps(2);
+        h.get_by_label(&t(lang, "cat.msg_site_not_copied"));
+        assert!(
+            st.borrow().message.is_none(),
+            "{lang:?}: the refusal went to the page's note line"
+        );
         // the DLL copied it
         st.borrow_mut().site_copied = true;
+        st.borrow_mut().site_note = None;
         h.run_steps(3);
         h.get_by_label(&t(lang, "cat.site_copied"));
         h.snapshot(format!("panel_import_help_{}", lang.code()));
@@ -1809,6 +1847,26 @@ fn catalogue_import_help() {
             "{lang:?}: the import asked, the dialog closed"
         );
     }
+    // Esc closes the dialog without reading the clipboard
+    let st = std::cell::RefCell::new(panel::PanelState::sample(
+        Edition::E1718,
+        Lang::En,
+        panel::Page::Catalogue,
+    ));
+    st.borrow_mut().message = None;
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.get_by_label("IMPORT LINEUP").click();
+    h.run_steps(2);
+    assert!(st.borrow().import_help, "the dialog is open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(
+        !st.borrow().import_help && !st.borrow().import,
+        "Esc must close the dialog without importing"
+    );
     // 2010-11: IMPORT LINEUP reads the clipboard at once
     let st1011 = std::cell::RefCell::new(panel::PanelState::sample(
         Edition::E1011,
