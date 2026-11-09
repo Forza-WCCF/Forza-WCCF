@@ -8,7 +8,7 @@ and the small Windows helpers it runs inside Wine. The seat desk and match relay
 
 | Program | Runs on | What |
 |---|---|---|
-| `wccf-linux-server` | Linux | `start`, `stop`, `status`, `serve` (the supervisor itself, which `start` detaches) |
+| `wccf-linux-server` | Linux | `start`, `stop`, `status`, `serve` (the supervisor itself, which `start` detaches), `cups` (2017-18: the hourly Universal Cup, below) |
 | `sddy_maps.exe` | Wine, 32-bit | 2017-18 only (`native/programs`): makes and holds the `SDDY_*` shared memory the Launcher normally makes |
 | `win32-helper.exe` | Wine, 32-bit | serves the motion tables and scene files control expects from the cabinet's shared memory, starts control under its debugger and logs a crash |
 | `check-crt.exe` | Wine, 32-bit | checks Wine's `msvcr90.dll` rejects the 14-character `Match[Control]` label the way Windows does (the helper shortens it) |
@@ -66,6 +66,12 @@ arcade and a 2010-11 arcade can run on one host. Differences from 2010-11:
   `REFUSING`; rechecked every 10 s. 2010-11 has no such gate.
 - `server1718_test.exe` (the hook's Wine self-test) is run by hand, not at start.
 
+`cups --edition 2017-18` runs the arcade in a loop of control runs (`src/cups.rs`): it plans a run (friendly slots,
+then a cup on the hour, 05:10 for the 05:00 hour), writes `runtime/local/schedule_option.conf`, runs `serve` at the
+planned start, follows `game.log` for the cup's rounds, and after the run's last final stops the arcade once no seat
+has been paired for a match in the last 460 s. Its game server runs `--no-timed-cups`. Units and setup:
+`docs/SELF-HOSTING.md` "The hourly cup arcade".
+
 ## Wine paths
 
 The cleanup check accepts Debian's `/usr/lib/wine/wine`, `wineserver32` and `wineserver64` with their server folders
@@ -75,4 +81,6 @@ under `/run/user/`, `/tmp/.wine-<uid>/` or `/tmp/wine-XXXXXX/`. Another distribu
 ## Tests
 
 `cargo test -p linux-host` (Linux): edition selection and config (2010-11 values unchanged), the hook-log check, seat allocation, collisions and release, malformed relay packets, forwarding and
-expiry, and the `ready`/`degraded` files.
+expiry, and the `ready`/`degraded` files;
+the hourly cup's plans over every start of a day, the 05:10 and day-change rules, the schedule file, and reading slots
+and seat pairings from control's log.
