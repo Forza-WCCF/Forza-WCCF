@@ -22,10 +22,16 @@ pub fn is_logowin(app: Option<&[u8]>, cmd: Option<&[u8]>) -> bool {
         && matches!(base.get(11), None | Some(b' ' | b'"'))
 }
 
-#[cfg(all(target_arch = "x86", any(feature = "e1011", feature = "e1718")))]
+#[cfg(all(
+    target_arch = "x86",
+    any(feature = "e1011", feature = "e1718", feature = "e1718-server")
+))]
 pub use hook::install;
 
-#[cfg(all(target_arch = "x86", any(feature = "e1011", feature = "e1718")))]
+#[cfg(all(
+    target_arch = "x86",
+    any(feature = "e1011", feature = "e1718", feature = "e1718-server")
+))]
 mod hook {
     use crate::log::log;
     use crate::patch::{Real, k32};
