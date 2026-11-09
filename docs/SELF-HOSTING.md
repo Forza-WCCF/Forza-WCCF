@@ -181,8 +181,8 @@ without a player hosting one. The `forza-1718-cup*` units in `deploy/linux` run 
   directly): no new inbound port.
 
 `cups` writes control's `local/schedule_option.conf` before each run: friendly slots, then the cup, then friendlies.
-It starts the run so that the cup opens 15 s before the hour (05:10 for the 05:00 hour: control's day starts at
-05:00, and no cup runs across it). A run holds the cups the slot grid brings within 2 minutes of their hour: on a
+It starts the run so that the cup opens 15 s before the hour (05:01 for the 05:00 hour: control's day starts at
+05:00, as a slot starts, and no cup runs across it; the 05:01 cup's final still leaves time for 06:00). A run holds the cups the slot grid brings within 2 minutes of their hour: on a
 2-core host under Wine (508 s friendly slots, a cup of about 40 minutes) that is one. After the run's last final is
 matched, `cups` stops control at the first moment no seat has been paired for a match in the last 460 s, then plans
 the next run. A restart too late for the hour opens the cup at 10 past, else that hour has none. The slot lengths

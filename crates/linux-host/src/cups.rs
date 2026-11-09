@@ -1,7 +1,7 @@
 //! The hourly Universal Cup of a server's 2017-18 arcade (`wccf-linux-server cups --edition 2017-18`): the plan of one
 //! control run and the control-log rule for a safe restart. The control reads its competition list only as it starts
 //! (`local\schedule_option.conf`), so a run is planned before its start: friendly slots, then a cup, up to [`PER_RUN`]
-//! cups, each opening near its hour (05:10 for the 05:00 hour, after the control's day change). Its game server sends
+//! cups, each opening near its hour (05:01 for the 05:00 hour, after the control's day change). Its game server sends
 //! GAME_CTRL 1172 = 0 (`forza-server --no-timed-cups`): no timed cups, so no Universal Championship.
 //!
 //! Times are local seconds (Unix seconds plus the host's UTC offset), the clock the control reads.
@@ -42,8 +42,12 @@ pub const MATCHING_SECS: i64 = 90;
 pub const FINAL_SECS: i64 = 415;
 /// A cup whose hour has no start left with a friendly slot ahead of it opens this much later instead.
 pub const LATE: i64 = 10 * 60;
-/// No cup within this much of the control's day change, before or after it.
-const CLEAR: i64 = 5 * 60;
+/// A cup's final ends at least this much before the control's day change (slot lengths vary by seconds per slot).
+const CLEAR_BEFORE: i64 = 5 * 60;
+/// A cup opens at least this much after the day change. The control rolls its day as a slot starts, before it reads
+/// the schedule (`execWccfStateEntry`, 0x45D840), and logs nothing: a cup whose first slot starts after 05:00 is clear.
+/// ovh1's cups opened 6 s early to 11 s late of their plan (2026-11-08/09); this keeps a 05:01 cup's 05:00:45.
+const CLEAR_AFTER: i64 = 30;
 /// The control's day change, 05:00 (a constant in control_Release.exe, 0x45D913): it clears the cup records a
 /// running cup writes to (lobby.rs `CUP_DAY_CHANGE`).
 const DAY_CHANGE: i64 = 5 * 3600;
@@ -95,18 +99,19 @@ impl Run {
     }
 }
 
-/// The cup time of the hour starting at `hour`: on the hour, 05:10 for the 05:00 hour.
+/// The cup time of the hour starting at `hour`: on the hour, 05:01 for the 05:00 hour (it opens 05:00:45, its final's
+/// restart comes about 05:42, in time for 06:00).
 fn target(hour: i64) -> i64 {
     if hour.rem_euclid(DAY) == DAY_CHANGE {
-        hour + 10 * 60
+        hour + 60
     } else {
         hour
     }
 }
 
-/// No day change from [`CLEAR`] before a cup opens to [`CLEAR`] after its final.
+/// No day change from [`CLEAR_AFTER`] before a cup opens to [`CLEAR_BEFORE`] after its final.
 pub fn clear_of_day_change(opens: i64, l: Lengths) -> bool {
-    (opens - CLEAR - DAY_CHANGE).rem_euclid(DAY) + l.cup + 2 * CLEAR <= DAY
+    (opens - CLEAR_AFTER - DAY_CHANGE).rem_euclid(DAY) + l.cup + CLEAR_AFTER + CLEAR_BEFORE <= DAY
 }
 
 /// The run for a control started no sooner than `now`. Its first cup is the first hour's that a start still reaches
@@ -307,9 +312,17 @@ mod tests {
 
     #[test]
     fn on_ovh1_s_slots_a_run_holds_one_cup() {
-        // 2,393 s of cup and 2 or 3 x 508 s of friendlies: the next hour's cup would open 3.4 min early or 5 min late
+        // 2,393 s of cup and 2 or 3 x 508 s of friendlies: the next hour's cup would open 3.4 min early or 5 min late;
+        // only the 05:00 hour's late cup (05:11) brings 06:00 within a minute
         for m in (0..24 * 60).step_by(11) {
-            assert_eq!(plan(D + m * 60, OVH1).cups.len(), 1);
+            let r = plan(D + m * 60, OVH1);
+            let late_5 = r.cups[0].target == at(5, 1) + LATE;
+            assert_eq!(
+                r.cups.len(),
+                if late_5 { 2 } else { 1 },
+                "{}",
+                clock(D + m * 60)
+            );
         }
     }
 
@@ -338,15 +351,15 @@ mod tests {
     }
 
     #[test]
-    fn the_5_00_cup_runs_at_5_10_and_no_cup_crosses_the_day_change() {
+    fn the_5_00_cup_runs_at_5_01_and_no_cup_crosses_the_day_change() {
         let r = plan(at(1, 45), WINDOWS);
-        assert_eq!(targets(&r), [at(2, 0), at(3, 0), at(4, 0), at(5, 10)]);
-        assert!(r.cups[2].ends + CLEAR <= at(5, 0));
-        assert!(r.cups[3].opens - CLEAR >= at(5, 0));
+        assert_eq!(targets(&r), [at(2, 0), at(3, 0), at(4, 0), at(5, 1)]);
+        assert!(r.cups[2].ends + CLEAR_BEFORE <= at(5, 0));
+        assert!(r.cups[3].opens - CLEAR_AFTER >= at(5, 0));
         for l in [WINDOWS, OVH1] {
-            assert_eq!(plan(at(4, 50), l).cups[0].target, at(5, 10));
+            assert_eq!(plan(at(4, 40), l).cups[0].target, at(5, 1));
             assert_eq!(plan(at(3, 45), l).cups[0].target, at(4, 0));
-            // 04:30 asked for 05:00's slot: the 05:10 cup, never one at 05:00
+            // 04:30 asked for 05:00's slot: the 05:01 cup, never one at 05:00
             assert!(plan(at(4, 30), l).cups.iter().all(|c| c.target != at(5, 0)));
         }
     }
@@ -359,8 +372,7 @@ mod tests {
             (4, 12, false),
             (4, 15, false),
             (5, 0, false),
-            (5, 4, false),
-            (5, 5, true),
+            (5, 1, true),
             (23, 0, true),
             (0, 0, true),
         ] {
@@ -369,6 +381,20 @@ mod tests {
         // ovh1's shorter cup: 04:15 still ends 04:55 + 5 min
         assert!(clear_of_day_change(at(4, 15), OVH1));
         assert!(!clear_of_day_change(at(4, 17), OVH1));
+    }
+
+    #[test]
+    fn a_players_final_in_the_5_01_cup_still_lets_06_00_run_on_the_hour() {
+        for h in 0..24 {
+            let r = plan(at(h, 0) - 20 * 60, OVH1);
+            let c = &r.cups[0];
+            // a seat paired at the final's matching holds the restart for MATCH_SECS
+            let restart = c.ends - FINAL_SECS + MATCH_SECS;
+            let next = plan(restart, OVH1);
+            check(restart, &next, OVH1);
+            assert_eq!(next.cups[0].target, target(at(h + 1, 0)), "{h}:00 cup");
+        }
+        assert_eq!(plan(at(4, 40), OVH1).cups[0].target, at(5, 1));
     }
 
     #[test]
