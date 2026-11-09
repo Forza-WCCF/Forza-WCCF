@@ -1,7 +1,10 @@
 name: CI
 
 on:
+  # types: GitHub's defaults (opened, synchronize, reopened), which naming any type drops, plus ready_for_review: the
+  # release PR is opened as a draft and runs no CI until it is marked ready
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -31,9 +34,15 @@ env:
   ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 
 jobs:
+  # The release PR (`next` -> `main`, `chore(release): <ver>`) is opened as a draft at the candidate cut and marked ready
+  # after the play test: while its head is `next` and the PR is a draft, every job here is skipped, ci-ok included (the
+  # candidate build is release.yml's, and the merge gate is the run that ready_for_review starts). Other pull requests,
+  # drafts included, run as before.
+  #
   # Docs-only changes (root *.md, docs/**) skip build-test and deny; lint (with `check text`) always runs.
   changes:
     name: changes
+    if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -68,6 +77,7 @@ jobs:
 
   lint:
     name: lint
+    if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -125,7 +135,9 @@ jobs:
   build-test:
     name: build-test
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: >-
+      needs.changes.outputs.code == 'true' &&
+      (github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true)
     # windows-latest, windows-2025 and windows-2025-vs2026 all serve the VS 2026 image today; pin the explicit label
     runs-on: windows-2025-vs2026
     timeout-minutes: 90
@@ -333,7 +345,9 @@ jobs:
   snapshots:
     name: snapshots (informational)
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true'
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true') &&
+      (github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true)
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
     continue-on-error: true
@@ -372,7 +386,9 @@ jobs:
   deny:
     name: deny
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: >-
+      needs.changes.outputs.code == 'true' &&
+      (github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -386,7 +402,11 @@ jobs:
   # One check to require in the ruleset: fails when any job failed or was cancelled; skipped jobs (docs-only changes) pass.
   ci-ok:
     name: ci-ok
-    if: always()
+    # skipped on the draft release PR too: GitHub reads a skipped check as a pass, and the PR cannot merge while it is a
+    # draft (marking it ready queues this workflow again, ci-ok pending)
+    if: >-
+      always() &&
+      (github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true)
     needs: [changes, lint, build-test, deny]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
