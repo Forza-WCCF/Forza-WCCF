@@ -509,12 +509,7 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
                     } else {
                         SW_SHOWNOACTIVATE.0 as u32
                     },
-                    rcNormalPosition: RECT {
-                        left: x,
-                        top: y,
-                        right: x + w,
-                        bottom: y + hh,
-                    },
+                    rcNormalPosition: saved_place_fitted(x, y, w, hh),
                     ..Default::default()
                 };
                 let _ = SetWindowPlacement(h, &wp);
@@ -551,6 +546,76 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
     let _ = BOARD.compare_exchange(h.0 as isize, 0, Relaxed, Relaxed);
     BOARD_UP.store(false, Relaxed);
     log("board window: gone");
+}
+
+/// A saved place `x, y, w, h` cut to the work area `wa` and moved inside it (a panel.txt from a bigger screen, or a
+/// monitor that has gone).
+fn fit_place(x: i32, y: i32, w: i32, h: i32, wa: RECT) -> RECT {
+    let (w, h) = (
+        w.clamp(1, (wa.right - wa.left).max(1)),
+        h.clamp(1, (wa.bottom - wa.top).max(1)),
+    );
+    let x = x.clamp(wa.left, (wa.right - w).max(wa.left));
+    let y = y.clamp(wa.top, (wa.bottom - h).max(wa.top));
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
+}
+
+/// panel.txt's board_rect= (workspace coordinates, as GetWindowPlacement gives them) fitted to the work area of the
+/// monitor nearest to it.
+fn saved_place_fitted(x: i32, y: i32, w: i32, h: i32) -> RECT {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
+        MonitorFromPoint, MonitorFromRect,
+    };
+    let info = || MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let (mut pm, mut mi) = (info(), info());
+    // SAFETY: plain queries with out-parameters we own
+    unsafe {
+        let _ = GetMonitorInfoW(
+            MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY),
+            &mut pm,
+        );
+        // workspace = screen less the primary work area's offset (a taskbar at the top or left)
+        let (dx, dy) = (
+            pm.rcWork.left - pm.rcMonitor.left,
+            pm.rcWork.top - pm.rcMonitor.top,
+        );
+        let screen = RECT {
+            left: x + dx,
+            top: y + dy,
+            right: x + dx + w,
+            bottom: y + dy + h,
+        };
+        if !GetMonitorInfoW(MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() {
+            return RECT {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            };
+        }
+        let wa = mi.rcWork;
+        fit_place(
+            x,
+            y,
+            w,
+            h,
+            RECT {
+                left: wa.left - dx,
+                top: wa.top - dy,
+                right: wa.right - dx,
+                bottom: wa.bottom - dy,
+            },
+        )
+    }
 }
 
 /// The board window's place now (its restored rect, maximized), for panel.txt; not while it is full screen.
@@ -4120,7 +4185,9 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, banner_off, cards, read_notice, side_button, take_off_lines};
+    use super::{
+        NOTICE_MAX, RECT, banner_off, cards, fit_place, read_notice, side_button, take_off_lines,
+    };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
@@ -4169,6 +4236,45 @@ mod tests {
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
+
+    /// A saved board_rect= bigger than the screen or off it (Yoshy's 1920x1200 tablet, 2026-11-09) comes back inside the
+    /// work area; one that fits stays as it was.
+    #[test]
+    fn a_saved_board_place_fits_the_work_area() {
+        let wa = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1152, // 1200 less a 48-pixel taskbar
+        };
+        let inside = |r: RECT| {
+            r.left >= wa.left && r.top >= wa.top && r.right <= wa.right && r.bottom <= wa.bottom
+        };
+        for (x, y, w, h) in [
+            (100, 50, 1100, 1500),    // taller than the work area
+            (-400, -300, 3000, 2000), // bigger both ways, above and left of it
+            (2500, 1300, 960, 1000),  // on a monitor that has gone
+            (1500, 900, 960, 1232),   // hanging over the bottom right
+        ] {
+            let r = fit_place(x, y, w, h, wa);
+            assert!(inside(r), "{x},{y} {w}x{h} -> {r:?}");
+            assert!(r.right - r.left == w.min(1920) && r.bottom - r.top == h.min(1152));
+        }
+        let fits = fit_place(200, 40, 960, 1100, wa);
+        assert_eq!(
+            (fits.left, fits.top, fits.right, fits.bottom),
+            (200, 40, 1160, 1140)
+        );
+        // a second monitor to the left: its own coordinates
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 984,
+        };
+        let r = fit_place(-1300, 10, 960, 1232, left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, 0, -320, 984));
     }
 
     /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
