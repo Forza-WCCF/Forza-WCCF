@@ -17,7 +17,10 @@
 //!   carries the host's room secret ([`valid_room_secret`]): the same secret gets its last room's code again (a
 //!   restarted host keeps it; the desk keeps only the secret's hash, and forgets codes when it restarts). Desks
 //!   before this answer `ERR`, and the Launcher asks again without the secret (a fresh code, as before).
-//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8) in the arcade room with that code. `JOIN ID [n]` with the id of
+//! - `CREATE seatless ID public|private [NAME...]` (2017-18) -> [`Created`] with seat 0: an arcade room whose host is a
+//!   server that plays no game (forza-arcade), so it takes no room seat and guests get seats 1-8. Desks before this
+//!   answer `ERR`, and forza-arcade asks again with `CREATE shop`.
+//! - `JOIN CODE [n]` -> [`Reserved`]: a guest seat (2-8, 1-8 in a seatless room) in the arcade room with that code. `JOIN ID [n]` with the id of
 //!   a listed (`public`) room seats a guest too; a private room's id answers `CLOSED`, so its code is the only way in.
 //!   Desks before this list rooms without [`Arcade::room`]. The Launcher joins a row with it by `JOIN id`; a 2017-18
 //!   row without it is the desk's own arcade, joined by playing at the desk's address (an old desk's room among
@@ -196,7 +199,7 @@ pub struct VsRoom {
 }
 
 /// The desk's answer to `CREATE vs`: `ROOM id code t seat` (`t` a ticket like `RESERVE`'s, `seat` 1 in a new room,
-/// 2 when `open` joined a waiting one; a desk without the seat field means 1) or `FULL` (the desk holds as many rooms
+/// 2 when `open` joined a waiting one, 0 for a `CREATE seatless` host; a desk without the seat field means 1) or `FULL` (the desk holds as many rooms
 /// as it takes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Created {
@@ -234,7 +237,7 @@ impl Created {
                 id: id.into(),
                 code: code.into(),
                 ticket: t.into(),
-                seat: seat.parse().ok().filter(|s| (1..=2).contains(s))?,
+                seat: seat.parse().ok().filter(|s| (0..=2).contains(s))?,
             }),
             ["FULL"] => Some(Created::Full),
             _ => None,
@@ -266,6 +269,12 @@ pub enum Ask {
     CreateArcade {
         host: String,
         secret: Option<String>,
+        public: bool,
+        name: String,
+    },
+    /// `CREATE seatless`: like [`Ask::CreateArcade`] without a secret, for a host that takes no room seat.
+    CreateSeatlessArcade {
+        host: String,
         public: bool,
         name: String,
     },
@@ -322,6 +331,11 @@ impl Ask {
             Ask::CreateArcade {
                 host, public: true, ..
             } => format!("CREATE shop {host} public\n"),
+            Ask::CreateSeatlessArcade { host, public, name } => {
+                let vis = if *public { "public" } else { "private" };
+                let sp = if name.is_empty() { "" } else { " " };
+                format!("CREATE seatless {host} {vis}{sp}{name}\n")
+            }
             Ask::JoinArcade { code, seat: None } => format!("JOIN {code}\n"),
             Ask::JoinArcade {
                 code,
@@ -393,6 +407,17 @@ impl Ask {
                     name: arcade_name(&name.join(" ")),
                 }
             }
+            [
+                "CREATE",
+                "seatless",
+                id,
+                vis @ ("public" | "private"),
+                ref name @ ..,
+            ] if valid_endpoint_id(id) => Ask::CreateSeatlessArcade {
+                host: s(id),
+                public: vis == "public",
+                name: arcade_name(&name.join(" ")),
+            },
             ["JOIN", c] => Ask::JoinArcade {
                 code: s(c),
                 seat: None,
@@ -582,6 +607,26 @@ pub fn create_arcade(
         &Ask::CreateArcade {
             host: host.into(),
             secret: secret.map(Into::into),
+            public,
+            name: arcade_name(name),
+        }
+        .line(),
+    )?;
+    Created::parse(&a).ok_or(a)
+}
+
+/// `CREATE seatless ID public|private [NAME...]` (2017-18): [`create_arcade`] for a server that hosts the arcade and
+/// plays no game (forza-arcade): it takes no room seat, so 8 guests fit. `Created::Room` has seat 0.
+pub fn create_seatless_arcade(
+    addr: SocketAddr,
+    host: &str,
+    public: bool,
+    name: &str,
+) -> Result<Created, String> {
+    let a = ask(
+        addr,
+        &Ask::CreateSeatlessArcade {
+            host: host.into(),
             public,
             name: arcade_name(name),
         }
@@ -816,6 +861,16 @@ mod tests {
                 public: true,
                 name: "Sala Roma".into(),
             },
+            Ask::CreateSeatlessArcade {
+                host: id.clone(),
+                public: true,
+                name: String::new(),
+            },
+            Ask::CreateSeatlessArcade {
+                host: id.clone(),
+                public: false,
+                name: "Universal Cup".into(),
+            },
             Ask::JoinArcade {
                 code: "K7QMZD".into(),
                 seat: None,
@@ -913,6 +968,11 @@ mod tests {
         }
         assert_eq!(Created::parse("ERR slow"), None);
         assert_eq!(Created::parse("ROOM r7x1 K7QM t9 3"), None);
+        // a seatless arcade host's room
+        assert!(matches!(
+            Created::parse("ROOM r7x1 K7QM t9 0"),
+            Some(Created::Room { seat: 0, .. })
+        ));
     }
 
     /// The client calls against a stand-in desk that answers each word as B4's desk will.

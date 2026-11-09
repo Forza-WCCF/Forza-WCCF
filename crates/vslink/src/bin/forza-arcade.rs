@@ -132,7 +132,10 @@ fn run(args: &[String]) -> Result<(), String> {
 fn open_room(addr: SocketAddr, id: &str, public: bool, name: &str) -> Option<(String, String)> {
     let mut said = String::new();
     while !STOP.load(Ordering::Relaxed) {
-        let why = match lobby::create_arcade(addr, id, None, public, name) {
+        // no room seat for this host, so 8 guests fit; a desk before `CREATE seatless` answers ERR: the old room
+        let made = lobby::create_seatless_arcade(addr, id, public, name)
+            .or_else(|_| lobby::create_arcade(addr, id, None, public, name));
+        let why = match made {
             Ok(Created::Room {
                 id: room,
                 code,
