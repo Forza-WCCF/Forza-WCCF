@@ -142,6 +142,8 @@ static WANTS_KEYS: AtomicBool = AtomicBool::new(false);
 static PAGE_OPEN: AtomicBool = AtomicBool::new(false);
 /// Keys pressed while a page is open (virtual-key code, Alt held), repeats left out: KEYS takes them.
 static VK_DOWN: Mutex<Vec<(u32, bool)>> = Mutex::new(Vec::new());
+/// A KEY cell on KEYS waits for its key: the mouse's side buttons are KEYS' then ([`side_button`]).
+static CAPTURING: AtomicBool = AtomicBool::new(false);
 static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
 static FILES: OnceLock<kit::Files> = OnceLock::new();
@@ -152,6 +154,9 @@ static AFFINITY: OnceLock<Option<Arc<cards::links::Affinity>>> = OnceLock::new()
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
+/// The side buttons whose press the panel swallowed (bit per XBUTTON number): their release is swallowed too, the
+/// capture over or not, or `DefWindowProc` raises back/forward `WM_APPCOMMAND` from it.
+static SIDE_DOWN: AtomicU32 = AtomicU32::new(0);
 /// This process is the projector (the second game window): money, the frame wait and its frames for seat 1, no panel.
 static PROJECTOR: AtomicBool = AtomicBool::new(false);
 static JVS_OUT: OnceLock<Option<forza::standins::jvs_out::Map>> = OnceLock::new();
@@ -644,6 +649,9 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     if matches!(m, WM_KEYDOWN | WM_KEYUP)
         && let Some(r) = pause::message(true, m, wp, lp)
     {
+        return r;
+    }
+    if let Some(r) = side_button_msg(true, m, wp) {
         return r;
     }
     if !DEAD.load(Relaxed) && POPPED.load(Relaxed) && input(true, m, wp, lp) && m != WM_SYSKEYDOWN {
@@ -3000,6 +3008,7 @@ impl Render {
             self.pads = None; // KEYS opened: looked for afresh, below
         }
         self.last_page = self.st.page;
+        CAPTURING.store(keys && self.st.capturing.is_some(), Relaxed);
         if !keys {
             return;
         }
@@ -3801,6 +3810,9 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
             )
         };
     }
+    if let Some(r) = side_button_msg(false, m, wp) {
+        return r;
+    }
     // popped out too: the board is the board window's, the picture, the pages and the buttons stay here
     let lp = match to_game(h, m, lp) {
         Some(game) => game,
@@ -3883,6 +3895,50 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
         )],
     );
     Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
+}
+
+/// A mouse side button's message (`WM_XBUTTON*`): `Some(vk)` = handled here, with KEYS' key for a press (`vk`, while
+/// a KEY cell waits); `None` = the game's, as it came. The board window's are always ours: no egui event (a card's drag
+/// goes on) and no `DefWindowProc` (no back/forward `WM_APPCOMMAND`); the game window's only while a cell waits.
+/// A release whose press was swallowed (`down`, [`SIDE_DOWN`]) is ours too.
+fn side_button(
+    board: bool,
+    capturing: bool,
+    down: &AtomicU32,
+    m: u32,
+    wp: usize,
+) -> Option<Option<u32>> {
+    if !matches!(m, WM_XBUTTONDOWN | WM_XBUTTONDBLCLK | WM_XBUTTONUP) {
+        return None;
+    }
+    // HIWORD(wParam): XBUTTON1 (back) = VK_XBUTTON1, XBUTTON2 (forward) = VK_XBUTTON2
+    let (vk, bit) = match (wp >> 16) & 0xFFFF {
+        1 => (Some(0x05), 1 << 1),
+        2 => (Some(0x06), 1 << 2),
+        _ => (None, 0),
+    };
+    if m == WM_XBUTTONUP && down.fetch_and(!bit, Relaxed) & bit != 0 {
+        return Some(None);
+    }
+    if !(board || capturing) {
+        return None;
+    }
+    if m != WM_XBUTTONUP {
+        down.fetch_or(bit, Relaxed);
+    }
+    Some(vk.filter(|_| capturing && m != WM_XBUTTONUP))
+}
+
+/// [`side_button`] in a window procedure: a press for KEYS goes where the keys go, and a handled message answers TRUE
+/// (the `WM_XBUTTON*` rule).
+fn side_button_msg(board: bool, m: u32, wp: WPARAM) -> Option<LRESULT> {
+    let vk = side_button(board, CAPTURING.load(Relaxed), &SIDE_DOWN, m, wp.0)?;
+    if let Some(vk) = vk
+        && let Ok(mut v) = VK_DOWN.lock()
+    {
+        v.push((vk, false));
+    }
+    Some(LRESULT(1))
 }
 
 fn modifiers() -> Modifiers {
@@ -4064,7 +4120,56 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, banner_off, cards, read_notice, take_off_lines};
+    use super::{NOTICE_MAX, banner_off, cards, read_notice, side_button, take_off_lines};
+    use std::sync::atomic::AtomicU32;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    };
+
+    /// The side buttons: KEYS' VK_XBUTTON1/2 while a cell waits (also mid-drag, MK_LBUTTON set), the board window's
+    /// always (no back/forward), the game's otherwise; other messages are not touched.
+    #[test]
+    fn side_buttons_are_keys_while_a_cell_waits() {
+        let (x1, x2) = (1 << 16, 2 << 16);
+        let drag = 0x0001 | 0x0040; // MK_LBUTTON | MK_XBUTTON2
+        let d = AtomicU32::new(0);
+        assert_eq!(
+            side_button(false, true, &d, WM_XBUTTONDOWN, x1),
+            Some(Some(0x05))
+        );
+        assert_eq!(
+            side_button(true, true, &d, WM_XBUTTONDOWN, x2 | drag),
+            Some(Some(0x06))
+        );
+        assert_eq!(
+            side_button(false, true, &d, WM_XBUTTONDBLCLK, x2),
+            Some(Some(0x06))
+        );
+        assert_eq!(side_button(false, true, &d, WM_XBUTTONUP, x2), Some(None));
+        assert_eq!(
+            side_button(true, false, &d, WM_XBUTTONDOWN, x1 | drag),
+            Some(None)
+        );
+        assert_eq!(side_button(true, false, &d, WM_XBUTTONUP, x1), Some(None));
+        assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x1), None);
+        assert_eq!(side_button(true, true, &d, WM_LBUTTONDOWN, x1), None);
+    }
+
+    /// A side button pressed while a cell waits is bound (the capture ends): its release still never reaches the game
+    /// window's `DefWindowProc`; outside a capture the game window keeps both halves.
+    #[test]
+    fn a_swallowed_side_press_swallows_its_release() {
+        let (x1, x2) = (1 << 16, 2 << 16);
+        let d = AtomicU32::new(0);
+        assert_eq!(
+            side_button(false, true, &d, WM_XBUTTONDOWN, x1),
+            Some(Some(0x05))
+        );
+        assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), Some(None));
+        assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
+        assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
+        assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
 
     /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
     /// one); a banner whose time had run out is gone already and logs nothing.
