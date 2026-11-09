@@ -67,7 +67,7 @@ arcade and a 2010-11 arcade can run on one host. Differences from 2010-11:
 - `server1718_test.exe` (the hook's Wine self-test) is run by hand, not at start.
 
 `cups --edition 2017-18` runs the arcade in a loop of control runs (`src/cups.rs`): it plans a run (friendly slots,
-then a cup on the hour, 05:10 for the 05:00 hour), writes `runtime/local/schedule_option.conf`, runs `serve` at the
+then a cup on the hour, 05:01 for the 05:00 hour), writes `runtime/local/schedule_option.conf`, runs `serve` at the
 planned start, follows `game.log` for the cup's rounds, and after the run's last final stops the arcade once no seat
 has been paired for a match in the last 460 s. Its game server runs `--no-timed-cups`. Units and setup:
 `docs/SELF-HOSTING.md` "The hourly cup arcade".
@@ -82,5 +82,5 @@ under `/run/user/`, `/tmp/.wine-<uid>/` or `/tmp/wine-XXXXXX/`. Another distribu
 
 `cargo test -p linux-host` (Linux): edition selection and config (2010-11 values unchanged), the hook-log check, seat allocation, collisions and release, malformed relay packets, forwarding and
 expiry, and the `ready`/`degraded` files;
-the hourly cup's plans over every start of a day, the 05:10 and day-change rules, the schedule file, and reading slots
+the hourly cup's plans over every start of a day, the 05:01 and day-change rules, the schedule file, and reading slots
 and seat pairings from control's log.
