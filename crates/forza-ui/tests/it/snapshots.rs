@@ -42,6 +42,11 @@ pub(super) fn harness<'a>(
         })
 }
 
+/// Whether this is CI's runner, the only machine some stored pictures match (`card_view`'s x2 picture).
+fn env_on_ci() -> bool {
+    std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "0")
+}
+
 /// Steps `h` 40 frames (the sample's ADD toast is gone by then), then on until no picture is loading, at most 10 s:
 /// the fixed wait alone could end while a picture still decoded on a loaded PC.
 fn pictures_loaded(h: &mut Harness<'_>) {
@@ -664,14 +669,21 @@ fn card_view() {
         .expect("a picture written");
     }
     let mut all = SnapshotResults::new();
-    for (ppp, lang, name) in [
+    let mut cases = vec![
         (1.0, Lang::En, "panel_card_view_en"),
         (0.625, Lang::Ja, "panel_card_view_single_ja"),
-        // Known (2026-11-10): the stored picture is CI's (WARP): crisp, NEAREST as `board::card_side` asks at x2. The
-        // desktop GPU it was taken on draws the same NEAREST texture blended (0.625/0.375 of neighbouring texels), fails this
-        // one image by 658,626 pixels there, and was the stored picture until then, which failed on CI every run.
-        (1.75, Lang::En, "panel_card_view_175_x2_en"),
-    ] {
+    ];
+    // The x2 picture is stored from CI's renderer (WARP): it draws the board's NEAREST texture crisp, where a desktop GPU
+    // blends it (0.625/0.375 of neighbouring texels, 658,626 pixels off on 2026-11-10). Only CI compares that picture.
+    if env_on_ci() {
+        cases.push((1.75, Lang::En, "panel_card_view_175_x2_en"));
+    } else {
+        println!(
+            "card_view: panel_card_view_175_x2_en not compared (stored from CI's WARP render; this GPU blends the board's \
+NEAREST texture)"
+        );
+    }
+    for (ppp, lang, name) in cases {
         let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Catalogue);
         st.catalogue.filter = Default::default();
         st.catalogue.view = Some(ci);
