@@ -166,14 +166,17 @@ fn side_deck(both: bool) -> egui::Vec2 {
 /// what the toast line and the page bar under it leave. Right part, one column ([`SIDE_COLUMN`] wide, wider when the
 /// full-height picture leaves more): the deck at its foot, its plates stacked and scaled to the column's width, and
 /// over it (`board`) the room where the card touched on the board window shows. `both`: the deck has the machine
-/// plate (2010-11). Pages open over the left part.
-pub fn popped_layout(sheet: Rect, both: bool) -> Layout {
+/// plate (2010-11). `ppp`: the window's pixels a point, for the pane that room holds. Pages open over the left part.
+pub fn popped_layout(sheet: Rect, both: bool, ppp: f32) -> Layout {
     let d = side_deck(both);
     let pic_h = sheet.height() - TABS_H - SIDE_TOAST;
     let cw = SIDE_COLUMN.max(sheet.width() - pic_h * 1.6);
-    // as wide as the column, never more than 70% of its height (the three 2010-11 plates)
+    // the room over the deck a touched card's pane needs, its 16 points in from the column's edges: the deck leaves it
+    let pane = 2.0 * SIDE_GAP + board::strip_pane(ppp);
+    // as wide as the column, never more than 70% of its height (the three 2010-11 plates), never into the pane's room
     let s = ((cw - 32.0) / d.x)
         .min((sheet.height() * 0.7 - 2.0 * SIDE_UNDER) / d.y)
+        .min((sheet.height() - pane - 2.0 * SIDE_UNDER) / d.y)
         .max(0.0);
     let col = sheet.with_min_x(sheet.right() - cw);
     let deck = col.with_min_y(col.bottom() - d.y * s - 2.0 * SIDE_UNDER);
@@ -1685,7 +1688,11 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         && !ui.ctx().egui_wants_keyboard_input();
     st.flip_held = held;
     let lay = if st.popped {
-        popped_layout(sheet, st.edition != Edition::E1718)
+        popped_layout(
+            sheet,
+            st.edition != Edition::E1718,
+            ui.ctx().pixels_per_point(),
+        )
     } else {
         layout_at(sheet, st.file.compact, divider_width(st))
     };
@@ -6479,7 +6486,7 @@ mod tests {
         ] {
             let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
             for both in [false, true] {
-                let l = popped_layout(sheet, both);
+                let l = popped_layout(sheet, both, 1.0);
                 let at = format!("{w}x{h} {both}: {l:?}");
                 let col = l.board.union(l.deck);
                 assert!((col.width() + l.middle.width() - w).abs() < 0.01, "{at}");
@@ -6496,14 +6503,38 @@ mod tests {
                 assert!((l.picture.aspect_ratio() - 1.6).abs() < 0.01, "{at}");
                 assert_eq!(l.tabs.right(), l.board.left(), "{at}");
                 assert_eq!(l.board.bottom(), l.deck.top(), "{at}");
-                // room for at least a strip pane over the deck
-                assert!(l.board.height() >= 200.0, "{at}");
+                // room for a strip pane (its FRONT | BACK switch) and its 16-point margins over the deck
+                assert!(
+                    l.board.height() >= 2.0 * SIDE_GAP + board::strip_pane(1.0),
+                    "{at}"
+                );
                 let plates = deck_plates(l.deck, both, l.deck_scale, true);
                 let n = if both { 3 } else { 2 };
                 assert!(plates[..n].iter().all(|r| l.deck.contains_rect(*r)), "{at}");
                 assert!(plates[1].width() <= l.deck.width() - 31.99, "{at}");
                 assert!(plates[0].bottom() < plates[1].top(), "{at}");
                 assert!(l.deck_scale >= 1.0, "{at}");
+            }
+        }
+    }
+
+    /// A short popped-out game window: the touched card's strip pane, its FRONT | BACK switch included, stays in the
+    /// room over the deck, off the deck's buttons.
+    #[test]
+    fn popped_pane_clears_the_deck() {
+        for (w, h) in [(1024.0, 600.0), (1366.0, 720.0)] {
+            for both in [false, true] {
+                let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
+                let l = popped_layout(sheet, both, 1.0);
+                let area = l.board.shrink(16.0);
+                let (pane, tier, _) = board::card_view_place(area, 1.0);
+                let at = format!(
+                    "{w}x{h} {both}: pane {pane:?} in {area:?}, deck {:?}",
+                    l.deck
+                );
+                assert_eq!(tier, board::Tier::Strip, "{at}");
+                assert!(pane.bottom() <= area.bottom(), "{at}");
+                assert!(pane.bottom() <= l.deck.top(), "{at}");
             }
         }
     }

@@ -2325,6 +2325,12 @@ const BIG_CAPTION: f32 = 150.0;
 /// The FRONT | BACK switch under the big card: its height and the gap over it.
 pub const FLIP_ROW: f32 = 34.0 + 6.0;
 
+/// The strip pane's height at `ppp` pixels a point: the frame's margins, the card's face and the FRONT | BACK switch
+/// under it.
+pub fn strip_pane(ppp: f32) -> f32 {
+    BIG_FRAME + crate::sizing::hover_face(ppp).y + FLIP_ROW
+}
+
 /// What the board asks [`info_panes`] to show this frame: the card shown big and where it lies.
 #[derive(Clone)]
 struct PaneAsk {
@@ -2425,7 +2431,7 @@ pub fn info_panes(
             hint_bottom,
             foot,
             large.map_or(f32::INFINITY, |f| BIG_FRAME + f.y + FLIP_ROW + BIG_CAPTION),
-            BIG_FRAME + strip.y + FLIP_ROW,
+            strip_pane(ppp),
             a.at.center().y,
         );
         let face = match (tier, large) {
@@ -2478,7 +2484,7 @@ pub fn card_view_place(area: Rect, ppp: f32) -> (Rect, Tier, Vec2) {
             f,
         ),
         _ => (
-            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + strip.y + FLIP_ROW)),
+            Rect::from_min_size(area.min, vec2(area.width(), strip_pane(ppp))),
             Tier::Strip,
             strip,
         ),
