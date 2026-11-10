@@ -18,12 +18,18 @@ pub fn input_gate(front: bool, pad_background: bool, seats: usize) -> (bool, boo
 }
 
 /// Keys an action may have: letters, digits, the number pad, F1-F9 and F12-F24, arrows and the keys around them, Enter
-/// Space Tab Backspace Shift Ctrl Pause and the punctuation keys. Never Esc (it closes the panels), F10 (Windows' menu
-/// key froze the game window), F11 (the window's size), Alt, the Windows keys, the lock keys or a mouse button.
+/// Space Tab Backspace Shift Ctrl Pause, the punctuation keys and the mouse's side buttons (VK_XBUTTON1/2: one hand
+/// moves cards and presses KEY PLAYER). Never Esc (it closes the panels), F10 (Windows' menu key froze the game window),
+/// F11 (the window's size), Alt, the Windows keys, the lock keys or the left, right or middle mouse button.
 pub fn is_allowed(vk: i128) -> bool {
     matches!(vk,
-        0x08 | 0x09 | 0x0D | 0x10 | 0x11 | 0x13 | 0x20..=0x28 | 0x2D | 0x2E | 0xE2
+        0x05 | 0x06 | 0x08 | 0x09 | 0x0D | 0x10 | 0x11 | 0x13 | 0x20..=0x28 | 0x2D | 0x2E | 0xE2
         | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x78 | 0x7B..=0x87 | 0xBA..=0xC0 | 0xDB..=0xDF)
+}
+
+/// [`is_allowed`] for one action: PAUSE is seen only in key messages (`pause.rs`), so never a mouse side button.
+pub fn fits(action: usize, vk: u32) -> bool {
+    is_allowed(i128::from(vk)) && !(action == PAUSE && matches!(vk, 0x05 | 0x06))
 }
 
 /// Controller controls are numbers above every key code, so keys and controls share one set: 0x100 + n = button n
@@ -127,6 +133,8 @@ pub fn key_label(vk: u32) -> String {
         0x70..=0x87 => format!("F{}", vk - 0x6F),
         0x60..=0x69 => format!("Num{}", vk - 0x60),
         _ => match vk {
+            0x05 => "Mouse 4",
+            0x06 => "Mouse 5",
             0x08 => "Backspace",
             0x09 => "Tab",
             0x0D => "Enter",
@@ -227,7 +235,7 @@ pub fn pause_key(raw: &[u8], default: u32, taken: &[u32]) -> u32 {
             Some(hex) => u32::from_str_radix(hex, 16).ok(),
             None => val.parse().ok(),
         };
-        if let Some(n) = n.filter(|n| is_allowed(i128::from(*n))) {
+        if let Some(n) = n.filter(|n| fits(PAUSE, *n)) {
             vk = n;
         }
     }
@@ -292,6 +300,21 @@ PAD SHOOT=B3\nPAD UP=HAT UP\n"
             keys_text(true, &defaults(true), &[0; COUNT])
                 .contains("\nSENSOR2=0x38\nSENSOR3=0x39\n")
         );
+    }
+
+    /// The mouse's side buttons are keys with names; the other mouse buttons stay out.
+    #[test]
+    fn mouse_side_buttons_are_keys() {
+        assert_eq!(
+            (key_label(0x05), key_label(0x06)),
+            ("Mouse 4".into(), "Mouse 5".into())
+        );
+        assert!(is_allowed(0x05) && is_allowed(0x06));
+        assert!(!is_allowed(0x01) && !is_allowed(0x02) && !is_allowed(0x04));
+        let keys = std::array::from_fn(|i| if i == 5 { 0x06 } else { 0 });
+        assert!(keys_text(true, &keys, &[0; COUNT]).contains("\nKEYPLAYER=0x06\n"));
+        assert_eq!(pause_key(b"PAUSE=0x05\n", 0x50, &[0x06]), 0x50);
+        assert!(fits(5, 0x05) && !fits(PAUSE, 0x05) && !fits(PAUSE, 0x06) && fits(PAUSE, 0x50));
     }
 
     /// New settings leave the operator's TEST unbound; SERVICE keeps its key (existing keys.txt files are read as saved).

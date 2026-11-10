@@ -623,6 +623,8 @@ pub struct PanelState {
     pub online: bool,
     /// The round trip to the server's relay (online only); `u32::MAX` = no answer for 6 s.
     pub ping_ms: u32,
+    /// The game's frames a second, shown over its picture's corner while SETTINGS > FPS COUNTER is on.
+    pub fps: Option<u32>,
     /// The last thing done, refused or worth knowing; one line for every page.
     pub message: Option<Note>,
     /// The server's notice, across the top of the game picture on the game page ([`Note::banner`]).
@@ -698,6 +700,17 @@ pub struct PanelState {
     pub add: Option<u32>,
     /// IMPORT LINEUP clicked: the panel DLL reads the clipboard and calls [`ask_import`].
     pub import: bool,
+    /// 2017-18: IMPORT LINEUP's dialog open (how to get a lineup from [`LINEUP_PAGE`], then the import).
+    pub import_help: bool,
+    /// The dialog's OPEN THE SITE clicked: the panel DLL opens [`LINEUP_PAGE`] in the default browser.
+    pub site_open: bool,
+    /// The dialog's COPY clicked: the panel DLL puts [`LINEUP_PAGE`] on the clipboard.
+    pub site_copy: bool,
+    /// The panel DLL copied it: COPY reads COPIED until the dialog closes.
+    pub site_copied: bool,
+    /// The dialog's last COPY or OPEN THE SITE failure ([`PanelState::say_site`]): shown in the dialog, where the
+    /// page's note line would sit behind its backdrop.
+    pub site_note: Option<Note>,
     /// A lineup read and checked, waiting for the import dialog's CONFIRM or CANCEL.
     pub import_ask: Option<ImportAsk>,
     /// CONFIRM clicked: the panel DLL takes `import_ask` and calls [`import_lineup`].
@@ -789,6 +802,7 @@ impl PanelState {
             tactics: [false; 5],
             online: false,
             ping_ms: 0,
+            fps: None,
             message: None,
             banner: None,
             catalogue: Catalogue::default(),
@@ -824,6 +838,11 @@ impl PanelState {
             undo: None,
             add: None,
             import: false,
+            import_help: false,
+            site_open: false,
+            site_copy: false,
+            site_copied: false,
+            site_note: None,
             import_ask: None,
             import_go: false,
             import_undo: None,
@@ -867,6 +886,224 @@ impl PanelState {
         self.message = Some(Note::new(tone, text));
     }
 
+    /// A hash of everything a pass can draw or act on: the in-game panel runs egui again only when it changed (or on
+    /// input, a repaint egui asked for, a new size: [`crate::idle`]). Every field is listed (no `..`), so a new one
+    /// cannot be left out; the catalogue's cards and the affinity table go in by identity (they are replaced, never
+    /// changed in place) and the catalogue's search index not at all (made from the cards and the filter).
+    pub fn fingerprint(&self) -> u64 {
+        use std::fmt::Write as _;
+        use std::hash::{Hash, Hasher};
+        struct H(std::hash::DefaultHasher);
+        impl std::fmt::Write for H {
+            fn write_str(&mut self, s: &str) -> std::fmt::Result {
+                self.0.write(s.as_bytes());
+                Ok(())
+            }
+        }
+        let PanelState {
+            edition,
+            lang,
+            page,
+            board,
+            links,
+            cards,
+            hover_delay,
+            tactics,
+            online,
+            ping_ms,
+            fps,
+            message,
+            banner,
+            catalogue,
+            keys,
+            pads,
+            capturing,
+            pad_capturing,
+            changed,
+            keys_advanced,
+            pad_names,
+            file,
+            address,
+            status,
+            restart_armed,
+            restart_sent,
+            logs_sent,
+            club,
+            club_armed,
+            club_request,
+            close_warn,
+            close_quit,
+            close_keep,
+            crash,
+            open_report,
+            report_sent,
+            deal,
+            picture,
+            picture_rect,
+            board_changed,
+            pressed,
+            down,
+            undo,
+            kept_at,
+            off_at,
+            kept_log,
+            latched,
+            add,
+            import,
+            import_help,
+            site_open,
+            site_copy,
+            site_copied,
+            site_note,
+            import_ask,
+            import_go,
+            import_undo,
+            import_undone,
+            formations_open,
+            formations_desk,
+            formations,
+            in_match,
+            before_match,
+            before_match_at,
+            reset_after,
+            match_seen,
+            seat_on,
+            reset_ready,
+            reset_lineup,
+            reset_ask,
+            formation_load,
+            formation_save,
+            formation_copy,
+            keys_changed,
+            file_changed,
+            projector,
+            projector_changed,
+            restart,
+            save_logs,
+            vk_down,
+            pad_down,
+            pause_asked,
+            paused,
+            desk,
+            popped,
+            touched,
+        } = self;
+        let Catalogue {
+            filter,
+            focus,
+            results,
+            view,
+            view_back,
+            ranges_open,
+            shown,
+            searched,
+            index,
+        } = catalogue;
+        let mut h = H(std::hash::DefaultHasher::new());
+        results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
+        let parts: [&dyn std::fmt::Debug; 95] = [
+            edition,
+            lang,
+            page,
+            board,
+            &links.club,
+            &links.affinity.as_ref().map(Arc::as_ptr),
+            &Arc::as_ptr(cards).cast::<()>(),
+            &cards.len(),
+            hover_delay,
+            tactics,
+            online,
+            ping_ms,
+            fps,
+            message,
+            banner,
+            filter,
+            focus,
+            view,
+            view_back,
+            ranges_open,
+            shown,
+            searched,
+            &index.is_some(),
+            keys,
+            pads,
+            capturing,
+            pad_capturing,
+            changed,
+            keys_advanced,
+            pad_names,
+            file,
+            address,
+            status,
+            restart_armed,
+            restart_sent,
+            logs_sent,
+            club,
+            club_armed,
+            club_request,
+            close_warn,
+            close_quit,
+            close_keep,
+            crash,
+            open_report,
+            report_sent,
+            deal,
+            picture,
+            picture_rect,
+            board_changed,
+            pressed,
+            down,
+            undo,
+            kept_at,
+            off_at,
+            kept_log,
+            latched,
+            add,
+            import,
+            import_help,
+            site_open,
+            site_copy,
+            site_copied,
+            site_note,
+            import_ask,
+            import_go,
+            import_undo,
+            import_undone,
+            formations_open,
+            formations_desk,
+            formations,
+            in_match,
+            before_match,
+            before_match_at,
+            reset_after,
+            match_seen,
+            seat_on,
+            reset_ready,
+            reset_lineup,
+            reset_ask,
+            formation_load,
+            formation_save,
+            formation_copy,
+            keys_changed,
+            file_changed,
+            projector,
+            projector_changed,
+            restart,
+            save_logs,
+            vk_down,
+            pad_down,
+            pause_asked,
+            paused,
+            desk,
+            popped,
+            touched,
+        ];
+        for p in parts {
+            let _ = write!(h, "{p:?}\u{1f}");
+        }
+        h.0.finish()
+    }
+
     /// The game window's frame popped out or not ([`PanelState::popped`]); a dock or a pop-out forgets the card touched
     /// last, so its details don't come back.
     pub fn set_popped(&mut self, popped: bool) {
@@ -879,6 +1116,11 @@ impl PanelState {
     /// A message by its text key, in the panel's language.
     pub fn say(&mut self, tone: Tone, key: &str) {
         self.note(tone, tr!(self.lang, key));
+    }
+
+    /// A message for the IMPORT LINEUP dialog's own line: the page's note line is behind its backdrop.
+    pub fn say_site(&mut self, tone: Tone, key: &str) {
+        self.site_note = Some(Note::new(tone, tr!(self.lang, key)));
     }
 
     pub fn sample(edition: Edition, lang: Lang, page: Page) -> Self {
@@ -992,6 +1234,9 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
     st.note(tone, text);
     added
 }
+
+/// The db.wccf.it lineup builder (its Lineup page), where IMPORT LINEUP's lineups come from.
+pub const LINEUP_PAGE: &str = "https://db.wccf.it/#/board";
 
 /// How long an import's UNDO and its message stay.
 pub const IMPORT_UNDO_SECS: f64 = 10.0;
@@ -1457,8 +1702,12 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     if st.page == Page::Game {
         banner(ui, pic, &mut st.banner);
     }
+    if let Some(n) = st.fps {
+        fps_counter(ui.painter(), pic, n);
+    }
     // the dealt card and the dialogs drawn here cover the picture: clicks there are theirs, not the game's
     let dialog = st.import_ask.is_some()
+        || st.import_help
         || (st.formations.is_some() && (!st.formations_desk || !st.file.board_window))
         || (st.reset_ask.is_some() && (st.reset_ask == Some(false) || !st.file.board_window));
     st.picture_rect =
@@ -1498,6 +1747,8 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
         import_dialog(ui, st, lang);
+    } else if st.import_help {
+        import_help_dialog(ui, st, lang);
     } else if st.formations.is_some() && (!st.formations_desk || !st.file.board_window) {
         st.formations_desk = false; // the board window closed under it: the dialog comes back to the game window
         formations_dialog(ui, st, lang);
@@ -1813,6 +2064,106 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     } else if go.clicked() || enter {
         st.reset_ask = None;
         st.reset_lineup = true;
+    }
+}
+
+/// 2017-18 IMPORT LINEUP: where a lineup comes from (the db.wccf.it Lineup page, its Copy link or Export), the page's
+/// address with OPEN THE SITE (the browser opens over the game window) and COPY, then IMPORT FROM CLIPBOARD (or Enter,
+/// unless another button has the focus): the panel DLL reads the clipboard as before. A COPY or OPEN that failed says so
+/// in the dialog. CANCEL or Esc leaves.
+fn import_help_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    let copied = st.site_copied;
+    let w = 520.0;
+    let modal = egui::Modal::new(egui::Id::unique("import-help-dialog"))
+        .backdrop_color(Color32::from_black_alpha(170))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::from_rgba_unmultiplied(10, 16, 28, 240))
+                .stroke(Stroke::new(3.0, theme::GOLD))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(24),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(w);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.import"))
+                        .font(theme::display(32.0))
+                        .color(theme::GOLD),
+                );
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.import_help"))
+                        .font(theme::body(17.0))
+                        .color(theme::TEXT),
+                );
+                // the page's address, as a player would type it on a phone, with OPEN and COPY
+                let (open, copy) = egui::Frame::new()
+                    .fill(theme::DEEP)
+                    .corner_radius(theme::RADIUS)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(LINEUP_PAGE.trim_start_matches("https://"))
+                                    .font(theme::body(17.0))
+                                    .color(theme::CYAN),
+                            );
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let key = if copied {
+                                    "cat.site_copied"
+                                } else {
+                                    "cat.site_copy"
+                                };
+                                let copy = action(ui, &tr!(lang, key)).clicked();
+                                let open = action(ui, &tr!(lang, "cat.site_open")).clicked();
+                                (open, copy)
+                            })
+                            .inner
+                        })
+                        .inner
+                    })
+                    .inner;
+                ui.label(
+                    egui::RichText::new(tr!(lang, "cat.site_hint"))
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
+                );
+                // a failed COPY or OPEN, in the dialog itself: the page's note line is behind the backdrop
+                note_line(ui, &mut st.site_note);
+                ui.add_space(4.0);
+                let go = widgets::cabinet(
+                    ui,
+                    vec2(w, 56.0),
+                    &tr!(lang, "cat.import_paste"),
+                    Cab::Go,
+                    true,
+                );
+                let cancel = widgets::cabinet(
+                    ui,
+                    vec2(w, 44.0),
+                    &tr!(lang, "cat.ask_cancel"),
+                    Cab::Plain,
+                    false,
+                );
+                (open, copy, go.clicked(), cancel.clicked())
+            })
+            .inner
+        });
+    let (open, copy, go, cancel) = modal.inner;
+    st.site_open |= open;
+    st.site_copy |= copy;
+    let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+    let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    // Enter is the dialog's either way (the catalogue behind would add a card), but it starts the import only when no
+    // other button has it: on COPY or OPEN THE SITE it is that button's, as CONFIRM's is in `reset_dialog`'s shape
+    let import = go || (enter && !copy && !open);
+    if cancel || esc || import {
+        st.import_help = false;
+        st.import |= import;
+        st.site_copied = false;
+        st.site_note = None;
     }
 }
 
@@ -2453,6 +2804,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    widgets::smooth_deck_art(ui.ctx(), st.edition == Edition::E1718);
     // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
     let down = if st.edition == Edition::E1718 {
         st.down
@@ -3286,6 +3638,19 @@ fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
 
 // ---- the game picture ----
 
+/// The FPS counter over the picture's top-left corner: green at the game's 30 (29 counts, a second's rounding), else amber.
+fn fps_counter(p: &egui::Painter, pic: Rect, n: u32) {
+    let col = if n >= 29 { theme::GREEN } else { theme::AMBER };
+    let text = p.layout_no_wrap(format!("{n} FPS"), theme::mono(14.0), col);
+    let at = pic.left_top() + vec2(8.0, 8.0);
+    p.rect_filled(
+        Rect::from_min_size(at, text.size() + vec2(12.0, 6.0)),
+        3,
+        Color32::from_black_alpha(170),
+    );
+    p.galley(at + vec2(6.0, 3.0), text, col);
+}
+
 /// A neutral stand-in for the game's picture: diagonal hatching and its size.
 fn game_picture(ui: &mut Ui, pic: Rect, picture: Option<egui::TextureId>) {
     let p = ui.painter();
@@ -3555,7 +3920,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         st.formations_desk = false;
     }
     // the FORMATIONS dialog's name line keeps the keys
-    if !search.has_focus() && !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() {
+    if !search.has_focus()
+        && !egui::Popup::is_any_open(ui.ctx())
+        && st.formations.is_none()
+        && !st.import_help
+    {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -3748,7 +4117,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         if let Some(card) = shown {
-                            let (added, opened) = stats_pane(ui, card, back, lang, seen.bottom());
+                            let (added, opened) =
+                                stats_pane(ui, card, back, lang, seen.bottom(), e1718);
                             if added {
                                 add = Some(card.number);
                             }
@@ -3765,7 +4135,12 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             }
         });
     st.add = st.add.or(add);
-    st.import |= import;
+    // 2017-18: first the dialog saying where a lineup comes from; 2010-11 reads the clipboard at once, as before
+    if e1718 {
+        st.import_help |= import;
+    } else {
+        st.import |= import;
+    }
 }
 
 /// The card view's caption row under the pictures, with its gap: the name, the club line and the roles beside TOTAL,
@@ -3959,6 +4334,18 @@ pub fn catalogue_picture_rect(ctx: &egui::Context) -> Option<Rect> {
     ctx.data(|d| d.get_temp(picture_rect_id()))
 }
 
+/// The side the detail pane drew on the last frame and whether it was the picture (`false`: the drawn stand-in while
+/// the file loads), for tests.
+pub fn catalogue_picture_shown(ctx: &egui::Context) -> Option<(bool, bool)> {
+    ctx.data(|d| d.get_temp(picture_rect_id().with("shown")))
+}
+
+/// Whether the detail pane's other side has its picture loaded on the last frame, for tests: it loads while the card
+/// sits in the pane, not on the toggle's click.
+pub fn catalogue_other_side_ready(ctx: &egui::Context) -> Option<bool> {
+    ctx.data(|d| d.get_temp(picture_rect_id().with("other-ready")))
+}
+
 fn combo(
     ui: &mut Ui,
     id: &str,
@@ -3997,7 +4384,14 @@ fn combo(
 /// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
 /// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
 /// clicked: the card view asked for).
-fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32) -> (bool, bool) {
+fn stats_pane(
+    ui: &mut Ui,
+    card: &Card,
+    back: &mut bool,
+    lang: Lang,
+    bottom: f32,
+    coloured: bool,
+) -> (bool, bool) {
     use egui::emath::GuiRounding as _;
     let ppp = ui.ctx().pixels_per_point();
     egui::Frame::new()
@@ -4017,6 +4411,24 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
             ) {
                 *back = side == 1;
             }
+            // the other side loads once this card has been the pane's for two frames: BACK then shows its picture on
+            // the click's frame, not the drawn stand-in for the frames a first load takes, and a mouse swept across
+            // the grid starts no load per card passed
+            let since_id = egui::Id::unique("catalogue-side-since");
+            let now = ui.ctx().cumulative_pass_nr();
+            let first = match ui.data(|d| d.get_temp::<(u32, u64)>(since_id)) {
+                Some((no, at)) if no == card.number => at,
+                _ => {
+                    ui.data_mut(|d| d.insert_temp(since_id, (card.number, now)));
+                    now
+                }
+            };
+            let other = (now - first >= 2)
+                .then(|| board::card_picture_px(ui.ctx(), card.number, !*back, false))
+                .flatten();
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(picture_rect_id().with("other-ready"), other.is_some())
+            });
             // the picture's own pixels when it is loaded, else the album art's (the drawn stand-in)
             let pic = board::card_picture_px(ui.ctx(), card.number, *back, false)
                 .map_or(sizing::ALBUM, |(_, px)| px);
@@ -4042,7 +4454,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 .round_to_pixels(ppp),
                 size,
             );
-            board::card_side(
+            let real = board::card_side(
                 ui.painter(),
                 r,
                 card,
@@ -4050,6 +4462,8 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 size.x * ppp > pic.x + 0.5,
                 lang,
             );
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(picture_rect_id().with("shown"), (*back, real)));
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(card.total.to_string())
@@ -4096,7 +4510,7 @@ fn stats_pane(ui: &mut Ui, card: &Card, back: &mut bool, lang: Lang, bottom: f32
                 );
             }
             ui.add_space(4.0);
-            stat_column(ui, card, lang, w);
+            stat_column(ui, card, lang, w, coloured);
             ui.add_space(6.0);
             let add = cabinet(ui, vec2(w, 44.0), &tr!(lang, "cat.add"), Cab::Go, true);
             let under = add.rect.bottom() - slot.bottom();
@@ -4120,9 +4534,9 @@ const STAT_NAMES: [&str; 6] = [
     "cat.stamina",
 ];
 
-/// The six stats one a row as on the card, the full name at the left and the value at the right; SECRET across the
-/// column for a secret card.
-fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
+/// The six stats one a row as on the card, the full name at the left and the value at the right in its colour
+/// (2017-18, `coloured`: [`widgets::stat_color`], as the board's card backs; 2010-11 stays white); SECRET across the column for a secret card.
+fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32, coloured: bool) {
     const SIDE: f32 = 8.0;
     const ROW: f32 = 20.0;
     let p = ui.painter().clone();
@@ -4156,7 +4570,11 @@ fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32) {
             egui::Align2::RIGHT_CENTER,
             stat.to_string(),
             theme::display(18.0),
-            theme::TEXT,
+            if coloured {
+                widgets::stat_color(stat)
+            } else {
+                theme::TEXT
+            },
         );
     }
 }
@@ -4187,6 +4605,7 @@ pub fn keys_input(st: &mut PanelState) {
         }
         let Some(k) = st.capturing else { continue };
         let old = st.keys[k];
+        let other = (0..ACTIONS.len()).find(|&j| j != k && st.keys[j] == vk);
         if vk == 0x1B || vk == old {
             st.capturing = None;
             let key = key_name(lang, old);
@@ -4194,7 +4613,10 @@ pub fn keys_input(st: &mut PanelState) {
                 Tone::Notice,
                 tr!(lang, "keys.msg_keeps", action = label(k), key = key),
             );
-        } else if alt || !forza::keys::is_allowed(i128::from(vk)) {
+        } else if alt
+            || !forza::keys::fits(k, vk)
+            || other.is_some_and(|j| !forza::keys::fits(j, old))
+        {
             let key = if alt && vk != 0x12 {
                 "Alt".into()
             } else {
@@ -4202,7 +4624,6 @@ pub fn keys_input(st: &mut PanelState) {
             };
             st.note(Tone::Refused, tr!(lang, "keys.msg_refused", key = key));
         } else {
-            let other = (0..ACTIONS.len()).find(|&j| j != k && st.keys[j] == vk);
             st.keys[k] = vk;
             if let Some(j) = other {
                 st.keys[j] = old;
@@ -4819,6 +5240,37 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 _ => {}
             }
         });
+        if st.edition == Edition::E1718 {
+            widgets::section(right, &tr!(lang, "settings.graphics"), accent, |ui| {
+                let w = ui.available_width();
+                // applied at once: the panel's SetSamplerState sends the game's filters again through the new choice
+                field(ui, &tr!(lang, "settings.textures"), w);
+                const LEVELS: [u32; 4] = [0, 4, 8, 16];
+                let mut i = LEVELS
+                    .iter()
+                    .position(|&l| l == st.file.textures)
+                    .unwrap_or(0);
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[&tr!(lang, "settings.textures_game"), "4x", "8x", "16x"],
+                    w,
+                ) {
+                    st.file.textures = LEVELS[i];
+                    st.file_changed = true;
+                }
+                if widgets::toggle_row(
+                    ui,
+                    &mut st.file.fps,
+                    &tr!(lang, "settings.fps"),
+                    &tr!(lang, "settings.fps_hint"),
+                )
+                .clicked()
+                {
+                    st.file_changed = true;
+                }
+            });
+        }
     });
     note_line(ui, &mut st.message);
 }
@@ -6832,5 +7284,44 @@ mod tests {
                 .last(),
             Some("PAD DATA=B3")
         );
+    }
+
+    /// The mouse's back side button (VK_XBUTTON1) binds KEY PLAYER like a key, and keys.txt keeps it for the key driver.
+    #[test]
+    fn a_mouse_side_button_binds_an_action() {
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        let kp = forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "KEYPLAYER")
+            .unwrap();
+        st.capturing = Some(kp);
+        st.vk_down = vec![(0x05, false)];
+        keys_input(&mut st);
+        assert_eq!((st.keys[kp], st.capturing), (0x05, None));
+        assert!(st.keys_changed);
+        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER = Mouse 4");
+        let text = forza::keys::keys_text(true, &st.keys, &st.pads);
+        assert!(text.contains("\nKEYPLAYER=0x05\n"));
+        #[cfg(windows)]
+        {
+            let (keys, notes) = forza::keys::load_keys(text.as_bytes());
+            let at = forza::keys::ACTIONS
+                .iter()
+                .position(|a| a.name == "KEYPLAYER")
+                .unwrap();
+            assert_eq!((keys[at], notes), (0x05, Vec::<String>::new()));
+        }
+        // PAUSE reads key messages only: a side button is refused and the cell keeps waiting
+        let pause = forza::keys::PAUSE;
+        st.capturing = Some(pause);
+        st.vk_down = vec![(0x06, false)];
+        keys_input(&mut st);
+        assert_eq!(st.capturing, Some(pause));
+        assert_ne!(st.keys[pause], 0x06);
     }
 }

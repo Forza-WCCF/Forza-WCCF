@@ -855,6 +855,8 @@ impl App {
             pictures_hq: pictures_hq(kit),
             projector: (kit.edition() == Edition::E1718).then(|| choices::projector_shown(&kit.settings())),
             cpu_championship: (kit.edition() == Edition::E1718).then(|| choices::cpu_championship_on(&kit.settings())),
+            frame_cap: (kit.edition() == Edition::E1718).then(|| forza::kit::frame_cap(&kit.settings())),
+            vsync: (kit.edition() == Edition::E1718).then(|| forza::kit::vsync(&kit.settings())),
             club_server: (kit.edition() == Edition::E1718)
                 .then(|| choices::setting(&settings, "club_server").unwrap_or_default()),
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
@@ -1228,6 +1230,18 @@ impl App {
                 let on = self.st.cpu_championship == Some(true);
                 if let Err(e) = choices::set_setting_bool(&file, choices::CPU_CHAMPIONSHIP, on) {
                     refuse(write_failed(&file, &e));
+                }
+            }
+            Action::FramePacing => {
+                // data\settings.json "frame_cap" and "vsync", which forza_panel.dll reads at the game's start
+                let file = kit.settings_file();
+                for (key, on) in [("frame_cap", self.st.frame_cap), ("vsync", self.st.vsync)] {
+                    if let Some(on) = on
+                        && let Err(e) = choices::set_setting_bool(&file, key, on)
+                    {
+                        refuse(write_failed(&file, &e));
+                        break;
+                    }
                 }
             }
             Action::VsLink => {
@@ -1893,7 +1907,8 @@ fn main() -> ExitCode {
     if args.is_empty() {
         match link::first_run(kit.dir(), kit.edition()) {
             link::Outcome::Restart(to) if link::restart(&to) => return ExitCode::SUCCESS,
-            link::Outcome::InPlace { warn: Some(msg) } => {
+            // 2017-18 starts its game through ASCII junctions (launcher::alias) and says so itself when it cannot
+            link::Outcome::InPlace { warn: Some(msg) } if kit.edition() == Edition::E1011 => {
                 log(&msg);
                 say(msg, 0);
             }

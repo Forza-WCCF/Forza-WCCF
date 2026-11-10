@@ -163,6 +163,9 @@ pub struct Options {
     /// A client whose window has not answered for this long gets a memory snapshot of itself and its match engines,
     /// once per hang; the game is left running.  `HANG_AFTER`.
     pub hang_after: Duration,
+    /// `exe` starts through a junction (launcher::alias): the program the guard checked by its real path.  The
+    /// process is ended before its first instruction unless Windows reports it running exactly that file.
+    pub checked: Option<PathBuf>,
 }
 
 /// Windows has found the window's program not answering for 5 s (never waits for it).
@@ -609,7 +612,15 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
     if !opts.debug_heap {
         env.push(("_NO_DEBUG_HEAP", "1"));
     }
-    let child = job.spawn_debug(&opts.exe, &opts.args, run_dir, &env, opts.follow, opts.hide)?;
+    let child = job.spawn_debug(
+        &opts.exe,
+        &opts.args,
+        run_dir,
+        &env,
+        opts.follow,
+        opts.hide,
+        opts.checked.as_deref(),
+    )?;
     let main = child.pid;
     say!(
         out,

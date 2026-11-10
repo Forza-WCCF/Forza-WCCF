@@ -146,10 +146,16 @@ fn key_candidates(raw: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// The first key that opens the header: the key file as it is (raw or hex text), or each distinct value of the game's rows when
-/// the input is a key table (HTML, or a ZIP with one): `Keyfile` first, then the AES columns as a fallback.
-fn pick_header(raw: &[u8; 512], input: &[u8], game_id: &str) -> Result<Header> {
+/// the input is a key table (HTML, or a ZIP with one): `Keyfile` first, then the AES columns as a fallback. `rows`: the
+/// game's rows, when the caller already parsed them; `None` parses `input` here.
+fn pick_header(
+    raw: &[u8; 512],
+    input: &[u8],
+    game_id: &str,
+    rows: Option<Vec<[u8; 16]>>,
+) -> Result<Header> {
     let mut cands = key_candidates(input);
-    if let Some(values) = keytable::candidates(input, game_id) {
+    if let Some(values) = rows.or_else(|| keytable::candidates(input, game_id)) {
         ensure!(
             !values.is_empty(),
             E::NoKeyEntry {
@@ -255,6 +261,15 @@ fn open_iso(iso: &Path) -> Result<File> {
 
 /// Returns the decrypted game volume (an NTFS image, read on demand) and the slot's block CRC table.
 pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
+    open_with(iso, keyfile, None)
+}
+
+/// [`open`], with the key table's rows for the disc already parsed by the caller (`rows`) instead of here.
+pub fn open_with(
+    iso: &Path,
+    keyfile: &[u8],
+    rows: Option<Vec<[u8; 16]>>,
+) -> Result<(Volume, Vec<u32>)> {
     let mut f = open_iso(iso)?;
     let len = f.metadata()?.len();
     let disc = by_size(len).ok_or_else(|| E::UnsupportedSize {
@@ -265,7 +280,7 @@ pub fn open(iso: &Path, keyfile: &[u8]) -> Result<(Volume, Vec<u32>)> {
     let mut raw = [0u8; 512];
     f.seek(SeekFrom::Start(disc.slot_end - HIDDEN_HEADER_OFFSET))?;
     f.read_exact(&mut raw)?;
-    let header = pick_header(&raw, keyfile, disc.game_id)?;
+    let header = pick_header(&raw, keyfile, disc.game_id, rows)?;
     let size = header.hidden_size;
     ensure!(
         size > 0
@@ -411,34 +426,34 @@ mod tests {
             row("SBWG", "11111111111111111111111111111111")
         );
         assert_eq!(
-            pick_header(&raw, html.as_bytes(), "SDDY")
+            pick_header(&raw, html.as_bytes(), "SDDY", None)
                 .unwrap()
                 .hidden_size,
             512 * 100
         );
         assert_eq!(
-            pick_header(&raw, good.as_bytes(), "SDDY")
+            pick_header(&raw, good.as_bytes(), "SDDY", None)
                 .unwrap()
                 .hidden_size,
             512 * 100
         ); // hex text still works
-        let wrong = pick_header(&raw, html.as_bytes(), "SBWG").err().unwrap();
+        let parses =
+            |html: &[u8], id: &str| pick_header(&raw, html, id, keytable::candidates(html, id));
+        let wrong = parses(html.as_bytes(), "SBWG").err().unwrap();
         assert_eq!(wrong.downcast_ref::<E>(), Some(&E::WrongKey));
-        let none = pick_header(&raw, html.as_bytes(), "ZZZZ").err().unwrap();
+        let none = parses(html.as_bytes(), "ZZZZ").err().unwrap();
         assert_eq!(
             none.downcast_ref::<E>(),
             Some(&E::NoKeyEntry { id: "ZZZZ".into() })
         );
-        assert_eq!(none.to_string(), "This key file has no key for ZZZZ.");
+        assert_eq!(none.to_string(), "This key list has no key for ZZZZ.");
         // the real tables carry the disc's keyfile in its own column, next to AES values that do not open it
         let html = format!(
             "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th><th>Keyfile</th></tr>\
              <tr><td>SDDY</td><td>{other}</td><td>{iv}</td><td>{good}</td></tr></table>"
         );
         assert_eq!(
-            pick_header(&raw, html.as_bytes(), "SDDY")
-                .unwrap()
-                .hidden_size,
+            parses(html.as_bytes(), "SDDY").unwrap().hidden_size,
             512 * 100
         );
     }

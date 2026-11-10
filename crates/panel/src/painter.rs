@@ -21,6 +21,15 @@ struct Vertex {
 
 const FVF: u32 = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
 
+/// What a pass uploaded: its textures, their bytes, the largest one's size, and whether egui's font atlas was one.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Uploaded {
+    pub textures: usize,
+    pub bytes: usize,
+    pub largest: [usize; 2],
+    pub font: bool,
+}
+
 #[derive(Default)]
 pub struct Painter {
     textures: HashMap<TextureId, (IDirect3DTexture9, bool)>, // the texture, linear filtering
@@ -42,18 +51,16 @@ impl Painter {
             .retain(|id, _| matches!(id, TextureId::Managed(_)));
     }
 
-    /// Draw one egui frame into the bound render target of `size` pixels.
+    /// A pass's texture changes, made or patched before its meshes are drawn; what was uploaded.
     ///
     /// # Safety
     /// `dev` is the device the painter's textures were made on, on the thread that renders with it.
-    pub unsafe fn paint(
+    pub unsafe fn upload(
         &mut self,
         dev: &IDirect3DDevice9,
-        size: [u32; 2],
-        ppp: f32,
-        prims: &[ClippedPrimitive],
         delta: &TexturesDelta,
-    ) -> Result<()> {
+    ) -> Result<Uploaded> {
+        let mut up = Uploaded::default();
         for (id, d) in delta
             .set
             .iter()
@@ -63,7 +70,35 @@ impl Painter {
             let tex = unsafe { upload(dev, self.textures.get(id).map(|t| &t.0), d)? };
             let linear = d.options.magnification == TextureFilter::Linear;
             self.textures.insert(*id, (tex, linear));
+            let size = d.image.size();
+            up.textures += 1;
+            up.bytes += size[0] * size[1] * 4;
+            if size[0] * size[1] > up.largest[0] * up.largest[1] {
+                up.largest = size;
+            }
+            up.font |= *id == TextureId::default();
         }
+        Ok(up)
+    }
+
+    /// The textures a pass let go, after its meshes are drawn.
+    pub fn free(&mut self, delta: &TexturesDelta) {
+        for id in &delta.free {
+            self.textures.remove(id);
+        }
+    }
+
+    /// Draw a pass's meshes (this frame's, or the last pass's again) into the bound render target of `size` pixels.
+    ///
+    /// # Safety
+    /// `dev` is the device the painter's textures were made on, on the thread that renders with it.
+    pub unsafe fn paint(
+        &mut self,
+        dev: &IDirect3DDevice9,
+        size: [u32; 2],
+        ppp: f32,
+        prims: &[ClippedPrimitive],
+    ) -> Result<()> {
         let meshes: Vec<_> = prims
             .iter()
             .filter_map(|p| match &p.primitive {
@@ -76,9 +111,6 @@ impl Painter {
         if ni > 0 {
             // SAFETY: as above
             unsafe { self.draw(dev, size, ppp, &meshes, nv, ni)? };
-        }
-        for id in &delta.free {
-            self.textures.remove(id);
         }
         Ok(())
     }

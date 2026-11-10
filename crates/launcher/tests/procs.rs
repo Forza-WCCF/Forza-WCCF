@@ -123,6 +123,34 @@ fn no_game_runs_from_a_scratch_folder() {
     assert!(game_processes(&top.path().join("game")).is_empty());
 }
 
+/// The panel's pause asks with its own folder, a run junction for a 2017-18 game in a non-ASCII folder: the control
+/// that runs from the real folder (Windows names the target) is still found.
+#[test]
+fn a_game_program_is_found_from_its_run_junction() {
+    let top = tempfile::tempdir().unwrap();
+    let (game, link) = (top.path().join(r"install\game"), top.path().join(r"run\0123456789ab"));
+    fs::create_dir_all(&game).unwrap();
+    fs::create_dir_all(link.parent().unwrap()).unwrap();
+    let system = env::var_os("SystemRoot").unwrap();
+    fs::copy(
+        Path::new(&system).join("System32").join("cmd.exe"),
+        game.join("control_Release.exe"),
+    )
+    .unwrap();
+    junction::create(&game, &link).unwrap();
+    let mut child = Command::new(game.join("control_Release.exe"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .unwrap();
+    let found = game_processes(&link).iter().any(|p| p.pid == child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+    fs::remove_dir(&link).unwrap(); // the junction only, never its target's files
+    assert!(found, "not found through {link:?}");
+}
+
 #[test]
 fn a_listening_port_and_the_pipes_are_seen() {
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

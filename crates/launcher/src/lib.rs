@@ -1,6 +1,7 @@
 //! Launcher.exe's shared code: the kit folder, the run (`run`: play.py in Rust, step 10) and what it is built on - the
 //! Job object, the debugger, the key driver, the game's settings files, the club card's session, the logs.
 
+pub mod alias;
 pub mod choices;
 pub mod cleanup;
 pub mod conf;
