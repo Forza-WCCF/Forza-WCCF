@@ -132,18 +132,20 @@ fn run(args: &[String]) -> Result<(), String> {
 fn open_room(addr: SocketAddr, id: &str, public: bool, name: &str) -> Option<(String, String)> {
     let mut said = String::new();
     while !STOP.load(Ordering::Relaxed) {
-        // no room seat for this host, so 8 guests fit; a desk before `CREATE seatless` answers ERR: the old room
-        let made = lobby::create_seatless_arcade(addr, id, public, name)
-            .or_else(|_| lobby::create_arcade(addr, id, None, public, name));
-        let why = match made {
+        let why = match make_room(addr, id, public, name) {
             Ok(Created::Room {
                 id: room,
                 code,
                 ticket,
-                ..
+                seat,
             }) => {
                 println!(
-                    "arcade room {room} on {addr}: code {code}, {}",
+                    "arcade room {room} on {addr}: code {code}, {}, {}",
+                    if seat == 0 {
+                        "the host on no seat".to_owned()
+                    } else {
+                        format!("the host on seat {seat}")
+                    },
                     if public { "listed" } else { "not listed" }
                 );
                 return Some((room, ticket));
@@ -163,6 +165,14 @@ fn open_room(addr: SocketAddr, id: &str, public: bool, name: &str) -> Option<(St
         }
     }
     None
+}
+
+/// One `CREATE`: seatless (no room seat for this host, so 8 guests fit); a desk before that word answers ERR and gets
+/// the named `CREATE shop` (host on seat 1), and a desk before room names the plain one (the desk's default name).
+fn make_room(addr: SocketAddr, id: &str, public: bool, name: &str) -> Result<Created, String> {
+    lobby::create_seatless_arcade(addr, id, public, name)
+        .or_else(|_| lobby::create_arcade(addr, id, None, public, name))
+        .or_else(|_| lobby::create_arcade(addr, id, None, public, ""))
 }
 
 fn host(addr: SocketAddr, mut cfg: ArcadeConfig, name: &str, public: bool) -> Result<(), String> {
@@ -269,5 +279,65 @@ fn probe(cfg: ArcadeConfig, log: &Log) -> Result<(), String> {
             Ok(())
         }
         Err(e) => Err(format!("control: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+
+    /// A desk before room names: ERR to `CREATE seatless` and to the named `CREATE shop`, a room to the plain one.
+    #[test]
+    fn an_old_desk_gets_the_old_words_in_turn() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let desk = std::thread::spawn(move || {
+            let mut heard = vec![];
+            for answer in ["ERR\n", "ERR\n", "ROOM r1 K7QMZDRX t1\n"] {
+                let (c, _) = l.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(&c).read_line(&mut line).unwrap();
+                (&c).write_all(answer.as_bytes()).unwrap();
+                heard.push(line);
+            }
+            heard
+        });
+        let id = "ab".repeat(32);
+        assert_eq!(
+            make_room(addr, &id, true, "Universal Cup"),
+            Ok(Created::Room {
+                id: "r1".into(),
+                code: "K7QMZDRX".into(),
+                ticket: "t1".into(),
+                seat: 1
+            })
+        );
+        assert_eq!(
+            desk.join().unwrap(),
+            [
+                format!("CREATE seatless {id} public Universal Cup\n"),
+                format!("CREATE shop {id} public Universal Cup\n"),
+                format!("CREATE shop {id} public\n"),
+            ]
+        );
+    }
+
+    /// A desk that knows the word: the room's host is on no seat.
+    #[test]
+    fn a_new_desk_seats_the_host_nowhere() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let desk = std::thread::spawn(move || {
+            let (c, _) = l.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&c).read_line(&mut line).unwrap();
+            (&c).write_all(b"ROOM r1 K7QMZDRX t1 0\n").unwrap();
+        });
+        assert!(matches!(
+            make_room(addr, &"ab".repeat(32), false, ""),
+            Ok(Created::Room { seat: 0, ref ticket, .. }) if ticket == "t1"
+        ));
+        desk.join().unwrap();
     }
 }

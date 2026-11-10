@@ -199,7 +199,7 @@ pub struct VsRoom {
 }
 
 /// The desk's answer to `CREATE vs`: `ROOM id code t seat` (`t` a ticket like `RESERVE`'s, `seat` 1 in a new room,
-/// 2 when `open` joined a waiting one, 0 for a `CREATE seatless` host; a desk without the seat field means 1) or `FULL` (the desk holds as many rooms
+/// 2 when `open` joined a waiting one; a desk without the seat field means 1; [`create_seatless_arcade`] alone reads 0) or `FULL` (the desk holds as many rooms
 /// as it takes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Created {
@@ -237,7 +237,7 @@ impl Created {
                 id: id.into(),
                 code: code.into(),
                 ticket: t.into(),
-                seat: seat.parse().ok().filter(|s| (0..=2).contains(s))?,
+                seat: seat.parse().ok().filter(|s| (1..=2).contains(s))?,
             }),
             ["FULL"] => Some(Created::Full),
             _ => None,
@@ -632,7 +632,16 @@ pub fn create_seatless_arcade(
         }
         .line(),
     )?;
-    Created::parse(&a).ok_or(a)
+    // seat 0 only here: `Created::parse` takes the VS rooms' 1-2
+    match a.split_whitespace().collect::<Vec<_>>()[..] {
+        ["ROOM", id, code, t, "0"] => Ok(Created::Room {
+            id: id.into(),
+            code: code.into(),
+            ticket: t.into(),
+            seat: 0,
+        }),
+        _ => Created::parse(&a).ok_or(a),
+    }
 }
 
 /// `JOIN CODE [n]`: a guest seat in the arcade room with that code, or in the listed room with that id.
@@ -968,11 +977,8 @@ mod tests {
         }
         assert_eq!(Created::parse("ERR slow"), None);
         assert_eq!(Created::parse("ROOM r7x1 K7QM t9 3"), None);
-        // a seatless arcade host's room
-        assert!(matches!(
-            Created::parse("ROOM r7x1 K7QM t9 0"),
-            Some(Created::Room { seat: 0, .. })
-        ));
+        // seat 0 is a seatless arcade host's, never a VS room's
+        assert_eq!(Created::parse("ROOM r7x1 K7QM t9 0"), None);
     }
 
     /// The client calls against a stand-in desk that answers each word as B4's desk will.

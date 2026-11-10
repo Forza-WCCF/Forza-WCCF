@@ -1,6 +1,6 @@
 //! 2017-18 arcade rooms (M2 plan 5.3): a player's PC that hosts an arcade opens a room with `CREATE shop ID [public]`,
 //! where ID is its arcade tunnel's iroh EndpointId. A room is private: guests join with its code alone (`JOIN CODE
-//! [n]`, seats 2-8), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
+//! [n]`, seats 2-8 (1-8 in a seatless room)), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
 //! host's id through `SHOP t own-id`, the host's ticket the ids of the guests that asked, so each tunnel end learns
 //! the other's id from the room alone. `LOBBY` lists only `public` rooms, as an arcade row with x/8 and never the code;
 //! `JOIN` of a public row's id seats a guest too (the host chose to list it), a private room's id joins nothing.
@@ -193,8 +193,9 @@ impl ArcadeRooms {
         self.rooms.iter().filter(|r| r.by == by).count()
     }
 
-    /// A new room with its host on seat 1, or on none when `seatless` (`host_id` checked by the caller with [`valid_id`], `name` already
-    /// [`forza::online::lobby::arcade_name`]); its code kept for `secret`'s next room, when there is space.
+    /// A new room with its host on seat 1, or on none when `seatless` (`host_id` checked by the caller with
+    /// [`valid_id`], `name` already [`forza::online::lobby::arcade_name`]); its code kept for `secret`'s next room,
+    /// when there is space.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
