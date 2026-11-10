@@ -26,6 +26,8 @@ use std::sync::{Arc, mpsc};
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 /// The formation strip's least width, pinned to the right edge (its width at 1440x900).
 pub const BOARD_W: f32 = 580.0;
+/// The least width the 2017-18 divider between the picture and the board drags the board to (panel.txt board_width=).
+pub const BOARD_MIN: f32 = 420.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
 /// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
@@ -105,10 +107,22 @@ pub struct Layout {
 /// the deck row straight under it. The board then takes what the picture left, up to what its own height can use;
 /// the middle takes the rest.
 pub fn layout(sheet: Rect, compact: bool) -> Layout {
+    layout_at(sheet, compact, None)
+}
+
+/// The widest the divider makes the board on `sheet`: what the board's height can use, at least [`BOARD_W`].
+pub fn board_width_max(sheet: Rect) -> f32 {
+    ((sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0).max(BOARD_W)
+}
+
+/// [`layout`] with the board's least width set by the divider (`None`: [`BOARD_W`]), held to [`BOARD_MIN`] and
+/// [`board_width_max`].
+pub fn layout_at(sheet: Rect, compact: bool, board_w: Option<f32>) -> Layout {
+    let least = board_w.map_or(BOARD_W, |w| w.clamp(BOARD_MIN, board_width_max(sheet)));
     let reserve = if compact { 0.0 } else { DECK_MIN };
-    let h = ((sheet.width() - BOARD_W) / 1.6).min(sheet.height() - TABS_H - reserve);
+    let h = ((sheet.width() - least) / 1.6).min(sheet.height() - TABS_H - reserve);
     let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
-    let bw = (sheet.width() - h * 1.6).clamp(BOARD_W, board_max.max(BOARD_W));
+    let bw = (sheet.width() - h * 1.6).clamp(least, board_max.max(least));
     let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
     let middle = sheet.with_max_x(board.left());
     let tabs = middle.with_min_y(middle.bottom() - TABS_H);
@@ -1637,7 +1651,7 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lay = if st.popped {
         popped_layout(sheet, st.edition != Edition::E1718)
     } else {
-        layout(sheet, st.file.compact)
+        layout_at(sheet, st.file.compact, divider_width(st))
     };
     if !st.popped {
         egui::Panel::right("panel-board")
@@ -1656,6 +1670,41 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
         .show(ui, |ui| middle(ui, st, lang, &lay));
+    if !st.popped && st.edition == Edition::E1718 {
+        divider(ui, st, sheet, lay.board);
+    }
+}
+
+/// The docked board's width from panel.txt (2017-18 only; 2010-11 keeps its layout).
+fn divider_width(st: &PanelState) -> Option<f32> {
+    st.file
+        .board_width
+        .filter(|_| st.edition == Edition::E1718)
+        .map(f32::from)
+}
+
+/// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
+/// picture stay the game's); dragged, it sets the board's width, saved to panel.txt when let go.
+fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
+    let strip = Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()));
+    let r = ui.interact(strip, egui::Id::unique("panel-divider"), Sense::drag());
+    if r.hovered() || r.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ui.painter().vline(
+            board.left() + 2.0,
+            board.y_range(),
+            Stroke::new(3.0, theme::RIM_HI),
+        );
+    }
+    if r.dragged()
+        && let Some(p) = r.interact_pointer_pos()
+    {
+        let w = (sheet.right() - p.x).clamp(BOARD_MIN, board_width_max(sheet));
+        st.file.board_width = Some(w.round() as u16);
+    }
+    if r.drag_stopped() {
+        st.file_changed = true;
+    }
 }
 
 // ---- the middle: picture, deck, page bar ----
@@ -6516,6 +6565,120 @@ mod tests {
         assert!(
             st.picture_rect.is_some(),
             "closed: the picture is the game's again"
+        );
+    }
+
+    /// The divider at its least, by default and at its most: the board at least 420 points and inside the sheet, the
+    /// picture 16:10 inside the middle, flush with the board; a narrower board gives a bigger picture.
+    #[test]
+    fn divider_keeps_the_board_and_the_picture_shape() {
+        for (w, h) in [
+            (1440.0, 900.0),
+            (1920.0, 1080.0),
+            (2560.0, 1440.0),
+            (1920.0, 1009.0),
+        ] {
+            let sheet = sheet_of(w, h);
+            let max = board_width_max(sheet);
+            let mut last = f32::MAX;
+            for (set, want) in [
+                (Some(BOARD_MIN - 100.0), BOARD_MIN), // dragged past the least: held there
+                (Some(BOARD_MIN), BOARD_MIN),
+                (None, BOARD_W),
+                (Some(max), max),
+                (Some(max + 300.0), max),
+            ] {
+                let l = layout_at(sheet, false, set);
+                let at = format!("{w}x{h} {set:?}: {l:?}");
+                assert!(
+                    l.board.width() >= BOARD_MIN && l.board.width() >= want - 0.01,
+                    "{at}"
+                );
+                assert!(
+                    sheet.contains_rect(l.board) && l.board.right() == sheet.right(),
+                    "{at}"
+                );
+                assert!((l.board.left() - l.middle.right()).abs() < 0.01, "{at}");
+                let p = l.picture;
+                assert!((p.width() / p.height() - 1.6).abs() < 1e-3, "{at}");
+                assert!(l.middle.expand(0.01).contains_rect(p), "{at}");
+                assert!(
+                    p.width() <= last + 0.01,
+                    "{at}: a wider board, a bigger picture"
+                );
+                last = p.width();
+            }
+        }
+        // the owner's numbers: 1440x900 at 420 points, the picture 1020x637.5 (860x537.5 at 580)
+        let l = layout_at(sheet_of(1440.0, 900.0), false, Some(420.0));
+        assert_eq!((l.board.width(), l.picture.width()), (420.0, 1020.0));
+        assert_eq!(
+            layout_at(sheet_of(1440.0, 900.0), false, None),
+            layout(sheet_of(1440.0, 900.0), false)
+        );
+    }
+
+    /// The width the divider was dragged to goes into panel.txt and comes back the same layout.
+    #[test]
+    fn divider_width_round_trips_through_panel_txt() {
+        let sheet = sheet_of(1440.0, 900.0);
+        let file = PanelFile {
+            board_width: Some(470),
+            ..PanelFile::default()
+        };
+        let back = PanelFile::parse(file.text(true).as_bytes());
+        assert_eq!(back.board_width, Some(470));
+        let l = layout_at(sheet, false, back.board_width.map(f32::from));
+        assert!((l.board.width() - 470.0).abs() < 0.01, "{l:?}");
+    }
+
+    /// Dragging the divider on the 2017-18 game window narrows the board as far as the least, and marks panel.txt to
+    /// save only when let go.
+    #[test]
+    fn dragging_the_divider_sets_the_board_width() {
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+        let (w, h) = (1440.0, 900.0);
+        frame(&ctx, &mut st, w, h, 0.0, vec![]);
+        st.file_changed = false;
+        let at = pos2(w - BOARD_W + 4.0, 300.0);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let to = pos2(w - 300.0, 300.0); // past the least
+        frame(
+            &ctx,
+            &mut st,
+            w,
+            h,
+            0.1,
+            vec![egui::Event::PointerMoved(at)],
+        );
+        frame(&ctx, &mut st, w, h, 0.2, vec![button(at, true)]);
+        for (i, x) in [at.x + 40.0, at.x + 120.0, to.x].into_iter().enumerate() {
+            let t = 0.3 + 0.1 * i as f64;
+            frame(
+                &ctx,
+                &mut st,
+                w,
+                h,
+                t,
+                vec![egui::Event::PointerMoved(pos2(x, 300.0))],
+            );
+        }
+        assert_eq!(st.file.board_width, Some(BOARD_MIN as u16));
+        assert!(!st.file_changed, "not saved while dragging");
+        frame(&ctx, &mut st, w, h, 0.7, vec![button(to, false)]);
+        frame(&ctx, &mut st, w, h, 0.8, vec![]);
+        assert!(st.file_changed, "saved when let go");
+        assert!(
+            (st.picture_rect.unwrap().width() - 1020.0).abs() < 0.5,
+            "{:?}",
+            st.picture_rect
         );
     }
 
