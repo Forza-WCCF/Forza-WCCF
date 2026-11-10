@@ -566,12 +566,14 @@ fn fit_place(x: i32, y: i32, w: i32, h: i32, wa: RECT) -> RECT {
 }
 
 /// panel.txt's board_rect= (workspace coordinates, as GetWindowPlacement gives them) fitted to the work area of the
-/// monitor nearest to it.
+/// monitor nearest to it; a hand-edited file's huge numbers are held to a sane range first.
 fn saved_place_fitted(x: i32, y: i32, w: i32, h: i32) -> RECT {
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
         MonitorFromPoint, MonitorFromRect,
     };
+    let (x, y) = (x.clamp(-100_000, 100_000), y.clamp(-100_000, 100_000));
+    let (w, h) = (w.clamp(1, 16_384), h.clamp(1, 16_384));
     let info = || MONITORINFO {
         cbSize: size_of::<MONITORINFO>() as u32,
         ..Default::default()
@@ -583,39 +585,38 @@ fn saved_place_fitted(x: i32, y: i32, w: i32, h: i32) -> RECT {
             MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY),
             &mut pm,
         );
-        // workspace = screen less the primary work area's offset (a taskbar at the top or left)
-        let (dx, dy) = (
+        let d = (
             pm.rcWork.left - pm.rcMonitor.left,
             pm.rcWork.top - pm.rcMonitor.top,
         );
         let screen = RECT {
-            left: x + dx,
-            top: y + dy,
-            right: x + dx + w,
-            bottom: y + dy + h,
+            left: x + d.0,
+            top: y + d.1,
+            right: x + d.0 + w,
+            bottom: y + d.1 + h,
         };
         if !GetMonitorInfoW(MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() {
-            return RECT {
-                left: x,
-                top: y,
-                right: x + w,
-                bottom: y + h,
-            };
+            return fit_place(x, y, w, h, screen);
         }
-        let wa = mi.rcWork;
-        fit_place(
-            x,
-            y,
-            w,
-            h,
-            RECT {
-                left: wa.left - dx,
-                top: wa.top - dy,
-                right: wa.right - dx,
-                bottom: wa.bottom - dy,
-            },
-        )
+        fit_workspace(x, y, w, h, d, mi.rcWork)
     }
+}
+
+/// A workspace place fitted to a monitor's work area `work` (screen coordinates): workspace = screen less the primary
+/// work area's offset `d` (a taskbar at the top or left of the primary monitor).
+fn fit_workspace(x: i32, y: i32, w: i32, h: i32, d: (i32, i32), work: RECT) -> RECT {
+    fit_place(
+        x,
+        y,
+        w,
+        h,
+        RECT {
+            left: work.left - d.0,
+            top: work.top - d.1,
+            right: work.right - d.0,
+            bottom: work.bottom - d.1,
+        },
+    )
 }
 
 /// The board window's place now (its restored rect, maximized), for panel.txt; not while it is full screen.
@@ -4253,7 +4254,7 @@ fn take_off_lines(
 mod tests {
     use super::{
         Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
-        fit_place, read_notice, side_button, take_off_lines,
+        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -4303,6 +4304,46 @@ mod tests {
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
+
+    /// A taskbar at the top of the primary monitor (48 high): workspace y 0 is screen y 48, so a place fitted to the
+    /// 1920x1200 work area keeps the work area's size (1152) and its workspace top at 0; on a monitor to the left the
+    /// same offset puts its work area at workspace y -48 to 976.
+    #[test]
+    fn a_saved_place_converts_between_workspace_and_screen() {
+        let work = RECT {
+            left: 0,
+            top: 48,
+            right: 1920,
+            bottom: 1200,
+        };
+        let r = fit_workspace(100, 50, 960, 1232, (0, 48), work);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (100, 0, 1060, 1152));
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 1024,
+        };
+        let r = fit_workspace(-1300, -40, 900, 900, (0, 48), left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, -40, -380, 860));
+    }
+
+    /// A hand-edited board_rect= with numbers near i32's limit neither panics nor wraps: the place comes back with
+    /// a positive size.
+    #[test]
+    fn a_corrupt_saved_place_does_not_overflow() {
+        for (x, y, w, h) in [
+            (2_000_000_000, 0, 2_000_000_000, 100),
+            (i32::MAX, i32::MAX, i32::MAX, i32::MAX),
+            (i32::MIN, i32::MIN, 1, 1),
+        ] {
+            let r = saved_place_fitted(x, y, w, h);
+            assert!(
+                r.right > r.left && r.bottom > r.top,
+                "{x},{y} {w}x{h} -> {r:?}"
+            );
+        }
     }
 
     /// The board window's frame is skipped only when it was drawn at this size with this input and is not due yet;
