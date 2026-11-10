@@ -291,6 +291,7 @@ pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("keys.sw1", Cab::Plain),
     ("keys.sw2", Cab::Plain),
     ("keys.pause", Cab::Plain),
+    ("keys.flip", Cab::Plain),
 ];
 
 /// The operator's switches (TEST, SERVICE, SW1, SW2): the KEYS page folds them under "Advanced".
@@ -797,6 +798,10 @@ pub struct PanelState {
     /// The card pressed or in hand on the board window last, and when (the frame's time): the game window shows it
     /// for [`TOUCH_SECS`] after.
     pub touched: Option<(Card, f64)>,
+    /// The card shown big (the board's pane, or the touched card) on its back: its number ([`board::flip_side`]).
+    pub turned: Option<u32>,
+    /// FLIP's key was down last frame: a press flips once.
+    pub flip_held: bool,
 }
 
 /// How long the game window keeps showing the card touched on the board window, once the touch ended.
@@ -892,6 +897,8 @@ impl PanelState {
             desk: false,
             popped: false,
             touched: None,
+            turned: None,
+            flip_held: false,
         }
     }
 
@@ -1001,6 +1008,8 @@ impl PanelState {
             desk,
             popped,
             touched,
+            turned,
+            flip_held,
         } = self;
         let Catalogue {
             filter,
@@ -1015,7 +1024,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 95] = [
+        let parts: [&dyn std::fmt::Debug; 97] = [
             edition,
             lang,
             page,
@@ -1111,6 +1120,8 @@ impl PanelState {
             desk,
             popped,
             touched,
+            turned,
+            flip_held,
         ];
         for p in parts {
             let _ = write!(h, "{p:?}\u{1f}");
@@ -1164,7 +1175,7 @@ impl PanelState {
             changed: (page == Page::Keys).then_some(4),
             pads: [
                 0x10A, 0x105, 0x101, 0x102, 0x104, 0x103, 0x109, 0, 0x300, 0x302, 0x303, 0x301, 0,
-                0, 0, 0, 0,
+                0, 0, 0, 0, 0,
             ],
             pad_names: vec!["Gamepad 1".to_owned()],
             file: PanelFile {
@@ -1639,6 +1650,23 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
     board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
+/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`: the pitch narrowed
+/// to the board's height as [`board_strip`] lays it out.
+pub fn board_slot_center_1718(
+    sheet: Rect,
+    board_w: Option<f32>,
+    spots: &[Pos2; 11],
+    slot: usize,
+) -> Pos2 {
+    let board = layout_at(sheet, false, board_w).board;
+    let r = board.shrink(16.0);
+    let w = r
+        .width()
+        .min((board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
+    let pitch = board::pitch_rect(pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD), w);
+    board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
+}
+
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
     let sheet = ui.max_rect();
@@ -1648,6 +1676,14 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
             .show(ui, |ui| board_window(ui, st, lang, sheet));
         return;
     }
+    // FLIP's key turns the card shown big over, unless it is being typed or bound
+    let held = st.down[forza::keys::FLIP];
+    let flip = held
+        && !st.flip_held
+        && st.capturing.is_none()
+        && st.pad_capturing.is_none()
+        && !ui.ctx().egui_wants_keyboard_input();
+    st.flip_held = held;
     let lay = if st.popped {
         popped_layout(sheet, st.edition != Edition::E1718)
     } else {
@@ -1663,13 +1699,13 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
                 if st.crash {
                     crash_screen(ui, st, lang);
                 } else {
-                    board_strip(ui, st, lang);
+                    board_strip(ui, st, lang, flip);
                 }
             });
     }
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
-        .show(ui, |ui| middle(ui, st, lang, &lay));
+        .show(ui, |ui| middle(ui, st, lang, &lay, flip));
     if !st.popped && st.edition == Edition::E1718 {
         divider(ui, st, sheet, lay.board);
     }
@@ -1719,7 +1755,7 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
 
 // ---- the middle: picture, deck, page bar ----
 
-fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
+fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool) {
     let Layout {
         middle: area,
         picture: pic,
@@ -1801,7 +1837,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     page_bar(ui, st, tabs, lang, side);
     // popped out: the card touched on the board window, over the deck in the column
     if side && !st.close_warn {
-        touched_card(ui, st, lay.board.shrink(16.0), lang);
+        touched_card(ui, st, lay.board.shrink(16.0), flip, lang);
     }
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
@@ -1830,15 +1866,24 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
 }
 
 /// The card touched on the board window, its details in `area` (the popped-out column over the deck), until
-/// [`TOUCH_SECS`] after the touch.
-fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+/// [`TOUCH_SECS`] after the touch or its last flip (`flip`: FLIP's key, else its FRONT | BACK switch or the card).
+fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, flip: bool, lang: Lang) {
     let now = ui.input(|i| i.time);
     st.touched = st.touched.take().filter(|(_, at)| now - at < TOUCH_SECS);
-    if let Some((card, at)) = &st.touched {
-        board::card_view(ui, card, area, lang);
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - at)));
+    let Some((card, at)) = &mut st.touched else {
+        st.turned = None; // the next card opens on its front
+        return;
+    };
+    let back = board::flip_side(&mut st.turned, card.number, flip);
+    let clicked = board::card_view(ui, card, area, back, lang);
+    if clicked {
+        board::flip_side(&mut st.turned, card.number, true);
     }
+    if flip || clicked {
+        *at = now;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - *at)));
 }
 
 /// The PAUSED page over the game's picture (the game's last frame stays under it): how to resume and the seconds left
@@ -3327,7 +3372,7 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
     );
 }
 
-fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
     // as wide as the strip, or as its height can use, centred
@@ -3365,6 +3410,8 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         pitch,
         hint_bottom,
         r.bottom(),
+        &mut st.turned,
+        flip,
         lang,
     );
 }
@@ -4899,8 +4946,8 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
         forza::keys::pad_label(st.pads[i]),
     );
     let r1 = key_cell(ui, &k, ks, cell_w, lang);
-    if i == forza::keys::PAUSE {
-        ui.label(""); // the panel's own key: the key driver reads no controller for it
+    if i >= forza::keys::PAUSE {
+        ui.label(""); // the panel's own keys (PAUSE, FLIP): the key driver reads no controller for them
         if r1.clicked() {
             st.pad_capturing = None;
             st.capturing = (st.capturing != Some(i)).then_some(i);
@@ -6088,6 +6135,22 @@ mod tests {
         );
     }
 
+    /// The big card's side: a flip turns it over and back; another card opens on its front.
+    #[test]
+    fn the_big_card_flips_and_another_opens_on_its_front() {
+        let mut t = None;
+        assert!(!board::flip_side(&mut t, 8, false));
+        assert!(board::flip_side(&mut t, 8, true), "the back");
+        assert!(board::flip_side(&mut t, 8, false), "stays on its back");
+        assert!(!board::flip_side(&mut t, 8, true), "the front again");
+        assert!(board::flip_side(&mut t, 8, true));
+        assert!(
+            !board::flip_side(&mut t, 9, false),
+            "another card: its front"
+        );
+        assert_eq!(t, None);
+    }
+
     /// The pane's side belongs to the card shown: another card shows its front again.
     #[test]
     fn the_detail_panes_side_belongs_to_the_card_shown() {
@@ -6212,8 +6275,14 @@ mod tests {
                     pitch.bottom() - 40.0,
                     hint_bottom - 30.0,
                 ] {
-                    let (pane, tier) =
-                        board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
+                    let (pane, tier) = board::pane_place(
+                        pitch,
+                        hint_bottom,
+                        col.bottom(),
+                        425.0 + board::FLIP_ROW,
+                        149.0 + board::FLIP_ROW,
+                        card_y,
+                    );
                     let at = format!("{win} card at {card_y}: {pane:?} {tier:?}");
                     assert!(l.board.contains_rect(pane), "{at}");
                     assert!(
@@ -6559,6 +6628,11 @@ mod tests {
         both(&mut st, 0.1, vec![press(true)]);
         assert_eq!(st.touched.as_ref().map(|t| t.0.number), Some(card));
         assert!(big(&game_ctx), "the game window shows it");
+        // FLIP's key turns it over there
+        st.down[forza::keys::FLIP] = true;
+        both(&mut st, 0.15, vec![]);
+        st.down[forza::keys::FLIP] = false;
+        assert_eq!(st.turned, Some(card), "FLIP turns the touched card over");
         both(&mut st, 0.2, vec![press(false)]);
         // rested on past the hover delay: still no big card on the board window
         both(&mut st, 3.0, vec![]);
@@ -6566,6 +6640,7 @@ mod tests {
         assert!(st.touched.is_some(), "kept for a while");
         both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
         assert!(st.touched.is_none(), "gone after TOUCH_SECS");
+        assert!(st.turned.is_none(), "the next card opens on its front");
         // a dock forgets the card touched last
         both(&mut st, 10.0, vec![press(true)]);
         assert!(st.touched.is_some());

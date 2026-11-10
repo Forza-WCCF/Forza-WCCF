@@ -13,7 +13,7 @@
 //! - The language: `WCCF_KIT_LANG`, else `data\settings.json`'s `language`, else Windows' display language, else
 //!   English (the launcher's order).
 
-use forza::keys::{COUNT, PAUSE};
+use forza::keys::{COUNT, FLIP, PAUSE};
 use forza::panel_txt::PanelFile;
 use forza_ui::Lang;
 use forza_ui::panel::{CardState, Link, Status, when};
@@ -226,8 +226,9 @@ impl Files {
             })
         };
         let mut keys = back(keys);
-        // PAUSE is the panel's own: the key driver skips its line
-        keys[PAUSE] = forza::keys::pause_key(raw, ui[PAUSE], &keys[..PAUSE]);
+        // PAUSE and FLIP are the panel's own: the key driver skips their lines
+        keys[PAUSE] = forza::keys::panel_key(raw, "PAUSE", ui[PAUSE], &keys[..PAUSE]);
+        keys[FLIP] = forza::keys::panel_key(raw, "FLIP", ui[FLIP], &keys[..FLIP]);
         (keys, back(pads))
     }
 

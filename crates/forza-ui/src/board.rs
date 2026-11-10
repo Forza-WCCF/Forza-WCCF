@@ -1420,7 +1420,10 @@ pub fn formation_board(
     let mut removed: Option<(usize, Pos2)> = None;
 
     let hover_id = Id::unique("board-hover");
-    let flip_id = Id::unique("board-flip");
+    // the card clicked last: shown big while the mouse rests on it or is off the board (a touch leaves no mouse), until
+    // another card shows big, a click on it again or a press off the cards and the big card; so its FRONT | BACK
+    // switch can be reached
+    let pin_id = Id::unique("board-pin");
     let mut hovered_card = None;
     let mut drop_target = None;
     // the swap target is the card under the held card's centre (as drawn), not under the pointer
@@ -1482,12 +1485,12 @@ pub fn formation_board(
                 if resp.hovered() && dragging.is_none() && !pure {
                     hovered_card = Some((slot, ci, rect));
                 }
-                // a click turns the big card over (and back) and selects it (and lets it go)
+                // a click shows the card big and selects it (and lets both go); only the big card turns over
                 if resp.clicked() && !pure {
                     let no = c.number;
                     ui.data_mut(|d| {
-                        let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
-                        *f = if *f == Some(slot) { None } else { Some(slot) };
+                        let f = d.get_temp_mut_or_default::<Option<u32>>(pin_id);
+                        *f = if *f == Some(no) { None } else { Some(no) };
                         let s = d.get_temp_mut_or_default::<Option<u32>>(select_id);
                         *s = if clicked_card == Some(no) {
                             None
@@ -1668,8 +1671,14 @@ pub fn formation_board(
         ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
-    // the big card after a resting mouse
-    let mut shown_big = None;
+    // the big card after a resting mouse, else the card clicked last
+    let pinned = ui
+        .data(|d| d.get_temp::<Option<u32>>(pin_id))
+        .flatten()
+        .and_then(|n| (0..16).find(|&s| board.number(s) == Some(n)));
+    let unpin = |ui: &Ui| ui.data_mut(|d| d.remove::<Option<u32>>(pin_id));
+    let pin_shown = pinned.and_then(|s| board.slots[s].map(|ci| (s, ci, rects[s])));
+    let mut show = None;
     match hovered_card {
         Some((slot, ci, rect)) => {
             let since = ui.data_mut(|d| {
@@ -1681,32 +1690,45 @@ pub fn formation_board(
             });
             // None: CARD HOVER DELAY off, never shown big by resting
             let left = hover_delay.map(|d| d as f64 - (now - since));
-            // turned over until the mouse rests on another card
-            let back = ui.data_mut(|d| {
-                let f = d.get_temp_mut_or_default::<Option<usize>>(flip_id);
-                if f.is_some_and(|s| s != slot) {
-                    *f = None;
+            if left.is_some_and(|l| l <= 0.0) || pinned == Some(slot) {
+                if pinned != Some(slot) {
+                    unpin(ui); // another card rested on: the clicked one goes
                 }
-                *f == Some(slot)
-            });
-            if left.is_some_and(|l| l <= 0.0) || back {
-                let ask = PaneAsk {
-                    card: board.cards[ci].clone(),
-                    at: rect,
-                    back,
-                };
-                ui.data_mut(|d| d.insert_temp(pane_id(), ask));
-                shown_big = Some(ci);
+                show = Some((slot, ci, rect));
             } else if let Some(left) = left {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
             }
         }
-        // off the cards: a clicked card's big back ends too, so OFF never shows it again on a mere re-hover
-        None => ui.data_mut(|d| {
-            d.remove::<(usize, f64)>(hover_id);
-            d.remove::<Option<usize>>(flip_id);
-        }),
+        None => {
+            ui.data_mut(|d| d.remove::<(usize, f64)>(hover_id));
+            // a press off the cards and off the big card (as drawn last frame) lets the clicked card go
+            let big = ui.ctx().memory(|m| m.area_rect(Id::unique("board-big")));
+            let off_big = ui.input(|i| {
+                i.pointer.any_pressed()
+                    && i.pointer
+                        .press_origin()
+                        .is_some_and(|p| !big.is_some_and(|r| r.contains(p)))
+            });
+            if off_big {
+                unpin(ui);
+            } else if !pointer.is_some_and(|p| {
+                shown.union(bench).contains(p) && !big.is_some_and(|r| r.contains(p))
+            }) {
+                // on the board the selection's partners show, as before the click; off it (or on the big card over
+                // the pitch) the clicked card
+                show = pin_shown;
+            }
+        }
+    }
+    let mut shown_big = None;
+    if let Some((_, ci, rect)) = show {
+        let ask = PaneAsk {
+            card: board.cards[ci].clone(),
+            at: rect,
+        };
+        ui.data_mut(|d| d.insert_temp(pane_id(), ask));
+        shown_big = Some(ci);
     }
 
     // the heat zone of the card in hand (or shown big), and the drop target's fit
@@ -2269,27 +2291,45 @@ pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
         );
         p.galley(grid.center() - g.size() / 2.0, g, theme::TEXT_DIM);
     }
-    p.text(
+    let season = p.text(
         pos2(rect.right() - 10.0 * unit, rect.bottom() - 11.0 * unit),
         Align2::RIGHT_CENTER,
         card.season.as_str(),
         theme::display(11.0 * unit),
         theme::TEXT_DIM,
     );
+    // the club at the season's left, shrunk to the room left
+    let club = fit(
+        p,
+        &card.club,
+        theme::display(11.0 * unit),
+        theme::TEXT_DIM,
+        (season.left() - rect.left() - 18.0 * unit).max(0.0),
+    );
+    // a club too long even shrunk is cut before the season
+    p.with_clip_rect(rect.with_max_x(season.left() - 6.0 * unit))
+        .galley(
+            pos2(
+                rect.left() + 10.0 * unit,
+                rect.bottom() - 11.0 * unit - club.size().y / 2.0,
+            ),
+            club,
+            theme::TEXT_DIM,
+        );
 }
 
 /// Room around the info pane's face: the frame's margins, and the large tier's caption under it (name, facts, roles,
 /// stats).
 const BIG_FRAME: f32 = 22.0;
 const BIG_CAPTION: f32 = 150.0;
+/// The FRONT | BACK switch under the big card: its height and the gap over it.
+pub const FLIP_ROW: f32 = 34.0 + 6.0;
 
-/// What the board asks [`info_panes`] to show this frame: the card shown big, where it lies, the pitch card's size and
-/// whether it is turned over.
+/// What the board asks [`info_panes`] to show this frame: the card shown big and where it lies.
 #[derive(Clone)]
 struct PaneAsk {
     card: Card,
     at: Rect,
-    back: bool,
 }
 
 fn pane_id() -> Id {
@@ -2354,8 +2394,10 @@ fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
 }
 
 /// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
-/// `foot`): the card the mouse rests on (after the hover delay, or turned over), else the selected card's partners.
-/// Both stay inside the board's column ([`pane_place`]).
+/// `foot`): the card the mouse rests on (after the hover delay) or clicked last, else the selected card's partners.
+/// Both stay inside the board's column ([`pane_place`]). `turned`: the card shown big on its back ([`flip_side`]);
+/// `flip`: the KEYS page's FLIP pressed this frame.
+#[allow(clippy::too_many_arguments)]
 pub fn info_panes(
     ui: &Ui,
     board: &Board,
@@ -2363,6 +2405,8 @@ pub fn info_panes(
     pitch: Rect,
     hint_bottom: f32,
     foot: f32,
+    turned: &mut Option<u32>,
+    flip: bool,
     lang: Lang,
 ) {
     let (ask, partners) = ui.data_mut(|d| {
@@ -2380,16 +2424,22 @@ pub fn info_panes(
             pitch,
             hint_bottom,
             foot,
-            large.map_or(f32::INFINITY, |f| BIG_FRAME + f.y + BIG_CAPTION),
-            BIG_FRAME + strip.y,
+            large.map_or(f32::INFINITY, |f| BIG_FRAME + f.y + FLIP_ROW + BIG_CAPTION),
+            BIG_FRAME + strip.y + FLIP_ROW,
             a.at.center().y,
         );
         let face = match (tier, large) {
             (Tier::Large, Some(f)) => f,
             _ => strip,
         };
-        info_pane(ui, &a.card, pane, tier, face, a.back, true, lang);
-    } else if let Some((sel, at)) = partners {
+        let back = flip_side(turned, a.card.number, flip);
+        if info_pane(ui, &a.card, pane, tier, face, back, lang) {
+            flip_side(turned, a.card.number, true);
+        }
+        return;
+    }
+    *turned = None; // no card big: the next one opens on its front
+    if let Some((sel, at)) = partners {
         // as tall as it was last frame (about 220 points the first time)
         let h = ui
             .ctx()
@@ -2400,29 +2450,44 @@ pub fn info_panes(
     }
 }
 
+/// The side a card shown big is on: its back when `turned` holds its number. Another card than the one turned opens on
+/// its front; `flip` turns it over (and back).
+pub fn flip_side(turned: &mut Option<u32>, card: u32, flip: bool) -> bool {
+    *turned = turned.filter(|n| *n == card);
+    if flip {
+        *turned = if turned.is_some() { None } else { Some(card) };
+    }
+    turned.is_some()
+}
+
 /// A card's info pane at the top of `area` (the game window's column, the board popped out): large when it fits, else
-/// the strip; no flip hint (nothing to click there).
-pub fn card_view(ui: &Ui, card: &Card, area: Rect, lang: Lang) {
-    let ppp = ui.ctx().pixels_per_point();
+/// the strip. `back`: on its back; true when its FRONT | BACK switch or the big card was clicked.
+pub fn card_view(ui: &Ui, card: &Card, area: Rect, back: bool, lang: Lang) -> bool {
+    let (pane, tier, face) = card_view_place(area, ui.ctx().pixels_per_point());
+    info_pane(ui, card, pane, tier, face, back, lang)
+}
+
+/// [`card_view`]'s pane in `area`, its tier and its face's size.
+pub fn card_view_place(area: Rect, ppp: f32) -> (Rect, Tier, Vec2) {
     let strip = crate::sizing::hover_face(ppp);
-    let (pane, tier, face) = match large_face(area.width(), ppp) {
-        Some(f) if BIG_FRAME + f.y + BIG_CAPTION <= area.height() => (
-            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + f.y + BIG_CAPTION)),
+    let large_h = |f: Vec2| BIG_FRAME + f.y + FLIP_ROW + BIG_CAPTION;
+    match large_face(area.width(), ppp) {
+        Some(f) if large_h(f) <= area.height() => (
+            Rect::from_min_size(area.min, vec2(area.width(), large_h(f))),
             Tier::Large,
             f,
         ),
         _ => (
-            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + strip.y)),
+            Rect::from_min_size(area.min, vec2(area.width(), BIG_FRAME + strip.y + FLIP_ROW)),
             Tier::Strip,
             strip,
         ),
-    };
-    info_pane(ui, card, pane, tier, face, false, false, lang);
+    }
 }
 
-/// The info pane in `pane`: the card's face (its back when turned over) `face` big; large, the position map beside it
-/// and the caption under them; a strip, the caption beside the face. `flip`: the caption ends with the flip hint.
-#[allow(clippy::too_many_arguments)]
+/// The info pane in `pane`: the card's face (its back when turned over) `face` big, the FRONT | BACK switch under it;
+/// large, the position map beside them and the caption under them; a strip, the caption beside them. True when the
+/// switch or the big card was clicked: the caller turns it over.
 fn info_pane(
     ui: &Ui,
     card: &Card,
@@ -2430,9 +2495,8 @@ fn info_pane(
     tier: Tier,
     face: Vec2,
     back: bool,
-    flip: bool,
     lang: Lang,
-) {
+) -> bool {
     let card = &*real(ui.ctx(), card);
     let large = tier == Tier::Large;
     let t = if large { 1.0 } else { 0.9 };
@@ -2440,7 +2504,9 @@ fn info_pane(
     let map_w = ((face.y - 22.0) / PITCH_ASPECT).min(pane.width() - BIG_FRAME - 10.0 - face.x);
     let map = vec2(map_w, map_w * PITCH_ASPECT);
     let ppp = ui.ctx().pixels_per_point();
-    egui::Area::new(Id::unique("board-big"))
+    let (mut card_r, mut switch_r) = (Rect::NOTHING, Rect::NOTHING);
+    // click-through: the mat cards under the pane keep their hover, clicks and drags
+    let pane_layer = egui::Area::new(Id::unique("board-big"))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
         .interactable(false)
@@ -2462,25 +2528,33 @@ fn info_pane(
                     ui.set_max_width(inner.x);
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing.x = 10.0;
-                        let (r, _) = ui.allocate_exact_size(face, Sense::hover());
-                        if large {
-                            // the album art at its own pixels: its top left on a whole device pixel
-                            use egui::emath::GuiRounding as _;
-                            let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
-                            card_side(ui.painter(), r, card, back, false, lang);
-                        } else if back {
-                            card_back(ui.painter(), r, card, lang);
-                        } else {
-                            card_face(
-                                ui.painter(),
-                                r,
-                                card,
-                                Look {
-                                    square: true,
-                                    ..Look::default()
-                                },
-                            );
-                        }
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 6.0;
+                            let (r, _) = ui.allocate_exact_size(face, Sense::hover());
+                            card_r = r;
+                            if large {
+                                // the album art at its own pixels: its top left on a whole device pixel
+                                use egui::emath::GuiRounding as _;
+                                let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
+                                card_side(ui.painter(), r, card, back, false, lang);
+                            } else if back {
+                                card_side(ui.painter(), r, card, true, false, lang);
+                            } else {
+                                card_face(
+                                    ui.painter(),
+                                    r,
+                                    card,
+                                    Look {
+                                        square: true,
+                                        ..Look::default()
+                                    },
+                                );
+                            }
+                            // the switch is drawn on its own layer below
+                            switch_r = ui
+                                .allocate_exact_size(vec2(face.x, FLIP_ROW - 6.0), Sense::hover())
+                                .0;
+                        });
                         ui.vertical(|ui| {
                             if large {
                                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -2493,20 +2567,45 @@ fn info_pane(
                                 aptitude_map(ui.painter(), m, &card.aptitude, lang);
                             } else {
                                 ui.spacing_mut().item_spacing.y = 2.0;
-                                caption(ui, card, back, flip, t, lang);
+                                caption(ui, card, t, lang);
                             }
                         });
                     });
                     if large {
-                        caption(ui, card, back, flip, t, lang);
+                        caption(ui, card, t, lang);
                     }
                 });
-        });
+        })
+        .response
+        .layer_id;
+    // only the big card and its switch take the pointer, each on a layer just above the pane
+    let mut flip = false;
+    let mut over = |name: &'static str, at: Rect, add: &mut dyn FnMut(&mut Ui) -> bool| {
+        let shown = egui::Area::new(Id::unique(name))
+            .order(Order::Tooltip)
+            .fixed_pos(at.min)
+            .show(ui.ctx(), |ui| add(ui));
+        ui.ctx().set_sublayer(pane_layer, shown.response.layer_id);
+        flip |= shown.inner;
+    };
+    over("board-big-card", card_r, &mut |ui| {
+        ui.allocate_exact_size(face, Sense::click()).1.clicked()
+    });
+    over("board-big-switch", switch_r, &mut |ui| {
+        let mut side = usize::from(back);
+        crate::widgets::segmented(
+            ui,
+            &mut side,
+            &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+            face.x,
+        )
+    });
+    flip
 }
 
-/// The info pane's words: the name, club · country · season, the best roles, the stats (or SECRET) and (`flip`) the flip
-/// hint; `t` scales the text.
-fn caption(ui: &mut Ui, card: &Card, back: bool, flip: bool, t: f32, lang: Lang) {
+/// The info pane's words: the name, club · country · season, the best roles and the stats (or SECRET); `t` scales the
+/// text.
+fn caption(ui: &mut Ui, card: &Card, t: f32, lang: Lang) {
     ui.label(
         egui::RichText::new(&card.name)
             .font(theme::display(20.0 * t))
@@ -2544,8 +2643,11 @@ fn caption(ui: &mut Ui, card: &Card, back: bool, flip: bool, t: f32, lang: Lang)
                 .color(theme::TEXT_DIM),
         );
     } else {
+        // columns as wide as their words, not the theme's 40-point least: six fit beside the strip's face on a
+        // 420-point board
         egui::Grid::new("big-stats")
             .num_columns(6)
+            .min_col_width(28.0)
             .spacing(vec2(14.0, 0.0))
             .show(ui, |ui| {
                 for k in stats {
@@ -2565,21 +2667,6 @@ fn caption(ui: &mut Ui, card: &Card, back: bool, flip: bool, t: f32, lang: Lang)
                 }
             });
     }
-    if !flip {
-        return;
-    }
-    ui.label(
-        egui::RichText::new(tr!(
-            lang,
-            if back {
-                "board.flip_back"
-            } else {
-                "board.flip"
-            }
-        ))
-        .font(theme::body(11.0 * t))
-        .color(theme::TEXT_FAINT),
-    );
 }
 
 /// A card in the catalogue's results: lifts a little under the mouse; `on_table` dims it with a tick.
@@ -2714,6 +2801,47 @@ mod tests {
         // a wider picture: full width, bars above and below
         let l = letterbox(r, 1.0);
         assert!((l.width() - r.width()).abs() < 1e-3 && l.height() < r.height());
+    }
+
+    /// A card with no back picture (no picture folder) gets the drawn back, with its data: number, name, position, club,
+    /// the six stats and TOTAL.
+    #[test]
+    fn a_card_without_a_back_picture_gets_the_drawn_back() {
+        let c = Card {
+            name: "Andrea Pirlo".into(),
+            club: "AC Milan".into(),
+            season: "2006-07".into(),
+            stats: [11, 12, 13, 14, 15, 16],
+            total: 81,
+            ..card(4321)
+        };
+        let ctx = egui::Context::default();
+        crate::theme::install(
+            &ctx,
+            crate::theme::Edition::E1718,
+            &crate::theme::font_dir(),
+        )
+        .unwrap();
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            set_picture_dir(ui.ctx(), None);
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(256.0, 357.0));
+            card_side(ui.painter(), r, &c, true, false, crate::Lang::En);
+        });
+        out.textures_delta.clear();
+        let mut texts = Vec::new();
+        for s in out.shapes {
+            if let egui::Shape::Text(t) = s.shape {
+                texts.push(t.galley.text().to_owned());
+            }
+        }
+        for want in [
+            "#4321", "Pirlo", "MF", "AC Milan", "2006-07", "OFF", "11", "16", "81",
+        ] {
+            assert!(texts.iter().any(|t| t == want), "{want} not in {texts:?}");
+        }
     }
 
     fn card(n: u32) -> Card {

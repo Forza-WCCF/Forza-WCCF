@@ -291,8 +291,6 @@ panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja
 panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: "試合中です。"}
 
 # ---- formation board ----
-board.flip: {en: "Click the card to see its back.", it: "Clicca la carta per vedere il retro.", ja: "カードをクリックすると裏面になります。"}
-board.flip_back: {en: "Click the card to see its face.", it: "Clicca la carta per vedere il fronte.", ja: "カードをクリックすると表面になります。"}
 board.hint: {en: "Drag cards to the pitch. Drop one on a card to swap, drag it off the table to remove.", it: "Trascina le carte sul campo. Su un'altra si scambiano, fuori dal tavolo si tolgono.", ja: "カードをピッチへドラッグ。重ねると入れ替え、外へドラッグすると外れます。"}
 board.kept: {en: "You cannot remove cards during a match.", it: "Durante una partita le carte non si possono togliere.", ja: "試合中はカードをテーブルから外せません"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
@@ -442,6 +440,7 @@ keys.service: {en: "SERVICE", it: "SERVIZIO", ja: "サービス"}
 keys.sw1: {en: "SW1", it: "SW1", ja: "SW1"}
 keys.sw2: {en: "SW2", it: "SW2", ja: "SW2"}
 keys.pause: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
+keys.flip: {en: "FLIP CARD", it: "GIRA CARTA", ja: "カードを裏返す"}
 keys.defaults: {en: "Reset keys", it: "Ripristina tasti", ja: "キーを初期化"}
 
 # ---- settings ----
