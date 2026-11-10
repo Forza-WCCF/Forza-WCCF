@@ -2013,9 +2013,12 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
+/// The gap between the RESET LINEUP question's three buttons.
+const RESET_GAP: f32 = 8.0;
+
 /// RESET LINEUP's question: the kept table as a squad list (the pitch by position, left to right, then the subs), the
-/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; CANCEL (or Esc) leaves
-/// the table as it is.
+/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; DON'T ASK AGAIN does too
+/// and turns the question off (`reset_ask=off`); CANCEL (or Esc) leaves the table as it is.
 fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let Some(kept) = st.before_match.as_deref() else {
         st.reset_ask = None;
@@ -2099,30 +2102,33 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     .color(theme::GOLD),
             );
             ui.add_space(6.0);
-            let go = widgets::cabinet(
-                ui,
-                vec2(440.0, 56.0),
-                &tr!(lang, "cat.ask_confirm"),
-                Cab::Go,
-                true,
-            );
-            let cancel = widgets::cabinet(
-                ui,
-                vec2(440.0, 44.0),
-                &tr!(lang, "cat.ask_cancel"),
-                Cab::Plain,
-                false,
-            );
-            (go, cancel)
+            // CONFIRM, DON'T ASK AGAIN and CANCEL side by side
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = RESET_GAP;
+                let size = vec2((440.0 - 2.0 * RESET_GAP) / 3.0, 48.0);
+                let mut b =
+                    |key: &str, kind, lit| widgets::cabinet(ui, size, &tr!(lang, key), kind, lit);
+                (
+                    b("cat.ask_confirm", Cab::Go, true),
+                    b("board.reset_always", Cab::Plain, false),
+                    b("cat.ask_cancel", Cab::Plain, false),
+                )
+            })
+            .inner
         });
-    let (go, cancel) = modal.inner;
+    let (go, always, cancel) = modal.inner;
     let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
     let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if cancel.clicked() || esc {
         st.reset_ask = None;
-    } else if go.clicked() || enter {
+    } else if go.clicked() || always.clicked() || enter {
         st.reset_ask = None;
         st.reset_lineup = true;
+        if always.clicked() {
+            // SETTINGS' "Ask before RESET LINEUP" brings the question back
+            st.file.reset_ask_off = true;
+            st.file_changed = true;
+        }
     }
 }
 
@@ -3500,7 +3506,11 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
         buttons_bottom = buttons_bottom.max(r.rect.bottom());
         if r.clicked() {
-            st.reset_ask = Some(st.desk);
+            if st.file.reset_ask_off {
+                st.reset_lineup = true; // DON'T ASK AGAIN: UNDO covers a mistake
+            } else {
+                st.reset_ask = Some(st.desk);
+            }
         }
         r.on_hover_text(&hint).on_disabled_hover_text(&hint);
         let formations = b.put(at[2], button(&texts[2]));
@@ -5134,6 +5144,20 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .clicked()
             {
                 st.file_changed = true;
+            }
+            if st.edition == Edition::E1718 {
+                let mut ask = !st.file.reset_ask_off;
+                if widgets::toggle_row(
+                    ui,
+                    &mut ask,
+                    &tr!(lang, "settings.reset_ask"),
+                    &tr!(lang, "settings.reset_ask_hint"),
+                )
+                .clicked()
+                {
+                    st.file.reset_ask_off = !ask;
+                    st.file_changed = true;
+                }
             }
             if st.edition == Edition::E1718 {
                 // the key driver reads panel.txt again at once; with 2+ seats here it ignores the choice, and says so

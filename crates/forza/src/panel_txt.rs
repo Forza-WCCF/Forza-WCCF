@@ -65,6 +65,8 @@ pub struct PanelFile {
     pub fps: bool,
     /// The "name=value" lines not known here, each with its newline, written back as they were.
     pub other: String,
+    /// reset_ask=off (2017-18): RESET LINEUP resets at once, without its question (DON'T ASK AGAIN).
+    pub reset_ask_off: bool,
 }
 
 impl Default for PanelFile {
@@ -86,6 +88,7 @@ impl Default for PanelFile {
             textures: 0,
             fps: false,
             other: String::new(),
+            reset_ask_off: false,
         }
     }
 }
@@ -135,6 +138,7 @@ impl PanelFile {
                         .unwrap_or(0);
                 }
                 "fps" => f.fps = is("on"),
+                "reset_ask" => f.reset_ask_off = is("off"),
                 "board_rect" => {
                     let n: Vec<i32> = val
                         .split(',')
@@ -207,6 +211,9 @@ impl PanelFile {
         if let Some(w) = self.board_width {
             s += &format!("board_width={w}\n");
         }
+        if self.reset_ask_off {
+            s += "reset_ask=off\n";
+        }
         s + &self.other
     }
 }
@@ -273,12 +280,13 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwh
             fps: true,
             board_rect: Some([-1600, 20, 900, 1400, 0]),
             board_width: Some(440),
+            reset_ask_off: true,
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\nboard_width=440\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\nboard_width=440\nreset_ask=off\n")
         );
         for (line, ms) in [
             ("", Some(500)),

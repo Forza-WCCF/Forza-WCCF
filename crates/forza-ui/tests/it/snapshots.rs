@@ -1061,12 +1061,15 @@ fn board_reset_lineup_hint_and_undo() {
 }
 
 /// A table kept by an earlier run (no match in this one) that differs from the board: RESET LINEUP is lit and asks
-/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone.
+/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone;
+/// DON'T ASK AGAIN resets too and saves `reset_ask=off`: the next RESET LINEUP resets with no question, until the
+/// setting is on again.
 #[test]
 fn board_reset_lineup_asks_first() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for confirm in [true, false] {
+    for choice in ["CONFIRM", "DON'T ASK AGAIN", "CANCEL"] {
+        let reset = choice != "CANCEL";
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         let now = forza::cards::table_after(&[], &st.board);
         // the kept table: the first pitch card and the first sub trade places
@@ -1091,20 +1094,25 @@ fn board_reset_lineup_asks_first() {
         h.run_steps(8);
         assert_eq!(st.borrow().reset_ask, Some(false));
         assert!(!st.borrow().reset_lineup, "nothing replaced before CONFIRM");
-        if confirm {
+        if choice == "CONFIRM" {
             h.snapshot("board_reset_ask_en");
             all.extend_harness(&mut h);
         }
-        h.get_by_label(if confirm { "CONFIRM" } else { "CANCEL" })
-            .click();
+        h.get_by_label(choice).click();
         h.run_steps(4);
         {
             let mut s = st.borrow_mut();
             assert!(s.reset_ask.is_none());
-            assert_eq!(s.reset_lineup, confirm);
+            assert_eq!(s.reset_lineup, reset, "{choice}");
+            assert_eq!(
+                s.file.reset_ask_off,
+                choice == "DON'T ASK AGAIN",
+                "{choice}"
+            );
+            assert_eq!(s.file_changed, choice == "DON'T ASK AGAIN", "{choice}");
             // the panel DLL's step after the frame
             let new = panel::take_reset(&mut s, &now, false);
-            if confirm {
+            if reset {
                 assert_eq!(new.as_ref(), Some(&kept));
                 assert_eq!(shown(&s.board), after);
                 assert_eq!(s.import_undo.as_ref().map(|u| &u.0), Some(&now));
@@ -1115,7 +1123,27 @@ fn board_reset_lineup_asks_first() {
             }
         }
         h.run_steps(4);
-        assert_eq!(h.query_by_label("UNDO").is_some(), confirm);
+        assert_eq!(h.query_by_label("UNDO").is_some(), reset);
+        if choice == "DON'T ASK AGAIN" {
+            // asked no more: the next click resets at once
+            h.get_by_label("RESET LINEUP").click();
+            h.run_steps(4);
+            assert!(st.borrow().reset_ask.is_none(), "no question");
+            assert!(st.borrow().reset_lineup, "reset at once");
+            st.borrow_mut().reset_lineup = false;
+            // SETTINGS' "Ask before RESET LINEUP" on: the question is back
+            st.borrow_mut().page = panel::Page::Settings;
+            h.run_steps(4);
+            h.get_by_label("Ask before RESET LINEUP").click();
+            h.run_steps(4);
+            assert!(!st.borrow().file.reset_ask_off, "the setting is on");
+            st.borrow_mut().page = panel::Page::Game;
+            h.run_steps(4);
+            h.get_by_label("RESET LINEUP").click();
+            h.run_steps(4);
+            assert_eq!(st.borrow().reset_ask, Some(false), "asked again");
+            assert!(!st.borrow().reset_lineup);
+        }
     }
     all.unwrap();
 }

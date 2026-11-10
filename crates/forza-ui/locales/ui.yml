@@ -414,6 +414,7 @@ board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成�
 board.reset_ask_title: {en: "RESET LINEUP?", it: "RIPRISTINARE LA FORMAZIONE?", ja: "試合前の編成に戻しますか？"}
 board.reset_subs: {en: "SUBS", it: "RISERVE", ja: "控え"}
 board.reset_moves: {en: "Gold: players who change place", it: "In oro: chi cambia posto", ja: "金色：入れ替わる選手"}
+board.reset_always: {en: "DON'T ASK AGAIN", it: "NON CHIEDERE PIÙ", ja: "今後確認しない"}
 
 # ---- keys ----
 keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cella, poi premi un tasto o un pulsante.", ja: "マスをクリックし、キーまたはボタンを押す。"}
@@ -493,6 +494,8 @@ settings.msg_board_window: {en: "Formation board in its own window: move it to a
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della formazione in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
+settings.reset_ask: {en: "Ask before RESET LINEUP", it: "Chiedi prima di RIPRISTINA", ja: "「試合前に戻す」の前に確認"}
+settings.reset_ask_hint: {en: "RESET LINEUP shows the lineup it goes back to and waits for CONFIRM. When this is off, it resets at once and UNDO brings the lineup back.", it: "RIPRISTINA mostra la formazione a cui torna e attende CONFERMA. Se è disattivato, ripristina subito e il pulsante ANNULLA sotto il campo riporta la formazione.", ja: "「試合前に戻す」は戻す編成を表示し、確定を待ちます。オフにするとすぐに戻し、元に戻すで編成を戻せます。"}
 settings.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. If it does not appear now, it appears the next time you play.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Se non compare subito, compare la prossima volta che giochi.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。すぐに表示されない場合は、次回のプレイから表示されます。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
