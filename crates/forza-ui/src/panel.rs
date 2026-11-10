@@ -1684,10 +1684,18 @@ fn divider_width(st: &PanelState) -> Option<f32> {
 }
 
 /// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
-/// picture stay the game's); dragged, it sets the board's width, saved to panel.txt when let go.
+/// picture stay the game's); dragged, it sets the board's width to what the layout draws for it (on a sheet wider
+/// than 16:10 the picture's height stops the board narrowing first), saved to panel.txt when let go.
 fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
     let strip = Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()));
-    let r = ui.interact(strip, egui::Id::unique("panel-divider"), Sense::drag());
+    let id = egui::Id::unique("panel-divider");
+    let r = ui.interact(strip, id, Sense::drag());
+    if r.drag_started()
+        && let Some(o) = ui.input(|i| i.pointer.press_origin())
+    {
+        // where in the strip it was grabbed, so the edge does not jump to the pointer
+        ui.data_mut(|d| d.insert_temp(id, board.left() - o.x));
+    }
     if r.hovered() || r.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         ui.painter().vline(
@@ -1699,8 +1707,10 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
     if r.dragged()
         && let Some(p) = r.interact_pointer_pos()
     {
-        let w = (sheet.right() - p.x).clamp(BOARD_MIN, board_width_max(sheet));
-        st.file.board_width = Some(w.round() as u16);
+        let grab = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+        let w = (sheet.right() - p.x - grab).clamp(BOARD_MIN, board_width_max(sheet));
+        let drawn = layout_at(sheet, st.file.compact, Some(w)).board.width();
+        st.file.board_width = Some(drawn.round() as u16);
     }
     if r.drag_stopped() {
         st.file_changed = true;
@@ -6575,24 +6585,31 @@ mod tests {
         for (w, h) in [
             (1440.0, 900.0),
             (1920.0, 1080.0),
+            (1920.0, 1032.0),
             (2560.0, 1440.0),
             (1920.0, 1009.0),
         ] {
             let sheet = sheet_of(w, h);
             let max = board_width_max(sheet);
+            // the least board this sheet draws: 420, or wider where the picture's height stops it first (16:9)
+            let least = (sheet.width() - 1.6 * (sheet.height() - TABS_H - DECK_MIN)).max(BOARD_MIN);
             let mut last = f32::MAX;
             for (set, want) in [
-                (Some(BOARD_MIN - 100.0), BOARD_MIN), // dragged past the least: held there
-                (Some(BOARD_MIN), BOARD_MIN),
-                (None, BOARD_W),
+                (Some(BOARD_MIN - 100.0), least), // dragged past the least: held there
+                (Some(BOARD_MIN), least),
+                (None, layout(sheet, false).board.width()),
                 (Some(max), max),
                 (Some(max + 300.0), max),
             ] {
                 let l = layout_at(sheet, false, set);
                 let at = format!("{w}x{h} {set:?}: {l:?}");
+                assert!(l.board.width() >= BOARD_MIN, "{at}");
+                assert!((l.board.width() - want).abs() < 0.01, "{at}: want {want}");
+                // a width the layout draws comes back the same: what the divider saves is what was shown
+                let again = layout_at(sheet, false, Some(l.board.width())).board.width();
                 assert!(
-                    l.board.width() >= BOARD_MIN && l.board.width() >= want - 0.01,
-                    "{at}"
+                    (again - l.board.width()).abs() < 0.01,
+                    "{at}: drawn again {again}"
                 );
                 assert!(
                     sheet.contains_rect(l.board) && l.board.right() == sheet.right(),
@@ -6609,6 +6626,9 @@ mod tests {
                 last = p.width();
             }
         }
+        // 1920x1080 (16:9): the picture's height stops the board at 518.4, not 420
+        let l = layout_at(sheet_of(1920.0, 1080.0), false, Some(BOARD_MIN));
+        assert!((l.board.width() - 518.4).abs() < 0.01, "{l:?}");
         // the owner's numbers: 1440x900 at 420 points, the picture 1020x637.5 (860x537.5 at 580)
         let l = layout_at(sheet_of(1440.0, 900.0), false, Some(420.0));
         assert_eq!((l.board.width(), l.picture.width()), (420.0, 1020.0));
@@ -6636,13 +6656,20 @@ mod tests {
     /// save only when let go.
     #[test]
     fn dragging_the_divider_sets_the_board_width() {
+        for (w, h, least) in [(1440.0, 900.0, BOARD_MIN), (1920.0, 1080.0, 518.4)] {
+            drag_divider(w, h, least);
+        }
+    }
+
+    /// The divider dragged far past the least on a `w` x `h` window (one point a pixel): the board drawn and saved at
+    /// `least`, saved only when let go.
+    fn drag_divider(w: f32, h: f32, least: f32) {
         let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
         let ctx = egui::Context::default();
         theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
-        let (w, h) = (1440.0, 900.0);
         frame(&ctx, &mut st, w, h, 0.0, vec![]);
         st.file_changed = false;
-        let at = pos2(w - BOARD_W + 4.0, 300.0);
+        let at = pos2(layout(sheet_of(w, h), false).board.left() + 4.0, 300.0);
         let button = |pos, pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -6670,14 +6697,15 @@ mod tests {
                 vec![egui::Event::PointerMoved(pos2(x, 300.0))],
             );
         }
-        assert_eq!(st.file.board_width, Some(BOARD_MIN as u16));
+        assert_eq!(st.file.board_width, Some(least.round() as u16), "{w}x{h}");
         assert!(!st.file_changed, "not saved while dragging");
         frame(&ctx, &mut st, w, h, 0.7, vec![button(to, false)]);
         frame(&ctx, &mut st, w, h, 0.8, vec![]);
         assert!(st.file_changed, "saved when let go");
+        // the picture takes what the board left (1020 wide at 1440x900)
         assert!(
-            (st.picture_rect.unwrap().width() - 1020.0).abs() < 0.5,
-            "{:?}",
+            (st.picture_rect.unwrap().width() - (w - least)).abs() < 0.5,
+            "{w}x{h}: {:?}",
             st.picture_rect
         );
     }
