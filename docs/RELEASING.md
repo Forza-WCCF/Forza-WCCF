@@ -80,9 +80,10 @@ A release ships the bytes CI built for its candidate, never a local package.
    `CHANGELOG.md` (the release notes are the changelog), with a `SHA256SUMS.txt` of exactly those files. It then
    compares GitHub's digest of every asset with the candidate's files and fails on any difference (`digest check ok`
    in the log and the job summary). An existing release for the tag fails the job before the upload: delete the old
-   draft, then re-run it. The maintainer then replaces the draft's notes (`gh release edit v<x.y.z> --notes-file`); a
-   file the local Defender scan flags comes off with `gh release delete-asset`, and `SHA256SUMS.txt` is uploaded again
-   without its line (`gh release upload --clobber`).
+   draft, then re-run it. The maintainer then replaces the draft's notes (`gh release edit v<x.y.z> --notes-file`). A
+   file the local Defender scan flags comes off with `gh release delete-asset` together with the asset that contains
+   it (the installer EXE and the installer ZIP; a program in the 2017-18 ZIP takes that ZIP and its `.sha256`), and
+   `SHA256SUMS.txt` is uploaded again without their lines (`gh release upload --clobber`).
 
 ## Stability gate
 
