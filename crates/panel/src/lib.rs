@@ -1593,6 +1593,13 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
+    /// The board window's last drawn frame: its size, the keys and modifiers it showed, and when it is due again.
+    board_last: Option<((u32, u32), BoardInput, Instant)>,
+    /// How soon the board's egui asked to be drawn again after its last pass.
+    board_delay: Duration,
+    /// Board window frames drawn and skipped (nothing changed), for the frame cost line.
+    board_drawn: u32,
+    board_skipped: u32,
     /// The window that carries WCCF_TYPING while a page is open (the game's).
     typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
@@ -1740,6 +1747,10 @@ impl Render {
             sc_failed: false,
             board_sc: None,
             board_warned: false,
+            board_last: None,
+            board_delay: Duration::ZERO,
+            board_drawn: 0,
+            board_skipped: 0,
             typing: 0,
             game: None,
             max_tex: 2048,
@@ -1795,7 +1806,7 @@ impl Render {
                 {
                     let mut vp = D3DVIEWPORT9::default();
                     let _ = dev.GetViewport(&mut vp);
-                    popped = self.board_frame(dev, bw);
+                    popped = self.board_frame(dev, bw, true); // the only pass: its keys() lets a click go
                     let _ = dev.SetViewport(&vp);
                     let _ = sb.Apply();
                 }
@@ -1824,7 +1835,7 @@ impl Render {
             // popped out: the board in its own window, the game's window the picture, the pages and the buttons; a board
             // window that could not be drawn (minimized, tiny, no swap chain) gives the board back to the game's window
             // for the frame
-            let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
+            let popped = board.is_some_and(|bw| self.board_frame(dev, bw, false));
             POPPED.store(popped, Relaxed);
             self.st.set_popped(popped);
             let drawn = self.compose(dev, &sc, w, h, true);
@@ -1981,14 +1992,17 @@ impl Render {
             return None;
         }
         let sc = sc?;
+        self.board_last = None;
         log(&format!("board window: swap chain {w}x{h}"));
         self.board_sc = Some((sc.clone(), w, h, wnd));
         Some((sc, w, h))
     }
 
     /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
-    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead.
-    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> bool {
+    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead. Unless `always`,
+    /// a frame with no input, the same size and keys, before the board's egui asked for one, keeps the last picture
+    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then).
+    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
         unsafe {
@@ -2000,9 +2014,34 @@ impl Render {
             else {
                 return false;
             };
+            let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
+            let input = (
+                modifiers_with(|vk| GetAsyncKeyState(i32::from(vk)) < 0),
+                keys_held(&self.st.keys, ours),
+            );
+            let now = Instant::now();
+            let events = BOARD_EVENTS.lock().is_ok_and(|e| !e.is_empty());
+            if board_unchanged(
+                self.board_last.as_ref(),
+                (w, h),
+                &input,
+                now,
+                always || events || BOARD_SIZING.load(Relaxed),
+            ) {
+                self.board_skipped += 1;
+                return true;
+            }
             if self.compose(dev, &sc, w, h, false).is_none() {
                 return false;
             }
+            self.board_drawn += 1;
+            self.board_last = Some((
+                (w, h),
+                input,
+                now + self
+                    .board_delay
+                    .clamp(Duration::from_millis(33), Duration::from_millis(100)),
+            ));
             let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -2028,6 +2067,12 @@ impl Render {
                 self.spent.as_secs_f64() * 1000.0 / f64::from(self.frames),
                 self.worst.as_secs_f64() * 1000.0,
                 self.frames
+            ));
+        }
+        if self.board_drawn + self.board_skipped > 0 {
+            log(&format!(
+                "board window: {} frames drawn, {} skipped (nothing changed)",
+                self.board_drawn, self.board_skipped
             ));
         }
     }
@@ -2427,6 +2472,12 @@ impl Render {
             self.st.desk = false;
             out
         });
+        if let Some(o) = &out {
+            self.board_delay = o
+                .viewport_output
+                .get(&ViewportId::ROOT)
+                .map_or(Duration::ZERO, |v| v.repaint_delay);
+        }
         self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
@@ -4013,6 +4064,21 @@ fn modifiers() -> Modifiers {
 
 /// The cabinet actions whose key is down now, `ours` (the keys the panel sent down itself) left out: the async state
 /// follows the key whichever window has the focus.
+/// What the board window shows besides egui's own input: the modifiers (Alt: the keycaps) and the keys held down.
+type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
+
+/// The board window's frame may keep its last picture: not `forced`, drawn before at this size with this input, and
+/// not yet due again.
+fn board_unchanged(
+    last: Option<&((u32, u32), BoardInput, Instant)>,
+    size: (u32, u32),
+    input: &BoardInput,
+    now: Instant,
+    forced: bool,
+) -> bool {
+    !forced && last.is_some_and(|(s, i, due)| *s == size && i == input && now < *due)
+}
+
 fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
     panel::keys_down(keys, |vk| {
         if ours.contains(&vk) {
@@ -4186,7 +4252,8 @@ fn take_off_lines(
 #[cfg(test)]
 mod tests {
     use super::{
-        NOTICE_MAX, RECT, banner_off, cards, fit_place, read_notice, side_button, take_off_lines,
+        Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
+        fit_place, read_notice, side_button, take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -4236,6 +4303,44 @@ mod tests {
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
+
+    /// The board window's frame is skipped only when it was drawn at this size with this input and is not due yet;
+    /// a resize, a key, Alt, a forced pass (input waiting, sizing, the game's window minimized) or the due time draws.
+    #[test]
+    fn the_board_window_skips_only_unchanged_frames() {
+        let t = Instant::now();
+        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
+        let last = ((944, 891), input, t + Duration::from_millis(100));
+        assert!(
+            !board_unchanged(None, (944, 891), &input, t, false),
+            "never drawn"
+        );
+        assert!(board_unchanged(Some(&last), (944, 891), &input, t, false));
+        assert!(
+            !board_unchanged(Some(&last), (944, 890), &input, t, false),
+            "resized"
+        );
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, t, true),
+            "forced"
+        );
+        let due = t + Duration::from_millis(100);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, due, false),
+            "due"
+        );
+        let mut key = input;
+        key.1[0] = true;
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &key, t, false),
+            "a key held"
+        );
+        let alt = (Modifiers::ALT, input.1);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &alt, t, false),
+            "Alt"
+        );
     }
 
     /// A saved board_rect= bigger than the screen or off it (Yoshy's 1920x1200 tablet, 2026-11-09) comes back inside the
