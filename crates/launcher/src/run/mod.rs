@@ -2256,6 +2256,9 @@ impl Run<'_> {
         let n = self.seat_no;
         let args = p.seat_args.clone().unwrap_or_else(|| vec![n.to_string()]);
         let seat = self.seat.clone();
+        // before the start: the 2017-18 window is held hidden until the start warning, long after "first frame shown"
+        let olog = seat.join("forza_panel.log");
+        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         self.start_game(Role::Seat, args, &seat, false, env)?;
         let mut pid = None;
         wait_for(
@@ -2278,8 +2281,6 @@ impl Run<'_> {
         )?;
         self.tell("  5/6 ", &Text::key("launcher.run_window_up").arg("n", n));
         self.startup("window", self.t0.elapsed());
-        let olog = self.seat.join("forza_panel.log");
-        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
         let panel = self.kit.program("forza_panel.dll");
         let why = if self.edition == Edition::E1718 {
