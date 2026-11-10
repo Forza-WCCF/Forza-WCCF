@@ -291,8 +291,11 @@ jobs:
           set -euo pipefail
           (cd dist && sha256sum --strict -c SHA256SUMS.txt)
           # a draft from an earlier attempt, or a published release: the maintainer deletes it before a re-run
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+          # (only "release not found" counts as absent; any other gh error stops here with its message)
+          if out=$(gh release view "$TAG" --repo "$REPO" --json isDraft 2>&1); then
             echo "::error::release $TAG exists already: delete its draft, then re-run this job"; exit 1
+          elif [ "$out" != "release not found" ]; then
+            echo "::error::cannot tell whether release $TAG exists: $out"; exit 1
           fi
           # the assets players get: dist without CHANGELOG.md (the release notes are the changelog), and the sums of
           # exactly those files

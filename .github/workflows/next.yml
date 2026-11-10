@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
 
+# a re-cut cancels the stale check; the release skill re-lists the newest run after each push
 concurrency:
   group: next-${{ github.ref }}
   cancel-in-progress: true
@@ -52,3 +53,6 @@ jobs:
             -p forza-panel -p forza-hook --features forza-hook/e1718 \
             -p forza-native -p forza-wccfnet -p forza-detmath -p forza-netguard -p forza-icmp \
             -p forza-programs --features forza-programs/programs
+      # the 2017-18 Linux server's winmm.dll, a second build of forza-hook that `cargo xtask package 2017-18` makes too
+      - name: cargo check, i686 server hook
+        run: cargo check --locked --profile ci --all-targets --target i686-pc-windows-msvc -p forza-hook --features forza-hook/e1718-server
