@@ -1195,11 +1195,7 @@ fn card_pictures() {
             }
         });
     });
-    // the file loads on a thread: step until it shows
-    for _ in 0..40 {
-        h.run_steps(1);
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
+    pictures_loaded(&mut h);
     h.snapshot("card_pictures");
 }
 
