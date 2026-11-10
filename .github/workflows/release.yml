@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# two dispatches on `next` queue instead of building side by side (a running build is never cancelled; GitHub keeps
+# only the newest waiting run)
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -282,6 +288,28 @@ jobs:
           REPO: ${{ github.repository }}
           CAND: ${{ needs.candidate.outputs.run }}
         run: |
+          set -euo pipefail
           (cd dist && sha256sum --strict -c SHA256SUMS.txt)
+          # a draft from an earlier attempt, or a published release: the maintainer deletes it before a re-run
+          # (only "release not found" counts as absent; any other gh error stops here with its message)
+          if out=$(gh release view "$TAG" --repo "$REPO" --json isDraft 2>&1); then
+            echo "::error::release $TAG exists already: delete its draft, then re-run this job"; exit 1
+          elif [ "$out" != "release not found" ]; then
+            echo "::error::cannot tell whether release $TAG exists: $out"; exit 1
+          fi
+          # the assets players get: dist without CHANGELOG.md (the release notes are the changelog), and the sums of
+          # exactly those files
+          mkdir up
+          grep -v ' \*\?CHANGELOG\.md$' dist/SHA256SUMS.txt > up/SHA256SUMS.txt
+          awk '{ name = $2; sub(/^\*/, "", name); print name }' up/SHA256SUMS.txt | while read -r n; do cp "dist/$n" up/; done
+          V=${TAG#v}
           gh release create "$TAG" --repo "$REPO" --draft --prerelease --verify-tag \
-            --title "$TAG" --notes-file <(printf 'Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt.\nFiles of candidate run https://github.com/%s/actions/runs/%s, not rebuilt.\n\n### VirusTotal\n\n' "$REPO" "$CAND"; cat vt/virustotal.md) dist/*
+            --title "Forza-WCCF $V (alpha, 2017-18)" --notes-file <(printf 'Draft: play the build before publishing. SHA-256 sums: SHA256SUMS.txt.\nFiles of candidate run https://github.com/%s/actions/runs/%s, not rebuilt.\n\n### VirusTotal\n\n' "$REPO" "$CAND"; cat vt/virustotal.md) up/*
+          # digest check: every asset GitHub holds is byte for byte the candidate's file, and nothing else is there
+          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[] | "\(.digest // "none" | sub("^sha256:"; "")) \(.name)"' | LC_ALL=C sort -k2 > got.txt
+          (cd up && sha256sum -- *) | sed 's/ [ *]/ /' | LC_ALL=C sort -k2 > want.txt
+          if ! diff want.txt got.txt; then
+            echo "::error::the draft's assets differ from candidate run $CAND (< candidate, > draft)"; exit 1
+          fi
+          echo "digest check ok: $(wc -l < got.txt) assets = candidate run $CAND"
+          { echo "### Draft $TAG: digest check ok"; echo '```'; cat got.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

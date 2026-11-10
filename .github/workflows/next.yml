@@ -1,0 +1,58 @@
+name: next
+
+# The release branch compiles. `next` (origin/main + the picked PRs, docs/RELEASING.md "Release candidate") runs no PR
+# CI while its PR is a draft, so without this the candidate dispatch (~25 min) was the first compile of a cut: 0.7.2's
+# first candidate died on a compile break between two picks. A compile check of both release targets, nothing built
+# or tested; the candidate dispatch stays the build.
+on:
+  push:
+    branches: [next]
+
+permissions:
+  contents: read
+
+# a re-cut cancels the stale check; the release skill re-lists the newest run after each push
+concurrency:
+  group: next-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  compile:
+    name: compile
+    # the same image as ci.yml's build-test and release.yml's build
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # only the pinned toolchain, as in ci.yml, so the cache key matches the one main saves
+      - run: |
+          rustup show
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
+      # restore only: CI's build-test on main saves this cache
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: windows
+          save-if: false
+      # the two targets and package sets of `cargo xtask check` (xtask/src/main.rs target_scopes, NATIVE_CRATES); the
+      # ci profile, as CI's clippy, so the dependencies' metadata in main's cache is reused
+      - name: cargo check, x64
+        run: cargo check --locked --profile ci --all-targets --target x86_64-pc-windows-msvc --workspace --exclude forza-panel
+      - name: cargo check, i686
+        run: |
+          cargo check --locked --profile ci --all-targets --target i686-pc-windows-msvc \
+            -p forza-panel -p forza-hook --features forza-hook/e1718 \
+            -p forza-native -p forza-wccfnet -p forza-detmath -p forza-netguard -p forza-icmp \
+            -p forza-programs --features forza-programs/programs
+      # the 2017-18 Linux server's winmm.dll, a second build of forza-hook that `cargo xtask package 2017-18` makes too
+      - name: cargo check, i686 server hook
+        run: cargo check --locked --profile ci --all-targets --target i686-pc-windows-msvc -p forza-hook --features forza-hook/e1718-server

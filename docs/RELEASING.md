@@ -55,6 +55,8 @@ A release ships the bytes CI built for its candidate, never a local package.
 2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. While it
    is a draft only `ci-ok` runs there, and fails on purpose (`ci.yml` skips the other jobs; the candidate build is the
    dispatch below): the long jobs start when it is marked ready, after the play test (step 5).
+   Every push to `next` runs the `next` workflow (`next.yml`, a few minutes): `cargo check` of both release targets,
+   so a compile break between picks fails there instead of in the candidate build. Dispatch after it passes.
 3. Dispatch the candidate: `gh workflow run release.yml --ref next -f version=<x.y.z>`. The build runs with
    `FORZA_VERSION=<x.y.z>` (semver; it wins over `git describe`), the file-name check expects that version, and the
    job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days:
@@ -71,9 +73,17 @@ A release ships the bytes CI built for its candidate, never a local package.
 7. The tag push runs the Release workflow again, which builds nothing: job `candidate` takes the files of the
    candidate, the newest dispatch on the tagged commit whose build job succeeded and whose files carry `<x.y.z>` (its
    VirusTotal job may still be running or have failed). It checks them against that run's `SHA256SUMS.txt` and the
-   version, then VirusTotal judges them again and `publish` makes the draft, whose notes name candidate run N. No
-   candidate, an expired `dist` or a failed check fails job `candidate` within a minute with the reason, before any
-   draft.
+   version, then VirusTotal judges them again and `publish` makes the draft, whose notes name candidate run N. The
+   whole run takes about 3 minutes. No candidate, an expired `dist` or a failed check fails job `candidate` within a
+   minute with the reason, before any draft.
+8. `publish` uploads the release assets, titled `Forza-WCCF <x.y.z> (alpha, 2017-18)`: the candidate's `dist` without
+   `CHANGELOG.md` (the release notes are the changelog), with a `SHA256SUMS.txt` of exactly those files. It then
+   compares GitHub's digest of every asset with the candidate's files and fails on any difference (`digest check ok`
+   in the log and the job summary). An existing release for the tag fails the job before the upload: delete the old
+   draft, then re-run it. The maintainer then replaces the draft's notes (`gh release edit v<x.y.z> --notes-file`). A
+   file the local Defender scan flags comes off with `gh release delete-asset` together with the asset that contains
+   it (the installer EXE and the installer ZIP; a program in the 2017-18 ZIP takes that ZIP and its `.sha256`), and
+   `SHA256SUMS.txt` is uploaded again without their lines (`gh release upload --clobber`).
 
 ## Stability gate
 

@@ -38,7 +38,7 @@ find_candidate() {
 verify() {
   local dir=$1 v=$2 f
   [ -f "$dir/SHA256SUMS.txt" ] || { echo "$dir: SHA256SUMS.txt is missing" >&2; return 1; }
-  # the draft uploads every file in dist/, so nothing may be there unlisted
+  # the draft uploads every listed file except CHANGELOG.md, so nothing may be there unlisted (CHANGELOG.md included)
   if ! diff <(cd "$dir" && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | LC_ALL=C sort) \
             <(names "$dir/SHA256SUMS.txt" | LC_ALL=C sort) >&2; then
     echo "$dir: the files and SHA256SUMS.txt list different names (< files only, > sums only)" >&2
