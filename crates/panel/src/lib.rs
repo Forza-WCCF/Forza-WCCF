@@ -2002,7 +2002,8 @@ impl Render {
     /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
     /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead. Unless `always`,
     /// a frame with no input, the same size and keys, before the board's egui asked for one, keeps the last picture
-    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then).
+    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then; none with
+    /// idle frames off, `WCCFPANEL_IDLE=0`).
     unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
@@ -2027,7 +2028,7 @@ impl Render {
                 (w, h),
                 &input,
                 now,
-                always || events || BOARD_SIZING.load(Relaxed),
+                always || self.busy || events || BOARD_SIZING.load(Relaxed),
             ) {
                 self.board_skipped += 1;
                 return true;
