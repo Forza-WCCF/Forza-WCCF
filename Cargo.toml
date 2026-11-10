@@ -144,18 +144,6 @@ incremental = true
 inherits = "release"
 lto = false
 
-# CI's kits and tests only: the size builds above on 16 codegen units instead of one. The Launcher alone took about 4 min
-# of build-test on one thread (program and test harness); `opt-level = "z"` stays, so CI's Defender scan still sees a
-# size build, and release (what players get) keeps one unit.
-[profile.ci.package.launcher]
-codegen-units = 16
-
-[profile.ci.package.forza-panel]
-codegen-units = 16
-
-[profile.ci.package.wccf-installer]
-codegen-units = 16
-
 # FreeType 2.13.3 for the pictures with writing (vendor/freetype-sys/Cargo.toml says why)
 [patch.crates-io]
 freetype-sys = { path = "vendor/freetype-sys" }
