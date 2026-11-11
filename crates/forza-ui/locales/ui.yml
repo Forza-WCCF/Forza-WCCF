@@ -316,11 +316,11 @@ board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメ�
 # ---- catalogue ----
 cat.title: {en: "CARDS", it: "CARTE", ja: "カード"}
 cat.search_hint: {en: "Search cards", it: "Cerca carte", ja: "カードを検索"}
-cat.position: {en: "POSITION", it: "RUOLO", ja: "ポジション"}
+cat.position: {en: "POSITION", it: "POSIZIONE", ja: "ポジション"}
 cat.best_role: {en: "Best roles: %{roles}", it: "Ruoli migliori: %{roles}", ja: "適性：%{roles}"}
 cat.rarity: {en: "RARITY", it: "RARITÀ", ja: "レア度"}
 cat.all: {en: "ALL", it: "TUTTI", ja: "すべて"}
-cat.any: {en: "ANY", it: "TUTTE", ja: "すべて"}
+cat.any: {en: "ANY", it: "QUALSIASI", ja: "指定なし"}
 cat.all_time: {en: "ALL-TIME", it: "ALL-TIME", ja: "オールタイム"}
 cat.legend: {en: "LEGEND", it: "LEGGENDA", ja: "レジェンド"}
 cat.rare: {en: "RARE", it: "RARA", ja: "レア"}
@@ -331,7 +331,7 @@ cat.club: {en: "CLUB", it: "CLUB", ja: "クラブ"}
 cat.sort: {en: "SORT", it: "ORDINA", ja: "並び順"}
 cat.name: {en: "NAME", it: "NOME", ja: "名前"}
 cat.total: {en: "TOTAL", it: "TOTALE", ja: "総合"}
-cat.secret: {en: "SECRET", it: "SECRET", ja: "SECRET"}
+cat.secret: {en: "SECRET", it: "SEGRETO", ja: "不明"}
 cat.off: {en: "OFF", it: "ATT", ja: "攻撃"}
 cat.def: {en: "DEF", it: "DIF", ja: "守備"}
 cat.tec: {en: "TEC", it: "TEC", ja: "技術"}
@@ -347,7 +347,7 @@ cat.technique: {en: "TECHNIQUE", it: "TECNICA", ja: "技術"}
 cat.power: {en: "POWER", it: "POTENZA", ja: "パワー"}
 cat.speed: {en: "SPEED", it: "VELOCITÀ", ja: "スピード"}
 cat.stamina: {en: "STAMINA", it: "RESISTENZA", ja: "スタミナ"}
-cat.results: {en: "%{n} CARDS", it: "%{n} CARTE", ja: "%{n} 枚"}
+cat.results: {en: "CARDS: %{n}", it: "CARTE: %{n}", ja: "カード %{n} 枚"}
 cat.add: {en: "+ ADD", it: "+ AGGIUNGI", ja: "＋追加"}
 cat.view_list: {en: "‹ LIST", it: "‹ ELENCO", ja: "‹ 一覧"}
 cat.front: {en: "FRONT", it: "FRONTE", ja: "表面"}
@@ -355,7 +355,7 @@ cat.back: {en: "BACK", it: "RETRO", ja: "裏面"}
 cat.msg_added: {en: "%{name} added (%{n}/16)", it: "%{name} aggiunto (%{n}/16)", ja: "%{name} を追加しました（%{n}/16）"}
 cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavolo", ja: "%{name} はすでにテーブルにあります"}
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
-cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
+cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16 枚）。カードをテーブルの外へドラッグすると空きができます。"}
 cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
 cat.import_help: {en: "Build a lineup on the Lineup page of db.wccf.it, then press Copy link there (or Export, then Copy). Come back and press IMPORT FROM CLIPBOARD to put its cards on the table.", it: "Crea una formazione nella pagina Rosa di db.wccf.it, poi premi Copia link (o Esporta, poi Copia). Torna qui e premi IMPORTA DAGLI APPUNTI per mettere le carte sul tavolo.", ja: "db.wccf.it の「編成」ページで編成を作り、「リンクをコピー」（または「書き出し」→「コピー」）を押してください。ここに戻って「クリップボードから読み込む」を押すと、カードがテーブルに置かれます。"}
@@ -367,9 +367,9 @@ cat.site_hint: {en: "COPY replaces what is on the clipboard. The site opens in y
 cat.msg_site_not_copied: {en: "The address could not be copied. Try again.", it: "Impossibile copiare l'indirizzo. Riprova.", ja: "アドレスをコピーできませんでした。もう一度お試しください。"}
 cat.msg_site_not_opened: {en: "The site could not be opened. Open the address above in your browser.", it: "Impossibile aprire il sito. Apri l'indirizzo qui sopra nel browser.", ja: "サイトを開けませんでした。上のアドレスをブラウザで開いてください。"}
 cat.lineup: {en: "Lineup", it: "Formazione", ja: "編成"}
-cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n}枚をテーブルに置きました。"}
+cat.msg_imported: {en: "%{name}: %{n} cards on the table.", it: "%{name}: %{n} carte sul tavolo.", ja: "%{name}：%{n} 枚をテーブルに置きました。"}
 cat.msg_import_kp: {en: "The lineup on db.wccf.it has this key player: %{name}. Set it in the game.", it: "La formazione su db.wccf.it indica questo giocatore chiave: %{name}. Sceglilo nel gioco.", ja: "db.wccf.it の編成ではキープレイヤーは %{name} です。ゲーム内で設定してください。"}
-cat.msg_import_skipped: {en: "Skipped: %{list}", it: "Saltate: %{list}", ja: "読み込めないカード：%{list}"}
+cat.msg_import_skipped: {en: "Cards not imported: %{list}", it: "Carte non importate: %{list}", ja: "読み込めないカード：%{list}"}
 form.open: {en: "SAVED LINEUPS", it: "FORMAZIONI SALVATE", ja: "保存した編成"}
 form.title: {en: "SAVED LINEUPS", it: "FORMAZIONI SALVATE", ja: "保存した編成"}
 form.empty: {en: "Empty slot", it: "Slot vuoto", ja: "空きスロット"}
@@ -396,14 +396,14 @@ cat.msg_clipboard: {en: "Could not read the clipboard. Copy the lineup's link ag
 cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna di queste carte è in questo gioco.", ja: "この編成のカードはこのゲームにありません。"}
 cat.msg_import_match: {en: "Not possible during a match. Try again between matches.", it: "Non si può fare durante una partita. Riprova tra una partita e l'altra.", ja: "試合中はできません。試合の合間にもう一度お試しください。"}
 cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
-cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の%{n}枚に置き換えますか？"}
-cat.ask_skipped: {en: "%{n} cards skipped (not usable in this game).", it: "%{n} carte saltate (non usabili in questo gioco).", ja: "%{n}枚はこのゲームで使えないため読み込みません。"}
+cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の %{n} 枚に置き換えますか？"}
+cat.ask_skipped: {en: "Cards not usable in this game: %{n}.", it: "Carte non usabili in questo gioco: %{n}.", ja: "このゲームで使えないカード：%{n} 枚。"}
 cat.ask_confirm: {en: "CONFIRM", it: "CONFERMA", ja: "確定"}
 cat.ask_cancel: {en: "CANCEL", it: "ANNULLA", ja: "キャンセル"}
 cat.skip_no_number: {en: "no number in this game", it: "senza numero in questo gioco", ja: "このゲームに番号なし"}
 cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読めない行"}
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
-cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
+cat.skip_not_in_catalogue: {en: "not in this game", it: "non presente in questo gioco", ja: "このゲームにない"}
 cat.skip_no_room: {en: "no room on the table", it: "nessuno spazio sul tavolo", ja: "テーブルに空きなし"}
 board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
 board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
