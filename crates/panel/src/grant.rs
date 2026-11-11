@@ -4,7 +4,9 @@
 //! shows which fired. [`Granter`]: with `WCCF_COLLECTION` set (the Launcher's Create-a-Team run), the deal draws a card
 //! through `forza::collection` and appends its `match` line to the profile's grant log. The panel draws inside the
 //! game's Present, so the frame only sends a message and reads the answers: the draw, the log's time-boxed lock and the
-//! write run on this module's thread. A failed write is logged and tried again later, and never lands twice.
+//! write run on this module's thread. A failed write is logged and tried again later, and never lands twice. A card
+//! not saved yet is kept in [`PENDING`] in the collection folder, so a game that ends first loses no grant: the next
+//! Create-a-Team start saves it.
 
 use std::collections::VecDeque;
 use std::hash::BuildHasher as _;
@@ -17,7 +19,7 @@ use std::{fs, io};
 use forza::board::Card;
 use forza::card::Session;
 use forza::collection::{self, Copies, Kind, Line, Log, OffsetDateTime};
-use forza_ui::panel::Grant;
+use forza_ui::panel::{Deal, Grant};
 
 /// A second trigger this soon after a grant, with no new club card session seen in between, is the same match.
 // shortcut: 5 min is shorter than a match and longer than its end screens; the guarded measurement (plan 7.1 (a))
@@ -63,14 +65,14 @@ impl MatchEnd {
             say(format!(
                 "deal: source club card session closed{}",
                 if counts {
-                    " (not a trigger: the dispenser counts on this game)"
+                    " (not a trigger: the dispenser has counted a hand-out on this game)"
                 } else {
                     ""
                 }
             ));
         }
-        // the dispenser counts each card the game hands out; the session's close is the fallback where it cannot count
-        // (it also closes after Club Make, which is no match)
+        // the dispenser counts each card the game hands out; the session's close is the fallback until it has counted
+        // one on this game (it also closes after Club Make, which is no match)
         let why = if owed > 0 {
             "dispenser"
         } else if closed && !counts {
@@ -125,14 +127,111 @@ impl Granter {
     }
 }
 
+/// The thread's news into the deal window: `Saving` opens the card's window, later news update it. A `Saved` whose
+/// window is gone (the save outlasted [`forza_ui::panel::DEAL_SECS`], or a card kept from an earlier run) opens it
+/// again; another card's window is left alone. The log's note when the window had closed.
+pub fn show(deal: &mut Option<Deal>, card: usize, grant: Grant) -> Option<&'static str> {
+    if let Some(d) = deal
+        .as_mut()
+        .filter(|d| d.card == card && grant != Grant::Saving)
+    {
+        d.grant = Some(grant);
+        return None;
+    }
+    let late = matches!(grant, Grant::Saved { .. });
+    if grant != Grant::Saving && (!late || deal.is_some()) {
+        // a retry under a closed window goes on unseen; a late save under another card's window is only logged
+        return late.then_some(
+            "saved after its window closed (another card is shown: only this log says so)",
+        );
+    }
+    let mut d = Deal::new(card);
+    d.grant = Some(grant);
+    *deal = Some(d);
+    late.then_some("saved after its window closed - shown again")
+}
+
+/// The cards drawn and not saved yet, one [`collection::Entry`] line each (its `card`, `at` and `why`; the rest
+/// unused), in the collection folder: written before a card's first append, removed after the last save, read by
+/// the next [`Granter::start`].
+pub const PENDING: &str = "grants.pending";
+
 /// A drawn card on its way into the log.
 struct Job<'a> {
     at: OffsetDateTime,
     /// The card's index in the catalogue (and in the draw's pool), and its row there.
     card: usize,
     drawn: collection::Card<'a>,
-    why: &'static str,
+    why: String,
     tries: u32,
+}
+
+/// [`PENDING`] as `pending` says: written whole (a temporary file, then renamed over it), removed when empty.
+fn keep_pending(dir: &Path, pending: &VecDeque<Job>) -> io::Result<()> {
+    let path = dir.join(PENDING);
+    if pending.is_empty() {
+        return match fs::remove_file(&path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let text: String = pending
+        .iter()
+        .map(|j| {
+            let e = collection::Entry {
+                seq: 0,
+                at: j.at,
+                rules: 0,
+                kind: Kind::Match,
+                card: Some(j.drawn.card_no),
+                tokens: 0,
+                why: j.why.clone(),
+                prev: String::new(),
+            };
+            e.line() + "\n"
+        })
+        .collect();
+    fs::create_dir_all(dir)?;
+    let tmp = dir.join("grants.pending.tmp");
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, &path)
+}
+
+/// The cards an earlier run left in [`PENDING`]; each first looks for its line in the log (`tries` 1), so a card whose
+/// line landed before the game ended is not written twice.
+fn replay<'a>(dir: &Path, pool: &[collection::Card<'a>], log: fn(&str)) -> VecDeque<Job<'a>> {
+    let Ok(text) = fs::read_to_string(dir.join(PENDING)) else {
+        return VecDeque::new();
+    };
+    text.lines()
+        .filter_map(|l| {
+            let job = serde_json::from_str::<collection::Entry>(l)
+                .ok()
+                .and_then(|e| {
+                    let (i, drawn) = pool
+                        .iter()
+                        .enumerate()
+                        .find(|(_, p)| Some(p.card_no) == e.card)?;
+                    Some(Job {
+                        at: e.at,
+                        card: i,
+                        drawn: *drawn,
+                        why: e.why,
+                        tries: 1,
+                    })
+                });
+            match &job {
+                Some(j) => log(&format!(
+                    "deal: card {} drawn at {} in an earlier run, not saved then - saving it now",
+                    j.drawn.card_no, j.at
+                )),
+                None => log(&format!(
+                    "deal: a card kept in {PENDING} cannot be read or is not in the catalogue - dropped: {l}"
+                )),
+            }
+            job
+        })
+        .collect()
 }
 
 fn run(
@@ -144,9 +243,39 @@ fn run(
 ) {
     let pool = forza::cards::collection_cards(cards);
     let mut rng = collection::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
-    let mut pending: VecDeque<Job> = VecDeque::new();
+    let mut pending = replay(dir, &pool, log);
     let (mut retry, mut wait) = (RETRY_FIRST, RETRY_FIRST);
     loop {
+        while let Some(job) = pending.front_mut() {
+            match save(dir, job) {
+                Ok(grant) => {
+                    log(&format!(
+                        "deal: card {} saved to {} ({grant:?})",
+                        job.drawn.card_no,
+                        dir.display()
+                    ));
+                    let _ = tell.send((job.card, grant));
+                    pending.pop_front();
+                    wait = RETRY_FIRST;
+                    if let Err(e) = keep_pending(dir, &pending) {
+                        log(&format!("deal: {PENDING} not updated ({e})"));
+                    }
+                }
+                Err(e) => {
+                    job.tries += 1;
+                    retry = wait;
+                    wait = (wait * 2).min(RETRY_MAX);
+                    log(&format!(
+                        "deal: card {} not saved yet (try {}: {e}) - again in {} s",
+                        job.drawn.card_no,
+                        job.tries,
+                        retry.as_secs()
+                    ));
+                    let _ = tell.send((job.card, Grant::Retrying));
+                    break;
+                }
+            }
+        }
         let asked = if pending.is_empty() {
             asks.recv().map_err(|_| RecvTimeoutError::Disconnected)
         } else {
@@ -171,46 +300,25 @@ fn run(
                     at: collection::now(),
                     card: i,
                     drawn,
-                    why,
+                    why: why.into(),
                     tries: 0,
                 });
+                // before the first append: a game that ends while the card waits for the log keeps it for the next start
+                if let Err(e) = keep_pending(dir, &pending) {
+                    log(&format!(
+                        "deal: {PENDING} not written ({e}) - the card is lost if the game ends before it is saved"
+                    ));
+                }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 if !pending.is_empty() {
                     log(&format!(
-                        "deal: the panel stopped with {} card(s) not saved",
+                        "deal: the panel stopped with {} card(s) not saved - kept in {PENDING} for the next start",
                         pending.len()
                     ));
                 }
                 return;
-            }
-        }
-        while let Some(job) = pending.front_mut() {
-            match save(dir, job) {
-                Ok(grant) => {
-                    log(&format!(
-                        "deal: card {} saved to {} ({grant:?})",
-                        job.drawn.card_no,
-                        dir.display()
-                    ));
-                    let _ = tell.send((job.card, grant));
-                    pending.pop_front();
-                    wait = RETRY_FIRST;
-                }
-                Err(e) => {
-                    job.tries += 1;
-                    retry = wait;
-                    wait = (wait * 2).min(RETRY_MAX);
-                    log(&format!(
-                        "deal: card {} not saved yet (try {}: {e}) - again in {} s",
-                        job.drawn.card_no,
-                        job.tries,
-                        retry.as_secs()
-                    ));
-                    let _ = tell.send((job.card, Grant::Retrying));
-                    break;
-                }
             }
         }
     }
@@ -260,7 +368,8 @@ fn landed(log: &Log, card: &collection::Card, at: OffsetDateTime) -> io::Result<
 fn saved(card: &collection::Card, tokens: i64, copies: Copies) -> Grant {
     Grant::Saved {
         tokens,
-        copies: copies.earned + copies.starter + copies.imported,
+        // listed copies are on the market, not held (`Copies::owned`)
+        copies: (copies.earned + copies.starter + copies.imported).saturating_sub(copies.listed),
         convert: collection::convert(&copies, card).ok(),
         floor: collection::floor_value(collection::value(card)),
     }
@@ -323,6 +432,19 @@ mod tests {
         assert_eq!(
             look(&mut m, 0, Some(Closed), false, s(61)),
             Some("club card session")
+        );
+        // the hook is in but has counted nothing yet (counts false): the close deals, and the hand-out the same match
+        // counts after it does not
+        let mut m = MatchEnd::default();
+        assert_eq!(look(&mut m, 0, Some(Open), false, s(0)), None);
+        assert_eq!(
+            look(&mut m, 0, Some(Closed), false, s(1)),
+            Some("club card session")
+        );
+        assert_eq!(
+            look(&mut m, 1, Some(Closed), true, s(30)),
+            None,
+            "the same match's hand-out"
         );
         // every source is said, also the ones that deal nothing
         let mut said = vec![];
@@ -395,6 +517,7 @@ mod tests {
         assert_eq!(news.first().map(|n| &n.1), Some(&Grant::Saving), "{news:?}");
         assert!(news.iter().any(|n| n.1 == Grant::Retrying), "{news:?}");
         assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+        assert!(dir.join(PENDING).is_file(), "the waiting card is not kept");
         drop(held);
         let after = wait_for(&g, Duration::from_secs(40), |g| {
             matches!(g, Grant::Saved { .. })
@@ -408,7 +531,93 @@ mod tests {
         assert_eq!(text.lines().count(), 1, "{text}");
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.tokens, collection::MATCH_TOKENS);
+        assert!(!dir.join(PENDING).exists(), "kept after the save");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Finding 1: a card drawn and not saved when the game ended is saved by the next start, once; a card whose line
+    /// landed before the end (the pending file not removed yet) is not written again.
+    #[test]
+    fn a_card_pending_when_the_game_ended_is_saved_at_the_next_start_once() {
+        let dir = scratch("grant-pending");
+        let sample = forza_ui::sample::cards();
+        let pool = forza::cards::collection_cards(&sample);
+        let job = |at| Job {
+            at,
+            card: 0,
+            drawn: pool[0],
+            why: "dispenser".into(),
+            tries: 0,
+        };
+        let next_start = || {
+            let g = Granter::start(dir.clone(), cards(), |_| {});
+            let news = wait_for(&g, Duration::from_secs(10), |g| {
+                matches!(g, Grant::Saved { .. })
+            });
+            assert!(
+                matches!(news.last(), Some((_, Grant::Saved { .. }))),
+                "{news:?}"
+            );
+        };
+        keep_pending(&dir, &VecDeque::from([job(collection::now())])).unwrap();
+        next_start();
+        let log = Log::new(&dir);
+        let text = log.lines().unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let e: collection::Entry = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            (e.card, e.why.as_str()),
+            (Some(pool[0].card_no), "match end (dispenser)")
+        );
+        assert!(!dir.join(PENDING).exists());
+        keep_pending(&dir, &VecDeque::from([job(e.at)])).unwrap();
+        next_start();
+        assert_eq!(log.lines().unwrap(), text, "written again");
+        assert!(!dir.join(PENDING).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Finding 1: a save that lands after its window closed opens it again; a retry does not, and another card's window
+    /// stays.
+    #[test]
+    fn a_save_after_its_window_closed_is_shown_again() {
+        let done = Grant::Saved {
+            tokens: 40,
+            copies: 1,
+            convert: None,
+            floor: 1,
+        };
+        let mut deal = None;
+        assert_eq!(show(&mut deal, 3, Grant::Saving), None);
+        assert_eq!(deal.as_ref().map(|d| d.card), Some(3));
+        deal = None; // DEAL_SECS passed
+        assert_eq!(show(&mut deal, 3, Grant::Retrying), None);
+        assert!(deal.is_none(), "a retry opened a window");
+        assert!(show(&mut deal, 3, done.clone()).is_some());
+        assert_eq!(
+            deal.as_ref().map(|d| (d.card, d.grant.clone(), d.until)),
+            Some((3, Some(done.clone()), None))
+        );
+        let mut other = Some(Deal::new(5));
+        assert!(show(&mut other, 3, done).is_some());
+        assert_eq!(other, Some(Deal::new(5)));
+    }
+
+    /// Finding 3: the reveal counts the copies held, not the ones out on the market.
+    #[test]
+    fn the_copy_count_leaves_out_listed_copies() {
+        let sample = forza_ui::sample::cards();
+        let card = forza::cards::collection_cards(&sample)[0];
+        let copies = Copies {
+            earned: 3,
+            listed: 1,
+            ..Copies::default()
+        };
+        assert!(
+            matches!(saved(&card, 15, copies), Grant::Saved { copies: 2, .. }),
+            "{:?}",
+            saved(&card, 15, copies)
+        );
     }
 
     /// Two matches: each line pays the match tokens; a retry that finds its line already written writes none.
@@ -439,7 +648,7 @@ mod tests {
             at: last.at,
             card: 0,
             drawn,
-            why: "test",
+            why: "test".into(),
             tries: 1,
         };
         assert!(
