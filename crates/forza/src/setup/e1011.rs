@@ -814,7 +814,7 @@ pub fn run(kit: &Path, game: &Path, force_cards: bool, say: crate::Say) -> Resul
     setup_seat(kit, game, say)?;
     let data = kit.join("data");
     make_dir(&data.join("logs"))?;
-    make_dir(&data.join("save"))?;
+    make_dir(&crate::profile::Profile::Free.save(&data))?;
     merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
     say.line(Line::key("setup.in_kit"));
     tidy_old_layout(kit, say)?;
@@ -846,7 +846,9 @@ pub fn undo(kit: &Path, game: &Path, say: crate::Say) -> Result<()> {
                 seat.display()
             )));
         }
-        let keep = kit.join("data").join("save").join("seat1_backup");
+        let keep = crate::profile::Profile::Free
+            .save(&kit.join("data"))
+            .join("seat1_backup");
         for n in names(&seat)? {
             if seat_data(&n) && seat.join(&n).is_file() {
                 make_dir(&keep)?;
