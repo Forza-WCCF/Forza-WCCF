@@ -106,6 +106,7 @@ pub mod curl;
 pub mod keys;
 pub mod kit;
 pub mod layout;
+#[cfg(feature = "market")]
 pub mod market;
 pub mod online;
 pub mod panel_txt;
