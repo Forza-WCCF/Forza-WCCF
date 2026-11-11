@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use forza::board::Card;
 use forza::cards::collection_cards;
-use forza::collection::{self as c, LEAGUES, Log, Rarity};
-use forza_ui::collection::{Choice, CollectionView, Filter, StartRow, Step};
+use forza::collection::{self as c, LEAGUES, Log, NATIONS, Rarity};
+use forza_ui::collection::{Choice, CollectionView, Filter, Offer, PackChoice, StartRow, Step};
 
 /// The deal drawn and not taken yet, in the profile's collection folder: DEAL writes it, TAKE removes it, so a restart
 /// or a trip to FREE and back shows the same 12 cards (`PLAN.md` 2.4: "You choose once"). A reset archives the folder
@@ -70,6 +70,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         None => (Filter::default(), None, Step::Page),
     };
     let step = match step {
+        kept @ (Step::Store { .. } | Step::Open { .. }) if started => kept,
         _ if started => Step::Page,
         _ if let Some((choice, dealt, rares)) = pending(catalogue, dir) => Step::Pick {
             choice,
@@ -99,7 +100,35 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         filter,
         open,
         problem: None,
+        offers: offers(catalogue),
     })
+}
+
+/// The store's packs (`PLAN.md` 2.3): Standard, each season of the catalogue, the 24 nations with their card counts;
+/// each with one card's odds after the step-down.
+pub fn offers(catalogue: &[Card]) -> Vec<Offer> {
+    let pool = collection_cards(catalogue);
+    let mut seasons: Vec<u16> = pool.iter().map(|c| c.season).filter(|&y| y > 0).collect();
+    seasons.sort_unstable();
+    seasons.dedup();
+    std::iter::once(PackChoice::Standard)
+        .chain(seasons.into_iter().map(PackChoice::Season))
+        .chain((0..NATIONS.len()).map(PackChoice::Nation))
+        .map(|pack| Offer {
+            pack,
+            cards: pool.iter().filter(|c| pack.pack().has(c)).count() as u32,
+            odds: c::pack_odds(&pool, pack.pack()),
+        })
+        .collect()
+}
+
+/// BUY: the pack paid and drawn from a fresh seed under the log's lock; the cards' numbers, in the order drawn.
+pub fn buy(catalogue: &[Card], dir: &Path, choice: PackChoice) -> io::Result<Vec<u32>> {
+    let pool = collection_cards(catalogue);
+    let mut rng = c::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
+    std::fs::create_dir_all(dir)?;
+    let lines = c::buy_pack(&Log::new(dir), c::now(), &mut rng, &pool, choice.pack())?;
+    Ok(lines.iter().filter_map(|e| e.card).collect())
 }
 
 /// The deal on disk as catalogue cards: `None` when there is none, or the catalogue no longer holds one of its numbers
@@ -303,5 +332,77 @@ mod tests {
         std::fs::remove_dir_all(&coll).unwrap();
         let v = view(&cat, &coll, None).unwrap();
         assert!(matches!(v.step, Step::Choose { .. }));
+    }
+
+    /// 2.1 through the tab: the store offers Standard, each season and the 24 nations (none of the 7 dropped); the
+    /// welcome's 150 buy one Standard pack and not a second; the opened pack shows its 3 cards with their copies, and a
+    /// view made again keeps the opened pack on the screen.
+    #[test]
+    fn the_store_sells_packs() {
+        let cat = catalogue();
+        let o = offers(&cat);
+        assert_eq!((o[0].pack, o[0].cards), (PackChoice::Standard, cat.len() as u32));
+        assert_eq!(
+            o.iter()
+                .filter(|x| matches!(x.pack, PackChoice::Season(_)))
+                .map(|x| x.pack)
+                .collect::<Vec<_>>(),
+            [PackChoice::Season(2013), PackChoice::Season(2014)]
+        );
+        let nations: Vec<&str> = o
+            .iter()
+            .filter_map(|x| match x.pack {
+                PackChoice::Nation(i) => Some(NATIONS[i]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(nations.len(), 24);
+        for out in [
+            "SAMURAI BLUE",
+            "Mexico",
+            "Romania",
+            "Paraguay",
+            "Cote d'Ivoire",
+            "Ghana",
+            "Greece",
+            "Nigeria",
+        ] {
+            assert!(!nations.contains(&out), "{out}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("no deal on the screen")
+        };
+        let step = Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: Some(0),
+        };
+        take(&coll, &data, &step).unwrap();
+        let cards = buy(&cat, &coll, PackChoice::Standard).unwrap();
+        assert_eq!(cards.len(), c::PACK_CARDS);
+        let e = buy(&cat, &coll, PackChoice::Standard).unwrap_err();
+        assert_eq!(e.to_string(), c::NOT_ENOUGH_TOKENS);
+        let mut v = view(&cat, &coll, None).unwrap();
+        assert_eq!(v.tokens, c::WELCOME - c::STANDARD_PACK);
+        v.step = Step::Store { chosen: 0 };
+        v.open_pack(&cards);
+        let Step::Open { cards: opened, .. } = &v.step else {
+            panic!("the pack is not open")
+        };
+        assert_eq!(opened.iter().map(|k| k.card.number).collect::<Vec<_>>(), cards);
+        assert!(opened.iter().all(|k| k.copies >= 1));
+        let again = view(&cat, &coll, Some(v)).unwrap();
+        assert!(
+            matches!(again.step, Step::Open { .. }),
+            "a view made again keeps the pack open"
+        );
     }
 }

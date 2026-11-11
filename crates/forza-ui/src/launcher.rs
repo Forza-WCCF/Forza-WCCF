@@ -598,7 +598,7 @@ fn play(
                 if action(ui, &tr!(lang, "launcher.collection")).clicked() {
                     st.tab = Tab::Collection;
                 }
-                let line = if matches!(v.step, collection::Step::Page) {
+                let line = if v.started() {
                     let n = v.tokens.to_string();
                     tr!(lang, "collection.tokens", n = n.as_str())
                 } else {

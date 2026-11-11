@@ -12,6 +12,7 @@ launcher.profile_cat: {en: "CREATE-A-TEAM", it: "CREA LA TUA SQUADRA", ja: "ク�
 launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: "Ogni modalità ha il suo club e il suo tavolo delle carte.", ja: "モードごとにクラブとカードテーブルは別々です。"}
 launcher.collection: {en: "COLLECTION ›", it: "COLLEZIONE ›", ja: "コレクション ›"}
 launcher.msg_no_starter: {en: "Choose your start in COLLECTION before you play.", it: "Scegli come iniziare in COLLEZIONE prima di giocare.", ja: "プレイする前に「コレクション」でスタートを選んでください。"}
+launcher.msg_pack_tokens: {en: "Not enough tokens for this pack.", it: "Gettoni insufficienti per questo pacchetto.", ja: "このパックを買うにはトークンが足りません。"}
 launcher.msg_no_catalogue: {en: "The card list is missing. Press SET UP on the SETUP tab, then open COLLECTION again.", it: "Manca l'elenco delle carte. Premi CONFIGURA nella scheda CONFIGURAZIONE, poi riapri COLLEZIONE.", ja: "カードの一覧がありません。「セットアップ」タブで「設定する」を押してから、もう一度「コレクション」を開いてください。"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
@@ -620,6 +621,29 @@ collection.value_secret: {en: "A SECRET card has one fixed price.", it: "Una car
 collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
 collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
 collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
+# the pack store (PLAN.md 2.1); nation names stay as the cards print them
+collection.packs: {en: "PACKS", it: "PACCHETTI", ja: "パック"}
+collection.store_title: {en: "OPEN A PACK", it: "APRI UN PACCHETTO", ja: "パックを開ける"}
+collection.store_hint: {en: "A pack holds 3 player cards, never the same player twice.", it: "Un pacchetto contiene 3 carte giocatore, mai lo stesso giocatore due volte.", ja: "パックには選手カードが 3 枚入っています。同じ選手は入りません。"}
+collection.pack_standard: {en: "STANDARD", it: "STANDARD", ja: "スタンダード"}
+collection.pack_standard_hint: {en: "%{n} tokens · every season", it: "%{n} gettoni · tutte le stagioni", ja: "%{n} トークン・全シーズン"}
+collection.pack_season: {en: "SEASON", it: "STAGIONE", ja: "シーズン"}
+collection.pack_season_hint: {en: "%{n} tokens · one season", it: "%{n} gettoni · una stagione", ja: "%{n} トークン・1 シーズン"}
+collection.pack_nation: {en: "NATION", it: "NAZIONE", ja: "国"}
+collection.pack_nation_hint: {en: "%{n} tokens · one nation", it: "%{n} gettoni · una nazione", ja: "%{n} トークン・1 か国"}
+collection.pick_nation: {en: "A NATION", it: "UNA NAZIONE", ja: "国で選ぶ"}
+collection.cards_n: {en: "%{n} cards", it: "%{n} carte", ja: "%{n} 枚"}
+collection.odds_title: {en: "ODDS PER CARD: %{pack}", it: "PROBABILITÀ PER CARTA: %{pack}", ja: "1 枚ごとの確率：%{pack}"}
+collection.odds_guarantee: {en: "Every pack holds at least 1 SPECIAL card or better.", it: "Ogni pacchetto contiene almeno 1 carta SPECIALE o superiore.", ja: "どのパックにもスペシャル以上のカードが 1 枚以上入っています。"}
+collection.odds_step_down: {en: "A rarity this pack has no cards of (–) passes its chance to the rarity below.", it: "Una rarità senza carte in questo pacchetto (–) passa la sua probabilità alla rarità inferiore.", ja: "このパックにないレア度（–）の確率は、1 つ下のレア度に回ります。"}
+collection.buy: {en: "BUY · %{n} TOKENS", it: "COMPRA · %{n} GETTONI", ja: "購入・%{n} トークン"}
+collection.buy_short: {en: "This pack costs %{n} tokens. Play matches to earn more.", it: "Questo pacchetto costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このパックは %{n} トークンです。試合をしてトークンを集めましょう。"}
+collection.to_page: {en: "‹ COLLECTION", it: "‹ COLLEZIONE", ja: "‹ コレクション"}
+collection.open_title: {en: "YOUR PACK", it: "IL TUO PACCHETTO", ja: "パックの中身"}
+collection.new_card: {en: "NEW", it: "NUOVA", ja: "初入手"}
+collection.copy_n: {en: "COPY %{n}", it: "COPIA %{n}", ja: "%{n} 枚目"}
+collection.show_all: {en: "SHOW ALL", it: "MOSTRA TUTTE", ja: "すべて表示"}
+collection.to_store: {en: "‹ PACKS", it: "‹ PACCHETTI", ja: "‹ パック"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

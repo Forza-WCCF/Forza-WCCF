@@ -1,14 +1,16 @@
 //! Create-a-Team's COLLECTION tab in the Launcher (2017-18, `PLAN.md` 1.4): the first start (choose a start, see the
 //! 11 dealt, pick 1 of 3 RARE cards) and then the collection page (the cards held with their copies and marks, the
 //! token balance, the match tokens left this week). [`show`] draws a [`CollectionView`] and returns what the player
-//! asked for; Launcher.exe deals the cards and writes the log (`forza::collection`).
+//! asked for; Launcher.exe deals the cards and writes the log (`forza::collection`). From the page, PACKS opens the
+//! pack store (`PLAN.md` 2.1): the three packs with their odds after the step-down, and a bought pack's 3 cards turned
+//! over one by one.
 
 use super::Lang;
 use super::board::{self, Card, Look, Rarity};
 use super::theme;
 use super::widgets::{self, Cab};
 use egui::{Rect, Role, Sense, Ui, WidgetInfo, vec2};
-use forza::collection::{self, Copies, LEAGUES, Start};
+use forza::collection::{self, Copies, LEAGUES, NATIONS, Pack, Start};
 
 /// A start the picker offers (`PLAN.md` 2.4): all seasons, one season (its first year), one league ([`LEAGUES`]' index).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -71,6 +73,58 @@ pub struct StartRow {
     pub mean: Option<u32>,
 }
 
+/// A pack the store offers: every season, one season (its first year), one nation ([`NATIONS`]' index).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackChoice {
+    Standard,
+    Season(u16),
+    Nation(usize),
+}
+
+impl PackChoice {
+    pub fn pack(self) -> Pack<'static> {
+        match self {
+            PackChoice::Standard => Pack::Standard,
+            PackChoice::Season(y) => Pack::Season(y),
+            PackChoice::Nation(i) => Pack::Nation(NATIONS[i]),
+        }
+    }
+
+    /// 0, 1 or 2: the kind's tile.
+    fn kind(self) -> usize {
+        match self {
+            PackChoice::Standard => 0,
+            PackChoice::Season(_) => 1,
+            PackChoice::Nation(_) => 2,
+        }
+    }
+
+    /// The pick's own name: a season as the cards print it, a nation as the catalogue spells it.
+    fn label(self, lang: Lang) -> String {
+        match self {
+            PackChoice::Standard => tr!(lang, "collection.pack_standard"),
+            PackChoice::Season(y) => season(y),
+            PackChoice::Nation(i) => NATIONS[i].to_string(),
+        }
+    }
+}
+
+/// One pack on offer: its pool's size and one card's odds per tier after the step-down
+/// (`forza::collection::pack_odds`, tenths of a percent).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offer {
+    pub pack: PackChoice,
+    pub cards: u32,
+    pub odds: [u32; 5],
+}
+
+/// One opened card: the card and how many copies of it the player holds now.
+#[derive(Clone, Debug)]
+pub struct Opened {
+    pub card: Card,
+    pub copies: u32,
+}
+
 /// Where the tab is.
 #[derive(Clone, Debug)]
 pub enum Step {
@@ -88,6 +142,16 @@ pub enum Step {
     },
     /// The collection page.
     Page,
+    /// The pack store: the offer chosen ([`CollectionView::offers`]' index).
+    Store { chosen: usize },
+    /// A pack just bought: its cards turn over one by one from `since` (the frame time of the first frame), all at
+    /// once when `all` (a click skips); `chosen` is the store's offer to go back to.
+    Open {
+        chosen: usize,
+        cards: Vec<Opened>,
+        since: Option<f64>,
+        all: bool,
+    },
 }
 
 /// The page's filters; `None` shows all.
@@ -112,6 +176,8 @@ pub struct CollectionView {
     pub open: Option<u32>,
     /// Why the tab cannot work (no catalogue, an unreadable log): shown instead.
     pub problem: Option<String>,
+    /// The packs on offer: Standard, then each season, then the 24 nations.
+    pub offers: Vec<Offer>,
 }
 
 /// What the player asked for.
@@ -121,6 +187,8 @@ pub enum CollectionAction {
     Deal(Choice),
     /// TAKE THIS TEAM: the 11 and the RARE picked become the starter cards.
     Take,
+    /// BUY the pack.
+    Buy(PackChoice),
 }
 
 /// Which screen a sample shows.
@@ -131,6 +199,10 @@ pub enum Scenario {
     Page,
     /// The page with a starter card's detail open.
     Detail,
+    /// The store on a Nation pack, Korea Republic: its odds stepped down.
+    Store,
+    /// A pack opened, every card turned.
+    Open,
 }
 
 impl CollectionView {
@@ -158,6 +230,7 @@ impl CollectionView {
             filter: Filter::default(),
             open: None,
             problem: None,
+            offers: sample_offers(),
         };
         match s {
             Scenario::Choose => {
@@ -201,9 +274,92 @@ impl CollectionView {
                     v.open = Some(v.cards[0].0.number);
                 }
             }
+            Scenario::Store => {
+                let korea = NATIONS.iter().position(|n| *n == "Korea Republic");
+                v.step = Step::Store {
+                    chosen: v
+                        .offers
+                        .iter()
+                        .position(|o| Some(o.pack) == korea.map(PackChoice::Nation))
+                        .unwrap_or(0),
+                };
+            }
+            Scenario::Open => {
+                v.step = Step::Open {
+                    chosen: 0,
+                    cards: [3, 30, 7]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &n)| Opened {
+                            card: cards[n % cards.len()].clone(),
+                            copies: if i == 1 { 2 } else { 1 },
+                        })
+                        .collect(),
+                    since: None,
+                    all: true,
+                };
+            }
         }
         v
     }
+
+    /// The tab has its starter cards: the page, the store or an opened pack.
+    pub fn started(&self) -> bool {
+        !matches!(self.step, Step::Choose { .. } | Step::Pick { .. })
+    }
+
+    /// Show the pack just bought: `cards`' numbers, each with the copies [`Self::cards`] holds of it now. The store's
+    /// offer stays chosen for the way back.
+    pub fn open_pack(&mut self, cards: &[u32]) {
+        let chosen = match self.step {
+            Step::Store { chosen } | Step::Open { chosen, .. } => chosen,
+            _ => 0,
+        };
+        let opened = cards
+            .iter()
+            .filter_map(|no| self.cards.iter().find(|(c, _)| c.number == *no))
+            .map(|(card, n)| Opened {
+                card: card.clone(),
+                copies: n.earned + n.starter + n.imported,
+            })
+            .collect();
+        self.step = Step::Open {
+            chosen,
+            cards: opened,
+            since: None,
+            all: false,
+        };
+    }
+}
+
+/// The sample's offers: the catalogue's card counts per nation (`PLAN.md` 2.3) and the table's odds, Korea Republic
+/// stepped down (no RARE, LEGEND or ALL TIME LEGEND).
+fn sample_offers() -> Vec<Offer> {
+    const COUNTS: [u32; 24] = [
+        1_264, 988, 957, 647, 644, 531, 497, 384, 375, 251, 129, 127, 99, 94, 89, 74, 72, 65, 52,
+        51, 47, 44, 40, 27,
+    ];
+    let full = collection::Rarity::ALL.map(collection::Rarity::odds);
+    std::iter::once(Offer {
+        pack: PackChoice::Standard,
+        cards: 8_396,
+        odds: full,
+    })
+    .chain((2001..2016).map(|y| Offer {
+        pack: PackChoice::Season(y),
+        cards: 560,
+        odds: full,
+    }))
+    .chain(COUNTS.iter().enumerate().map(|(i, &cards)| Offer {
+        pack: PackChoice::Nation(i),
+        cards,
+        odds: if NATIONS[i] == "Korea Republic" {
+            [680, 320, 0, 0, 0]
+        } else {
+            full
+        },
+    }))
+    .collect()
 }
 
 /// The tab; what the player asked for, if anything.
@@ -224,6 +380,12 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
                 ..
             } => pick(ui, dealt, rares, picked, lang, &mut act),
             Step::Page => page(ui, v, lang),
+            Step::Store { chosen } => {
+                if store(ui, &v.offers, chosen, v.tokens, lang, &mut act) {
+                    v.step = Step::Page;
+                }
+            }
+            Step::Open { .. } => open(ui, &mut v.step, lang),
         });
     act
 }
@@ -457,6 +619,9 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang) {
         let n = v.match_left.max(0).to_string();
         hint(ui, &tr!(lang, "collection.match_left", n = n.as_str()));
     });
+    if !v.offers.is_empty() && widgets::action(ui, &tr!(lang, "collection.packs")).clicked() {
+        v.step = Step::Store { chosen: 0 };
+    }
     filters(ui, v, lang);
     if let Some(no) = v.open
         && let Some((card, copies)) = v.cards.iter().find(|(c, _)| c.number == no)
@@ -661,6 +826,252 @@ fn detail(ui: &mut Ui, card: &Card, copies: &Copies, lang: Lang) -> bool {
             });
         });
     close
+}
+
+/// A tier's chance in tenths of a percent as the store prints it: 680 -> "68 %", 2 -> "0.2 %" (it: "0,2 %").
+fn chance(tenths: u32, lang: Lang) -> String {
+    let s = if tenths.is_multiple_of(10) {
+        (tenths / 10).to_string()
+    } else {
+        format!("{}.{}", tenths / 10, tenths % 10)
+    };
+    let s = if lang == Lang::It {
+        s.replace('.', ",")
+    } else {
+        s
+    };
+    format!("{s} %")
+}
+
+/// The pack store: the three kinds, the chosen pack's odds and BUY, then the season or nation picker (BUY stays in
+/// view while the 24 nations scroll). `true`: back to the page.
+fn store(
+    ui: &mut Ui,
+    offers: &[Offer],
+    chosen: &mut usize,
+    tokens: i64,
+    lang: Lang,
+    act: &mut Option<CollectionAction>,
+) -> bool {
+    let Some(offer) = offers.get(*chosen).cloned() else {
+        *chosen = 0;
+        return false;
+    };
+    let mut back = false;
+    ui.horizontal(|ui| {
+        back = widgets::action(ui, &tr!(lang, "collection.to_page")).clicked();
+        ui.add_space(8.0);
+        title(ui, &tr!(lang, "collection.store_title"));
+        ui.add_space(12.0);
+        let n = tokens.to_string();
+        ui.label(
+            egui::RichText::new(tr!(lang, "collection.tokens", n = n.as_str()))
+                .font(theme::display(18.0))
+                .color(theme::AMBER),
+        );
+    });
+    hint(ui, &tr!(lang, "collection.store_hint"));
+    const KINDS: [(PackChoice, &str, &str); 3] = [
+        (
+            PackChoice::Standard,
+            "collection.pack_standard",
+            "collection.pack_standard_hint",
+        ),
+        (
+            PackChoice::Season(0),
+            "collection.pack_season",
+            "collection.pack_season_hint",
+        ),
+        (
+            PackChoice::Nation(0),
+            "collection.pack_nation",
+            "collection.pack_nation_hint",
+        ),
+    ];
+    tiles(ui, KINDS.len(), 3, 46.0, |ui, k, size| {
+        let (kind, name, sub) = KINDS[k];
+        let price = kind.pack().price().to_string();
+        let sub = tr!(lang, sub, n = price.as_str());
+        if tile(ui, size, &tr!(lang, name), &sub, offer.pack.kind() == k).clicked()
+            && offer.pack.kind() != k
+            && let Some(i) = offers.iter().position(|o| o.pack.kind() == kind.kind())
+        {
+            *chosen = i;
+        }
+    });
+    ui.add_space(4.0);
+    widgets::caps(
+        ui,
+        &tr!(
+            lang,
+            "collection.odds_title",
+            pack = offer.pack.label(lang).as_str()
+        ),
+    );
+    let tiers = [
+        Rarity::Regular,
+        Rarity::Special,
+        Rarity::Rare,
+        Rarity::Legend,
+        Rarity::AllTime,
+    ];
+    ui.horizontal_wrapped(|ui| {
+        for (r, &o) in tiers.iter().zip(&offer.odds) {
+            let text = format!(
+                "{} {}",
+                tr!(lang, rarity_key(*r)),
+                if o == 0 {
+                    "–".into()
+                } else {
+                    chance(o, lang)
+                }
+            );
+            ui.label(
+                egui::RichText::new(text)
+                    .font(theme::bold(13.0))
+                    .color(if o == 0 { theme::TEXT_DIM } else { theme::TEXT }),
+            );
+            ui.add_space(8.0);
+        }
+    });
+    hint(ui, &tr!(lang, "collection.odds_guarantee"));
+    if offer.odds.contains(&0) {
+        hint(ui, &tr!(lang, "collection.odds_step_down"));
+    }
+    ui.add_space(4.0);
+    let price = offer.pack.pack().price();
+    let can = tokens >= price && offer.cards as usize >= collection::PACK_CARDS;
+    let n = price.to_string();
+    let w = ui.available_width();
+    if ui
+        .add_enabled_ui(can, |ui| {
+            widgets::cabinet(
+                ui,
+                vec2(w, 48.0),
+                &tr!(lang, "collection.buy", n = n.as_str()),
+                Cab::Go,
+                can,
+            )
+        })
+        .inner
+        .clicked()
+        && can
+    {
+        *act = Some(CollectionAction::Buy(offer.pack));
+    }
+    if tokens < price {
+        hint(ui, &tr!(lang, "collection.buy_short", n = n.as_str()));
+    }
+    let picks: Vec<usize> = (0..offers.len())
+        .filter(|&i| {
+            offer.pack != PackChoice::Standard && offers[i].pack.kind() == offer.pack.kind()
+        })
+        .collect();
+    if !picks.is_empty() {
+        let head = if offer.pack.kind() == 1 {
+            "collection.by_season"
+        } else {
+            "collection.pick_nation"
+        };
+        widgets::caps(ui, &tr!(lang, head));
+        tiles(ui, picks.len(), 4, 46.0, |ui, k, size| {
+            let i = picks[k];
+            let n = offers[i].cards.to_string();
+            let sub = tr!(lang, "collection.cards_n", n = n.as_str());
+            if tile(ui, size, &offers[i].pack.label(lang), &sub, *chosen == i).clicked() {
+                *chosen = i;
+            }
+        });
+    }
+    back
+}
+
+/// Seconds between two cards turning over, and the turn itself.
+const OPEN_GAP: f64 = 0.4;
+const OPEN_TURN: f64 = 0.25;
+
+/// A bought pack: its cards turn over one by one (about a second for the three; a click shows them all), each with
+/// NEW or the copies held now.
+fn open(ui: &mut Ui, step: &mut Step, lang: Lang) {
+    let Step::Open {
+        chosen,
+        cards,
+        since,
+        all,
+    } = step
+    else {
+        return;
+    };
+    let now = ui.input(|i| i.time);
+    let t = now - *since.get_or_insert(now);
+    // 0 before the turn, 1 after; the card at `i` starts at OPEN_GAP * (i + 1)
+    let turned = |i: usize| -> f32 {
+        if *all {
+            1.0
+        } else {
+            ((t - OPEN_GAP * (i + 1) as f64) / OPEN_TURN).clamp(0.0, 1.0) as f32
+        }
+    };
+    let done = (0..cards.len()).all(|i| turned(i) >= 1.0);
+    title(ui, &tr!(lang, "collection.open_title"));
+    let w = 150.0;
+    let mut skip = false;
+    ui.horizontal(|ui| {
+        let gap =
+            ((ui.available_width() - w * cards.len() as f32) / (cards.len() + 1) as f32).floor();
+        ui.add_space(gap);
+        ui.spacing_mut().item_spacing.x = gap;
+        for (i, o) in cards.iter().enumerate() {
+            ui.vertical(|ui| {
+                let (r, resp) = ui.allocate_exact_size(card_size(w), Sense::click());
+                resp.widget_info(|| WidgetInfo::labeled(Role::Image, true, &o.card.name));
+                skip |= resp.clicked();
+                let p = turned(i);
+                // a turn: the back narrows to nothing, then the face widens back
+                let squeeze = (2.0 * p - 1.0).abs();
+                let shown =
+                    Rect::from_center_size(r.center(), vec2(r.width() * squeeze, r.height()));
+                if p < 0.5 {
+                    ui.painter()
+                        .rect_filled(shown, theme::RADIUS, theme::RAISED);
+                    ui.painter().rect_stroke(
+                        shown,
+                        theme::RADIUS,
+                        egui::Stroke::new(2.0, theme::AMBER),
+                        egui::StrokeKind::Inside,
+                    );
+                } else {
+                    board::card_face(ui.painter(), shown, &o.card, Look::default());
+                }
+                let badge = if p < 1.0 {
+                    String::new()
+                } else if o.copies <= 1 {
+                    tr!(lang, "collection.new_card")
+                } else {
+                    let n = o.copies.to_string();
+                    tr!(lang, "collection.copy_n", n = n.as_str())
+                };
+                ui.label(egui::RichText::new(badge).font(theme::bold(14.0)).color(
+                    if o.copies <= 1 {
+                        theme::AMBER
+                    } else {
+                        theme::TEXT
+                    },
+                ));
+            });
+        }
+    });
+    ui.add_space(8.0);
+    if !done {
+        skip |= widgets::action(ui, &tr!(lang, "collection.show_all")).clicked();
+        ui.ctx().request_repaint();
+    } else if widgets::action(ui, &tr!(lang, "collection.to_store")).clicked() {
+        *step = Step::Store { chosen: *chosen };
+        return;
+    }
+    if skip {
+        *all = true;
+    }
 }
 
 fn title(ui: &mut Ui, text: &str) {
