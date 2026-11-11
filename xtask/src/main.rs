@@ -69,6 +69,18 @@ enum Task {
         #[arg(last = true)]
         test_args: Vec<String>,
     },
+    /// The tests of the crates named, built as `check quick` builds them (its target, profile and rustflags, and the wide
+    /// workspace scope it builds with): a per-commit test run then reuses the gate's build tree instead of compiling a
+    /// second one. The GPU snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile):
+    /// `cargo test --locked -p forza-ui -- snapshots:: --test-threads=1` runs them in the dev profile, as CI does.
+    Test {
+        /// The crates to test, each as cargo's `-p`; a 32-bit one (forza-panel, the native crates) runs for its own target
+        #[arg(short = 'p', long = "package", required = true)]
+        package: Vec<String>,
+        /// Passed on to the test runner, e.g. `-- --partition count:1/2` with cargo-nextest
+        #[arg(last = true)]
+        test_args: Vec<String>,
+    },
     /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
         /// 2010-11 or 2017-18
@@ -614,6 +626,10 @@ fn main() -> Result<()> {
             }
             build_all(&root, &kit, &kit_1718, true)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
+        }
+        Task::Test { package, test_args } => {
+            let _ = PROFILE.set(pick_profile(Some("quick"), false, false, in_ci()));
+            test_packages(&root, &package, &test_args)
         }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
@@ -1728,6 +1744,43 @@ fn tests(
         test.args(extra);
     }
     test
+}
+
+/// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
+/// workspace scope of each target, same profile and rustflags), so a per-commit run reuses the gate's build tree
+/// instead of making a second one; nextest's filterset then picks the crates named.
+fn test_packages(root: &Path, packages: &[String], extra: &[String]) -> Result<()> {
+    // one test run at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936)
+    let _lock = check_lock()?;
+    for c in test_commands(root, packages, extra) {
+        run_ok(c, "cargo test")?;
+    }
+    Ok(())
+}
+
+/// The commands [`test_packages`] runs: one per target the crates named build for, as `check quick`'s test step.
+fn test_commands(root: &Path, packages: &[String], extra: &[String]) -> Vec<Command> {
+    let pkgs: BTreeSet<String> = packages.iter().cloned().collect();
+    let scope: Vec<String> = pkgs
+        .iter()
+        .flat_map(|p| ["-p".to_owned(), p.clone()])
+        .collect();
+    let wide = target_scopes(&["--workspace".to_owned()], HOOKS[0].0);
+    target_scopes(&scope, HOOKS[0].0)
+        .into_iter()
+        .filter_map(|(target, _)| {
+            let only = test_filter(&pkgs, target)?;
+            let wide: Vec<&str> = wide
+                .iter()
+                .find(|(t, _)| *t == target)?
+                .1
+                .iter()
+                .map(String::as_str)
+                .collect();
+            // the GPU snapshot tests are skipped, as in `quick`: their pixels move in the `fast` profile
+            Some(tests(root, true, extra, target, &wide, Some(&only)))
+        })
+        .collect()
 }
 
 /// `cargo xtask check text`: the checks that read only tracked text; no build, no kit.
@@ -2980,6 +3033,32 @@ mod tests {
         );
         let run = line(tests(Path::new("C:/repo"), false, &[], TARGET, &[], None));
         assert!(!run.contains("snapshots"), "{run}");
+    }
+
+    #[test]
+    fn a_per_commit_test_builds_what_check_quick_builds() {
+        let line = |c: &Command| {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let root = Path::new("C:/repo");
+        // `quick` builds the whole workspace of each target and picks the tests with a filterset: the per-commit run
+        // must ask for the same build, or it compiles the workspace a second time
+        let x64 = test_commands(root, &["forza".to_owned()], &[]);
+        assert_eq!(x64.len(), 1);
+        let x64 = line(&x64[0]);
+        assert!(
+            x64.contains("--target x86_64-pc-windows-msvc --workspace --exclude forza-panel"),
+            "{x64}"
+        );
+        // a 32-bit crate is tested for its own target
+        let panel = test_commands(root, &["forza-panel".to_owned()], &[]);
+        assert_eq!(panel.len(), 1);
+        let panel = line(&panel[0]);
+        assert!(panel.contains("--target i686-pc-windows-msvc"), "{panel}");
+        assert!(!panel.contains("--workspace"), "{panel}");
     }
 
     #[test]

@@ -46,6 +46,8 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    cargo xtask check quick    # only the crates changed since the base branch (`fast` profile; rebuilds a stale kit;
                               # no GPU snapshot tests, which the dev-profile command in "Faster builds" runs)
    cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
+   cargo xtask test -p forza  # the tests of one crate, built as `check quick` builds them (same target, profile and
+                              # rustflags): a per-commit run reuses that build tree instead of making a second one
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
    ```
 
