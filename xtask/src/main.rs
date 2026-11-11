@@ -72,8 +72,9 @@ enum Task {
     /// The tests of the crates named, built as `check quick` builds them (its target, profile and rustflags, and the wide
     /// workspace scope it builds with): a per-commit test run then reuses the gate's build tree instead of compiling a
     /// second one; the 32-bit hook builds with the 2017-18 feature, as `quick` does when no 2010-11 path changed. The GPU
-    /// snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile):
-    /// `cargo test --locked -p forza-ui -- snapshots:: --test-threads=1` runs them in the dev profile, as CI does.
+    /// snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile): `cargo test --locked -p
+    /// forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1` runs them in the dev profile,
+    /// as CI does.
     Test {
         /// The crates to test, each as cargo's `-p`; a 32-bit one (forza-panel, the native crates) runs for its own target
         #[arg(short = 'p', long = "package", required = true)]
