@@ -194,7 +194,7 @@ installer.did_extract: {en: "Game files extracted and checked", it: "File del gi
 installer.did_setup: {en: "Game set up", it: "Gioco configurato", ja: "ゲームを設定しました"}
 installer.not_shortcuts: {en: "No desktop shortcuts", it: "Nessun collegamento sul desktop", ja: "デスクトップのショートカットなし"}
 installer.no_package: {en: "Without the package the game will not start. Install anyway?", it: "Senza il pacchetto il gioco non si avvia. Installare comunque?", ja: "パッケージがないとゲームは起動しません。このままインストールしますか？"}
-installer.continue: {en: "CONTINUE", it: "CONTINUA", ja: "続ける"}
+installer.continue: {en: "INSTALL ANYWAY", it: "INSTALLA COMUNQUE", ja: "このままインストール"}
 installer.smartscreen: {en: "Windows may warn about an unknown app. Press More info, then Run anyway.", it: "Windows può avvisare di un'app sconosciuta. Premi Ulteriori informazioni, poi Esegui comunque.", ja: "Windows が不明なアプリと警告することがあります。「詳細情報」→「実行」を選んでください。"}
 installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "ランチャーを起動"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
@@ -229,7 +229,7 @@ installer.err_not_zip: {en: "That file is not a valid zip.", it: "Quel file non 
 installer.err_edition_mismatch: {en: "The selected edition does not match the disc image.", it: "L'edizione scelta non corrisponde all'immagine del disco.", ja: "選んだエディションがディスクイメージと一致しません。"}
 installer.err_need_game: {en: "Choose --game SBWG (2010–2011) or --game SDDY (2017–2018) when both or neither edition is installed.", it: "Scegli --game SBWG (2010–2011) o --game SDDY (2017–2018) quando sono installate entrambe le edizioni o nessuna.", ja: "両方のエディションがインストール済み、またはどちらもない場合は --game SBWG（2010–2011）か --game SDDY（2017–2018）を指定してください。"}
 installer.err_game_exists: {en: "The game folder already exists. Existing files are never replaced; choose a new install folder.", it: "La cartella del gioco esiste già. I file esistenti non vengono mai sostituiti: scegli una nuova cartella di installazione.", ja: "ゲームのフォルダーが既にあります。既存のファイルは上書きされません。別のインストール先を選んでください。"}
-installer.err_english_setup: {en: "The English option needs the package.", it: "L'opzione inglese richiede il pacchetto.", ja: "英語オプションにはパッケージが必要です。"}
+installer.err_english_setup: {en: "The English game text needs the Forza-WCCF package.", it: "Il testo in inglese richiede il pacchetto Forza-WCCF.", ja: "英語のゲームテキストには Forza-WCCF パッケージが必要です。"}
 installer.err_no_key: {en: "No key list was given.", it: "Non è stato indicato nessun elenco chiavi.", ja: "キーリストが指定されていません。"}
 installer.err_game_missing: {en: "The game files are not in %{path}.", it: "I file del gioco non sono in %{path}.", ja: "ゲームファイルが %{path} にありません。"}
 installer.err_create: {en: "Cannot create %{path}: %{detail}", it: "Impossibile creare %{path}: %{detail}", ja: "%{path} を作成できません：%{detail}"}
