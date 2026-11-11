@@ -749,3 +749,78 @@ fn lobby_list_fits_a_short_tab() {
     assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
     assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
 }
+
+/// COLLECTION's page at the Launcher's smallest window (600 x 700), in every language (plan step 1.4, (d)): every card
+/// lies inside the page, and its STARTER or IMPORT mark inside its card. (e): a starter card's detail offers no
+/// CONVERT and no SELL.
+#[test]
+fn collection_cards_and_marks_fit_the_page() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        let view = CollectionView::sample(Scenario::Page);
+        let cards = view.cards.clone();
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let painter = h.ctx.debug_painter();
+        let mut seen = 0;
+        for (card, copies) in &cards {
+            let Some(node) = h
+                .query_all_by_role_and_label(egui::accesskit::Role::Button, &card.name)
+                .next()
+            else {
+                continue; // scrolled below the window
+            };
+            let r = node.rect();
+            seen += 1;
+            let tag = format!("{lang:?} {}: {r:?}", card.name);
+            assert!(
+                r.left() >= 16.0 && r.right() <= size.x - 16.0,
+                "{tag}: inside the page"
+            );
+            assert!(r.width() >= 80.0, "{tag}: a card, not a chip");
+            let mark = if copies.starter > 0 {
+                Some("cat.mark_starter")
+            } else if copies.imported > 0 {
+                Some("cat.mark_import")
+            } else {
+                None
+            };
+            if let Some(k) = mark {
+                // the mark as catalogue_card lays it: 3 px in, its text plus 8 px
+                let w = painter
+                    .layout_no_wrap(t(k), theme::display(11.0), egui::Color32::WHITE)
+                    .size()
+                    .x;
+                assert!(3.0 + w + 8.0 <= r.width(), "{tag}: mark {w} px wide");
+            }
+        }
+        assert!(seen >= 12, "{lang:?}: {seen} cards in view");
+    }
+    // (e) the detail of a starter card
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(CollectionView::sample(Scenario::Detail));
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    assert!(h.query_by_label("CLOSE").is_some(), "the detail is open");
+    for word in ["CONVERT", "SELL"] {
+        assert!(
+            h.query_all_by_label_contains(word)
+                .all(|n| n.accesskit_node().role() != egui::accesskit::Role::Button),
+            "{word} offered on a starter card"
+        );
+    }
+}

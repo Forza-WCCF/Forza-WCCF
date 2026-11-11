@@ -3,6 +3,7 @@
 //! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
 use super::Lang;
+use super::collection::{self, CollectionAction, CollectionView};
 use super::lobby::{
     self, CupPlan, CupRefused, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario,
 };
@@ -44,6 +45,8 @@ pub enum Tab {
     /// Only when the edition has updates (`updates`).
     Update,
     Details,
+    /// Create-a-Team's collection (2017-18): opened from the PLAY tab, not in the tab row.
+    Collection,
 }
 
 /// What the player asked for this frame. Launcher.exe does it; the gallery ignores it.
@@ -97,6 +100,8 @@ pub enum Action {
     Report,
     /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
     SendReport,
+    /// The COLLECTION tab's first start (`collection`).
+    Collection(CollectionAction),
 }
 
 /// The report dialog: the player's words, what goes with them, and where the ZIP was saved.
@@ -153,6 +158,8 @@ pub struct LauncherState {
     pub running: bool,
     /// FREE or CREATE-A-TEAM, the PLAY tab's top buttons (2017–18 only; locked while a game runs).
     pub profile: Option<Profile>,
+    /// Create-a-Team's collection, while that profile is chosen (2017-18): the PLAY tab's COLLECTION and its tab.
+    pub collection: Option<CollectionView>,
     /// What the run on this folder got for the Universal Cup (2017-18, this PC): the PLAY tab shows it while the run is
     /// on, so a slot keeps the open time PLAY gave it and a refusal stays refused instead of moving with the clock.
     pub cup_started: Option<Result<CupPlan, CupRefused>>,
@@ -273,6 +280,7 @@ impl LauncherState {
             set_up: true,
             running: false,
             profile: None,
+            collection: None,
             cup_started: None,
             busy: false,
             steps: None,
@@ -493,6 +501,17 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
             // `list_fit`) have no outer scroll
             match st.tab {
                 Tab::Details => return output(ui, st, lang, &mut act),
+                Tab::Collection => {
+                    if let Some(v) = &mut st.collection {
+                        if action(ui, &tr!(lang, "collection.back")).clicked() {
+                            st.tab = Tab::Play;
+                        }
+                        if let Some(a) = collection::show(ui, v, lang) {
+                            act = Some(Action::Collection(a));
+                        }
+                    }
+                    return;
+                }
                 Tab::Online => return online(ui, st, lang, &mut act),
                 _ => {}
             }
@@ -502,7 +521,7 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                     Tab::Play => play(ui, st, lang, accent, &mut act),
                     Tab::Setup => setup(ui, st, lang, &mut act),
                     Tab::Update => update(ui, st, lang, &mut act),
-                    Tab::Details | Tab::Online => {}
+                    Tab::Details | Tab::Online | Tab::Collection => {}
                 });
         });
     if let Some(c) = st.confirm.clone()
@@ -532,8 +551,10 @@ fn tab_row(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
     let labels: Vec<&str> = tabs.iter().map(|(_, l)| l.as_str()).collect();
     let mut i = tabs.iter().position(|(t, _)| *t == st.tab).unwrap_or(0);
     let w = ui.available_width();
-    segmented(ui, &mut i, &labels, w);
-    st.tab = tabs[i].0;
+    // COLLECTION is reached from PLAY, so PLAY stays lit over it
+    if segmented(ui, &mut i, &labels, w) || st.tab != Tab::Collection || st.collection.is_none() {
+        st.tab = tabs[i].0;
+    }
 }
 
 /// The height of the FREE and CREATE-A-TEAM buttons.
@@ -570,6 +591,26 @@ fn play(
                 .font(theme::body(13.0))
                 .color(theme::TEXT_DIM),
         );
+        if now == Profile::CreateATeam
+            && let Some(v) = &st.collection
+        {
+            ui.horizontal(|ui| {
+                if action(ui, &tr!(lang, "launcher.collection")).clicked() {
+                    st.tab = Tab::Collection;
+                }
+                let line = if matches!(v.step, collection::Step::Page) {
+                    let n = v.tokens.to_string();
+                    tr!(lang, "collection.tokens", n = n.as_str())
+                } else {
+                    tr!(lang, "launcher.msg_no_starter")
+                };
+                ui.label(
+                    egui::RichText::new(line)
+                        .font(theme::body(13.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+        }
     }
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;

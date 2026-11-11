@@ -10,6 +10,9 @@ launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.profile_free: {en: "FREE", it: "LIBERO", ja: "フリー"}
 launcher.profile_cat: {en: "CREATE-A-TEAM", it: "CREA LA TUA SQUADRA", ja: "クリエイト・ア・チーム"}
 launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: "Ogni modalità ha il suo club e il suo tavolo delle carte.", ja: "モードごとにクラブとカードテーブルは別々です。"}
+launcher.collection: {en: "COLLECTION ›", it: "COLLEZIONE ›", ja: "コレクション ›"}
+launcher.msg_no_starter: {en: "Choose your start in COLLECTION before you play.", it: "Scegli come iniziare in COLLEZIONE prima di giocare.", ja: "プレイする前に「コレクション」でスタートを選んでください。"}
+launcher.msg_no_catalogue: {en: "The card list is missing. Press SET UP on the SETUP tab, then open COLLECTION again.", it: "Manca l'elenco delle carte. Premi CONFIGURA nella scheda CONFIGURAZIONE, poi riapri COLLEZIONE.", ja: "カードの一覧がありません。「セットアップ」タブで「設定する」を押してから、もう一度「コレクション」を開いてください。"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
@@ -578,6 +581,43 @@ club.row_session: {en: "SESSION", it: "SESSIONE", ja: "セッション"}
 club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
 club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
 club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
+
+# ---- Create-a-Team collection (Launcher COLLECTION) ----
+collection.back: {en: "‹ PLAY", it: "‹ GIOCA", ja: "‹ プレイ"}
+collection.choose_title: {en: "CHOOSE YOUR START", it: "SCEGLI COME INIZIARE", ja: "スタートを選ぶ"}
+collection.choose_hint: {en: "You get 11 players from your choice, then pick 1 of 3 RARE cards. You choose once.", it: "Ricevi 11 giocatori dalla tua scelta, poi scegli 1 di 3 carte RARA. Si sceglie una volta sola.", ja: "選んだ範囲から 11 人の選手が配られ、レアカード 3 枚から 1 枚を選びます。選べるのは一度だけです。"}
+collection.all_seasons: {en: "All seasons", it: "Tutte le stagioni", ja: "全シーズン"}
+# a start tile's line: %{n} is a number (75) or the band 80-82
+collection.mean: {en: "Mean TOTAL %{n}", it: "TOTALE medio %{n}", ja: "平均総合 %{n}"}
+# %{mean} is collection.mean's text
+collection.recommended: {en: "Recommended · %{mean}", it: "Consigliato · %{mean}", ja: "おすすめ・%{mean}"}
+collection.by_season: {en: "A SEASON", it: "UNA STAGIONE", ja: "シーズンで選ぶ"}
+collection.by_league: {en: "A LEAGUE", it: "UN CAMPIONATO", ja: "リーグで選ぶ"}
+collection.league_italy: {en: "Italy (Serie A)", it: "Italia (Serie A)", ja: "イタリア（セリエA）"}
+collection.league_spain: {en: "Spain (La Liga)", it: "Spagna (Liga)", ja: "スペイン（ラ・リーガ）"}
+collection.league_england: {en: "England (Premier League)", it: "Inghilterra (Premier League)", ja: "イングランド（プレミアリーグ）"}
+collection.league_germany: {en: "Germany (Bundesliga)", it: "Germania (Bundesliga)", ja: "ドイツ（ブンデスリーガ）"}
+collection.league_france: {en: "France (Ligue 1)", it: "Francia (Ligue 1)", ja: "フランス（リーグ・アン）"}
+collection.league_netherlands: {en: "Netherlands (Eredivisie)", it: "Paesi Bassi (Eredivisie)", ja: "オランダ（エールディヴィジ）"}
+collection.league_portugal: {en: "Portugal (Primeira Liga)", it: "Portogallo (Primeira Liga)", ja: "ポルトガル（プリメイラ・リーガ）"}
+collection.league_japan: {en: "Japan (J.League)", it: "Giappone (J.League)", ja: "日本（Jリーグ）"}
+collection.league_south_america: {en: "South America", it: "Sud America", ja: "南米"}
+collection.deal: {en: "DEAL", it: "DISTRIBUISCI", ja: "配る"}
+collection.dealt_title: {en: "YOUR 11 PLAYERS", it: "I TUOI 11 GIOCATORI", ja: "あなたの 11 人"}
+collection.pick_title: {en: "PICK 1 RARE CARD", it: "SCEGLI 1 CARTA RARA", ja: "レアカードを 1 枚選ぶ"}
+collection.pick_hint: {en: "These 12 starter cards play but never sell or convert.", it: "Queste 12 carte iniziali si giocano ma non si vendono né si convertono.", ja: "この 12 枚の初期カードはプレイできますが、売却も変換もできません。"}
+collection.take: {en: "TAKE THIS TEAM", it: "PRENDI QUESTA SQUADRA", ja: "このチームにする"}
+collection.tokens: {en: "%{n} tokens", it: "%{n} gettoni", ja: "%{n} トークン"}
+collection.match_left: {en: "Match tokens left this week: %{n}", it: "Gettoni partita rimasti questa settimana: %{n}", ja: "今週の残り試合トークン：%{n}"}
+collection.season: {en: "SEASON", it: "STAGIONE", ja: "シーズン"}
+collection.league: {en: "LEAGUE", it: "CAMPIONATO", ja: "リーグ"}
+collection.value: {en: "Value: %{n} tokens", it: "Valore: %{n} gettoni", ja: "価値：%{n} トークン"}
+# how the value is made: the tier's base, the rating step (1, 1.5, 2.5, 4) and the series factor (1, 1.5, 2.5)
+collection.value_parts: {en: "Base %{base} × rating %{step} × series %{factor}", it: "Base %{base} × valutazione %{step} × serie %{factor}", ja: "基本 %{base} × 能力 %{step} × シリーズ %{factor}"}
+collection.value_secret: {en: "A SECRET card has one price for its series.", it: "Una carta SECRET ha un prezzo unico per la sua serie.", ja: "SECRET カードはシリーズごとに一律の価格です。"}
+collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
+collection.no_sell: {en: "Starter and imported copies play but never sell or convert.", it: "Le copie iniziali e importate si giocano ma non si vendono né si convertono.", ja: "初期カードと引継ぎカードはプレイできますが、売却も変換もできません。"}
+collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

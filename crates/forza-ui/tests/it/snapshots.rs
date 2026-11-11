@@ -1963,3 +1963,52 @@ fn lobby_screens() {
     }
     all.unwrap();
 }
+
+/// Create-a-Team's COLLECTION (plan step 1.4, (c)): the start picker, the deal with its 3 RARE cards, the page with the
+/// STARTER and IMPORT marks and a starter card's detail, in English, Italian and Japanese; and the PLAY tab's
+/// COLLECTION button.
+#[test]
+fn launcher_collection() {
+    use forza_ui::collection::{CollectionView, Scenario::*};
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let state = |lang, s| {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(CollectionView::sample(s));
+        st.tab = launcher::Tab::Collection;
+        st
+    };
+    for lang in Lang::ALL {
+        for (s, tag) in [
+            (Choose, "choose"),
+            (Pick, "pick"),
+            (Page, "page"),
+            (Detail, "detail"),
+        ] {
+            let mut st = state(lang, s);
+            snap(
+                &mut all,
+                &format!("launcher_collection_{tag}_{}", lang.code()),
+                launcher::SIZE,
+                Edition::E1718,
+                |ui| {
+                    launcher::show(ui, &mut st);
+                },
+            );
+        }
+    }
+    let mut st = state(Lang::En, Choose);
+    st.tab = launcher::Tab::Play;
+    snap(
+        &mut all,
+        "launcher_play_create_a_team_en",
+        launcher::SIZE,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    all.unwrap();
+}
