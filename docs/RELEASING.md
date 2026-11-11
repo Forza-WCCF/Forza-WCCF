@@ -54,7 +54,8 @@
 A release ships the bytes CI built for its candidate, never a local package.
 
 1. `next` = `origin/main` plus the picked PRs: `git switch -C next origin/main`, then `git merge --no-ff` of each
-   pick's head (with `rerere.enabled`). `next` stays between releases: ready picks merge into it as they pass CI,
+   pick's head (with `rerere.enabled`), then the one `chore(release): <ver>` commit that sets the version
+   ([Version numbers](#version-numbers)). `next` stays between releases: ready picks merge into it as they pass CI,
    candidates are dispatched from it, and a re-cut force-pushes it. The release merge deletes the remote branch
    (delete-branch-on-merge), so right after it `next` is reset to `origin/main` and pushed again (no approval needed:
    it is not `main`).
