@@ -51,7 +51,10 @@
 A release ships the bytes CI built for its candidate, never a local package.
 
 1. `next` = `origin/main` plus the picked PRs: `git switch -C next origin/main`, then `git merge --no-ff` of each
-   pick's head (with `rerere.enabled`). `next` is a throwaway branch: force-pushed on a re-cut, deleted on merge.
+   pick's head (with `rerere.enabled`). `next` stays between releases: ready picks merge into it as they pass CI,
+   candidates are dispatched from it, and a re-cut force-pushes it. The release merge deletes the remote branch
+   (delete-branch-on-merge), so right after it `next` is reset to `origin/main` and pushed again (no approval needed:
+   it is not `main`).
 2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. While it
    is a draft only `ci-ok` runs there, and fails on purpose (`ci.yml` skips the other jobs; the candidate build is the
    dispatch below): the long jobs start when it is marked ready, after the play test (step 5).
