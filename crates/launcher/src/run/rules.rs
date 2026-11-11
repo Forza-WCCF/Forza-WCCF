@@ -1075,7 +1075,10 @@ mod tests {
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
         // the engine mismatch: both tokens are named, the arcade's and this PC's
         let m = seat_refusal(&e(Fault::Refused, "ERR dmath 0123 0123-off"), None, "127.0.0.1").en();
-        assert!(m.contains("0123-off") && m.contains("(0123)"), "{m}");
+        assert!(
+            m.contains("its match engine (0123)") && m.contains("this PC's (0123-off)"),
+            "{m}"
+        );
     }
 
     #[test]
