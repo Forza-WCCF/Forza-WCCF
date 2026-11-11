@@ -49,7 +49,8 @@ enum Task {
     /// sccache is used when it is installed and RUSTC_WRAPPER is unset (not under CI; FORZA_NO_SCCACHE=1 turns it off)
     Check {
         /// `quick`: only the crates changed since the base (and their dependents), the kit tests and smoke of those; the
-        /// 2010-11 hooks only when a 2010-11 path changed (PATHS_1011); no release build.
+        /// 2010-11 hooks only when a 2010-11 path changed (PATHS_1011); no release build, no GPU snapshot tests (the
+        /// `snapshots` CI job and `cargo nextest run -p forza-ui` run them, in the dev profile).
         /// `ci`: the full check minus the GPU snapshot tests (the GitHub runner has no GPU), in the `ci` profile (no LTO;
         /// `--release` for release)
         /// `text`: the scrub, the script-host check and the installer docs' word check; no build (docs-only changes)
@@ -1366,7 +1367,8 @@ fn target_scopes(scope: &[String], hook: &str) -> Vec<(&'static str, Vec<String>
 
 /// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`, then the kit's self-tests
 /// when a 32-bit crate changed, the Launcher's imports and the installer's checks when theirs did. The 2010-11 hooks
-/// only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build.
+/// only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build. The GPU snapshot
+/// tests are skipped wherever it runs: their pixels move in the `fast` profile this uses locally.
 fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str) -> Result<()> {
     let _lock = check_lock()?;
     let files = changed_files(root, base)?;
@@ -1466,7 +1468,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         let wide = wide(target)?;
         let wide: Vec<&str> = wide.iter().map(String::as_str).collect();
         run_ok(
-            tests(root, in_ci(), &[], target, &wide, only.as_deref()),
+            tests(root, true, &[], target, &wide, only.as_deref()),
             "cargo test",
         )?;
     }
@@ -1665,12 +1667,12 @@ fn check(
 }
 
 /// The workspace's tests: cargo-nextest when it is installed (one process per test, all cores, `--partition` for
-/// split CI jobs), else `cargo test`. `ci` skips the GPU snapshot tests; `--fast` runs them in the kits' profile.
-/// nextest runs no doctests; the workspace has none.
+/// split CI jobs), else `cargo test`. `skip_snapshots` leaves out the GPU snapshot tests; `--fast` runs them in the
+/// kits' profile. nextest runs no doctests; the workspace has none.
 /// `only`: a nextest filterset of the tests to run (all of `scope` without nextest).
 fn tests(
     root: &Path,
-    ci: bool,
+    skip_snapshots: bool,
     extra: &[String],
     target: &str,
     scope: &[&str],
@@ -1704,7 +1706,7 @@ fn tests(
         let expr: Vec<String> = only
             .map(|o| format!("({o})"))
             .into_iter()
-            .chain(ci.then(|| "not test(/^snapshots::/)".to_owned()))
+            .chain(skip_snapshots.then(|| "not test(/^snapshots::/)".to_owned()))
             .collect();
         if !expr.is_empty() {
             test.args(["-E", &expr.join(" & ")]);
@@ -1716,7 +1718,7 @@ fn tests(
         test.args(extra);
     } else {
         test.arg("--");
-        if ci {
+        if skip_snapshots {
             test.args(["--skip", "snapshots::"]);
         }
         test.args(extra);
@@ -2956,6 +2958,24 @@ mod tests {
             config(tests(root, true, &[], PANEL_TARGET, &[], None)),
             want
         );
+    }
+
+    #[test]
+    fn a_skipped_check_passes_no_snapshot_test_to_the_runner() {
+        let line = |c: Command| {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        // nextest's filterset, else cargo test's --skip: whichever runner this PC has
+        let skipped = line(tests(Path::new("C:/repo"), true, &[], TARGET, &[], None));
+        assert!(
+            skipped.contains("not test(/^snapshots::/)") || skipped.contains("--skip snapshots::"),
+            "{skipped}"
+        );
+        let run = line(tests(Path::new("C:/repo"), false, &[], TARGET, &[], None));
+        assert!(!run.contains("snapshots"), "{run}");
     }
 
     #[test]
