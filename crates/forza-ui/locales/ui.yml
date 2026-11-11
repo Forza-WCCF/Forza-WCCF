@@ -420,8 +420,8 @@ keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cel
 keys.no_controller: {en: "No controller found.", it: "Nessun controller trovato.", ja: "コントローラーが見つかりません。"}
 keys.none: {en: "none", it: "nessuno", ja: "なし"}
 keys.msg_keeps: {en: "%{action} keeps %{key}", it: "%{action} resta su %{key}", ja: "%{action} は %{key} のままです"}
-keys.msg_set: {en: "%{action} = %{key}", it: "%{action} = %{key}", ja: "%{action} = %{key}"}
-keys.msg_swapped: {en: "%{action} = %{key}; %{other} = %{old}", it: "%{action} = %{key}; %{other} = %{old}", ja: "%{action} = %{key}、%{other} = %{old}"}
+keys.msg_set: {en: "%{action} is now %{key}.", it: "%{action} ora è %{key}.", ja: "%{action} は %{key} になりました。"}
+keys.msg_swapped: {en: "%{action} is now %{key}; %{other} is now %{old}.", it: "%{action} ora è %{key}; %{other} ora è %{old}.", ja: "%{action} は %{key}、%{other} は %{old} になりました。"}
 keys.msg_refused: {en: "%{key} is not allowed", it: "%{key} non è consentito", ja: "%{key} は使えません"}
 keys.msg_is_a_key: {en: "%{key}: use the KEYBOARD column", it: "%{key}: usa la colonna TASTIERA", ja: "%{key}：キーボード列を使用"}
 keys.msg_is_a_control: {en: "%{key}: use the CONTROLLER column", it: "%{key}: usa la colonna CONTROLLER", ja: "%{key}：コントローラー列を使用"}
