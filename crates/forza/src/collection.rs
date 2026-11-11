@@ -125,7 +125,8 @@ pub enum Position {
 pub struct Card<'a> {
     /// The game's card number (catalogue `card_no`), the log's and the market's identity of a card.
     pub card_no: u32,
-    /// The game's player record (catalogue `record_index`): the same number on every card of one player.
+    /// One number per player, the same on every card of that player: the caller derives it with
+    /// `board::Card::same_player` (name and birth date). Not `record_index`: that differs on every card.
     pub player: u32,
     pub rarity: Rarity,
     /// The game's TOTAL, 60 to 100.
