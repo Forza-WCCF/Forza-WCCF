@@ -11,6 +11,19 @@ use forza::cards::collection_cards;
 use forza::collection::{self as c, LEAGUES, Log, Rarity};
 use forza_ui::collection::{Choice, CollectionView, Filter, StartRow, Step};
 
+/// The deal drawn and not taken yet, in the profile's collection folder: DEAL writes it, TAKE removes it, so a restart
+/// or a trip to FREE and back shows the same 12 cards (`PLAN.md` 2.4: "You choose once"). A reset archives the folder
+/// with the log, which is what brings the picker back.
+pub const PENDING: &str = "starter.pending.json";
+
+/// The deal as the file holds it: the numbers, so a catalogue rebuild or a new `starter_rares` cannot reroll it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Pending {
+    choice: Choice,
+    dealt: Vec<u32>,
+    rares: Vec<u32>,
+}
+
 /// The picker's rows (`PLAN.md` 2.4): All seasons first, then every season of the catalogue with the mean TOTAL of its
 /// REGULAR cards (a season start is unbanded, so the mean is what the 11 land near), then the 9 leagues (banded).
 pub fn starts(catalogue: &[Card]) -> Vec<StartRow> {
@@ -58,6 +71,12 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
     };
     let step = match step {
         _ if started => Step::Page,
+        _ if let Some((choice, dealt, rares)) = pending(catalogue, dir) => Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: None,
+        },
         Step::Page => Step::Choose {
             starts: starts(catalogue),
             chosen: None,
@@ -83,19 +102,36 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
     })
 }
 
-/// The first start's deal for `choice`: the 11 and the 3 RARE cards, from a fresh seed.
-pub fn deal(catalogue: &[Card], choice: Choice) -> (Vec<Card>, Vec<Card>) {
-    let pool = collection_cards(catalogue);
-    let mut rng = c::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
-    let back = |picked: Vec<&c::Card>| -> Vec<Card> {
-        picked
-            .iter()
-            .filter_map(|p| catalogue.iter().find(|k| k.number == p.card_no).cloned())
+/// The deal on disk as catalogue cards: `None` when there is none, or the catalogue no longer holds one of its numbers
+/// (a rebuild).
+fn pending(catalogue: &[Card], dir: &Path) -> Option<(Choice, Vec<Card>, Vec<Card>)> {
+    let text = std::fs::read_to_string(dir.join(PENDING)).ok()?;
+    let deal: Pending = serde_json::from_str(&text).ok()?;
+    let back = |nos: &[u32]| -> Option<Vec<Card>> {
+        nos.iter()
+            .map(|n| catalogue.iter().find(|k| k.number == *n).cloned())
             .collect()
     };
-    let eleven = back(c::starter(&mut rng, &pool, choice.start()));
-    let rares = back(c::starter_rares(&mut rng, &pool, choice.start()));
-    (eleven, rares)
+    Some((deal.choice, back(&deal.dealt)?, back(&deal.rares)?))
+}
+
+/// DEAL: the first start's 11 and 3 RARE cards for `choice` from a fresh seed, written down until TAKE removes them.
+pub fn deal(catalogue: &[Card], dir: &Path, choice: Choice) -> io::Result<()> {
+    let pool = collection_cards(catalogue);
+    let mut rng = c::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
+    let deal = Pending {
+        choice,
+        dealt: c::starter(&mut rng, &pool, choice.start())
+            .iter()
+            .map(|p| p.card_no)
+            .collect(),
+        rares: c::starter_rares(&mut rng, &pool, choice.start())
+            .iter()
+            .map(|p| p.card_no)
+            .collect(),
+    };
+    let text = serde_json::to_string(&deal).map_err(io::Error::other)?;
+    launcher::choices::write(&dir.join(PENDING), &text)
 }
 
 /// TAKE THIS TEAM: the 11 and the RARE picked as `starter` lines, and the welcome once per installation (its mark in
@@ -112,19 +148,24 @@ pub fn take(dir: &Path, data: &Path, step: &Step) -> io::Result<Vec<c::Entry>> {
     };
     let cards: Vec<u32> = dealt.iter().chain(rares.get(*i)).map(|k| k.number).collect();
     std::fs::create_dir_all(dir)?;
-    c::first_start(
+    let out = c::first_start(
         &Log::new(dir),
         &data.join(c::WELCOME_MARK),
         c::now(),
         &cards,
         &choice.why(),
-    )
+    )?;
+    // the deal is spent: only a reset brings the picker back, and the reset takes the file with the folder
+    let _ = std::fs::remove_file(dir.join(PENDING));
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use forza::board::{Position, Rarity as R};
+    use forza::profile::Profile;
+    use std::path::PathBuf;
 
     /// A catalogue of 2 seasons: per season 2 GK, 6 DF, 6 MF, 4 FW REGULAR at TOTAL 80-82 and 4 RARE.
     fn catalogue() -> Vec<Card> {
@@ -156,23 +197,47 @@ mod tests {
         out
     }
 
+    /// The profile's collection folder and the kit's `data`, built as the app builds them (a reset and the welcome
+    /// mark's place both hang off these two paths).
+    fn profile(data: &Path) -> (PathBuf, PathBuf) {
+        let coll = Profile::CreateATeam.collection(data).unwrap();
+        (coll, data.to_path_buf())
+    }
+
+    /// The numbers of a view's deal, for comparing what a restart shows with what was written.
+    fn numbers(step: &Step) -> (Vec<u32>, Vec<u32>) {
+        let Step::Pick { dealt, rares, .. } = step else {
+            panic!("no deal on the screen")
+        };
+        let nos = |cards: &[Card]| cards.iter().map(|k| k.number).collect::<Vec<_>>();
+        (nos(dealt), nos(rares))
+    }
+
     /// 1.4 (a), (b) through the tab: DEAL, TAKE THIS TEAM writes 12 starter lines of the choice and the welcome, the view
-    /// turns to the page with 12 starter cards and 150 tokens; a second TAKE writes nothing.
+    /// turns to the page with 12 starter cards and 150 tokens; a second TAKE writes nothing. The welcome's mark lands
+    /// beside `data`, outside the profile's folder, which a reset never touches.
     #[test]
     fn the_first_start_takes_the_deal_once() {
         let cat = catalogue();
         let dir = tempfile::tempdir().unwrap();
-        let (coll, data) = (dir.path().join("collection"), dir.path().to_path_buf());
+        let (coll, data) = profile(dir.path());
         let v = view(&cat, &coll, None).unwrap();
         let Step::Choose { starts, .. } = &v.step else {
             panic!("a new profile opens on the picker")
         };
         assert_eq!(starts[0].choice, Choice::AllSeasons);
         assert_eq!(starts.len(), 1 + 2 + LEAGUES.len());
-        let (dealt, rares) = deal(&cat, Choice::League(0));
+        deal(&cat, &coll, Choice::League(0)).unwrap();
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("DEAL leaves the deal on the screen")
+        };
+        assert_eq!(choice, Choice::League(0));
         assert_eq!((dealt.len(), rares.len()), (11, 3));
         let step = Step::Pick {
-            choice: Choice::League(0),
+            choice,
             dealt,
             rares,
             picked: Some(2),
@@ -186,6 +251,7 @@ mod tests {
         );
         assert_eq!(lines.iter().filter(|e| e.kind == c::Kind::Welcome).count(), 1);
         assert!(data.join(c::WELCOME_MARK).is_file());
+        assert!(!coll.join(c::WELCOME_MARK).exists(), "the mark is outside the profile");
         let v = view(&cat, &coll, Some(v)).unwrap();
         assert!(matches!(v.step, Step::Page));
         assert_eq!((v.cards.len(), v.tokens), (12, c::WELCOME));
@@ -193,5 +259,49 @@ mod tests {
         let before = std::fs::read(coll.join("grants.jsonl")).unwrap();
         assert!(take(&coll, &data, &step).unwrap().is_empty());
         assert_eq!(std::fs::read(coll.join("grants.jsonl")).unwrap(), before);
+    }
+
+    /// 1.4 review #1: DEAL writes the deal in the profile's own folder and a view made again (a Launcher restart; FREE
+    /// and back to CREATE-A-TEAM, which drops free play's view) shows the same 12 numbers; TAKE removes the file; a reset
+    /// shows the picker again.
+    #[test]
+    fn the_deal_stays_until_it_is_taken() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::Season(2013)).unwrap();
+        let written: Pending = serde_json::from_str(&std::fs::read_to_string(coll.join(PENDING)).unwrap()).unwrap();
+        assert_eq!((written.dealt.len(), written.rares.len()), (11, 3));
+        assert_eq!(written.choice, Choice::Season(2013));
+
+        // the view made again from the log alone: a restart, and FREE -> CREATE-A-TEAM
+        let v = view(&cat, &coll, None).unwrap();
+        assert_eq!(numbers(&v.step), (written.dealt.clone(), written.rares.clone()));
+        assert!(Profile::Free.collection(&data).is_none());
+        let back = view(&cat, &Profile::CreateATeam.collection(&data).unwrap(), None).unwrap();
+        assert_eq!(numbers(&back.step), numbers(&v.step));
+
+        // TAKE: the 12 starter lines and the file gone
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = back.step
+        else {
+            panic!("no deal on the screen")
+        };
+        let step = Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: Some(0),
+        };
+        let lines = take(&coll, &data, &step).unwrap();
+        assert_eq!(lines.iter().filter(|e| e.kind == c::Kind::Starter).count(), 12);
+        assert!(!coll.join(PENDING).exists(), "TAKE removes the deal");
+        assert!(matches!(view(&cat, &coll, None).unwrap().step, Step::Page));
+
+        // a reset: the folder goes, so the picker is back
+        std::fs::remove_dir_all(&coll).unwrap();
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(matches!(v.step, Step::Choose { .. }));
     }
 }
