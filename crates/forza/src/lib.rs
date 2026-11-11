@@ -108,6 +108,7 @@ pub mod curl;
 pub mod keys;
 pub mod kit;
 pub mod layout;
+pub mod market;
 pub mod online;
 pub mod panel_txt;
 pub mod pause;

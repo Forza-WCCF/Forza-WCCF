@@ -2152,6 +2152,7 @@ dependencies = [
  "chrono-tz",
  "csv",
  "deunicode",
+ "ed25519-dalek",
  "emath",
  "encoding_rs",
  "freetype-rs",
