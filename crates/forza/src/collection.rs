@@ -2,6 +2,10 @@
 //! the locked append, the economy table, the seeded draws and CONVERT. Pure code: the caller passes its own `Card` rows
 //! (built from the catalogue), so the module needs no catalogue and the Linux server builds it ('--no-default-features').
 //!
+//! The table is draft 7.3 (`PLAN.md` 2.1-2.4): a card is worth base x rating step x series factor, a secret card a flat
+//! price until the catalogue gives it a TOTAL; a match pays 50 tokens until the week's 1,050, and the week turns on
+//! Monday at 05:00.
+//!
 //! The log is the source of truth: one JSON object per line, append-only, each line's `prev` the SHA-256 of the line
 //! before it. The state is a fold over the lines and is never stored. The log stores tokens, never card values, so a
 //! later `RULES` does not rewrite history.
@@ -17,29 +21,61 @@ use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
 /// The economy table's version: every line states the table it was written under, and the market refuses an older one.
-pub const RULES: u32 = 1;
+pub const RULES: u32 = 2;
 
-/// The craft value of one card of each tier at TOTAL under 85.
-const BASE: [u32; 5] = [40, 100, 400, 1_500, 2_500];
-/// Every draw's odds per tier, in tenths of a percent: 68 %, 26 %, 5.5 %, 0.1 %, 0.4 % (6 % RARE or better).
-const ODDS: [u32; 5] = [680, 260, 55, 1, 4];
+/// A card's craft value at TOTAL under 85: white 40, black 160, RARE 400, LEGEND 1,500, ALL TIME LEGEND 2,500
+/// (`PLAN.md` 2.1; the black base rose from draft 6's 100).
+const BASE: [u32; 5] = [40, 160, 400, 1_500, 2_500];
+/// Every draw's odds per tier, in tenths of a percent: 68 %, 26 %, 5 %, 0.2 %, 0.8 % (6 % RARE or better).
+const ODDS: [u32; 5] = [680, 260, 50, 2, 8];
 /// The rating step: a card's TOTAL up to this value, and the step in percent (x1, x1.5, x2.5, x4).
 const STEPS: [(u32, u32); 4] = [(84, 100), (89, 150), (94, 250), (u32::MAX, 400)];
+/// A premium RARE's series factor in percent (`PLAN.md` 2.1): the award cards, worth more than their cell.
+const PREMIUM: [(&str, u32); 10] = [
+    ("MVP", 250),
+    ("POY", 250),
+    ("EMVP", 250),
+    ("WMVP", 250),
+    ("WBE", 150),
+    ("BES", 150),
+    ("BGK", 150),
+    ("BDF", 150),
+    ("BMF", 150),
+    ("BFW", 150),
+];
+/// A secret card's flat price per series, until the catalogue's second block gives it a TOTAL (`PLAN.md` 2.1, m1).
+/// The seven ALL TIME LEGEND series cover its 173 secret cards; `S-ATLE` is the spelling of one of SATLE's seven.
+const SECRET_PRICES: [(&str, u32); 8] = [
+    ("ATLE", 3_750),
+    ("HOLE", 6_250),
+    ("LEOC", 6_250),
+    ("SATLE", 6_250),
+    ("S-ATLE", 6_250),
+    ("LEU", 6_250),
+    ("KOLE", 10_000),
+    ("KLE", 10_000),
+];
+/// The 17 secret white reprints (`ATLE-RE-`, one without a code) take this, white x1; a secret series the table does
+/// not name takes the lowest flat cell, as the plan writes "where unsure the price is the lower cell".
+const SECRET_WHITE: u32 = 40;
+const SECRET_UNKNOWN: u32 = 3_750;
 /// Shares of a card's value in percent: CONVERT (exact), the market floor (up), server stock (exact), the ceiling (down).
 pub const CONVERT_SHARE: u32 = 20;
 pub const FLOOR_SHARE: u32 = 80;
 pub const STOCK_SHARE: u32 = 90;
 pub const CEILING_SHARE: u32 = 95;
-/// A pack: its price in tokens and its cards. Every pack draws at match-card odds with the same guarantee.
+/// A pack: its price in tokens and its cards. Every pack draws at match-card odds with the same guarantee, and no
+/// pack holds one player twice (`PLAN.md` 2.3).
 pub const PACK_CARDS: usize = 3;
 pub const STANDARD_PACK: i64 = 100;
 pub const SEASON_PACK: i64 = 150;
-pub const NATION_PACK: i64 = 150;
-/// Match tokens: the first match of the business day, each later one, and the day's cap (40 + 6 x 15, the first 7).
-pub const FIRST_MATCH: i64 = 40;
-pub const LATER_MATCH: i64 = 15;
-pub const DAILY_MATCH_CAP: i64 = 130;
-/// The starter: 11 REGULAR cards of the picked season (one GK, 4 DF, 4 MF, 2 FW) and 3 face-up RARE cards.
+pub const NATION_PACK: i64 = 200;
+/// Match tokens: 50 a match, win or lose, until the week's 1,050 (the first 21); past it the card still deals.
+pub const MATCH_TOKENS: i64 = 50;
+pub const WEEK_CAP: i64 = 1_050;
+/// The first start under the release rules pays this once per installation (`PLAN.md` 2.2).
+pub const WELCOME: i64 = 150;
+/// The starter: 11 REGULAR cards (one GK, 4 DF, 4 MF, 2 FW) and 3 face-up RARE cards of the same choice.
 pub const STARTER_DEAL: [(Position, usize); 4] = [
     (Position::Gk, 1),
     (Position::Df, 4),
@@ -47,6 +83,13 @@ pub const STARTER_DEAL: [(Position, usize); 4] = [
     (Position::Fw, 2),
 ];
 pub const STARTER_RARES: usize = 3;
+/// The 11-card mean a banded start lands in, and the deals it may be redrawn through before the closest one stays
+/// (`PLAN.md` 2.4: 80-82, 1,000 deals; South America needs about 90).
+pub const STARTER_BAND: (u32, u32) = (80, 82);
+pub const STARTER_DEALS: u32 = 1_000;
+/// The release's crafting tiers, white and black only: RARE and up come from packs, the market and the stock list
+/// (`PLAN.md` 2.3; a later `rules` version opens them).
+pub const CRAFT: [Rarity; 2] = [Rarity::Regular, Rarity::Special];
 
 /// The 24 nations a Nation pack offers: the rest of the nation team styles has too short a card pool.
 pub const NATIONS: [&str; 24] = [
@@ -75,6 +118,240 @@ pub const NATIONS: [&str; 24] = [
     "Switzerland",
     "Korea Republic",
 ];
+
+/// The nine leagues a league start offers (`PLAN.md` 2.4): the league's name and its clubs as the catalogue's
+/// `club_name` spells them, 146 of the pool's 164 names. The other 18 still drop and show under "All seasons". A club
+/// is mapped by its country's top league whatever division it played in that season (Piacenza, Le Mans ...).
+pub const LEAGUES: [(&str, &[&str]); 9] = [
+    (
+        "Italy (Serie A)",
+        &[
+            "Juventus",
+            "AC Milan",
+            "Inter",
+            "AS Roma",
+            "Lazio",
+            "Napoli",
+            "Udinese",
+            "Parma",
+            "Bologna",
+            "Perugia",
+            "Fiorentina",
+            "Brescia",
+            "Torino",
+            "Atalanta",
+            "Piacenza",
+            "Chievo Verona",
+            "Venezia",
+            "Sampdoria",
+            "Reggina",
+            "Modena",
+            "Hellas Verona",
+            "Empoli",
+            "Como",
+            "Lecce",
+            "Genoa",
+            "Catania",
+            "Sassuolo",
+            "Palermo",
+            "Messina",
+            "Cagliari",
+        ],
+    ),
+    (
+        "Spain (La Liga)",
+        &[
+            "FC Barcelona",
+            "Real Madrid",
+            "Atletico Madrid",
+            "Valencia",
+            "Villarreal",
+            "Sevilla",
+            "Celta Vigo",
+            "Malaga",
+            "Real Betis",
+            "Deportivo La Coruna",
+            "Real Sociedad",
+            "Mallorca",
+            "Getafe",
+            "Athletic Club",
+        ],
+    ),
+    (
+        "England (Premier League)",
+        &[
+            "Arsenal",
+            "Chelsea",
+            "Manchester United",
+            "Liverpool",
+            "Manchester City",
+            "Leicester City",
+            "Newcastle United",
+            "Southampton",
+            "Tottenham Hotspur",
+            "Everton",
+            "West Ham United",
+            "West Bromwich Albion",
+            "Stoke City",
+            "Queens Park Rangers",
+            "Leeds United",
+            "Crystal Palace",
+        ],
+    ),
+    (
+        "Germany (Bundesliga)",
+        &[
+            "Bayern Munchen",
+            "Borussia Dortmund",
+            "Schalke 04",
+            "Bayer Leverkusen",
+            "VfL Wolfsburg",
+            "Hamburger SV",
+            "VfB Stuttgart",
+            "Hannover 96",
+            "Hertha BSC",
+            "Eintracht Frankfurt",
+            "Mainz 05",
+            "1. FC Nurnberg",
+            "1. FC Koln",
+            "VfL Bochum",
+            "Hoffenheim",
+            "FC Augsburg",
+            "Werder Bremen",
+            "Borussia Monchengladbach",
+            "1860 Munchen",
+        ],
+    ),
+    (
+        "France (Ligue 1)",
+        &[
+            "Paris Saint-Germain",
+            "Olympique Lyonnais",
+            "Girondins de Bordeaux",
+            "Olympique de Marseille",
+            "LOSC Lille",
+            "Montpellier",
+            "Grenoble",
+            "AS Monaco",
+            "Saint-Etienne",
+            "Le Mans",
+            "FC Metz",
+        ],
+    ),
+    (
+        "Netherlands (Eredivisie)",
+        &[
+            "Ajax",
+            "PSV Eindhoven",
+            "Feyenoord",
+            "AZ Alkmaar",
+            "Vitesse",
+            "VVV-Venlo",
+            "Heerenveen",
+            "FC Utrecht",
+            "FC Dordrecht",
+        ],
+    ),
+    (
+        "Portugal (Primeira Liga)",
+        &["FC Porto", "Benfica", "Sporting CP", "Maritimo"],
+    ),
+    (
+        "Japan (J.League and forerunners)",
+        &[
+            "Gamba Osaka",
+            "Urawa Reds",
+            "FC Tokyo",
+            "Kashima Antlers",
+            "Kawasaki Frontale",
+            "Vissel Kobe",
+            "Sanfrecce Hiroshima",
+            "Jubilo Iwata",
+            "Yokohama F. Marinos",
+            "Cerezo Osaka",
+            "Kashiwa Reysol",
+            "Sagan Tosu",
+            "Albirex Niigata",
+            "Shimizu S-Pulse",
+            "Consadole Sapporo",
+            "Ventforet Kofu",
+            "Vegalta Sendai",
+            "Omiya Ardija",
+            "Nagoya Grampus",
+            "Yokohama Marinos",
+            "Verdy Kawasaki",
+            "Fagiano Okayama",
+            "Avispa Fukuoka",
+            "Yokohama FC",
+            "Yanmar",
+            "Tokushima Vortis",
+            "Nissan FC",
+            "Mazda SC",
+            "JEF United Ichihara",
+            "JEF United Chiba",
+            "Gainare Tottori",
+            "Bellmare Hiratsuka",
+        ],
+    ),
+    (
+        "South America",
+        &[
+            "Boca Juniors",
+            "Sao Paulo",
+            "Flamengo",
+            "River Plate",
+            "Santos",
+            "Corinthians",
+            "Fluminense",
+            "Atletico Mineiro",
+            "Velez Sarsfield",
+            "Newell's Old Boys",
+            "Junior",
+        ],
+    ),
+];
+
+/// The league of a club name in [`LEAGUES`], `None` for the 18 names the table leaves out (they still drop and show
+/// under "All seasons").
+#[must_use]
+pub fn league_of(club: &str) -> Option<&'static str> {
+    LEAGUES
+        .iter()
+        .find(|(_, clubs)| clubs.contains(&club))
+        .map(|(league, _)| *league)
+}
+
+/// A starter choice (`PLAN.md` 2.4): which cards the 11 come from, and whether the deal must hit the band.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Start<'a> {
+    /// Every season, banded: the deal is redrawn until its 11 mean 80-82 (`s4`). The first entry of the picker.
+    AllSeasons,
+    /// One season, unbanded: the picker shows the season's own mean (2001-02: 75, 2013-14: 84).
+    Season(u16),
+    /// One league's clubs, any season, banded; a name [`LEAGUES`] does not hold deals from no card.
+    League(&'a str),
+}
+
+impl Start<'_> {
+    /// Whether a card belongs to this choice's pool (its season, or its club's league).
+    #[must_use]
+    pub fn has(self, card: &Card) -> bool {
+        match self {
+            Self::AllSeasons => true,
+            Self::Season(season) => card.season == season,
+            Self::League(name) => LEAGUES
+                .iter()
+                .find(|(league, _)| *league == name)
+                .is_some_and(|(_, clubs)| clubs.contains(&card.club)),
+        }
+    }
+
+    /// Whether the deal's 11 mean must land in [`STARTER_BAND`].
+    #[must_use]
+    pub fn banded(self) -> bool {
+        !matches!(self, Self::Season(_))
+    }
+}
 
 /// The five tiers, cheapest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,19 +406,63 @@ pub struct Card<'a> {
     /// `board::Card::same_player` (name and birth date). Not `record_index`: that differs on every card.
     pub player: u32,
     pub rarity: Rarity,
-    /// The game's TOTAL, 60 to 100.
+    /// The game's TOTAL, 60 to 100: 100 on a card whose back prints the placeholder.
     pub total: u32,
+    /// The card's series, its printed code without the number (`board::series`: `MVP-1` -> `MVP`, `S-ATLE` stays):
+    /// the premium factor and a secret card's flat price key on it.
+    pub series: &'a str,
+    /// A card whose back prints SECRET: the six stats are the placeholder, so its TOTAL is no rating.
+    pub secret: bool,
+    /// The TOTAL the catalogue's second block gives a secret card, once step 1.6 reads it: it yields the flat price.
+    pub secret_total: Option<u32>,
     /// The season's first year (2001 for 2001-02).
     pub season: u16,
     /// The catalogue's `nationality_name`, as the nation list spells it.
     pub nation: &'a str,
+    /// The catalogue's `club_name`: the league table maps it, and a league start picks by it.
+    pub club: &'a str,
     pub position: Position,
 }
 
-/// A card's craft value: its tier's base times its rating step. All 20 cells of the table are whole tokens.
+/// A card's craft value: its tier's base times its rating step times its series factor, or a secret card's flat price
+/// while the catalogue gives it no TOTAL. All cells of the table are whole tokens.
 #[must_use]
-pub fn value(rarity: Rarity, total: u32) -> u32 {
-    rarity.base() * step(total) / 100
+pub fn value(card: &Card) -> u32 {
+    if card.secret && card.secret_total.is_none() {
+        return secret_value(card);
+    }
+    let total = card.secret_total.unwrap_or(card.total);
+    card.rarity.base() * step(total) / 100 * factor(card.rarity, card.series) / 100
+}
+
+/// A secret card's flat price (`PLAN.md` 2.1): its series' cell, or 40 for the white reprints.
+fn secret_value(card: &Card) -> u32 {
+    if card.rarity == Rarity::Regular {
+        return SECRET_WHITE;
+    }
+    SECRET_PRICES
+        .iter()
+        .find(|(series, _)| *series == card.series)
+        .map_or(SECRET_UNKNOWN, |(_, price)| *price)
+}
+
+/// The series factor in percent: a premium RARE is worth 2.5 or 1.5 times its cell, every other card 1.
+#[must_use]
+pub fn factor(rarity: Rarity, series: &str) -> u32 {
+    if rarity != Rarity::Rare {
+        return 100;
+    }
+    PREMIUM
+        .iter()
+        .find(|(code, _)| *code == series)
+        .map_or(100, |(_, percent)| *percent)
+}
+
+/// The craft price of `card`: its value, no margin; `None` for a tier the release does not craft (white and black
+/// only, `PLAN.md` 2.3).
+#[must_use]
+pub fn craft(card: &Card) -> Option<u32> {
+    CRAFT.contains(&card.rarity).then(|| value(card))
 }
 
 /// The rating step in percent (100 = x1, 150 = x1.5, 250 = x2.5, 400 = x4).
@@ -171,17 +492,11 @@ pub fn ceiling_value(value: u32) -> u32 {
     value * CEILING_SHARE / 100
 }
 
-/// What a match pays, given the match tokens already earned in the business day: the first 40, each later one 15,
-/// nothing from the 8th on (the day's cap is 130).
+/// What a match pays, given the match tokens already earned in the week: 50 a match until the week's 1,050 (the first
+/// 21), nothing from the 22nd on. The card still deals past the cap (`PLAN.md` 2.2, g2).
 #[must_use]
-pub fn match_tokens(earned_today: i64) -> i64 {
-    if earned_today >= DAILY_MATCH_CAP {
-        0
-    } else if earned_today <= 0 {
-        FIRST_MATCH
-    } else {
-        LATER_MATCH
-    }
+pub fn match_tokens(earned_this_week: i64) -> i64 {
+    (WEEK_CAP - earned_this_week).clamp(0, MATCH_TOKENS)
 }
 
 /// The game's business day at `at` as `YYYYMMDD`: the day turns at 05:00 local and runs to the next 05:00, as the
@@ -189,6 +504,14 @@ pub fn match_tokens(earned_today: i64) -> i64 {
 #[must_use]
 pub fn day(at: OffsetDateTime) -> u32 {
     crate::online::championship::date(at)
+}
+
+/// The week's label at `at` as `YYYYWW`: the ISO week of the time 5 hours earlier, so it turns on Monday at 05:00 like
+/// the business day, and each line's own offset counts (`PLAN.md` 2.2).
+#[must_use]
+pub fn week(at: OffsetDateTime) -> u32 {
+    let (year, week, _) = (at - time::Duration::hours(5)).date().to_iso_week_date();
+    year.unsigned_abs() * 100 + u32::from(week)
 }
 
 /// A seeded draw's source (splitmix64): one seed and one pool give the same cards, in tests and in a replay.
@@ -263,28 +586,62 @@ pub fn match_card<'a>(rng: &mut Rng, pool: &'a [Card<'a>]) -> Option<&'a Card<'a
     draw(rng, pool, |_| true, &Rarity::ALL)
 }
 
-/// A pack's cards: `PACK_CARDS` at the match-card odds from the cards `pick` accepts, and when all of them came out
-/// REGULAR the last is redrawn from SPECIAL or better at those tiers' relative odds.
+/// A pack's cards: `PACK_CARDS` at the match-card odds from the cards `pick` accepts, no player twice (a tier with
+/// no new player steps down), and when all of them came out REGULAR the last is redrawn from SPECIAL or better at
+/// those tiers' relative odds.
 pub fn pack<'a>(
     rng: &mut Rng,
     pool: &'a [Card<'a>],
     pick: impl Fn(&Card) -> bool + Copy,
 ) -> Vec<&'a Card<'a>> {
-    let mut out: Vec<&Card> = (0..PACK_CARDS)
-        .filter_map(|_| draw(rng, pool, pick, &Rarity::ALL))
-        .collect();
-    if out.len() == PACK_CARDS
-        && out.iter().all(|c| c.rarity == Rarity::Regular)
-        && let Some(better) = draw(rng, pool, pick, &Rarity::BETTER)
-    {
-        out[PACK_CARDS - 1] = better;
+    let mut out: Vec<&Card> = vec![];
+    while out.len() < PACK_CARDS {
+        let next = draw(
+            rng,
+            pool,
+            |c| pick(c) && out.iter().all(|taken| taken.player != c.player),
+            &Rarity::ALL,
+        );
+        let Some(next) = next else { break };
+        out.push(next);
+    }
+    if out.len() == PACK_CARDS && out.iter().all(|c| c.rarity == Rarity::Regular) {
+        let kept: Vec<u32> = out[..PACK_CARDS - 1].iter().map(|c| c.player).collect();
+        if let Some(better) = draw(
+            rng,
+            pool,
+            |c| pick(c) && !kept.contains(&c.player),
+            &Rarity::BETTER,
+        ) {
+            out[PACK_CARDS - 1] = better;
+        }
     }
     out
 }
 
-/// The starter deal's 11 cards of `season`: 1 GK, 4 DF, 4 MF and 2 FW, REGULAR only, one card per player.
-pub fn starter<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Vec<&'a Card<'a>> {
-    let regular = |c: &Card| c.rarity == Rarity::Regular && c.season == season;
+/// The starter deal: 1 GK, 4 DF, 4 MF and 2 FW, REGULAR only, one card per player, no secret card (the band needs a
+/// TOTAL). A banded start redraws its 11 until their mean lands in [`STARTER_BAND`], [`STARTER_DEALS`] times at most,
+/// then keeps the deal closest to it; a season start keeps its first deal.
+pub fn starter<'a>(rng: &mut Rng, pool: &'a [Card<'a>], start: Start) -> Vec<&'a Card<'a>> {
+    let mut best = deal(rng, pool, start);
+    let mut off = band_off(&best);
+    for _ in 1..STARTER_DEALS {
+        if !start.banded() || off == 0 {
+            break;
+        }
+        let next = deal(rng, pool, start);
+        let next_off = band_off(&next);
+        if next_off < off {
+            best = next;
+            off = next_off;
+        }
+    }
+    best
+}
+
+/// One deal of [`starter`], unbanded.
+fn deal<'a>(rng: &mut Rng, pool: &'a [Card<'a>], start: Start) -> Vec<&'a Card<'a>> {
+    let regular = |c: &Card| c.rarity == Rarity::Regular && !c.secret && start.has(c);
     let mut out: Vec<&Card> = vec![];
     for (position, n) in STARTER_DEAL {
         for _ in 0..n {
@@ -301,14 +658,28 @@ pub fn starter<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Vec<&'a 
     out
 }
 
-/// The starter's 3 face-up RARE cards of `season`, three players: the first start picks one.
-pub fn starter_rares<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Vec<&'a Card<'a>> {
+/// How far a deal's 11-card mean TOTAL lies outside [`STARTER_BAND`], summed; `u32::MAX` for a deal short of 11 cards.
+fn band_off(deal: &[&Card]) -> u32 {
+    if deal.len() != STARTER_DEAL.iter().map(|(_, n)| n).sum::<usize>() {
+        return u32::MAX;
+    }
+    let sum: u32 = deal.iter().map(|c| c.total).sum();
+    let (low, high) = STARTER_BAND;
+    if sum < low * 11 {
+        low * 11 - sum
+    } else {
+        sum.saturating_sub(high * 11)
+    }
+}
+
+/// The starter's 3 face-up RARE cards of the same choice, three players: the first start picks one.
+pub fn starter_rares<'a>(rng: &mut Rng, pool: &'a [Card<'a>], start: Start) -> Vec<&'a Card<'a>> {
     let mut out: Vec<&Card> = vec![];
     while out.len() < STARTER_RARES {
         let idx: Vec<usize> = pool
             .iter()
             .enumerate()
-            .filter(|(_, c)| c.rarity == Rarity::Rare && c.season == season)
+            .filter(|(_, c)| c.rarity == Rarity::Rare && start.has(c))
             .filter(|(_, c)| out.iter().all(|taken| taken.player != c.player))
             .map(|(i, _)| i)
             .collect();
@@ -325,6 +696,8 @@ pub fn starter_rares<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Ve
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Starter,
+    /// The first start under the release rules: 150 tokens, once per installation, no card.
+    Welcome,
     Match,
     /// A pack's card; a pack's own line has no `card` and carries its price.
     Pack,
@@ -335,6 +708,8 @@ pub enum Kind {
     Unlist,
     MarketBuy,
     MarketSell,
+    /// A card bought from the own stock list of the day, with its price (`PLAN.md` 3.5).
+    StockBuy,
 }
 
 /// One line of `grants.jsonl`.
@@ -393,13 +768,13 @@ impl Copies {
     }
 }
 
-/// The log folded: the cards, the token balance and the day's match tokens.
+/// The log folded: the cards, the token balance and the week's match tokens.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub cards: BTreeMap<u32, Copies>,
     pub tokens: i64,
-    /// Match tokens earned in the business day the fold was asked about (the daily cap's counter).
-    pub match_today: i64,
+    /// Match tokens earned in the week the fold was asked about (the weekly cap's counter).
+    pub match_week: i64,
     /// The last line's number (0 for an empty log).
     pub seq: u64,
 }
@@ -411,10 +786,10 @@ impl State {
         self.cards.get(&card).copied().unwrap_or_default()
     }
 
-    /// What the next match pays now: [`match_tokens`] at today's counter.
+    /// What the next match pays now: [`match_tokens`] at the week's counter.
     #[must_use]
     pub fn match_pays(&self) -> i64 {
-        match_tokens(self.match_today)
+        match_tokens(self.match_week)
     }
 }
 
@@ -432,11 +807,11 @@ pub struct Folded {
     pub warnings: Vec<String>,
 }
 
-/// Fold a log into the state, counting the day's match tokens against `today` ([`day`]). A line that does not parse
+/// Fold a log into the state, counting the week's match tokens against `week` ([`week`]). A line that does not parse
 /// ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match that line are
 /// warnings, and the lines around them are kept.
 #[must_use]
-pub fn fold_at(lines: &str, today: u32) -> Folded {
+pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut out = Folded::default();
     let mut before: Option<&str> = None;
     let mut seq = 0;
@@ -474,25 +849,29 @@ pub fn fold_at(lines: &str, today: u32) -> Folded {
                 ));
             }
         }
-        out.state.apply(&entry, today);
+        out.state.apply(&entry, this_week);
         before = Some(line);
     }
     out
 }
 
 impl State {
-    fn apply(&mut self, entry: &Entry, today: u32) {
+    fn apply(&mut self, entry: &Entry, this_week: u32) {
         self.seq = entry.seq;
         self.tokens += entry.tokens;
-        if entry.kind == Kind::Match && day(entry.at) == today {
-            self.match_today += entry.tokens;
+        if entry.kind == Kind::Match && week(entry.at) == this_week {
+            self.match_week += entry.tokens;
         }
         if let Some(card) = entry.card {
             let copies = self.cards.entry(card).or_default();
             match entry.kind {
                 Kind::Starter => copies.starter += 1,
                 Kind::Import => copies.imported += 1,
-                Kind::Match | Kind::Pack | Kind::Craft | Kind::MarketBuy => copies.earned += 1,
+                Kind::Match | Kind::Pack | Kind::Craft | Kind::MarketBuy | Kind::StockBuy => {
+                    copies.earned += 1;
+                }
+                // The welcome pays tokens only; a line carrying a card with it counts nothing.
+                Kind::Welcome => {}
                 Kind::Convert => copies.earned = copies.earned.saturating_sub(1),
                 // A sale is the sale of a listed copy: it leaves the collection and the market at once.
                 Kind::MarketSell => {
@@ -506,10 +885,10 @@ impl State {
     }
 }
 
-/// Fold a log into the state for the business day now.
+/// Fold a log into the state for the week now.
 #[must_use]
 pub fn fold(lines: &str) -> Folded {
-    fold_at(lines, day(now()))
+    fold_at(lines, week(now()))
 }
 
 /// This PC's clock, local time where Windows gives it.
@@ -652,7 +1031,7 @@ impl Log {
         if let Some(complete) = cut {
             text.truncate(complete);
         }
-        let folded = fold_at(&text, day(at));
+        let folded = fold_at(&text, week(at));
         if folded.unreadable {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -708,14 +1087,14 @@ pub enum NoConvert {
 /// CONVERT: [`CONVERT_SHARE`] of the card's value for a spare earned copy. Refused for the last unlisted earned copy
 /// (a listed copy is out on the market, so it does not count) and for a starter or imported copy (a starter or imported
 /// copy does not make an earned one a spare).
-pub fn convert(copies: &Copies, rarity: Rarity, total: u32) -> Result<u32, NoConvert> {
+pub fn convert(copies: &Copies, card: &Card) -> Result<u32, NoConvert> {
     if copies.earned == 0 {
         return Err(NoConvert::NoEarned);
     }
     if copies.earned.saturating_sub(copies.listed) < 2 {
         return Err(NoConvert::LastEarned);
     }
-    Ok(value(rarity, total) * CONVERT_SHARE / 100)
+    Ok(value(card) * CONVERT_SHARE / 100)
 }
 
 #[cfg(test)]
@@ -725,6 +1104,28 @@ mod tests {
 
     fn when(s: &str) -> OffsetDateTime {
         OffsetDateTime::parse(s, &Rfc3339).unwrap()
+    }
+
+    /// The week of the test log's own instant: Wednesday 11 November 2026, noon.
+    fn this_week() -> u32 {
+        week(when("2026-11-11T12:00:00+01:00"))
+    }
+
+    /// A plain card of the value table: no series, no secret, one season and club.
+    fn card(rarity: Rarity, total: u32) -> Card<'static> {
+        Card {
+            card_no: 0,
+            player: 0,
+            rarity,
+            total,
+            series: "",
+            secret: false,
+            secret_total: None,
+            season: 2017,
+            nation: "Italy",
+            club: "",
+            position: Position::Mf,
+        }
     }
 
     /// A log built line by line, each line chained to the one before it.
@@ -753,13 +1154,13 @@ mod tests {
         }
     }
 
-    /// A fixed log of 9 lines, all on one business day except the last two.
+    /// A fixed log of 10 lines, all on one business day except the last two.
     fn fixed() -> Fixture {
         let mut f = Fixture::default();
         f.add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(1), 0)
             .add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(2), 0)
-            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(3), 40)
-            .add("2026-11-11T12:02:00+01:00", Kind::Match, Some(3), 15)
+            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(3), 50)
+            .add("2026-11-11T12:02:00+01:00", Kind::Match, Some(3), 50)
             .add(
                 "2026-11-11T12:03:00+01:00",
                 Kind::Pack,
@@ -774,11 +1175,11 @@ mod tests {
         f
     }
 
-    /// (a) the fold's copies per source, the balance and the day's match tokens; a torn last line dropped.
+    /// (3.1) the fold's copies per source, the balance and the week's match tokens; a torn last line dropped.
     #[test]
     fn fold_counts_copies_and_drops_a_torn_last_line() {
         let f = fixed();
-        let folded = fold_at(&f.text, 2026_1111);
+        let folded = fold_at(&f.text, this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         let s = &folded.state;
         assert_eq!(s.seq, 10);
@@ -814,15 +1215,15 @@ mod tests {
             }
         );
         assert_eq!(s.copies(9), Copies::default());
-        assert_eq!(s.tokens, 40 + 15 - STANDARD_PACK + 30);
-        assert_eq!(s.match_today, 55);
+        assert_eq!(s.tokens, 50 + 50 - STANDARD_PACK + 30);
+        assert_eq!(s.match_week, 100);
         assert!(s.copies(3).owned());
 
         // A torn last line (line 10): dropped with a warning, the 9 lines before it kept.
         let mut torn = f.text.clone();
         torn.truncate(torn[..torn.len() - 1].rfind('\n').unwrap() + 1);
         torn.push_str("{\"seq\": 99, \"at\": \"2026-11-11T0");
-        let folded = fold_at(&torn, 2026_1111);
+        let folded = fold_at(&torn, this_week());
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
             folded.warnings[0].starts_with("line 10 does not parse"),
@@ -841,12 +1242,12 @@ mod tests {
         );
     }
 
-    /// (a) a line whose `prev` is not the line before it: the chain reports it, the fold goes on.
+    /// (3.1) a line whose `prev` is not the line before it: the chain reports it, the fold goes on.
     #[test]
     fn fold_reports_a_broken_chain() {
         let f = fixed();
         let broken = f.text.replacen("\"match\"", "\"craft\"", 1);
-        let folded = fold_at(&broken, 2026_1111);
+        let folded = fold_at(&broken, this_week());
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
             folded.warnings[0].contains("prev is not the SHA-256"),
@@ -863,10 +1264,10 @@ mod tests {
     #[test]
     fn fold_reports_a_seq_out_of_order() {
         let mut f = Fixture::default();
-        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(1), 40);
+        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(1), 50);
         f.seq += 1; // the next line claims 3
-        f.add("2026-11-11T12:01:00+01:00", Kind::Match, Some(1), 15);
-        let folded = fold_at(&f.text, 2026_1111);
+        f.add("2026-11-11T12:01:00+01:00", Kind::Match, Some(1), 50);
+        let folded = fold_at(&f.text, this_week());
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
             folded.warnings[0].starts_with("line 2: seq is 3"),
@@ -875,23 +1276,27 @@ mod tests {
         );
         assert!(!folded.unreadable);
         assert_eq!(folded.state.seq, 3, "the fold goes on");
-        assert_eq!(folded.state.tokens, 55);
+        assert_eq!(folded.state.tokens, 100);
     }
 
-    /// (b) the value table's 20 cells at the rating steps' edges, and a 150 card's floor, stock and ceiling.
+    /// (a) PLAN 2.1: base x rating step x series factor, the secret flat prices and the second block's TOTAL.
     #[test]
     fn value_table() {
-        // TOTAL 84 x1, 85 and 89 x1.5, 90 and 94 x2.5, 95 x4: the table's 20 cells at their edges.
+        // TOTAL 84 x1, 85 and 89 x1.5, 90 and 94 x2.5, 95 x4, no series factor: the table's cells at their edges.
         for (total, expected) in [
-            (84, [40, 100, 400, 1_500, 2_500]),
-            (85, [60, 150, 600, 2_250, 3_750]),
-            (89, [60, 150, 600, 2_250, 3_750]),
-            (90, [100, 250, 1_000, 3_750, 6_250]),
-            (94, [100, 250, 1_000, 3_750, 6_250]),
-            (95, [160, 400, 1_600, 6_000, 10_000]),
+            (84, [40, 160, 400, 1_500, 2_500]),
+            (85, [60, 240, 600, 2_250, 3_750]),
+            (89, [60, 240, 600, 2_250, 3_750]),
+            (90, [100, 400, 1_000, 3_750, 6_250]),
+            (94, [100, 400, 1_000, 3_750, 6_250]),
+            (95, [160, 640, 1_600, 6_000, 10_000]),
         ] {
             for (rarity, want) in Rarity::ALL.into_iter().zip(expected) {
-                assert_eq!(value(rarity, total), want, "{rarity:?} at TOTAL {total}");
+                assert_eq!(
+                    value(&card(rarity, total)),
+                    want,
+                    "{rarity:?} at TOTAL {total}"
+                );
             }
         }
         assert_eq!(step(84), 100);
@@ -901,15 +1306,69 @@ mod tests {
         assert_eq!(step(94), 250);
         assert_eq!(step(95), 400);
         assert_eq!(step(100), 400);
-        let special87 = value(Rarity::Special, 87);
-        assert_eq!(special87, 150);
-        assert_eq!(floor_value(special87), 120);
-        assert_eq!(stock_value(special87), 135);
-        assert_eq!(ceiling_value(special87), 142);
+        // A black at 87 is 160 x 1.5 = 240; its floor, stock and ceiling are 192, 216 and 228.
+        assert_eq!(value(&card(Rarity::Special, 87)), 240);
+        assert_eq!(floor_value(240), 192);
+        assert_eq!(stock_value(240), 216);
+        assert_eq!(ceiling_value(240), 228);
+        // A premium RARE: MVP at 96 is 400 x 4 x 2.5, WBE at 91 is 400 x 2.5 x 1.5, a plain RARE keeps x1.
+        let mvp = Card {
+            series: "MVP",
+            ..card(Rarity::Rare, 96)
+        };
+        assert_eq!(value(&mvp), 4_000);
+        assert_eq!(factor(Rarity::Rare, "MVP"), 250);
+        assert_eq!(factor(Rarity::Rare, "WMVP"), 250);
+        let wbe = Card {
+            series: "WBE",
+            ..card(Rarity::Rare, 91)
+        };
+        assert_eq!(value(&wbe), 1_500);
+        assert_eq!(factor(Rarity::Rare, "BFW"), 150);
+        assert_eq!(factor(Rarity::Rare, "GRP"), 100, "not premium (s1)");
+        assert_eq!(factor(Rarity::AllTimeLegend, "MVP"), 100, "RARE only");
+        // A secret card takes its series' flat price: HOLE 6,250, KOLE 10,000, a white reprint 40.
+        let secret = |rarity: Rarity, series: &'static str| Card {
+            series,
+            secret: true,
+            total: 100,
+            ..card(rarity, 100)
+        };
+        assert_eq!(value(&secret(Rarity::AllTimeLegend, "HOLE")), 6_250);
+        assert_eq!(value(&secret(Rarity::AllTimeLegend, "LEOC")), 6_250);
+        assert_eq!(value(&secret(Rarity::AllTimeLegend, "S-ATLE")), 6_250);
+        assert_eq!(value(&secret(Rarity::AllTimeLegend, "KOLE")), 10_000);
+        assert_eq!(value(&secret(Rarity::AllTimeLegend, "ATLE")), 3_750);
+        assert_eq!(value(&secret(Rarity::Regular, "ATLE-RE")), 40);
+        // A printed KLE at 99 is 2,500 x 4, the cell its three secret siblings share.
+        let printed = Card {
+            series: "KLE",
+            ..card(Rarity::AllTimeLegend, 99)
+        };
+        assert_eq!(value(&printed), 10_000);
+        // The one RARE that prints a real TOTAL 100 is not secret: 400 x 4, no flat price.
+        assert_eq!(value(&card(Rarity::Rare, 100)), 1_600);
+        // R.1: once the catalogue's second block gives the secret card a TOTAL, its value is computed like any other.
+        let hole_88 = Card {
+            secret_total: Some(88),
+            ..secret(Rarity::AllTimeLegend, "HOLE")
+        };
+        assert_eq!(value(&hole_88), 3_750);
         // The one line that needs rounding: 95 % of 142.5, and the narrowest band of all (a white 40: 32-38).
-        assert_eq!(ceiling_value(150), 142);
         assert_eq!(floor_value(40), 32);
         assert_eq!(ceiling_value(40), 38);
+    }
+
+    /// (e) PLAN 2.3: the release crafts white and black only, at the card's value.
+    #[test]
+    fn craft_is_white_and_black_only() {
+        assert_eq!(craft(&card(Rarity::Regular, 84)), Some(40));
+        assert_eq!(craft(&card(Rarity::Regular, 100)), Some(160));
+        assert_eq!(craft(&card(Rarity::Special, 87)), Some(240));
+        assert_eq!(craft(&card(Rarity::Special, 96)), Some(640));
+        for rarity in [Rarity::Rare, Rarity::Legend, Rarity::AllTimeLegend] {
+            assert_eq!(craft(&card(rarity, 90)), None, "{rarity:?} is not crafted");
+        }
     }
 
     /// The share of each tier in `n` draws, in percent, after step-down.
@@ -922,10 +1381,11 @@ mod tests {
         count.map(|c| f64::from(c) * 100.0 / n as f64)
     }
 
-    /// (c) 100,000 seeded draws keep the table's odds from the whole pool and from one small season.
+    /// (b) PLAN 2.1: 100,000 seeded draws keep the table's odds from the whole pool and from one small season whose
+    /// pool carries every tier (a tier the pool lacks steps down, see the fixture below).
     #[test]
     fn draws_keep_the_odds() {
-        let odds = [68.0, 26.0, 5.5, 0.1, 0.4];
+        let odds = [68.0, 26.0, 5.0, 0.2, 0.8];
         // The whole pool: every tier, several cards each (the pool's own shares do not move the odds).
         let whole: Vec<Card> = (0..5)
             .flat_map(|t| {
@@ -937,18 +1397,29 @@ mod tests {
                     total: 85,
                     season: 2017,
                     nation: "Italy",
+                    club: "Juventus",
+                    series: "",
+                    secret: false,
+                    secret_total: None,
                     position: Position::Mf,
                 })
             })
             .collect();
         let got = shares(|rng| match_card(rng, &whole).unwrap(), 100_000, 0x0005_EED1);
-        for (tier, (got, want)) in got.iter().zip(odds).enumerate() {
+        // The three tiers a 100,000-draw sample measures alone; the top two are 1 card in 100 together.
+        for (tier, (got, want)) in got.iter().zip(odds).enumerate().take(3) {
             assert!(
-                (got - want).abs() < 1.0,
+                (got - want).abs() < 0.3,
                 "{:?} {got} %, want {want} %",
                 Rarity::ALL[tier]
             );
         }
+        assert!(
+            (got[3] + got[4] - 1.0).abs() < 0.1,
+            "LEGEND + ALL TIME LEGEND {} %",
+            got[3] + got[4]
+        );
+        assert!(got[3] < got[4], "LEGEND is the rarer tier: {got:?}");
         // One small season: 26 cards of 2004, every tier (a season whose pool has all five keeps the table's odds).
         let counts = [10, 8, 5, 2, 1];
         let season: Vec<Card> = (0..5)
@@ -961,6 +1432,10 @@ mod tests {
                     total: 90,
                     season: 2004,
                     nation: "Italy",
+                    club: "Juventus",
+                    series: "",
+                    secret: false,
+                    secret_total: None,
                     position: Position::Df,
                 })
             })
@@ -979,7 +1454,7 @@ mod tests {
         }
     }
 
-    /// (c) a nation with no RARE, LEGEND or ALL TIME LEGEND: those rolls step down to SPECIAL, 68 / 32.
+    /// (b) a nation with no RARE, LEGEND or ALL TIME LEGEND: those rolls step down to SPECIAL, 68 / 32.
     #[test]
     fn draws_step_down_in_a_short_nation() {
         let mut pool: Vec<Card> = vec![];
@@ -991,6 +1466,10 @@ mod tests {
                 total: 80,
                 season: 2010,
                 nation: "Korea Republic",
+                club: "",
+                series: "",
+                secret: false,
+                secret_total: None,
                 position: Position::Mf,
             });
         }
@@ -1002,6 +1481,10 @@ mod tests {
                 total: 88,
                 season: 2010,
                 nation: "Korea Republic",
+                club: "",
+                series: "",
+                secret: false,
+                secret_total: None,
                 position: Position::Gk,
             });
         }
@@ -1024,6 +1507,10 @@ mod tests {
                 total: 92,
                 season: 2017,
                 nation: if i < 15 { "Japan" } else { "Brazil" },
+                club: if i < 15 { "Urawa Reds" } else { "Sao Paulo" },
+                series: "",
+                secret: false,
+                secret_total: None,
                 position: Position::Mf,
             });
         }
@@ -1050,6 +1537,49 @@ mod tests {
         }
     }
 
+    /// A fixture pool card: `player` and `card_no` its own, Juventus and Italy, season 2004, no series.
+    fn pool_card(n: u32, rarity: Rarity, total: u32, position: Position) -> Card<'static> {
+        Card {
+            card_no: n,
+            player: n,
+            rarity,
+            total,
+            series: "",
+            secret: false,
+            secret_total: None,
+            season: 2004,
+            nation: "Italy",
+            club: "Juventus",
+            position,
+        }
+    }
+
+    /// Two fixture cards of each of `n` players, their ids from `base`: a pack that ignored the rule would repeat one.
+    fn two_per_player(
+        pool: &mut Vec<Card<'static>>,
+        base: u32,
+        n: u32,
+        rarity: Rarity,
+        nation: &'static str,
+        season: u16,
+    ) {
+        for i in 0..n {
+            pool.push(Card {
+                card_no: pool.len() as u32,
+                player: base + i / 2,
+                rarity,
+                total: 85,
+                series: "",
+                secret: false,
+                secret_total: None,
+                season,
+                nation,
+                club: "",
+                position: Position::Mf,
+            });
+        }
+    }
+
     /// The starter deal: 11 REGULAR cards of the season by position, no card twice; 3 distinct RARE cards.
     #[test]
     fn starter_deal_by_position() {
@@ -1059,39 +1589,24 @@ mod tests {
             .enumerate()
         {
             for n in 0..6 {
-                pool.push(Card {
-                    card_no: (i * 6 + n) as u32,
-                    player: (i * 6 + n) as u32,
-                    rarity: Rarity::Regular,
-                    total: 80,
-                    season: 2004,
-                    nation: "Italy",
-                    position,
-                });
+                pool.push(pool_card((i * 6 + n) as u32, Rarity::Regular, 80, position));
             }
             for n in 0..4 {
-                pool.push(Card {
-                    card_no: (100 + i * 4 + n) as u32,
-                    player: (100 + i * 4 + n) as u32,
-                    rarity: Rarity::Rare,
-                    total: 90,
-                    season: 2004,
-                    nation: "Italy",
+                pool.push(pool_card(
+                    (100 + i * 4 + n) as u32,
+                    Rarity::Rare,
+                    90,
                     position,
-                });
+                ));
             }
+            // A RARE of another season: the face-up three stay the choice's own.
             pool.push(Card {
-                card_no: (200 + i) as u32,
-                player: (200 + i) as u32,
-                rarity: Rarity::Rare,
-                total: 90,
                 season: 2017,
-                nation: "Italy",
-                position,
+                ..pool_card((200 + i) as u32, Rarity::Rare, 90, position)
             });
         }
         let mut rng = Rng::new(11);
-        let eleven = starter(&mut rng, &pool, 2004);
+        let eleven = starter(&mut rng, &pool, Start::Season(2004));
         assert_eq!(eleven.len(), 11);
         assert!(
             eleven
@@ -1116,7 +1631,7 @@ mod tests {
         players.sort_unstable();
         players.dedup();
         assert_eq!(players.len(), 11, "one card per player");
-        let rares = starter_rares(&mut rng, &pool, 2004);
+        let rares = starter_rares(&mut rng, &pool, Start::Season(2004));
         assert_eq!(rares.len(), 3);
         assert!(
             rares
@@ -1137,8 +1652,12 @@ mod tests {
                     player,
                     rarity,
                     total: 80,
+                    series: "",
+                    secret: false,
+                    secret_total: None,
                     season: 2004,
                     nation: "Italy",
+                    club: "Juventus",
                     position,
                 });
             };
@@ -1161,7 +1680,7 @@ mod tests {
         }
         let mut rng = Rng::new(5);
         for _ in 0..100 {
-            let eleven = starter(&mut rng, &pool, 2004);
+            let eleven = starter(&mut rng, &pool, Start::Season(2004));
             assert_eq!(eleven.len(), 11);
             let mut players: Vec<u32> = eleven.iter().map(|c| c.player).collect();
             players.sort_unstable();
@@ -1169,7 +1688,7 @@ mod tests {
             assert_eq!(players.len(), 11, "one card per player");
         }
         for _ in 0..100 {
-            let rares = starter_rares(&mut rng, &pool, 2004);
+            let rares = starter_rares(&mut rng, &pool, Start::Season(2004));
             assert_eq!(rares.len(), 3);
             let mut players: Vec<u32> = rares.iter().map(|c| c.player).collect();
             players.sort_unstable();
@@ -1178,34 +1697,205 @@ mod tests {
         }
     }
 
-    /// (d) match tokens: the first 40, then 15, nothing from the 8th; the day turns at 05:00; a convert adds nothing.
+    /// (c) PLAN 2.2: 50 a match until the week's 1,050 (21 matches), nothing on the 22nd but its card; the week turns
+    /// on Monday at 05:00; a convert adds outside the cap.
     #[test]
-    fn match_tokens_and_the_day() {
-        assert_eq!(match_tokens(0), 40);
-        assert_eq!(match_tokens(40), 15);
-        assert_eq!(match_tokens(40 + 5 * 15), 15);
-        assert_eq!(match_tokens(DAILY_MATCH_CAP), 0);
-        assert_eq!(match_tokens(200), 0);
+    fn match_tokens_and_the_week() {
+        assert_eq!(MATCH_TOKENS, 50);
+        assert_eq!(WEEK_CAP, 21 * MATCH_TOKENS);
+        assert_eq!(match_tokens(0), 50);
+        assert_eq!(match_tokens(1_000), 50);
+        assert_eq!(match_tokens(WEEK_CAP), 0);
+        assert_eq!(match_tokens(2_000), 0);
 
-        assert_eq!(day(when("2026-11-11T04:59:59+01:00")), 2026_1110);
-        assert_eq!(day(when("2026-11-11T05:00:00+01:00")), 2026_1111);
-        assert_eq!(day(when("2026-11-12T02:00:00+01:00")), 2026_1111);
+        // The week label turns at Monday 05:00, on each line's own offset; the business day turns with it.
+        let monday_0459 = "2026-11-09T04:59:00+01:00";
+        let monday_0500 = "2026-11-09T05:00:00+01:00";
+        assert_eq!(day(when(monday_0459)), 2026_1108);
+        assert_eq!(day(when(monday_0500)), 2026_1109);
+        assert_ne!(week(when(monday_0459)), week(when(monday_0500)));
+        assert_eq!(
+            week(when(monday_0500)),
+            week(when("2026-11-15T23:59:00+01:00")),
+            "Sunday night is the same week"
+        );
+        assert_ne!(
+            week(when(monday_0500)),
+            week(when("2026-11-16T05:00:00+01:00")),
+            "the next Monday opens the next one"
+        );
+        assert_eq!(
+            week(when("2026-11-11T12:00:00+01:00")),
+            week(when("2026-11-11T11:00:00+00:00")),
+            "the same instant in another offset"
+        );
 
-        // Seven matches from 05:00 on: 130 today. A convert line and the match before 05:00 count for nothing.
+        // 22 matches in one week: the first 21 add 1,050, the 22nd adds nothing and still deals its card.
         let mut f = Fixture::default();
-        f.add("2026-11-11T04:00:00+01:00", Kind::Match, Some(1), 40);
-        f.add("2026-11-11T05:00:00+01:00", Kind::Match, Some(1), 40);
-        for n in 0..6 {
-            f.add("2026-11-11T09:00:00+01:00", Kind::Match, Some(1), 15);
-            let _ = n;
+        let mut earned = 0;
+        for n in 0..22 {
+            let pays = match_tokens(earned);
+            f.add("2026-11-11T09:00:00+01:00", Kind::Match, Some(n), pays);
+            earned += pays;
         }
         f.add("2026-11-11T09:30:00+01:00", Kind::Convert, Some(1), 8);
-        let state = fold_at(&f.text, 2026_1111).state;
-        assert_eq!(state.match_today, 130);
-        assert_eq!(state.match_pays(), 0, "the 8th match adds nothing");
-        assert_eq!(state.tokens, 40 + 130 + 8, "the balance counts every line");
-        // The 04:00 match belongs to the business day before: read as 10 November, only its 40 counts.
-        assert_eq!(fold_at(&f.text, 2026_1110).state.match_today, 40);
+        let state = fold_at(&f.text, this_week()).state;
+        assert_eq!(state.match_week, WEEK_CAP);
+        assert_eq!(state.match_pays(), 0, "the 22nd match adds nothing");
+        assert_eq!(
+            state.copies(21).earned,
+            1,
+            "the 22nd match still deals its card"
+        );
+        assert_eq!(state.tokens, WEEK_CAP + 8, "a convert adds past the cap");
+        // A match at Monday 04:59 belongs to the week before; the one at 05:00 opens the new week.
+        let mut f = Fixture::default();
+        f.add(monday_0459, Kind::Match, Some(1), 50)
+            .add(monday_0500, Kind::Match, Some(2), 50);
+        let old = fold_at(&f.text, week(when(monday_0459)));
+        assert_eq!(old.state.match_week, 50, "only the 04:59 match");
+        assert_eq!(old.state.tokens, 100, "the balance counts both");
+        assert_eq!(
+            fold_at(&f.text, week(when(monday_0500))).state.match_week,
+            50
+        );
+    }
+
+    /// (d) PLAN 2.3: 10,000 seeded packs of each kind never hold one player twice, and a Nation pack costs 200.
+    #[test]
+    fn packs_never_hold_one_player_twice() {
+        let mut pool: Vec<Card> = vec![];
+        // Korea Republic as the pool has it: 25 REGULAR and 2 SPECIAL, two cards of each player.
+        two_per_player(&mut pool, 0, 25, Rarity::Regular, "Korea Republic", 2010);
+        two_per_player(&mut pool, 100, 2, Rarity::Special, "Korea Republic", 2010);
+        // Chile, the smallest season, and two more nations the Standard pack draws from.
+        two_per_player(&mut pool, 200, 20, Rarity::Regular, "Chile", 2014);
+        two_per_player(&mut pool, 300, 5, Rarity::Special, "Chile", 2014);
+        two_per_player(&mut pool, 400, 2, Rarity::Rare, "Chile", 2014);
+        two_per_player(&mut pool, 500, 12, Rarity::Regular, "Italy", 2006);
+        two_per_player(&mut pool, 600, 3, Rarity::Special, "Italy", 2006);
+        two_per_player(&mut pool, 700, 4, Rarity::Regular, "Japan", 2017);
+        type Pick = fn(&Card) -> bool;
+        let kinds: [(&str, Pick); 4] = [
+            ("Korea Republic", |c: &Card| c.nation == "Korea Republic"),
+            ("Chile", |c: &Card| c.nation == "Chile"),
+            ("the smallest season", |c: &Card| c.season == 2006),
+            ("Standard", |_: &Card| true),
+        ];
+        let mut rng = Rng::new(0x2026_1111);
+        for (name, pick) in kinds {
+            for _ in 0..10_000 {
+                let cards = pack(&mut rng, &pool, pick);
+                assert_eq!(cards.len(), PACK_CARDS, "{name}");
+                let mut players: Vec<u32> = cards.iter().map(|c| c.player).collect();
+                players.sort_unstable();
+                players.dedup();
+                assert_eq!(players.len(), PACK_CARDS, "{name}: {cards:?}");
+            }
+        }
+        assert_eq!(NATION_PACK, 200);
+    }
+
+    /// (e) PLAN 2.4: a season start is unbanded; All seasons and a league deal their 11 inside 80-82 with no secret
+    /// card; a league start holds only that league's clubs; the table's names are the catalogue's (see the ignored
+    /// test below).
+    #[test]
+    fn starter_modes_and_the_league_table() {
+        let mut pool: Vec<Card> = vec![];
+        for (i, position) in [Position::Gk, Position::Df, Position::Mf, Position::Fw]
+            .into_iter()
+            .enumerate()
+        {
+            for n in 0..4 {
+                // Two clubs, four cards of each position: the band is reachable from either alone (4 DF, 4 MF).
+                let player = (i * 10 + n) as u32;
+                pool.push(Card {
+                    card_no: player,
+                    player,
+                    total: 81,
+                    club: "Arsenal",
+                    ..pool_card(player, Rarity::Regular, 81, position)
+                });
+                pool.push(Card {
+                    card_no: 200 + player,
+                    player: 200 + player,
+                    ..pool_card(200 + player, Rarity::Regular, 81, position)
+                });
+            }
+            // A secret card of each club at 100: the band's deal must skip them.
+            pool.push(Card {
+                secret: true,
+                total: 100,
+                series: "ATLE-RE",
+                club: "Arsenal",
+                ..pool_card(400 + i as u32, Rarity::Regular, 100, position)
+            });
+            pool.push(Card {
+                secret: true,
+                total: 100,
+                series: "ATLE-RE",
+                ..pool_card(500 + i as u32, Rarity::Regular, 100, position)
+            });
+        }
+        let mean =
+            |deal: &[&Card]| deal.iter().map(|c| c.total).sum::<u32>() as f64 / deal.len() as f64;
+        let mut rng = Rng::new(9);
+        let all = starter(&mut rng, &pool, Start::AllSeasons);
+        assert_eq!(all.len(), 11);
+        assert!((80.0..=82.0).contains(&mean(&all)), "{}", mean(&all));
+        assert!(all.iter().all(|c| !c.secret), "no secret card: {all:?}");
+        let england = starter(&mut rng, &pool, Start::League("England (Premier League)"));
+        assert_eq!(england.len(), 11);
+        assert!(
+            england.iter().all(|c| c.club == "Arsenal"),
+            "only that league: {england:?}"
+        );
+        assert!(
+            (80.0..=82.0).contains(&mean(&england)),
+            "{}",
+            mean(&england)
+        );
+        // A season start is unbanded: it takes its first deal as it comes, and the picker shows the season's mean.
+        assert_eq!(starter(&mut rng, &pool, Start::Season(2004)).len(), 11);
+        assert!(!Start::Season(2004).banded(), "no band on a season");
+        assert!(Start::AllSeasons.banded());
+        assert!(Start::League("Italy (Serie A)").banded());
+        // The league table: a club of a league, an unmapped name, and no club in two leagues.
+        assert_eq!(league_of("Juventus"), Some("Italy (Serie A)"));
+        assert_eq!(
+            league_of("Kawasaki Frontale"),
+            Some("Japan (J.League and forerunners)")
+        );
+        assert_eq!(league_of("Nowhere United"), None);
+        assert!(!Start::League("Nowhere League").has(&pool[0]));
+        let mut seen = std::collections::BTreeSet::new();
+        for (league, clubs) in LEAGUES {
+            assert!(!clubs.is_empty(), "{league}");
+            for club in clubs {
+                assert!(seen.insert(club), "{club} is in two leagues");
+            }
+        }
+    }
+
+    /// (e) the league table's club names are the reference catalogue's, as `board::Card::club` spells them: run it
+    /// with `FORZA_CATALOGUE_TSV=<catalogue.tsv>` (it reads the player's own file and is off in CI).
+    #[test]
+    #[ignore = "reads the reference catalogue: set FORZA_CATALOGUE_TSV"]
+    #[cfg(feature = "full")]
+    fn league_clubs_are_the_catalogue_names() {
+        let Ok(path) = std::env::var("FORZA_CATALOGUE_TSV") else {
+            return;
+        };
+        let cards = crate::cards::load_catalogue(std::path::Path::new(&path)).unwrap();
+        let clubs: std::collections::BTreeSet<&str> =
+            cards.iter().map(|c| c.club.as_str()).collect();
+        let missing: Vec<&str> = LEAGUES
+            .iter()
+            .flat_map(|(_, names)| *names)
+            .copied()
+            .filter(|name| !clubs.contains(name))
+            .collect();
+        assert!(missing.is_empty(), "not in the catalogue: {missing:?}");
     }
 
     /// (e) CONVERT: a spare pays 20 %, the last earned copy and a starter or imported copy never do.
@@ -1215,8 +1905,8 @@ mod tests {
             earned: 2,
             ..Copies::default()
         };
-        // A SPECIAL at TOTAL 87 (craft 150) converts for 30 and leaves 1 earned copy.
-        assert_eq!(convert(&spare, Rarity::Special, 87), Ok(30));
+        // A SPECIAL at TOTAL 87 (value 240) converts for 48 and leaves 1 earned copy.
+        assert_eq!(convert(&spare, &card(Rarity::Special, 87)), Ok(48));
         let mut state = State::default();
         state.cards.insert(7, spare);
         state.apply(
@@ -1230,7 +1920,7 @@ mod tests {
                 why: String::new(),
                 prev: String::new(),
             },
-            2026_1111,
+            this_week(),
         );
         assert_eq!(state.copies(7).earned, 1);
 
@@ -1240,8 +1930,7 @@ mod tests {
                     earned: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::LastEarned)
         );
@@ -1252,8 +1941,7 @@ mod tests {
                     starter: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::LastEarned)
         );
@@ -1264,8 +1952,7 @@ mod tests {
                     imported: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::LastEarned)
         );
@@ -1275,8 +1962,7 @@ mod tests {
                     starter: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::NoEarned)
         );
@@ -1286,17 +1972,16 @@ mod tests {
                     imported: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::NoEarned)
         );
         assert_eq!(
-            convert(&Copies::default(), Rarity::Special, 87),
+            convert(&Copies::default(), &card(Rarity::Special, 87)),
             Err(NoConvert::NoEarned)
         );
         // A spare top ALL TIME LEGEND pays 2,000.
-        assert_eq!(convert(&spare, Rarity::AllTimeLegend, 95), Ok(2_000));
+        assert_eq!(convert(&spare, &card(Rarity::AllTimeLegend, 95)), Ok(2_000));
         // One of the two earned copies is out on the market: it is not spare, so nothing converts.
         assert_eq!(
             convert(
@@ -1305,8 +1990,7 @@ mod tests {
                     listed: 1,
                     ..Copies::default()
                 },
-                Rarity::Special,
-                87
+                &card(Rarity::Special, 87)
             ),
             Err(NoConvert::LastEarned)
         );
@@ -1321,19 +2005,19 @@ mod tests {
             listed,
             ..Copies::default()
         };
-        assert_eq!(convert(&copies(2, 0), Rarity::Special, 87), Ok(30));
+        assert_eq!(convert(&copies(2, 0), &card(Rarity::Special, 87)), Ok(48));
         assert_eq!(
-            convert(&copies(2, 1), Rarity::Special, 87),
+            convert(&copies(2, 1), &card(Rarity::Special, 87)),
             Err(NoConvert::LastEarned),
             "2 earned with 1 listed leaves no unlisted spare"
         );
         assert_eq!(
-            convert(&copies(2, 2), Rarity::Special, 87),
+            convert(&copies(2, 2), &card(Rarity::Special, 87)),
             Err(NoConvert::LastEarned)
         );
         assert_eq!(
-            convert(&copies(3, 1), Rarity::Special, 87),
-            Ok(30),
+            convert(&copies(3, 1), &card(Rarity::Special, 87)),
+            Ok(48),
             "3 earned with 1 listed keeps one unlisted copy"
         );
     }
@@ -1344,10 +2028,10 @@ mod tests {
     fn a_sale_takes_the_listed_copy() {
         let mut f = Fixture::default();
         f.add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(2), 0)
-            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(2), 40)
+            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(2), 50)
             .add("2026-11-11T12:02:00+01:00", Kind::List, Some(2), 0)
             .add("2026-11-11T12:03:00+01:00", Kind::MarketSell, Some(2), 120);
-        let folded = fold_at(&f.text, 2026_1111);
+        let folded = fold_at(&f.text, this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(
             folded.state.copies(2),
@@ -1361,20 +2045,20 @@ mod tests {
             folded.state.copies(2).owned(),
             "the starter copy still plays"
         );
-        assert_eq!(folded.state.tokens, 160);
+        assert_eq!(folded.state.tokens, 170);
     }
 
-    /// (e) two grants of one card fold to 2 earned copies and write no convert line.
+    /// (2.1) two grants of one card fold to 2 earned copies and write no convert line.
     #[test]
     fn second_grant_is_two_earned_copies() {
         let mut f = Fixture::default();
-        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(42), 40)
-            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(42), 15);
+        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(42), 50)
+            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(42), 50);
         assert!(!f.text.contains("\"convert\""));
-        let state = fold_at(&f.text, 2026_1111).state;
+        let state = fold_at(&f.text, this_week()).state;
         assert_eq!(state.copies(42).earned, 2);
         assert_eq!(state.copies(42).starter, 0);
-        assert_eq!(state.tokens, 55);
+        assert_eq!(state.tokens, 100);
     }
 
     /// The append takes the lock, re-reads the log for `seq` and `prev`, and heals a torn last line first.
@@ -1388,7 +2072,7 @@ mod tests {
                 when("2026-11-11T12:00:00+01:00"),
                 Kind::Match,
                 Some(1),
-                40,
+                50,
                 "match 1",
             )
             .unwrap();
@@ -1407,10 +2091,10 @@ mod tests {
             .unwrap();
         assert_eq!(second.seq, 2);
         assert_eq!(second.prev, hash(&first.line()));
-        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.seq, 2);
-        assert_eq!(folded.state.tokens, 48);
+        assert_eq!(folded.state.tokens, 58);
 
         // A torn tail from an interrupted write: cut off, not glued to the new line.
         let mut file = OpenOptions::new().append(true).open(log.path()).unwrap();
@@ -1421,12 +2105,12 @@ mod tests {
                 when("2026-11-11T12:02:00+01:00"),
                 Kind::Match,
                 Some(2),
-                15,
+                50,
                 "match 2",
             )
             .unwrap();
         assert_eq!(third.seq, 3, "the torn line never became an entry");
-        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.seq, 3);
     }
@@ -1436,7 +2120,7 @@ mod tests {
     fn append_gives_up_after_the_lock_time_box() {
         let dir = tempfile::tempdir().unwrap();
         let log = Log::new(dir.path());
-        log.append(Kind::Match, Some(1), 40, "first").unwrap();
+        log.append(Kind::Match, Some(1), 50, "first").unwrap();
         let holder = OpenOptions::new()
             .read(true)
             .write(true)
@@ -1444,17 +2128,17 @@ mod tests {
             .unwrap();
         holder.lock().unwrap();
         let start = Instant::now();
-        let e = log.append(Kind::Match, Some(1), 15, "blocked").unwrap_err();
+        let e = log.append(Kind::Match, Some(1), 50, "blocked").unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::WouldBlock);
         assert!(start.elapsed() >= LOCK_WAIT, "{:?}", start.elapsed());
         holder.unlock().unwrap();
-        let last = log.append(Kind::Match, Some(1), 15, "after").unwrap();
+        let last = log.append(Kind::Match, Some(1), 50, "after").unwrap();
         assert_eq!(last.seq, 2);
         assert_eq!(
-            fold_at(&log.lines().unwrap(), day(last.at))
+            fold_at(&log.lines().unwrap(), week(last.at))
                 .state
-                .match_today,
-            55
+                .match_week,
+            100
         );
     }
 
@@ -1468,7 +2152,7 @@ mod tests {
                 when("2026-11-11T12:00:00+01:00"),
                 Kind::Match,
                 Some(1),
-                40,
+                50,
                 "match 1",
             )
             .unwrap();
@@ -1479,16 +2163,16 @@ mod tests {
                 when("2026-11-11T12:01:00+01:00"),
                 Kind::Match,
                 Some(1),
-                15,
+                50,
                 "match 2",
             )
             .unwrap();
         assert_eq!(second.seq, 2);
         assert_eq!(second.prev, hash(&first.line()));
-        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.seq, 2, "the whole line stayed one line");
-        assert_eq!(folded.state.match_today, 55);
+        assert_eq!(folded.state.match_week, 100);
     }
 
     /// (finding 5) a line the fold cannot read inside the log refuses the append whole, and the file stays as it was.
@@ -1509,7 +2193,7 @@ mod tests {
                 when("2026-11-11T12:08:00+01:00"),
                 Kind::Match,
                 Some(9),
-                15,
+                50,
                 "match 9",
             )
             .unwrap_err();
@@ -1528,7 +2212,7 @@ mod tests {
     fn lines_waits_for_the_writer_lock() {
         let dir = tempfile::tempdir().unwrap();
         let log = Log::new(dir.path());
-        log.append(Kind::Match, Some(1), 40, "first").unwrap();
+        log.append(Kind::Match, Some(1), 50, "first").unwrap();
         let text = log.lines().unwrap();
         let holder = OpenOptions::new()
             .read(true)
@@ -1559,7 +2243,7 @@ mod tests {
             when("2026-11-11T12:00:00+01:00"),
             Kind::Match,
             Some(1),
-            40,
+            50,
             "match 1",
         )
         .unwrap();
@@ -1585,7 +2269,7 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(log.path()).unwrap(),
             before,
-            "40 tokens pay for nothing"
+            "50 tokens pay for nothing"
         );
         log.append_at(
             when("2026-11-11T12:02:00+01:00"),
@@ -1606,9 +2290,9 @@ mod tests {
         );
         assert_eq!(wrote[0].tokens, -STANDARD_PACK);
         assert_eq!(wrote[1].prev, hash(&wrote[0].line()));
-        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
-        assert_eq!(folded.state.tokens, 40 + 70 - STANDARD_PACK);
+        assert_eq!(folded.state.tokens, 50 + 70 - STANDARD_PACK);
         assert_eq!(
             folded.state.copies(2),
             Copies {
@@ -1630,7 +2314,7 @@ mod tests {
                 when("2026-11-11T12:00:00+01:00"),
                 Kind::Match,
                 Some(1),
-                40,
+                50,
                 "match 1",
             )
             .unwrap();
@@ -1642,14 +2326,14 @@ mod tests {
                 when("2026-11-11T12:01:00+01:00"),
                 Kind::Match,
                 Some(1),
-                15,
+                50,
                 "match 2",
             )
             .unwrap();
         assert_eq!(second.seq, 2);
         assert_eq!(second.prev, hash(&first.line()));
-        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
-        assert_eq!(folded.state.match_today, 55);
+        assert_eq!(folded.state.match_week, 100);
     }
 }
