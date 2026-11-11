@@ -971,6 +971,15 @@ enum Role {
 
 /// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
 /// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
+/// Create-a-Team: the panel saves the match card in the profile's collection (`WCCF_COLLECTION`). A 2017-18 run of that
+/// profile only: free play and 2010-11 get no variable (the deal is only shown).
+fn collection_env(edition: Edition, profile: forza::profile::Profile, data: &Path) -> Option<(String, String)> {
+    (edition == Edition::E1718)
+        .then(|| profile.collection(data))
+        .flatten()
+        .map(|dir| ("WCCF_COLLECTION".into(), dir.display().to_string()))
+}
+
 fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
     let r = match (edition, role) {
         (Edition::E1718, Role::Projector) => "projector",
@@ -1345,10 +1354,7 @@ impl Run<'_> {
             ("WCCF_CATALOGUE".into(), s(cache.join("catalogue.tsv"))),
             ("WCCF_CARDS".into(), s(cache.join("cards"))),
         ];
-        // Create-a-Team: the panel saves the match card there; free play has no variable (the deal is only shown)
-        if let Some(dir) = self.kit.profile().collection(&self.kit.data()) {
-            env.push(("WCCF_COLLECTION".into(), s(dir)));
-        }
+        env.extend(collection_env(self.edition, self.kit.profile(), &self.kit.data()));
         env
     }
 
@@ -3447,6 +3453,27 @@ mod tests {
         for r in [Role::Server, Role::Projector, Role::Seat] {
             assert_eq!(role(Edition::E1011, r), None, "2010-11 stays as it is");
         }
+    }
+
+    /// Finding 4: only a 2017-18 Create-a-Team run tells the panel its collection; 2010-11 has no profiles.
+    #[test]
+    fn only_a_2017_18_create_a_team_run_gets_the_collection() {
+        use super::{Edition, collection_env};
+        use forza::profile::Profile;
+        let data = Path::new(r"C:\kit\data");
+        assert_eq!(
+            collection_env(Edition::E1718, Profile::CreateATeam, data),
+            Some((
+                "WCCF_COLLECTION".into(),
+                r"C:\kit\data\profiles\create-a-team\collection".into()
+            ))
+        );
+        assert_eq!(collection_env(Edition::E1718, Profile::Free, data), None);
+        assert_eq!(
+            collection_env(Edition::E1011, Profile::CreateATeam, data),
+            None,
+            "2010-11 stays as it is"
+        );
     }
 
     #[test]
