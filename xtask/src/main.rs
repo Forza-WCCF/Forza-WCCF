@@ -71,7 +71,8 @@ enum Task {
     },
     /// The tests of the crates named, built as `check quick` builds them (its target, profile and rustflags, and the wide
     /// workspace scope it builds with): a per-commit test run then reuses the gate's build tree instead of compiling a
-    /// second one. The GPU snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile):
+    /// second one; the 32-bit hook builds with the 2017-18 feature, as `quick` does when no 2010-11 path changed. The GPU
+    /// snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile):
     /// `cargo test --locked -p forza-ui -- snapshots:: --test-threads=1` runs them in the dev profile, as CI does.
     Test {
         /// The crates to test, each as cargo's `-p`; a 32-bit one (forza-panel, the native crates) runs for its own target
@@ -501,6 +502,14 @@ fn hooks(e1011: bool) -> impl Iterator<Item = (&'static str, bool, &'static str)
     HOOKS
         .into_iter()
         .filter(move |(f, _, _)| e1011 || !f.starts_with("forza-hook/e1011"))
+}
+/// The hook feature a target builds with: the 2010-11 hook's only when `e1011` ([`hooks`]). `check quick` decides it per
+/// branch, and a per-commit test run takes the 2017-18 one, so both build the gate's tree.
+fn hook_feature(e1011: bool) -> &'static str {
+    let (feature, _, _) = hooks(e1011)
+        .next()
+        .expect("HOOKS holds both editions' hooks");
+    feature
 }
 /// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
@@ -1438,12 +1447,12 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         println!("quick: the staged kit is missing or older than the sources: rebuilding it");
         build_all(root, kit, kit_1718, e1011)?;
     }
-    let hooks: Vec<_> = hooks(e1011).map(|(f, _, _)| f).collect();
-    let runs = target_scopes(&scope, hooks[0]);
+    let hook = hook_feature(e1011);
+    let runs = target_scopes(&scope, hook);
     // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
     // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
     // whole workspace's took 4); the changed crates' tests alone run
-    let wide = target_scopes(&["--workspace".to_owned()], hooks[0]);
+    let wide = target_scopes(&["--workspace".to_owned()], hook);
     let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
             .find(|(w, _)| *w == t)
@@ -1458,7 +1467,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     }
     // the hook's other features, as `check` lints them
     if native {
-        for feature in &hooks[1..] {
+        for (feature, _, _) in hooks(e1011).skip(1) {
             let mut clippy = rust("clippy", root);
             clippy.args(["--locked", "--all-targets", "--target", PANEL_TARGET]);
             clippy.args([
@@ -1765,8 +1774,9 @@ fn test_commands(root: &Path, packages: &[String], extra: &[String]) -> Vec<Comm
         .iter()
         .flat_map(|p| ["-p".to_owned(), p.clone()])
         .collect();
-    let wide = target_scopes(&["--workspace".to_owned()], HOOKS[0].0);
-    target_scopes(&scope, HOOKS[0].0)
+    let hook = hook_feature(false);
+    let wide = target_scopes(&["--workspace".to_owned()], hook);
+    target_scopes(&scope, hook)
         .into_iter()
         .filter_map(|(target, _)| {
             let only = test_filter(&pkgs, target)?;
@@ -3059,6 +3069,21 @@ mod tests {
         let panel = line(&panel[0]);
         assert!(panel.contains("--target i686-pc-windows-msvc"), "{panel}");
         assert!(!panel.contains("--workspace"), "{panel}");
+        // the 32-bit hook builds with the 2017-18 feature, as `quick` does on a branch that changes no 2010-11 path:
+        // the gate's build tree, and the 2017-18 hook's cfg'd tests
+        let hook = test_commands(root, &["forza-hook".to_owned()], &[]);
+        let hook = line(
+            hook.iter()
+                .find(|c| line(c).contains("i686"))
+                .expect("a 32-bit command"),
+        );
+        assert!(hook.contains("--features forza-hook/e1718"), "{hook}");
+    }
+
+    #[test]
+    fn the_hook_feature_is_the_2017_18_one_unless_2010_11_changed() {
+        assert_eq!(hook_feature(false), "forza-hook/e1718");
+        assert_eq!(hook_feature(true), "forza-hook/e1011");
     }
 
     #[test]
