@@ -363,6 +363,7 @@ mod tests {
         fs::write(data.join("settings.json"), r#"{"profile": "free"}"#).unwrap();
         assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
         assert_eq!(save_in(&data), data.join("save"));
+        assert_eq!(Kit::at(dir.path()).profile().collection(&data), None);
         fs::write(
             data.join("settings.json"),
             r#"{"profile": "create-a-team"}"#,
@@ -372,5 +373,9 @@ mod tests {
         assert_eq!(kit.profile(), Profile::CreateATeam);
         assert_eq!(kit.save(), data.join(r"profiles\create-a-team\save"));
         assert_eq!(save_in(&data), kit.save());
+        assert_eq!(
+            kit.profile().collection(&data),
+            Some(data.join(r"profiles\create-a-team\collection"))
+        );
     }
 }

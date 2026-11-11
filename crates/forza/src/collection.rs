@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use time::OffsetDateTime;
+/// The log's time type, for callers without their own `time` dependency (the panel).
+pub use time::OffsetDateTime;
 
 /// The economy table's version: every line states the table it was written under, and the market refuses an older one.
 pub const RULES: u32 = 2;

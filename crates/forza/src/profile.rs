@@ -65,6 +65,12 @@ impl Profile {
         }
     }
 
+    /// The profile's collection folder (`grants.jsonl`): Create-a-Team only, free play has none.
+    pub fn collection(self, data: &Path) -> Option<PathBuf> {
+        (self == Profile::CreateATeam)
+            .then(|| data.join("profiles").join(self.code()).join("collection"))
+    }
+
     /// The profile's card table while another profile's is in the seat folder.
     pub fn board(self, data: &Path) -> PathBuf {
         data.join("profiles").join(self.code()).join("board")
