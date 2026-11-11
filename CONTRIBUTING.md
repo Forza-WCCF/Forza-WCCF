@@ -43,7 +43,8 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    ```sh
    cargo xtask build          # the programs, staged in target/kit/<edition>/ (`fast` profile; --release: release)
    cargo xtask check          # fmt, clippy, tests, the guard and hook test programs, the run tests, the publisher-name grep
-   cargo xtask check quick    # only the crates changed since the base branch (`fast` profile; rebuilds a stale kit)
+   cargo xtask check quick    # only the crates changed since the base branch (`fast` profile; rebuilds a stale kit;
+                              # no GPU snapshot tests, which `cargo nextest run -p forza-ui` runs in the dev profile)
    cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
    ```
