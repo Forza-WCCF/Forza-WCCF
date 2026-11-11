@@ -4,6 +4,12 @@
 [graph]
 targets = ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"]
 
+[advisories]
+# New advisories arrive with the database, not with a branch: the weekly scheduled run checks them (ci.yml, job `deny`),
+# never a pull request. Direct dependencies only (`workspace` is cargo-deny's advice for a shipping project): an
+# unmaintained crate deep in a dependency tree is not ours to replace.
+unmaintained = "workspace"
+
 [licenses]
 allow = [
     "0BSD",
