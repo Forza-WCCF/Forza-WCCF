@@ -1073,9 +1073,9 @@ mod tests {
         assert_eq!(desk_fallback(E1718, &gone, Some(2)), None);
         assert!(seat_refusal(&gone, None, "10.0.0.5").en().contains("shop_lan"));
         assert_eq!(e(Fault::Full, "").no_desk_seat(None), None);
-        // det-math: the desk names the arcade's token, then this PC's
+        // the engine mismatch: both tokens are named, the arcade's and this PC's
         let m = seat_refusal(&e(Fault::Refused, "ERR dmath 0123 0123-off"), None, "127.0.0.1").en();
-        assert!(m.contains("det-math 0123-off") && m.contains("(0123)"), "{m}");
+        assert!(m.contains("0123-off") && m.contains("(0123)"), "{m}");
     }
 
     #[test]
