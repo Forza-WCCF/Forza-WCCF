@@ -689,7 +689,7 @@ pause.left: {en: "Resumes in %{s} s.", it: "Riprende tra %{s} s.", ja: "%{s} 秒
 pause.msg_resumed_cap: {en: "Pause limit (20 s). Resumed.", it: "Limite di pausa (20 s). Ripreso.", ja: "ポーズ上限（20 秒）。再開しました。"}
 pause.msg_not_match: {en: "Pause is for matches only.", it: "La pausa è solo per le partite.", ja: "ポーズは試合中のみ使えます。"}
 pause.msg_online: {en: "No pause online.", it: "Niente pausa online.", ja: "オンラインではポーズ不可。"}
-pause.msg_seats: {en: "No pause with linked seats.", it: "Niente pausa con posti collegati.", ja: "席連結中はポーズ不可。"}
+pause.msg_seats: {en: "No pause while another PC's seats are joined to this one.", it: "Niente pausa mentre i posti di un altro PC sono collegati a questo.", ja: "ほかの PC の席と接続している間はポーズできません。"}
 pause.msg_projector: {en: "No pause with the projector.", it: "Niente pausa con il proiettore.", ja: "プロジェクター使用中はポーズ不可。"}
 pause.msg_card: {en: "The game is saving your card. Try again in a moment.", it: "Il gioco sta salvando la carta. Riprova tra un momento.", ja: "カードを保存しています。少し待ってからもう一度お試しください。"}
 pause.msg_no_picture: {en: "No pause in full screen.", it: "Niente pausa a schermo intero.", ja: "全画面ではポーズ不可。"}
