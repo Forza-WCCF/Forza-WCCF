@@ -1672,17 +1672,23 @@ impl Render {
             notice_shown: None,
             deal_at: Instant::now(),
             match_end: grant::MatchEnd::default(),
-            granter: files.collection.clone().map(|dir| {
-                log(&format!(
-                    "deal: Create-a-Team, match cards saved in {}",
-                    dir.display()
-                ));
-                grant::Granter::start(
-                    dir,
-                    CATALOGUE.get().cloned().unwrap_or_else(|| Arc::from([])),
-                    log,
-                )
-            }),
+            granter: match files.checked_collection() {
+                Ok(dir) => dir.map(|dir| {
+                    log(&format!(
+                        "deal: Create-a-Team, match cards saved in {}",
+                        dir.display()
+                    ));
+                    grant::Granter::start(
+                        dir,
+                        CATALOGUE.get().cloned().unwrap_or_else(|| Arc::from([])),
+                        log,
+                    )
+                }),
+                Err(e) => {
+                    log(&format!("deal: {e}"));
+                    None
+                }
+            },
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -2779,12 +2785,9 @@ impl Render {
         use forza::card::{self, Session};
         if let Some(g) = &self.granter {
             while let Some((i, grant)) = g.news() {
-                if grant == panel::Grant::Saving {
-                    let mut d = panel::Deal::new(i);
-                    d.grant = Some(grant);
-                    self.st.deal = Some(d);
-                } else if let Some(d) = self.st.deal.as_mut().filter(|d| d.card == i) {
-                    d.grant = Some(grant); // a closed window: the save goes on unseen
+                if let Some(note) = grant::show(&mut self.st.deal, i, grant) {
+                    let no = catalogue().get(i).map_or(0, |c| c.number);
+                    log(&format!("deal: card {no} {note}"));
                 }
             }
         }

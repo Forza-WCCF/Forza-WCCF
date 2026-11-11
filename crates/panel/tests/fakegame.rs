@@ -738,12 +738,29 @@ fn board_and_buttons_with_real_data() {
     let profiles = data.join("profiles");
     assert!(!profiles.exists(), "free play made {}", profiles.display());
 
-    // 7. 1.2 (a) Create-a-Team (the run's WCCF_COLLECTION): the dealt card is saved, one `match` line in grants.jsonl
+    // 7. 1.2 (a) Create-a-Team (settings.json's profile and the run's WCCF_COLLECTION): the dealt card is saved, one
+    // `match` line in grants.jsonl
     let _ = fs::remove_file(seat.join("forza_panel.log"));
+    fs::write(
+        data.join("settings.json"),
+        "{\"language\": \"it\", \"profile\": \"create-a-team\"}",
+    )
+    .unwrap();
     let collection = profiles.join(r"create-a-team\collection");
     let dir = collection.display().to_string();
+    // the profile is 2017-18's: that edition, with this kit's catalogue and pictures
+    let (cat, pics) = (
+        data.join(r"cache\catalogue.tsv").display().to_string(),
+        data.join(r"cache\cards").display().to_string(),
+    );
     run_with(
-        &[("WCCFPANEL_DEALTEST", "1"), ("WCCF_COLLECTION", &dir)],
+        &[
+            ("WCCFPANEL_DEALTEST", "1"),
+            ("WCCF_COLLECTION", &dir),
+            ("WCCF_EDITION", "2017-18"),
+            ("WCCF_CATALOGUE", &cat),
+            ("WCCF_CARDS", &pics),
+        ],
         &[
             READY.into(),
             "until:20000:forza_panel.log:saved to".into(),

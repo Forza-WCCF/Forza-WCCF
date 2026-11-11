@@ -651,6 +651,8 @@ static OWED_AT: AtomicUsize = AtomicUsize::new(0x009F_BCAC);
 static OWED_NEW: AtomicU32 = AtomicU32::new(0);
 /// 2017-18: FUN_005c0970 jumps to [`owed_hit`], so [`take_owed_new`] counts the hand-outs.
 static OWED_COUNTS: AtomicBool = AtomicBool::new(false);
+/// [`owed_hit`] has run once: the hook fires on this build (a match kind whose reward skips it leaves this unset).
+static OWED_HIT: AtomicBool = AtomicBool::new(false);
 static OWED_NEXT: Mutex<Option<Instant>> = Mutex::new(None);
 static OWED_SAID: AtomicU32 = AtomicU32::new(0);
 
@@ -666,6 +668,7 @@ fn owed_sig_ok(code: &[u8; 16], any_global: bool) -> bool {
 /// stands for.
 extern "C" fn owed_hit() {
     OWED_NEW.fetch_add(1, Relaxed);
+    OWED_HIT.store(true, Relaxed);
 }
 
 /// 2017-18: cards handed out since the last call (the deal window); always 0 on 2010-11.
@@ -673,10 +676,11 @@ pub fn take_owed_new() -> u32 {
     OWED_NEW.swap(0, Relaxed)
 }
 
-/// Whether [`take_owed_new`] counts the game's card hand-outs (2017-18 with the dispenser fix in): the deal's match
-/// end then comes from it, and the club card session's close is only logged.
+/// Whether [`take_owed_new`] counts the game's card hand-outs (2017-18 with the dispenser fix in, and one hand-out
+/// counted, which proves the hook fires on this build): the deal's match end then comes from it, and the club card
+/// session's close is only logged. Until then the close stays a trigger.
 pub fn dispenser_counts() -> bool {
-    OWED_COUNTS.load(Relaxed)
+    OWED_COUNTS.load(Relaxed) && OWED_HIT.load(Relaxed)
 }
 
 /// The C's `dispenser_install`, each edition's.
@@ -1224,6 +1228,17 @@ fn lost_log_install(base: usize, log: fn(&str)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Finding 2: the hook installed is not proof that it fires; the club card session's close stays the match end's
+    /// trigger until one hand-out is counted.
+    #[test]
+    fn the_dispenser_counts_only_after_a_hand_out_is_seen() {
+        OWED_COUNTS.store(true, Relaxed);
+        assert!(!dispenser_counts(), "installed, never fired");
+        owed_hit();
+        assert!(dispenser_counts());
+        assert_eq!(take_owed_new(), 1);
+    }
 
     #[test]
     fn stall_patch_checks_then_writes() {
