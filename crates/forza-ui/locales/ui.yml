@@ -308,7 +308,7 @@ board.links_of: {en: "Links with %{name}", it: "Intese con %{name}", ja: "%{name
 board.on_team: {en: "ON THE TABLE", it: "SUL TAVOLO", ja: "テーブル内"}
 board.not_on_team: {en: "BEST LINKS OFF THE TABLE", it: "MIGLIORI INTESE FUORI", ja: "テーブル外の好連携"}
 board.no_links: {en: "No links on the table.", it: "Nessuna intesa sul tavolo.", ja: "テーブルに連携相手はいません。"}
-board.more: {en: "+%{n} more players", it: "+ altri %{n} giocatori", ja: "ほか %{n} 人"}
+board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか %{n} 件"}
 board.pop_out: {en: "OPEN IN A WINDOW", it: "APRI IN UNA FINESTRA", ja: "別ウィンドウで開く"}
 board.dock: {en: "DOCK THE BOARD", it: "RIPORTA NEL GIOCO", ja: "フォーメーションを戻す"}
 board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
