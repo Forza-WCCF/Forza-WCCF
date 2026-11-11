@@ -1321,14 +1321,16 @@ impl App {
                 }
             }
             Action::Collection(CollectionAction::Deal(choice)) => {
-                if let (Some(cat), Some(v)) = (&self.catalogue, &mut self.st.collection) {
-                    let (dealt, rares) = collection::deal(cat, choice);
-                    v.step = forza_ui::collection::Step::Pick {
-                        choice,
-                        dealt,
-                        rares,
-                        picked: None,
-                    };
+                let Some(dir) = self.st.profile.and_then(|p| p.collection(&kit.data())) else {
+                    return;
+                };
+                let written = match &self.catalogue {
+                    Some(cat) => collection::deal(cat, &dir, choice),
+                    None => return,
+                };
+                match written {
+                    Ok(()) => self.collection(&kit),
+                    Err(e) => refuse(write_failed(&dir.join(collection::PENDING), &e)),
                 }
             }
             Action::Collection(CollectionAction::Take) => {
@@ -1506,7 +1508,14 @@ impl App {
     fn play(&mut self, kit: &Kit, words: Vec<OsString>) {
         if self.needs_start() {
             self.st.tab = Tab::Collection;
-            refuse(t("launcher.msg_no_starter"));
+            // no starter yet, or COLLECTION cannot say (no catalogue, an unreadable log): its own reason
+            let why = self
+                .st
+                .collection
+                .as_ref()
+                .and_then(|v| v.problem.clone())
+                .unwrap_or_else(|| t("launcher.msg_no_starter"));
+            refuse(why);
             return;
         }
         let online = self.st.online;
