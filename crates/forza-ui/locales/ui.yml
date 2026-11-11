@@ -125,9 +125,9 @@ launcher.club_not_in: {en: "Your club stays at home this time; in this arcade yo
 launcher.club_kept: {en: "Your last arcade visit ended before your club came home. Your home club is kept as it was; the arcade's last copy is in %{path}.", it: "L'ultima visita in sala è finita prima che il club tornasse a casa. Il tuo club di casa resta com'era; l'ultima copia della sala è in %{path}.", ja: "前回のゲームセンタープレイは、クラブがホームに戻る前に終了しました。ホームのクラブはそのまま残しています。ゲームセンター側の最新コピーは %{path} にあります。"}
 launcher.msg_bad_club: {en: "The club server address is not valid. Use HOST or HOST:PORT.", it: "L'indirizzo del server del club non è valido. Usa HOST o HOST:PORT.", ja: "クラブサーバーのアドレスが正しくありません。HOST または HOST:PORT で入力してください。"}
 launcher.msg_stop_anyway: {en: "A match is on. Stopping can damage your card. Stop anyway?", it: "Partita in corso. Fermare può danneggiare la carta. Fermare comunque?", ja: "試合中です。終了するとカードが傷つく恐れがあります。終了しますか？"}
-launcher.msg_link_taken: {en: "The plain-letter folder %{path} is already in use. If the game does not start, move the game folder to C:\\Games.", it: "La cartella con lettere semplici %{path} è già in uso. Se il gioco non parte, sposta la cartella del gioco in C:\\Games.", ja: "英数字だけのフォルダー %{path} はすでに使われています。起動しないときは、ゲームのフォルダーを C:\\Games へ移動してください。"}
-launcher.msg_link_no_junction: {en: "Windows cannot make a plain-letter folder on this drive. If the game does not start, move the game folder to C:\\Games.", it: "Windows non può creare una cartella con lettere semplici su questo disco. Se il gioco non parte, sposta la cartella del gioco in C:\\Games.", ja: "このドライブでは英数字だけのフォルダーを作成できません。起動しないときは、ゲームのフォルダーを C:\\Games へ移動してください。"}
-launcher.msg_link_failed: {en: "Windows could not make the plain-letter folder (%{error}). If the game does not start, move the game folder to C:\\Games.", it: "Windows non ha potuto creare la cartella con lettere semplici (%{error}). Se il gioco non parte, sposta la cartella del gioco in C:\\Games.", ja: "英数字だけのフォルダーを作成できませんでした（%{error}）。起動しないときは、ゲームのフォルダーを C:\\Games へ移動してください。"}
+launcher.msg_link_taken: {en: "The plain-letter folder %{path} is already in use. If the game does not start, move the game folder to C:\\Games.", it: "La cartella con lettere semplici %{path} è già in uso. Se il gioco non parte, spostalo in C:\\Games.", ja: "英数字だけのフォルダー %{path} は使用中です。起動しないときはゲームを C:\\Games へ移動してください。"}
+launcher.msg_link_no_junction: {en: "Windows cannot make a plain-letter folder on this drive. If the game does not start, move the game folder to C:\\Games.", it: "Windows non può creare una cartella con lettere semplici su questo disco. Se il gioco non parte, spostalo in C:\\Games.", ja: "このドライブには英数字だけのフォルダーを作れません。起動しないときはゲームを C:\\Games へ移動してください。"}
+launcher.msg_link_failed: {en: "Windows could not make the plain-letter folder (%{error}). If the game does not start, move the game folder to C:\\Games.", it: "Windows non ha creato la cartella con lettere semplici (%{error}). Se il gioco non parte, spostalo in C:\\Games.", ja: "英数字だけのフォルダーを作れませんでした（%{error}）。起動しないときはゲームを C:\\Games へ移動してください。"}
 launcher.msg_pack_title: {en: "Pick the high-quality card pack (forza-wccf-card-pictures-hq-*.zip)", it: "Scegli il pacchetto di immagini carte in alta qualità (forza-wccf-card-pictures-hq-*.zip)", ja: "高画質カード画像パックを選んでください（forza-wccf-card-pictures-hq-*.zip）"}
 launcher.msg_pack_downloading: {en: "Downloading card pictures…", it: "Scarico le immagini delle carte…", ja: "カード画像をダウンロード中…"}
 launcher.msg_pack_no_space: {en: "Not enough disk space: %{need} MB needed.", it: "Spazio su disco insufficiente: servono %{need} MB.", ja: "ディスクの空き容量が足りません：%{need} MB 必要です。"}
@@ -320,7 +320,7 @@ cat.position: {en: "POSITION", it: "POSIZIONE", ja: "ポジション"}
 cat.best_role: {en: "Best roles: %{roles}", it: "Ruoli migliori: %{roles}", ja: "適性：%{roles}"}
 cat.rarity: {en: "RARITY", it: "RARITÀ", ja: "レア度"}
 cat.all: {en: "ALL", it: "TUTTI", ja: "すべて"}
-cat.any: {en: "ANY", it: "QUALSIASI", ja: "指定なし"}
+cat.any: {en: "ANY", it: "TUTTE", ja: "すべて"}
 cat.all_time: {en: "ALL-TIME", it: "ALL-TIME", ja: "オールタイム"}
 cat.legend: {en: "LEGEND", it: "LEGGENDA", ja: "レジェンド"}
 cat.rare: {en: "RARE", it: "RARA", ja: "レア"}
