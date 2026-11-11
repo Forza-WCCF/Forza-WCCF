@@ -182,7 +182,7 @@ const BM_SETCHECK: u32 = 0x00F1;
 
 /// The newest write of the club card or the 2017-18 game server's store (`data\save`), as an age.
 fn card_age() -> Option<Duration> {
-    let save = FILES.get()?.data.join("save");
+    let save = &FILES.get()?.save;
     [
         save.join(forza::card::SLOT),
         save.join(forza::card::NEW),
