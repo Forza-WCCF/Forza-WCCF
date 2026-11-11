@@ -1494,17 +1494,6 @@ pub fn lineup_tick(
     }
 }
 
-/// A card let go off the board stays on the table: 2017-18 asks the match itself (`match_seen`), not `in_match`, the
-/// import rule's answer, which counts the club card's session (in for the whole club session, the placement screen
-/// before a match included); 2010-11 keeps `in_match`.
-fn board_keeps(st: &PanelState) -> bool {
-    if st.edition == Edition::E1718 {
-        st.match_seen
-    } else {
-        st.in_match
-    }
-}
-
 /// The table a match begins with, kept for RESET LINEUP, and when.
 fn keep_table(st: &mut PanelState, placed: &[Placed]) {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
@@ -3289,7 +3278,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
     b.spacing_mut().item_spacing.y = 4.0;
-    board::keep_on_table(&b, board_keeps(st));
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |= board::formation_board(
         &mut b,
         &mut st.board,
@@ -3341,7 +3330,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     let mut b =
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
     b.spacing_mut().item_spacing.y = 4.0;
-    board::keep_on_table(&b, board_keeps(st));
+    board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
@@ -7138,36 +7127,6 @@ mod tests {
         lineup_tick(&mut st, Some(true), Some((false, false)), &now);
         lineup_tick(&mut st, Some(true), None, &now);
         assert!(st.before_match.is_none() && !st.match_seen);
-    }
-
-    /// 2017-18: on the next match's placement screen (the flag left on, the club card in) cards come off the table;
-    /// from the match's start (the DLL's `playing`) to its end they stay.
-    #[test]
-    fn the_board_keeps_cards_only_while_the_match_runs() {
-        let (mut st, _) = importer();
-        st.edition = Edition::E1718;
-        let now = vec![Placed {
-            slot: 1,
-            no: 10,
-            x: 0.0,
-            y: 0.5,
-        }];
-        // the last match
-        lineup_tick(&mut st, Some(true), Some((true, true)), &now);
-        assert!(board_keeps(&st));
-        // its result, then the next placement screen: the card session makes `busy`, the match does not
-        for _ in 0..2 {
-            lineup_tick(&mut st, Some(true), Some((true, false)), &now);
-            lineup_tick(&mut st, Some(true), None, &now);
-            assert!(st.in_match && !board_keeps(&st));
-        }
-        // kick-off
-        lineup_tick(&mut st, Some(true), Some((true, true)), &now);
-        assert!(board_keeps(&st));
-        // 2010-11 keeps the import rule's answer
-        st.edition = Edition::E1011;
-        st.match_seen = false;
-        assert!(board_keeps(&st));
     }
 
     #[test]

@@ -874,10 +874,9 @@ fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) ->
     playing || card
 }
 
-/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. In 2017-18 the card
-/// stays in for the whole club session, so the card-in answer (`.0`) would hold the server's notice off in the club
-/// office and the menus between matches, where it belongs. The banner is 2017-18 only, so 2010-11's card session never
-/// reaches this gate.
+/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. The banner is
+/// 2017-18 only, which has no club card file, so no session opens there (`card_open` false); 2010-11's card session
+/// never reaches this gate.
 fn notice_waits((_, playing, _): (bool, bool, String)) -> bool {
     playing
 }
@@ -4299,10 +4298,12 @@ mod tests {
         assert!(match_now(true, Some(19), Some(4), false));
         assert!(match_now(true, Some(19), Some(6), false));
         assert!(match_now(true, Some(19), None, false));
-        // the next match's placement screen (MATCHING_WAIT), the flag left on from the last match
-        assert!(!match_now(true, Some(19), Some(3), false), "placement");
-        // the seat flag the game leaves on after a match or a cancelled matching is not a match
+        // the seat flag the game leaves on after a match or a cancelled matching is not a match: boot, the menus,
+        // CR_DATA_WAIT, the next match's placement screen (MATCHING_WAIT) with the last match's value left on, the result
+        assert!(!match_now(true, Some(19), Some(0), false), "boot");
         assert!(!match_now(true, Some(19), Some(1), false), "menus");
+        assert!(!match_now(true, Some(19), Some(2), false), "CR_DATA_WAIT");
+        assert!(!match_now(true, Some(19), Some(3), false), "placement");
         assert!(!match_now(true, Some(19), Some(7), false), "result screen");
         assert!(match_now(true, None, Some(5), false));
         assert!(!match_now(true, None, Some(1), false));
@@ -4313,7 +4314,8 @@ mod tests {
     }
 
     /// The server's notice waits for this seat's match, not for the card session: the club office and the menus between
-    /// matches keep it on (2017-18 keeps the card in for the whole session), and a match takes it off.
+    /// matches keep it on, and a match takes it off. 2017-18 has no club card file, so a card-in answer is stale input
+    /// there and the gate reads the match alone.
     #[test]
     fn the_notice_waits_for_the_match_not_the_card() {
         // match_check's answers for this seat in an arcade state, the card in or not (its third field is the log line)
@@ -4324,7 +4326,7 @@ mod tests {
                 String::new(),
             )
         };
-        // the card in, no match (the menus): match_check calls it busy for the club card alone, this gate does not
+        // the card in, no match (the menus): match_check calls it busy for the card session alone, this gate does not
         let office = check(Some(19), Some(1), true);
         assert_eq!((office.0, office.1), (true, false), "the card in, no match");
         assert!(!notice_waits(office), "the notice shows there");
