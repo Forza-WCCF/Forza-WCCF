@@ -7,7 +7,7 @@
 //! later `RULES` does not rewrite history.
 
 use std::collections::BTreeMap;
-use std::fs::{OpenOptions, TryLockError};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, Write};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -125,6 +125,8 @@ pub enum Position {
 pub struct Card<'a> {
     /// The game's card number (catalogue `card_no`), the log's and the market's identity of a card.
     pub card_no: u32,
+    /// The game's player record (catalogue `record_index`): the same number on every card of one player.
+    pub player: u32,
     pub rarity: Rarity,
     /// The game's TOTAL, 60 to 100.
     pub total: u32,
@@ -282,28 +284,39 @@ pub fn pack<'a>(
 /// The starter deal's 11 cards of `season`: 1 GK, 4 DF, 4 MF and 2 FW, REGULAR only, one card per player.
 pub fn starter<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Vec<&'a Card<'a>> {
     let regular = |c: &Card| c.rarity == Rarity::Regular && c.season == season;
-    let mut out = vec![];
+    let mut out: Vec<&Card> = vec![];
     for (position, n) in STARTER_DEAL {
-        let idx = pool
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| regular(c) && c.position == position)
-            .map(|(i, _)| i)
-            .collect();
-        out.extend(rng.take(idx, pool, n));
+        for _ in 0..n {
+            let idx: Vec<usize> = pool
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| regular(c) && c.position == position)
+                .filter(|(_, c)| out.iter().all(|taken| taken.player != c.player))
+                .map(|(i, _)| i)
+                .collect();
+            out.extend(rng.take(idx, pool, 1));
+        }
     }
     out
 }
 
-/// The starter's 3 face-up RARE cards of `season`: the first start picks one.
+/// The starter's 3 face-up RARE cards of `season`, three players: the first start picks one.
 pub fn starter_rares<'a>(rng: &mut Rng, pool: &'a [Card<'a>], season: u16) -> Vec<&'a Card<'a>> {
-    let idx = pool
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| c.rarity == Rarity::Rare && c.season == season)
-        .map(|(i, _)| i)
-        .collect();
-    rng.take(idx, pool, STARTER_RARES)
+    let mut out: Vec<&Card> = vec![];
+    while out.len() < STARTER_RARES {
+        let idx: Vec<usize> = pool
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.rarity == Rarity::Rare && c.season == season)
+            .filter(|(_, c)| out.iter().all(|taken| taken.player != c.player))
+            .map(|(i, _)| i)
+            .collect();
+        if idx.is_empty() {
+            break;
+        }
+        out.extend(rng.take(idx, pool, 1));
+    }
+    out
 }
 
 /// A line's kind: what granted or moved the card.
@@ -367,7 +380,7 @@ pub struct Copies {
     pub earned: u32,
     pub starter: u32,
     pub imported: u32,
-    /// Out on the market: still owned, not placeable.
+    /// Out on the market: still owned, not placeable, and not a spare (a sale takes it out of both counts).
     pub listed: u32,
 }
 
@@ -404,20 +417,28 @@ impl State {
     }
 }
 
+/// The last line a fold reads: the last one not blank.
+fn last_line(text: &str) -> Option<&str> {
+    text.lines().rev().find(|line| !line.trim().is_empty())
+}
+
 /// A folded log and what a reader should be told about it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Folded {
     pub state: State,
+    /// A line the fold cannot read: it stopped there, so the state is the log up to the line before it.
+    pub unreadable: bool,
     pub warnings: Vec<String>,
 }
 
 /// Fold a log into the state, counting the day's match tokens against `today` ([`day`]). A line that does not parse
-/// ends the fold (an append-only log can only be torn at its end) and a `prev` that does not match the line before it
-/// breaks the chain; both are warnings, and the lines before are kept.
+/// ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match that line are
+/// warnings, and the lines around them are kept.
 #[must_use]
 pub fn fold_at(lines: &str, today: u32) -> Folded {
     let mut out = Folded::default();
     let mut before: Option<&str> = None;
+    let mut seq = 0;
     let mut chain = true;
     for (n, line) in lines.lines().enumerate().map(|(n, l)| (n + 1, l)) {
         if line.trim().is_empty() {
@@ -426,6 +447,7 @@ pub fn fold_at(lines: &str, today: u32) -> Folded {
         let entry: Entry = match serde_json::from_str(line) {
             Ok(entry) => entry,
             Err(e) => {
+                out.unreadable = true;
                 out.warnings.push(format!(
                     "line {n} does not parse ({e}), the log is read up to line {}",
                     n - 1
@@ -433,6 +455,14 @@ pub fn fold_at(lines: &str, today: u32) -> Folded {
                 break;
             }
         };
+        if entry.seq != seq + 1 {
+            out.warnings.push(format!(
+                "line {n}: seq is {} and not the {}",
+                entry.seq,
+                seq + 1
+            ));
+        }
+        seq = entry.seq;
         if let Some(prev) = before {
             let expected = hash(prev);
             if chain && entry.prev != expected {
@@ -462,7 +492,12 @@ impl State {
                 Kind::Starter => copies.starter += 1,
                 Kind::Import => copies.imported += 1,
                 Kind::Match | Kind::Pack | Kind::Craft | Kind::MarketBuy => copies.earned += 1,
-                Kind::Convert | Kind::MarketSell => copies.earned = copies.earned.saturating_sub(1),
+                Kind::Convert => copies.earned = copies.earned.saturating_sub(1),
+                // A sale is the sale of a listed copy: it leaves the collection and the market at once.
+                Kind::MarketSell => {
+                    copies.earned = copies.earned.saturating_sub(1);
+                    copies.listed = copies.listed.saturating_sub(1);
+                }
                 Kind::List => copies.listed += 1,
                 Kind::Unlist => copies.listed = copies.listed.saturating_sub(1),
             }
@@ -482,8 +517,44 @@ pub fn now() -> OffsetDateTime {
     OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc())
 }
 
-/// How long a writer waits for the log's lock: the panel appends in the game process and must never wait long.
+/// How long a writer or a reader waits for the log's lock: the panel appends in the game process and must never wait
+/// long. A caller in the game process calls from a worker thread, so the box is never spent on a frame it would stall.
 pub const LOCK_WAIT: Duration = Duration::from_secs(2);
+
+/// `file` locked (shared for a reader, exclusive for a writer), waiting up to [`LOCK_WAIT`]: `WouldBlock` when another
+/// handle holds it.
+fn lock(file: &File, shared: bool) -> io::Result<()> {
+    let start = Instant::now();
+    loop {
+        let taken = if shared {
+            file.try_lock_shared()
+        } else {
+            file.try_lock()
+        };
+        match taken {
+            Ok(()) => return Ok(()),
+            Err(TryLockError::WouldBlock) if start.elapsed() < LOCK_WAIT => {
+                sleep(Duration::from_millis(10));
+            }
+            Err(TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "another handle holds the grant log",
+                ));
+            }
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+    }
+}
+
+/// One line a caller asks [`Log::append_lines_at`] to write: what the caller knows, without `seq` and `prev`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    pub kind: Kind,
+    pub card: Option<u32>,
+    pub tokens: i64,
+    pub why: String,
+}
 
 /// `grants.jsonl` in a profile's collection folder, the one writer's door to it.
 #[derive(Clone, Debug)]
@@ -504,13 +575,29 @@ impl Log {
         &self.path
     }
 
-    /// Every line as it is on disk; a missing file is an empty log.
+    /// Every line as it is on disk; a missing file is an empty log. Reads under the log's shared lock (the same time
+    /// box): a write in progress is waited out instead of failing on a lock violation (Windows, os error 33).
     pub fn lines(&self) -> io::Result<String> {
-        match std::fs::read_to_string(&self.path) {
-            Ok(text) => Ok(text),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
-            Err(e) => Err(e),
-        }
+        let file = match File::open(&self.path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(String::new()),
+            Err(e) => return Err(e),
+        };
+        lock(&file, true)?;
+        let mut text = String::new();
+        (&file).read_to_string(&mut text)?;
+        Ok(text)
+    }
+
+    /// The log open for reading and appending: `not append(true)`, which on Windows asks for FILE_APPEND_DATA only,
+    /// while `set_len` and `seek` want more.
+    fn open(&self) -> io::Result<File> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.path)
     }
 
     /// Append one line now, for the business day now.
@@ -524,9 +611,7 @@ impl Log {
         self.append_at(now(), kind, card, tokens, why)
     }
 
-    /// Append one line: take the lock (a 2 s time box: `WouldBlock` when another writer holds it), re-read the log for
-    /// the next `seq` and its `prev`, append, flush. A torn last line is cut off first, so the chain stays one line
-    /// per entry.
+    /// Append one line at `at`: the one-line door to [`Self::append_lines_at`].
     pub fn append_at(
         &self,
         at: OffsetDateTime,
@@ -535,53 +620,78 @@ impl Log {
         tokens: i64,
         why: &str,
     ) -> io::Result<Entry> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true) // not append(true): on Windows that asks for FILE_APPEND_DATA only, and set_len and seek want more
-            .create(true)
-            .truncate(false)
-            .open(&self.path)?;
-        let start = Instant::now();
-        loop {
-            match file.try_lock() {
-                Ok(()) => break,
-                Err(TryLockError::WouldBlock) if start.elapsed() < LOCK_WAIT => {
-                    sleep(Duration::from_millis(10));
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "another writer holds the grant log",
-                    ));
-                }
-                Err(TryLockError::Error(e)) => return Err(e),
-            }
-        }
-        let mut text = String::new();
-        file.seek(io::SeekFrom::Start(0))?;
-        file.read_to_string(&mut text)?;
-        let complete = text.rfind('\n').map_or(0, |i| i + 1);
-        if complete < text.len() {
-            file.set_len(complete as u64)?;
-            text.truncate(complete);
-        }
-        let folded = fold_at(&text, day(at));
-        let entry = Entry {
-            seq: folded.state.seq + 1,
-            at,
-            rules: RULES,
+        let line = Line {
             kind,
             card,
             tokens,
             why: why.to_string(),
-            prev: text.lines().next_back().map(hash).unwrap_or_default(),
         };
-        let mut line = entry.line();
-        line.push('\n');
+        Ok(self.append_lines_at(at, |_| Ok(vec![line]))?.remove(0))
+    }
+
+    /// Append lines at `at` under one lock and one write: `lines` reads the state folded under the lock and returns the
+    /// lines to write, or a refusal, which leaves the file as it was. A torn last line is cut off first (or its missing
+    /// newline written), and a log the fold cannot read past a line in it is refused whole: a new `seq` after the break
+    /// would leave every later line unreadable. A broken chain or a `seq` gap warns but appends.
+    pub fn append_lines_at(
+        &self,
+        at: OffsetDateTime,
+        lines: impl FnOnce(&State) -> io::Result<Vec<Line>>,
+    ) -> io::Result<Vec<Entry>> {
+        let mut file = self.open()?;
+        lock(&file, false)?;
+        let mut text = String::new();
+        file.seek(io::SeekFrom::Start(0))?;
+        file.read_to_string(&mut text)?;
+        // A last line cut short by an interrupted write is dropped; a whole one that only lost its newline is kept.
+        let complete = text.rfind('\n').map_or(0, |i| i + 1);
+        let cut = (complete < text.len()
+            && serde_json::from_str::<Entry>(&text[complete..]).is_err())
+        .then_some(complete);
+        if let Some(complete) = cut {
+            text.truncate(complete);
+        }
+        let folded = fold_at(&text, day(at));
+        if folded.unreadable {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                folded.warnings.join("; "),
+            ));
+        }
+        let asked = lines(&folded.state)?;
+        if asked.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut prev = last_line(&text).map(hash).unwrap_or_default();
+        let mut block = String::new();
+        if !text.is_empty() && !text.ends_with('\n') {
+            block.push('\n');
+        }
+        let mut out = Vec::with_capacity(asked.len());
+        for (n, line) in asked.into_iter().enumerate() {
+            let entry = Entry {
+                seq: folded.state.seq + 1 + n as u64,
+                at,
+                rules: RULES,
+                kind: line.kind,
+                card: line.card,
+                tokens: line.tokens,
+                why: line.why,
+                prev: prev.clone(),
+            };
+            let written = entry.line();
+            prev = hash(&written);
+            block.push_str(&written);
+            block.push('\n');
+            out.push(entry);
+        }
+        if let Some(complete) = cut {
+            file.set_len(complete as u64)?;
+        }
         file.seek(io::SeekFrom::End(0))?; // the lock is ours, so the end stays the end until this write
-        file.write_all(line.as_bytes())?;
-        file.flush()?;
-        Ok(entry)
+        file.write_all(block.as_bytes())?;
+        file.sync_data()?;
+        Ok(out)
     }
 }
 
@@ -590,18 +700,21 @@ impl Log {
 pub enum NoConvert {
     /// No earned copy at all: a starter or imported copy is never converted.
     NoEarned,
-    /// The last earned copy stays: only a spare converts.
+    /// The last unlisted earned copy stays: only a spare converts, and a copy out on the market is not one.
     LastEarned,
 }
 
-/// CONVERT: [`CONVERT_SHARE`] of the card's value for a spare earned copy. Refused for the last earned copy and for a
-/// starter or imported copy (a starter or imported copy does not make an earned one a spare).
+/// CONVERT: [`CONVERT_SHARE`] of the card's value for a spare earned copy. Refused for the last unlisted earned copy
+/// (a listed copy is out on the market, so it does not count) and for a starter or imported copy (a starter or imported
+/// copy does not make an earned one a spare).
 pub fn convert(copies: &Copies, rarity: Rarity, total: u32) -> Result<u32, NoConvert> {
-    match copies.earned {
-        0 => Err(NoConvert::NoEarned),
-        1 => Err(NoConvert::LastEarned),
-        _ => Ok(value(rarity, total) * CONVERT_SHARE / 100),
+    if copies.earned == 0 {
+        return Err(NoConvert::NoEarned);
     }
+    if copies.earned.saturating_sub(copies.listed) < 2 {
+        return Err(NoConvert::LastEarned);
+    }
+    Ok(value(rarity, total) * CONVERT_SHARE / 100)
 }
 
 #[cfg(test)]
@@ -745,6 +858,25 @@ mod tests {
         );
     }
 
+    /// (finding 10) a `seq` that is not the line before plus one warns, and the fold still reads the lines after it.
+    #[test]
+    fn fold_reports_a_seq_out_of_order() {
+        let mut f = Fixture::default();
+        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(1), 40);
+        f.seq += 1; // the next line claims 3
+        f.add("2026-11-11T12:01:00+01:00", Kind::Match, Some(1), 15);
+        let folded = fold_at(&f.text, 2026_1111);
+        assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
+        assert!(
+            folded.warnings[0].starts_with("line 2: seq is 3"),
+            "{:?}",
+            folded.warnings
+        );
+        assert!(!folded.unreadable);
+        assert_eq!(folded.state.seq, 3, "the fold goes on");
+        assert_eq!(folded.state.tokens, 55);
+    }
+
     /// (b) the value table's 20 cells at the rating steps' edges, and a 150 card's floor, stock and ceiling.
     #[test]
     fn value_table() {
@@ -799,6 +931,7 @@ mod tests {
                 let rarity = Rarity::ALL[t];
                 (0..20).map(move |i| Card {
                     card_no: (t * 20 + i) as u32,
+                    player: (t * 20 + i) as u32,
                     rarity,
                     total: 85,
                     season: 2017,
@@ -822,6 +955,7 @@ mod tests {
                 let rarity = Rarity::ALL[t];
                 (0..counts[t]).map(move |i| Card {
                     card_no: (100 + t * 10 + i) as u32,
+                    player: (100 + t * 10 + i) as u32,
                     rarity,
                     total: 90,
                     season: 2004,
@@ -851,6 +985,7 @@ mod tests {
         for i in 0..25 {
             pool.push(Card {
                 card_no: i,
+                player: i,
                 rarity: Rarity::Regular,
                 total: 80,
                 season: 2010,
@@ -861,6 +996,7 @@ mod tests {
         for i in 25..27 {
             pool.push(Card {
                 card_no: i,
+                player: i,
                 rarity: Rarity::Special,
                 total: 88,
                 season: 2010,
@@ -882,6 +1018,7 @@ mod tests {
             let rarity = Rarity::ALL[i % 5];
             pool.push(Card {
                 card_no: i as u32,
+                player: i as u32,
                 rarity,
                 total: 92,
                 season: 2017,
@@ -923,6 +1060,7 @@ mod tests {
             for n in 0..6 {
                 pool.push(Card {
                     card_no: (i * 6 + n) as u32,
+                    player: (i * 6 + n) as u32,
                     rarity: Rarity::Regular,
                     total: 80,
                     season: 2004,
@@ -933,6 +1071,7 @@ mod tests {
             for n in 0..4 {
                 pool.push(Card {
                     card_no: (100 + i * 4 + n) as u32,
+                    player: (100 + i * 4 + n) as u32,
                     rarity: Rarity::Rare,
                     total: 90,
                     season: 2004,
@@ -942,6 +1081,7 @@ mod tests {
             }
             pool.push(Card {
                 card_no: (200 + i) as u32,
+                player: (200 + i) as u32,
                 rarity: Rarity::Rare,
                 total: 90,
                 season: 2017,
@@ -970,7 +1110,11 @@ mod tests {
         let mut nos: Vec<u32> = eleven.iter().map(|c| c.card_no).collect();
         nos.sort_unstable();
         nos.dedup();
-        assert_eq!(nos.len(), 11, "one card per player");
+        assert_eq!(nos.len(), 11, "no card twice");
+        let mut players: Vec<u32> = eleven.iter().map(|c| c.player).collect();
+        players.sort_unstable();
+        players.dedup();
+        assert_eq!(players.len(), 11, "one card per player");
         let rares = starter_rares(&mut rng, &pool, 2004);
         assert_eq!(rares.len(), 3);
         assert!(
@@ -978,6 +1122,59 @@ mod tests {
                 .iter()
                 .all(|c| c.rarity == Rarity::Rare && c.season == 2004)
         );
+    }
+
+    /// (2.4 steps 2 and 3) one card per player: a pool holding two cards of a player never deals both, and the three
+    /// face-up RARE cards are three players.
+    #[test]
+    fn starter_deal_takes_one_card_per_player() {
+        let mut pool: Vec<Card> = vec![];
+        {
+            let mut push = |card_no: u32, player: u32, position: Position, rarity: Rarity| {
+                pool.push(Card {
+                    card_no,
+                    player,
+                    rarity,
+                    total: 80,
+                    season: 2004,
+                    nation: "Italy",
+                    position,
+                });
+            };
+            // GK: two cards of player 7. DF: 5 cards, two of player 13. MF: 6 cards, two of player 20. FW: 3 cards.
+            push(1, 7, Position::Gk, Rarity::Regular);
+            push(2, 7, Position::Gk, Rarity::Regular);
+            for (card_no, player) in [(3, 10), (4, 11), (5, 12), (6, 13), (7, 13)] {
+                push(card_no, player, Position::Df, Rarity::Regular);
+            }
+            for (card_no, player) in [(8, 20), (9, 21), (10, 22), (11, 23), (12, 24), (13, 20)] {
+                push(card_no, player, Position::Mf, Rarity::Regular);
+            }
+            for (card_no, player) in [(14, 30), (15, 31), (16, 31)] {
+                push(card_no, player, Position::Fw, Rarity::Regular);
+            }
+            // The RARE heroes: three players, four cards (player 40 has two).
+            for (card_no, player) in [(17, 40), (18, 40), (19, 41), (20, 42)] {
+                push(card_no, player, Position::Mf, Rarity::Rare);
+            }
+        }
+        let mut rng = Rng::new(5);
+        for _ in 0..100 {
+            let eleven = starter(&mut rng, &pool, 2004);
+            assert_eq!(eleven.len(), 11);
+            let mut players: Vec<u32> = eleven.iter().map(|c| c.player).collect();
+            players.sort_unstable();
+            players.dedup();
+            assert_eq!(players.len(), 11, "one card per player");
+        }
+        for _ in 0..100 {
+            let rares = starter_rares(&mut rng, &pool, 2004);
+            assert_eq!(rares.len(), 3);
+            let mut players: Vec<u32> = rares.iter().map(|c| c.player).collect();
+            players.sort_unstable();
+            players.dedup();
+            assert_eq!(players.len(), 3, "three players face up");
+        }
     }
 
     /// (d) match tokens: the first 40, then 15, nothing from the 8th; the day turns at 05:00; a convert adds nothing.
@@ -1099,6 +1296,71 @@ mod tests {
         );
         // A spare top ALL TIME LEGEND pays 2,000.
         assert_eq!(convert(&spare, Rarity::AllTimeLegend, 95), Ok(2_000));
+        // One of the two earned copies is out on the market: it is not spare, so nothing converts.
+        assert_eq!(
+            convert(
+                &Copies {
+                    earned: 2,
+                    listed: 1,
+                    ..Copies::default()
+                },
+                Rarity::Special,
+                87
+            ),
+            Err(NoConvert::LastEarned)
+        );
+    }
+
+    /// (2.6) a copy out on the market is not spare: only earned - listed >= 2 converts, so one unlisted earned copy
+    /// stays.
+    #[test]
+    fn convert_needs_an_unlisted_spare() {
+        let copies = |earned, listed| Copies {
+            earned,
+            listed,
+            ..Copies::default()
+        };
+        assert_eq!(convert(&copies(2, 0), Rarity::Special, 87), Ok(30));
+        assert_eq!(
+            convert(&copies(2, 1), Rarity::Special, 87),
+            Err(NoConvert::LastEarned),
+            "2 earned with 1 listed leaves no unlisted spare"
+        );
+        assert_eq!(
+            convert(&copies(2, 2), Rarity::Special, 87),
+            Err(NoConvert::LastEarned)
+        );
+        assert_eq!(
+            convert(&copies(3, 1), Rarity::Special, 87),
+            Ok(30),
+            "3 earned with 1 listed keeps one unlisted copy"
+        );
+    }
+
+    /// (3.1) a `market_sell` line is the sale of a listed copy: it lowers `earned` and `listed` together, and a starter
+    /// copy of the same card keeps it placeable.
+    #[test]
+    fn a_sale_takes_the_listed_copy() {
+        let mut f = Fixture::default();
+        f.add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(2), 0)
+            .add("2026-11-11T12:01:00+01:00", Kind::Match, Some(2), 40)
+            .add("2026-11-11T12:02:00+01:00", Kind::List, Some(2), 0)
+            .add("2026-11-11T12:03:00+01:00", Kind::MarketSell, Some(2), 120);
+        let folded = fold_at(&f.text, 2026_1111);
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            folded.state.copies(2),
+            Copies {
+                starter: 1,
+                ..Copies::default()
+            },
+            "earned 1 out, listed 1 out"
+        );
+        assert!(
+            folded.state.copies(2).owned(),
+            "the starter copy still plays"
+        );
+        assert_eq!(folded.state.tokens, 160);
     }
 
     /// (e) two grants of one card fold to 2 earned copies and write no convert line.
@@ -1193,5 +1455,200 @@ mod tests {
                 .match_today,
             55
         );
+    }
+
+    /// (finding 4) a whole last line whose newline never landed is kept and joined, not cut off.
+    #[test]
+    fn append_keeps_a_whole_last_line_without_its_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let first = log
+            .append_at(
+                when("2026-11-11T12:00:00+01:00"),
+                Kind::Match,
+                Some(1),
+                40,
+                "match 1",
+            )
+            .unwrap();
+        let text = std::fs::read_to_string(log.path()).unwrap();
+        std::fs::write(log.path(), text.trim_end_matches('\n')).unwrap();
+        let second = log
+            .append_at(
+                when("2026-11-11T12:01:00+01:00"),
+                Kind::Match,
+                Some(1),
+                15,
+                "match 2",
+            )
+            .unwrap();
+        assert_eq!(second.seq, 2);
+        assert_eq!(second.prev, hash(&first.line()));
+        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(folded.state.seq, 2, "the whole line stayed one line");
+        assert_eq!(folded.state.match_today, 55);
+    }
+
+    /// (finding 5) a line the fold cannot read inside the log refuses the append whole, and the file stays as it was.
+    #[test]
+    fn append_refuses_a_log_it_cannot_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let mut text = fixed().text;
+        let start = text[..text.find("2026-11-11T12:03").unwrap()]
+            .rfind('\n')
+            .unwrap()
+            + 1;
+        text.insert_str(start, "not a line\n");
+        std::fs::write(log.path(), &text).unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let e = log
+            .append_at(
+                when("2026-11-11T12:08:00+01:00"),
+                Kind::Match,
+                Some(9),
+                15,
+                "match 9",
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        assert!(e.to_string().contains("does not parse"), "{e}");
+        assert_eq!(
+            std::fs::read_to_string(log.path()).unwrap(),
+            before,
+            "the log is unchanged"
+        );
+    }
+
+    /// (finding 6) a reader takes the log's shared lock: it waits out a write in progress (a bare read fails on Windows
+    /// with a lock violation) and its time box then reports `WouldBlock`.
+    #[test]
+    fn lines_waits_for_the_writer_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        log.append(Kind::Match, Some(1), 40, "first").unwrap();
+        let text = log.lines().unwrap();
+        let holder = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(log.path())
+            .unwrap();
+        holder.lock().unwrap();
+        let reader = log.clone();
+        let read = std::thread::spawn(move || {
+            let start = Instant::now();
+            let kind = reader.lines().unwrap_err().kind();
+            (kind, start.elapsed())
+        });
+        let (kind, waited) = read.join().unwrap();
+        assert_eq!(kind, io::ErrorKind::WouldBlock);
+        assert!(waited >= LOCK_WAIT, "{waited:?}");
+        holder.unlock().unwrap();
+        assert_eq!(log.lines().unwrap(), text);
+    }
+
+    /// (finding 7, step 2.1) a pack's spend line and its 3 card lines land under one lock and one write, and the
+    /// closure's refusal leaves the log untouched.
+    #[test]
+    fn a_pack_writes_its_lines_under_one_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        log.append_at(
+            when("2026-11-11T12:00:00+01:00"),
+            Kind::Match,
+            Some(1),
+            40,
+            "match 1",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let line = |card: Option<u32>| Line {
+            kind: Kind::Pack,
+            card,
+            tokens: if card.is_none() { -STANDARD_PACK } else { 0 },
+            why: "pack standard".to_string(),
+        };
+        let buy = |state: &State| {
+            if state.tokens < STANDARD_PACK {
+                return Err(io::Error::other("not enough tokens"));
+            }
+            let mut out = vec![line(None)];
+            out.extend([2, 3, 4].map(|card| line(Some(card))));
+            Ok(out)
+        };
+        let e = log
+            .append_lines_at(when("2026-11-11T12:01:00+01:00"), buy)
+            .unwrap_err();
+        assert_eq!(e.to_string(), "not enough tokens");
+        assert_eq!(
+            std::fs::read_to_string(log.path()).unwrap(),
+            before,
+            "40 tokens pay for nothing"
+        );
+        log.append_at(
+            when("2026-11-11T12:02:00+01:00"),
+            Kind::Convert,
+            Some(5),
+            70,
+            "convert",
+        )
+        .unwrap();
+        let wrote = log
+            .append_lines_at(when("2026-11-11T12:03:00+01:00"), buy)
+            .unwrap();
+        assert_eq!(wrote.len(), 4);
+        assert_eq!(
+            wrote.iter().map(|e| e.seq).collect::<Vec<u64>>(),
+            [3, 4, 5, 6],
+            "one number per line, on from the fold under the lock"
+        );
+        assert_eq!(wrote[0].tokens, -STANDARD_PACK);
+        assert_eq!(wrote[1].prev, hash(&wrote[0].line()));
+        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(folded.state.tokens, 40 + 70 - STANDARD_PACK);
+        assert_eq!(
+            folded.state.copies(2),
+            Copies {
+                earned: 1,
+                ..Copies::default()
+            }
+        );
+        assert_eq!(folded.state.copies(4).earned, 1);
+    }
+
+    /// (finding 10) a blank line at the end of the log does not become the next line's `prev`: the last non-blank line
+    /// is hashed, as the fold reads it.
+    #[test]
+    fn append_hashes_the_last_non_blank_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let first = log
+            .append_at(
+                when("2026-11-11T12:00:00+01:00"),
+                Kind::Match,
+                Some(1),
+                40,
+                "match 1",
+            )
+            .unwrap();
+        let mut text = std::fs::read_to_string(log.path()).unwrap();
+        text.push('\n');
+        std::fs::write(log.path(), text).unwrap();
+        let second = log
+            .append_at(
+                when("2026-11-11T12:01:00+01:00"),
+                Kind::Match,
+                Some(1),
+                15,
+                "match 2",
+            )
+            .unwrap();
+        assert_eq!(second.seq, 2);
+        assert_eq!(second.prev, hash(&first.line()));
+        let folded = fold_at(&log.lines().unwrap(), 2026_1111);
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(folded.state.match_today, 55);
     }
 }
