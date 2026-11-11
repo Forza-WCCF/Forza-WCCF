@@ -627,7 +627,7 @@ lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "
 lobby.howto_code: {en: "1. Give your friends the arcade code.", it: "1. Dai il codice della sala ai tuoi amici.", ja: "1. ゲームセンターのコードを友だちに伝えます。"}
 lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
 lobby.howto_entry: {en: "2. Both players insert their club card during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
-lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で対戦相手を設定します。"}
+lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.code_target: {en: "JOIN: the arcade with code %{code}.", it: "ENTRA: la sala con codice %{code}.", ja: "参加：コード %{code} のゲームセンター。"}
 lobby.no_room: {en: "No room has that code on %{desk}. The arcade may have restarted with a new code: pick it from the list, or ask the host for the new code.", it: "Nessuna stanza ha quel codice su %{desk}. La sala potrebbe essere ripartita con un codice nuovo: sceglila dall'elenco, oppure chiedi all'host il nuovo codice.", ja: "%{desk} にそのコードのルームはありません。ゲームセンターが再起動してコードが変わった可能性があります。一覧から選ぶか、ホストに新しいコードを尋ねてください。"}
