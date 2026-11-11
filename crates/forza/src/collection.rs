@@ -611,17 +611,110 @@ pub fn pack<'a>(
         out.push(next);
     }
     if out.len() == PACK_CARDS && out.iter().all(|c| c.rarity == Rarity::Regular) {
-        let kept: Vec<u32> = out[..PACK_CARDS - 1].iter().map(|c| c.player).collect();
-        if let Some(better) = draw(
-            rng,
-            pool,
-            |c| pick(c) && !kept.contains(&c.player),
-            &Rarity::BETTER,
-        ) {
-            out[PACK_CARDS - 1] = better;
+        // The last card first; when the other two hold every SPECIAL-or-better player (Korea Republic's 2 SPECIAL
+        // players drawn as REGULAR cards), an earlier card makes room instead (1.1b review N5).
+        for slot in (0..PACK_CARDS).rev() {
+            let kept: Vec<u32> = (0..PACK_CARDS)
+                .filter(|&i| i != slot)
+                .map(|i| out[i].player)
+                .collect();
+            if let Some(better) = draw(
+                rng,
+                pool,
+                |c| pick(c) && !kept.contains(&c.player),
+                &Rarity::BETTER,
+            ) {
+                out[slot] = better;
+                break;
+            }
         }
     }
     out
+}
+
+/// A pack the store sells (`PLAN.md` 2.3): every season, one season (its first year) or one of [`NATIONS`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pack<'a> {
+    Standard,
+    Season(u16),
+    Nation(&'a str),
+}
+
+impl Pack<'_> {
+    #[must_use]
+    pub fn price(self) -> i64 {
+        match self {
+            Pack::Standard => STANDARD_PACK,
+            Pack::Season(_) => SEASON_PACK,
+            Pack::Nation(_) => NATION_PACK,
+        }
+    }
+
+    /// Whether `card` is in this pack's pool.
+    #[must_use]
+    pub fn has(self, card: &Card) -> bool {
+        match self {
+            Pack::Standard => true,
+            Pack::Season(y) => card.season == y,
+            Pack::Nation(n) => card.nation == n,
+        }
+    }
+
+    /// The log's `why` for the pack's lines, in English as the log is.
+    #[must_use]
+    pub fn why(self) -> String {
+        match self {
+            Pack::Standard => "pack standard".into(),
+            Pack::Season(y) => format!("pack season {y}"),
+            Pack::Nation(n) => format!("pack nation {n}"),
+        }
+    }
+}
+
+/// One pack card's odds per tier ([`Rarity::ALL`]' order, tenths of a percent) after the step-down: a tier the pack's
+/// pool lacks passes its odds to the next lower tier it has. Before the guarantee and the no-player-twice rule.
+#[must_use]
+pub fn pack_odds(pool: &[Card], kind: Pack) -> [u32; 5] {
+    let has = Rarity::ALL.map(|r| pool.iter().any(|c| c.rarity == r && kind.has(c)));
+    let mut out = [0; 5];
+    for (i, r) in Rarity::ALL.iter().enumerate() {
+        if let Some(j) = (0..=i).rev().find(|&j| has[j]) {
+            out[j] += r.odds();
+        }
+    }
+    out
+}
+
+/// The refusal [`buy_pack`] gives when the balance is under the pack's price.
+pub const NOT_ENOUGH_TOKENS: &str = "not enough tokens";
+
+/// Buy and open a pack under the log's lock: refused under its price ([`NOT_ENOUGH_TOKENS`]) or when its pool cannot
+/// fill it, else one `pack` line that pays the price and one `pack` line per card, in one write.
+pub fn buy_pack(
+    log: &Log,
+    at: OffsetDateTime,
+    rng: &mut Rng,
+    pool: &[Card],
+    kind: Pack,
+) -> io::Result<Vec<Entry>> {
+    log.append_lines_at(at, |state| {
+        if state.tokens < kind.price() {
+            return Err(io::Error::other(NOT_ENOUGH_TOKENS));
+        }
+        let cards = pack(rng, pool, |c| kind.has(c));
+        if cards.len() < PACK_CARDS {
+            return Err(io::Error::other(format!("{}: too few cards", kind.why())));
+        }
+        let line = |card: Option<u32>, tokens| Line {
+            kind: Kind::Pack,
+            card,
+            tokens,
+            why: kind.why(),
+        };
+        Ok(std::iter::once(line(None, -kind.price()))
+            .chain(cards.iter().map(|c| line(Some(c.card_no), 0)))
+            .collect())
+    })
 }
 
 /// The starter deal: 1 GK, 4 DF, 4 MF and 2 FW, REGULAR only, one card per player, no secret card (the band needs a
@@ -1870,6 +1963,169 @@ mod tests {
             }
         }
         assert_eq!(NATION_PACK, 200);
+    }
+
+    /// The store's fixture: Korea Republic short as the catalogue is (its 2 SPECIAL cards belong to players who also
+    /// have a REGULAR card, review N5's case, here with 4 REGULAR players so it comes up often), Chile and Japan in
+    /// 2014, Italy in 2006.
+    fn store_pool() -> Vec<Card<'static>> {
+        let mut pool: Vec<Card> = vec![];
+        two_per_player(&mut pool, 0, 8, Rarity::Regular, "Korea Republic", 2010);
+        two_per_player(&mut pool, 0, 4, Rarity::Special, "Korea Republic", 2010);
+        two_per_player(&mut pool, 200, 20, Rarity::Regular, "Chile", 2014);
+        two_per_player(&mut pool, 300, 5, Rarity::Special, "Chile", 2014);
+        two_per_player(&mut pool, 400, 2, Rarity::Rare, "Chile", 2014);
+        two_per_player(&mut pool, 500, 12, Rarity::Regular, "Italy", 2006);
+        two_per_player(&mut pool, 600, 3, Rarity::Special, "Italy", 2006);
+        two_per_player(&mut pool, 700, 6, Rarity::Regular, "Japan", 2014);
+        pool
+    }
+
+    /// 2.1 (b), (c): 10,000 seeded packs of each kind, Korea Republic included, each hold 1 SPECIAL or better, only
+    /// the pack's season or nation, and no player twice.
+    #[test]
+    fn every_pack_keeps_its_guarantee_and_its_pool() {
+        let pool = store_pool();
+        let mut rng = Rng::new(0x2026_1121);
+        for kind in [
+            Pack::Standard,
+            Pack::Season(2014),
+            Pack::Nation("Korea Republic"),
+            Pack::Nation("Chile"),
+        ] {
+            for _ in 0..10_000 {
+                let cards = pack(&mut rng, &pool, |c| kind.has(c));
+                assert_eq!(cards.len(), PACK_CARDS, "{kind:?}");
+                assert!(
+                    cards.iter().any(|c| c.rarity != Rarity::Regular),
+                    "{kind:?}: {cards:?}"
+                );
+                assert!(cards.iter().all(|c| kind.has(c)), "{kind:?}: {cards:?}");
+                let mut players: Vec<u32> = cards.iter().map(|c| c.player).collect();
+                players.sort_unstable();
+                players.dedup();
+                assert_eq!(players.len(), PACK_CARDS, "{kind:?}: {cards:?}");
+            }
+        }
+    }
+
+    /// 2.1: the odds the store shows, after the step-down.
+    #[test]
+    fn pack_odds_step_down() {
+        let pool = store_pool();
+        assert_eq!(
+            pack_odds(&pool, Pack::Nation("Korea Republic")),
+            [680, 320, 0, 0, 0]
+        );
+        assert_eq!(
+            pack_odds(&pool, Pack::Nation("Chile")),
+            [680, 260, 60, 0, 0]
+        );
+        assert_eq!(pack_odds(&pool, Pack::Season(2006)), [680, 320, 0, 0, 0]);
+        assert_eq!(pack_odds(&[], Pack::Standard), [0; 5]);
+        let full = pack_odds(&pool, Pack::Standard);
+        assert_eq!(full.iter().sum::<u32>(), 1_000);
+    }
+
+    /// 2.1 (a): 99 tokens buy nothing and leave the log as it was; 100 write the price line and 3 card lines.
+    #[test]
+    fn a_pack_costs_its_price() {
+        let pool = store_pool();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        log.append_at(
+            when("2026-11-11T12:00:00+01:00"),
+            Kind::Welcome,
+            None,
+            99,
+            "welcome",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let mut rng = Rng::new(5);
+        let e = buy_pack(
+            &log,
+            when("2026-11-11T12:01:00+01:00"),
+            &mut rng,
+            &pool,
+            Pack::Standard,
+        )
+        .unwrap_err();
+        assert_eq!(e.to_string(), NOT_ENOUGH_TOKENS);
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        log.append_at(
+            when("2026-11-11T12:02:00+01:00"),
+            Kind::Convert,
+            Some(1),
+            1,
+            "convert",
+        )
+        .unwrap();
+        let wrote = buy_pack(
+            &log,
+            when("2026-11-11T12:03:00+01:00"),
+            &mut rng,
+            &pool,
+            Pack::Standard,
+        )
+        .unwrap();
+        assert_eq!(wrote.len(), 1 + PACK_CARDS);
+        assert!(
+            wrote
+                .iter()
+                .all(|e| e.kind == Kind::Pack && e.why == "pack standard")
+        );
+        assert_eq!((wrote[0].card, wrote[0].tokens), (None, -STANDARD_PACK));
+        assert!(wrote[1..].iter().all(|e| e.card.is_some() && e.tokens == 0));
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(folded.state.tokens, 0);
+        for e in &wrote[1..] {
+            assert_eq!(folded.state.copies(e.card.unwrap()).earned, 1);
+        }
+        // a pool that cannot fill a pack takes nothing either
+        log.append_at(
+            when("2026-11-11T12:04:00+01:00"),
+            Kind::Convert,
+            Some(1),
+            200,
+            "convert",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        assert!(
+            buy_pack(
+                &log,
+                when("2026-11-11T12:05:00+01:00"),
+                &mut rng,
+                &pool,
+                Pack::Nation("Ghana")
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+    }
+
+    /// 2.1 (d): the Nation picker's 24, none of the 7 dropped.
+    #[test]
+    fn the_nation_list() {
+        assert_eq!(NATIONS.len(), 24);
+        let mut sorted = NATIONS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 24);
+        for out in [
+            "SAMURAI BLUE",
+            "Mexico",
+            "Romania",
+            "Paraguay",
+            "Cote d'Ivoire",
+            "Ghana",
+            "Greece",
+            "Nigeria",
+        ] {
+            assert!(!NATIONS.contains(&out), "{out}");
+        }
     }
 
     /// (e) PLAN 2.4: a season start is unbanded; All seasons and a league deal their 11 inside 80-82 with no secret
