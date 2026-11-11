@@ -11,7 +11,7 @@ use egui::{Rect, Role, Sense, Ui, WidgetInfo, vec2};
 use forza::collection::{self, Copies, LEAGUES, Start};
 
 /// A start the picker offers (`PLAN.md` 2.4): all seasons, one season (its first year), one league ([`LEAGUES`]' index).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Choice {
     AllSeasons,
     Season(u16),
@@ -296,10 +296,11 @@ fn choose(
         tiles(ui, rows.len(), cols, 46.0, |ui, k, size| {
             let i = rows[k];
             let row = &starts[i];
-            let mean = row
-                .mean
-                .map_or_else(|| "80-82".to_owned(), |m| m.to_string());
-            let sub = tr!(lang, "collection.mean", n = mean.as_str());
+            let sub = match row.mean {
+                Some(m) => tr!(lang, "collection.mean", n = m.to_string().as_str()),
+                // the leagues and All seasons are banded: 80-82 is what the deal aims at, not a result
+                None => tr!(lang, "collection.band"),
+            };
             let sub = if row.choice == Choice::AllSeasons {
                 tr!(lang, "collection.recommended", mean = sub.as_str())
             } else {
@@ -607,7 +608,15 @@ fn detail(ui: &mut Ui, card: &Card, copies: &Copies, lang: Lang) -> bool {
                     if row.secret {
                         hint(ui, &tr!(lang, "collection.value_secret"));
                     } else {
-                        let pct = |p: u32| format!("{}", p as f32 / 100.0);
+                        // a multiplier, printed with the language's decimal mark (it: 1,5)
+                        let pct = |p: u32| {
+                            let s = format!("{}", p as f32 / 100.0);
+                            if lang == Lang::It {
+                                s.replace('.', ",")
+                            } else {
+                                s
+                            }
+                        };
                         let (base, step, factor) = (
                             row.rarity.base().to_string(),
                             pct(collection::step(row.total)),

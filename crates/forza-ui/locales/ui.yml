@@ -585,11 +585,13 @@ club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
 # ---- Create-a-Team collection (Launcher COLLECTION) ----
 collection.back: {en: "‹ PLAY", it: "‹ GIOCA", ja: "‹ プレイ"}
 collection.choose_title: {en: "CHOOSE YOUR START", it: "SCEGLI COME INIZIARE", ja: "スタートを選ぶ"}
-collection.choose_hint: {en: "You get 11 players from your choice, then pick 1 of 3 RARE cards. You choose once.", it: "Ricevi 11 giocatori dalla tua scelta, poi scegli 1 di 3 carte RARA. Si sceglie una volta sola.", ja: "選んだ範囲から 11 人の選手が配られ、レアカード 3 枚から 1 枚を選びます。選べるのは一度だけです。"}
+collection.choose_hint: {en: "You get 11 player cards from your choice, then pick 1 of 3 RARE cards. You choose once.", it: "Ricevi 11 carte giocatore dalla tua scelta, poi scegli 1 di 3 carte RARA. Si sceglie una volta sola.", ja: "選んだ範囲から選手カードが 11 枚配られ、レアカード 3 枚から 1 枚を選びます。選べるのは一度だけです。"}
 collection.all_seasons: {en: "All seasons", it: "Tutte le stagioni", ja: "全シーズン"}
-# a start tile's line: %{n} is a number (75) or the band 80-82
+# a start tile's line, a season's: %{n} is the mean TOTAL its 11 land near (75)
 collection.mean: {en: "Mean TOTAL %{n}", it: "TOTALE medio %{n}", ja: "平均総合 %{n}"}
-# %{mean} is collection.mean's text
+# a banded start's line (a league, All seasons): 80-82 is the band the deal aims at, not the result
+collection.band: {en: "TOTAL 80-82 target", it: "TOTALE 80-82 obiettivo", ja: "総合 80-82 目標"}
+# %{mean} is collection.mean's or collection.band's text
 collection.recommended: {en: "Recommended · %{mean}", it: "Consigliato · %{mean}", ja: "おすすめ・%{mean}"}
 collection.by_season: {en: "A SEASON", it: "UNA STAGIONE", ja: "シーズンで選ぶ"}
 collection.by_league: {en: "A LEAGUE", it: "UN CAMPIONATO", ja: "リーグで選ぶ"}
@@ -605,18 +607,18 @@ collection.league_south_america: {en: "South America", it: "Sud America", ja: "�
 collection.deal: {en: "DEAL", it: "DISTRIBUISCI", ja: "配る"}
 collection.dealt_title: {en: "YOUR 11 PLAYERS", it: "I TUOI 11 GIOCATORI", ja: "あなたの 11 人"}
 collection.pick_title: {en: "PICK 1 RARE CARD", it: "SCEGLI 1 CARTA RARA", ja: "レアカードを 1 枚選ぶ"}
-collection.pick_hint: {en: "These 12 starter cards play but never sell or convert.", it: "Queste 12 carte iniziali si giocano ma non si vendono né si convertono.", ja: "この 12 枚の初期カードはプレイできますが、売却も変換もできません。"}
+collection.pick_hint: {en: "Your 12 starter cards can play, but they can never be sold or converted.", it: "Le tue 12 carte iniziali possono giocare, ma non si possono mai vendere né convertire.", ja: "この 12 枚の初期カードは対戦で使えますが、売却も変換もできません。"}
 collection.take: {en: "TAKE THIS TEAM", it: "PRENDI QUESTA SQUADRA", ja: "このチームにする"}
 collection.tokens: {en: "%{n} tokens", it: "%{n} gettoni", ja: "%{n} トークン"}
 collection.match_left: {en: "Match tokens left this week: %{n}", it: "Gettoni partita rimasti questa settimana: %{n}", ja: "今週の残り試合トークン：%{n}"}
 collection.season: {en: "SEASON", it: "STAGIONE", ja: "シーズン"}
 collection.league: {en: "LEAGUE", it: "CAMPIONATO", ja: "リーグ"}
 collection.value: {en: "Value: %{n} tokens", it: "Valore: %{n} gettoni", ja: "価値：%{n} トークン"}
-# how the value is made: the tier's base, the rating step (1, 1.5, 2.5, 4) and the series factor (1, 1.5, 2.5)
-collection.value_parts: {en: "Base %{base} × rating %{step} × series %{factor}", it: "Base %{base} × valutazione %{step} × serie %{factor}", ja: "基本 %{base} × 能力 %{step} × シリーズ %{factor}"}
-collection.value_secret: {en: "A SECRET card has one price for its series.", it: "Una carta SECRET ha un prezzo unico per la sua serie.", ja: "SECRET カードはシリーズごとに一律の価格です。"}
+# how the value is made: the tier's base, the step the card's TOTAL gives (1, 1.5, 2.5, 4) and the series factor
+collection.value_parts: {en: "Base %{base} × TOTAL step %{step} × series %{factor}", it: "Base %{base} × passo TOTALE %{step} × serie %{factor}", ja: "基本 %{base} × 総合ステップ %{step} × シリーズ %{factor}"}
+collection.value_secret: {en: "A SECRET card has one fixed price.", it: "Una carta SECRET ha un prezzo fisso.", ja: "SECRET カードは価格が一律です。"}
 collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
-collection.no_sell: {en: "Starter and imported copies play but never sell or convert.", it: "Le copie iniziali e importate si giocano ma non si vendono né si convertono.", ja: "初期カードと引継ぎカードはプレイできますが、売却も変換もできません。"}
+collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
 collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
 
 # ---- the card deal after a match ----

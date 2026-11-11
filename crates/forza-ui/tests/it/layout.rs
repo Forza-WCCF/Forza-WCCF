@@ -9,6 +9,23 @@ use forza_ui::{installer, launcher, lobby, panel, widgets};
 
 use super::snapshots::{formations_state, harness, import_asked};
 
+/// Every text shape drawn in the last frame, nested ones included: painted text (the STARTER and IMPORT marks) is
+/// not on the accessibility tree, so it is checked where it lands.
+fn drawn_texts(h: &egui_kittest::Harness<'_>) -> Vec<egui::epaint::TextShape> {
+    fn walk(s: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+        match s {
+            egui::Shape::Text(t) => out.push(t.clone()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = vec![];
+    for s in &h.output().shapes {
+        walk(&s.shape, &mut out);
+    }
+    out
+}
+
 /// 2010-11 keeps its pack choice (From the game | High-quality pack, Choose pack…); 2017-18 has the one download button.
 #[test]
 fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_18() {
@@ -770,7 +787,8 @@ fn collection_cards_and_marks_fit_the_page() {
             launcher::show(ui, &mut st);
         });
         h.run_steps(4);
-        let painter = h.ctx.debug_painter();
+        // the marks are painted, so they are checked where they land, not on the accessibility tree
+        let drawn = drawn_texts(&h);
         let mut seen = 0;
         for (card, copies) in &cards {
             let Some(node) = h
@@ -795,32 +813,45 @@ fn collection_cards_and_marks_fit_the_page() {
                 None
             };
             if let Some(k) = mark {
-                // the mark as catalogue_card lays it: 3 px in, its text plus 8 px
-                let w = painter
-                    .layout_no_wrap(t(k), theme::display(11.0), egui::Color32::WHITE)
-                    .size()
-                    .x;
-                assert!(3.0 + w + 8.0 <= r.width(), "{tag}: mark {w} px wide");
+                let text = t(k);
+                assert!(
+                    drawn.iter().any(|s| s.galley.text() == text
+                        && r.contains_rect(egui::Rect::from_min_size(s.pos, s.galley.size()))),
+                    "{tag}: the mark {text:?} is drawn whole inside the card"
+                );
             }
         }
         assert!(seen >= 12, "{lang:?}: {seen} cards in view");
     }
-    // (e) the detail of a starter card
+    // (e) the detail of a starter card: it says why the card neither sells nor converts, and the gate CONVERT asks
+    // later (step 2.3) refuses a starter-only card while an earned copy in the same collection passes it
+    let view = CollectionView::sample(Scenario::Detail);
+    let cards = view.cards.clone();
     let mut st =
         launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
     st.profile = Some(forza::profile::Profile::CreateATeam);
-    st.collection = Some(CollectionView::sample(Scenario::Detail));
+    st.collection = Some(view);
     st.tab = launcher::Tab::Collection;
     let mut h = harness(size, 1.0, Edition::E1718, |ui| {
         launcher::show(ui, &mut st);
     });
     h.run_steps(4);
     assert!(h.query_by_label("CLOSE").is_some(), "the detail is open");
-    for word in ["CONVERT", "SELL"] {
-        assert!(
-            h.query_all_by_label_contains(word)
-                .all(|n| n.accesskit_node().role() != egui::accesskit::Role::Button),
-            "{word} offered on a starter card"
-        );
-    }
+    let t = |k: &str| forza_ui::text(Lang::En, k, &[]);
+    assert!(
+        h.query_by_label(&t("collection.no_sell")).is_some(),
+        "the starter detail says the card cannot be sold or converted"
+    );
+    let (starter, earned) = (cards[0].clone(), cards[15].clone());
+    assert_eq!(starter.1.earned, 0);
+    let starter_row = forza::cards::collection_cards(std::slice::from_ref(&starter.0));
+    assert_eq!(
+        forza::collection::convert(&starter.1, &starter_row[0]),
+        Err(forza::collection::NoConvert::NoEarned)
+    );
+    let earned_row = forza::cards::collection_cards(std::slice::from_ref(&earned.0));
+    assert!(
+        forza::collection::convert(&earned.1, &earned_row[0]).is_ok(),
+        "a spare earned copy does convert"
+    );
 }

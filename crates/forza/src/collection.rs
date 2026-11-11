@@ -2493,5 +2493,14 @@ mod tests {
         let out = first_start(&fresh, &mark, at, &cards, "starter 2013").unwrap();
         assert_eq!(out.len(), 12);
         assert!(out.iter().all(|e| e.kind == Kind::Starter));
+
+        // the reset-after-crash path: starters in the log and the mark gone, so no second welcome
+        std::fs::remove_file(&mark).unwrap();
+        assert!(
+            first_start(&log, &mark, at, &cards, "starter 2013")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!mark.exists());
     }
 }
