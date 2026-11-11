@@ -7257,7 +7257,10 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[2], st.keys[1], st.capturing), (0x58, 0x43, None));
         assert!(std::mem::take(&mut st.keys_changed));
-        assert_eq!(st.message.as_ref().unwrap().text, "SHOOT is now X; PRESS is now C.");
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "SHOOT is now X; PRESS is now C."
+        );
         // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
         st.capturing = Some(0);
         st.vk_down = vec![(0x79, false), (0x47, true)];
