@@ -1365,7 +1365,7 @@ fn settings_1718_clear_bad_endings() {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(3);
-    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.get_by_label("CLEAR AND RESTART").click();
     h.run_steps(2);
     assert!(st.borrow().club_request.is_none(), "armed, not asked");
     h.get_by_label("CLICK AGAIN").click();
@@ -1475,7 +1475,7 @@ fn club_card_switch_and_clear() {
         "refused during a session"
     );
     st.borrow_mut().club.session = "cut".into();
-    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.get_by_label("CLEAR AND RESTART").click();
     h.run_steps(2);
     h.get_by_label("CLICK AGAIN").click();
     h.run_steps(2);
