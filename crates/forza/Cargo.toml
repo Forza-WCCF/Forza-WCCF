@@ -27,6 +27,8 @@ emath.workspace = true
 image = { version = "0.25.10", default-features = false, features = ["png", "dds", "jpeg"], optional = true }
 zip.workspace = true
 getrandom = "0.3.4"
+# the market key (forza::market): signs the grant log the market server checks; as crates/server takes it
+ed25519-dalek = { version = "3.0.0", default-features = false }
 tempfile = "3.27.0"
 # setup (2010-11): whether seat 1's hard link is already the game's file
 same-file = "1.0.6"
