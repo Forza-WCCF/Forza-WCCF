@@ -1,7 +1,7 @@
 //! The desk's VS room words (`CREATE vs [open]`, `RESERVE room`, `READY`, `CLOSE`, `HEARTBEAT`, `RELEASE`), their
 //! races, limits and privacy, and what the desk tells the shared matcher.
 
-use forza::online::lobby::{self, Created, Lobby, Reserved, VsRoom};
+use forza::online::lobby::{self, Created, Lobby, Mode, Reserved, VsRoom};
 use forza::online::vs::{ENTRY_LEN, Matcher};
 use forza_server::desk::{DeskConfig, start};
 use forza_server::{Edition, Handle};
@@ -83,6 +83,72 @@ fn create_reserve_ready_and_the_seat_races() {
     assert_eq!(seats(&listed(a, &id).unwrap()), [(1, true), (2, true)]);
     // a room ticket claims no arcade seat
     assert_eq!(say(a, &format!("WANT TICKET {g}")), "ERR ticket");
+}
+
+/// `MODE` marks the ticket's own seat only; a wrong ticket or word changes nothing.
+#[test]
+fn mode_marks_the_tickets_own_seat() {
+    let d = desk(|_| {});
+    let a = d.addr();
+    let (id, _, host) = room(a, false);
+    let g = guest(a, &id);
+    let (other, _, other_host) = room(a, false);
+    let modes = || {
+        let r = listed(a, &id).unwrap();
+        r.occupants.iter().map(|o| o.mode).collect::<Vec<_>>()
+    };
+    assert_eq!(modes(), [Mode::Free, Mode::Free]);
+    // (b) another room's ticket, a made-up one, a ticket on another room's id, a word it does not know
+    assert_eq!(lobby::mode(a, &id, &other_host, Mode::Cat), Ok(false));
+    assert_eq!(
+        lobby::mode(a, &id, "0123456789abcdef", Mode::Cat),
+        Ok(false)
+    );
+    assert_eq!(lobby::mode(a, &other, &g, Mode::Cat), Ok(false));
+    assert_eq!(say(a, &format!("MODE {id} {g} pro")), "ERR mode");
+    assert_eq!(modes(), [Mode::Free, Mode::Free]);
+    assert!(!say(a, "LOBBY 2017-18").contains("mode"));
+    assert_eq!(lobby::mode(a, &id, &g, Mode::Cat), Ok(true));
+    assert_eq!(modes(), [Mode::Free, Mode::Cat]);
+    assert!(say(a, "LOBBY 2017-18").contains(r#""ready":false,"mode":"cat"}"#));
+    // and back; the host's seat is its own
+    assert_eq!(lobby::mode(a, &id, &host, Mode::Cat), Ok(true));
+    assert_eq!(lobby::mode(a, &id, &g, Mode::Free), Ok(true));
+    assert_eq!(modes(), [Mode::Cat, Mode::Free]);
+    // a closed room's tickets mark nothing
+    assert_eq!(lobby::close(a, &id, &host), Ok(true));
+    assert_eq!(lobby::mode(a, &id, &g, Mode::Cat), Ok(false));
+}
+
+/// The words before `MODE` answer the same bytes: a free room's `LOBBY` entry has no `mode`.
+#[test]
+fn old_words_answer_byte_identically() {
+    let raw = |a: SocketAddr, line: &str| {
+        let mut c = TcpStream::connect(a).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        c.write_all(format!("{line}\n").as_bytes()).unwrap();
+        let mut s = String::new();
+        c.read_to_string(&mut s).unwrap();
+        s
+    };
+    let d = desk(|_| {});
+    let a = d.addr();
+    let (id, code, host) = room(a, false);
+    let g = guest(a, &id);
+    assert_eq!(raw(a, &format!("READY {id} {g}")), "OK\n");
+    assert_eq!(raw(a, &format!("READY {id} 0123456789abcdef")), "GONE\n");
+    assert_eq!(raw(a, &format!("HEARTBEAT {host}")), "OK\n");
+    let r = listed(a, &id).unwrap();
+    let (c1, c2) = (&r.occupants[0].club, &r.occupants[1].club);
+    let entry = format!(
+        r#"{{"id":"{id}","code":"{code}","players":2,"max":2,"kind":2,"occupants":[{{"seat":1,"club":"{c1}","ready":false}},{{"seat":2,"club":"{c2}","ready":true}}]}}"#
+    );
+    let l = raw(a, "LOBBY 2017-18");
+    assert!(l.starts_with(r#"{"v":1,"#) && l.ends_with('\n'), "{l}");
+    assert!(l.contains(&entry), "{l}");
+    assert_eq!(raw(a, &format!("CLOSE {id} {g}")), "OK\n");
+    assert_eq!(raw(a, &format!("RELEASE {host}")), "OK\n");
+    assert_eq!(raw(a, &format!("RESERVE {id}")), "CLOSED\n");
 }
 
 #[test]
@@ -323,7 +389,12 @@ fn no_rooms_without_the_matcher() {
             ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
         let d = start(c, Arc::new(|_| {})).unwrap();
         let a = d.addr();
-        for w in ["CREATE vs", "CREATE vs open", "READY 0a1b2c3d t"] {
+        for w in [
+            "CREATE vs",
+            "CREATE vs open",
+            "READY 0a1b2c3d t",
+            "MODE 0a1b2c3d t cat",
+        ] {
             assert!(say(a, w).starts_with("ERR"), "{name} {w}");
         }
         // 2017-18 knows CLOSE for its arcade rooms, which need no matcher
