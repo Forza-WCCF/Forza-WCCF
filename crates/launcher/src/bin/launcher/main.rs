@@ -953,6 +953,7 @@ impl App {
                 open: None,
                 problem: Some(why),
                 damaged,
+                offers: Vec::new(),
             }),
         );
     }
@@ -960,11 +961,7 @@ impl App {
     /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
     fn needs_start(&self) -> bool {
         self.st.profile == Some(forza::profile::Profile::CreateATeam)
-            && self
-                .st
-                .collection
-                .as_ref()
-                .is_some_and(|v| !matches!(v.step, forza_ui::collection::Step::Page))
+            && self.st.collection.as_ref().is_some_and(|v| !v.started())
     }
 
     /// The release list with this folder's marks.
@@ -1405,6 +1402,35 @@ impl App {
                     }
                 }
                 self.collection(&kit);
+            }
+            Action::Collection(CollectionAction::Buy(choice)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                if self
+                    .st
+                    .collection
+                    .as_ref()
+                    .is_some_and(|v| v.tokens < choice.pack().price())
+                {
+                    refuse(t("launcher.msg_pack_tokens"));
+                    return;
+                }
+                match collection::buy(cat, &dir, choice) {
+                    Ok(cards) => {
+                        log(&format!("collection: {}, cards {cards:?}", choice.pack().why()));
+                        self.collection(&kit);
+                        if let Some(v) = &mut self.st.collection {
+                            v.open_pack(&cards);
+                        }
+                    }
+                    // the log moved on since the view was read (another Launcher): the same words as above
+                    Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
+                        refuse(t("launcher.msg_pack_tokens"));
+                    }
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
             }
             Action::VsLink => {
                 // data\settings.json "vs_link" (default on), which run::start_vslink reads
