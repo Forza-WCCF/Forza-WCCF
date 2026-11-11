@@ -829,7 +829,7 @@ fn card_open() -> bool {
     FILES.get().is_some_and(|f| {
         use forza::card;
         let since = stamp(&f.data.join("running.json"));
-        let save = f.data.join("save");
+        let save = &f.save;
         card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
             == card::Session::Open
     })
@@ -2422,7 +2422,7 @@ impl Render {
         }
         self.links_at = Some(Instant::now());
         let Some(f) = FILES.get() else { return };
-        let card = f.data.join("save").join(forza::card::SLOT);
+        let card = f.save.join(forza::card::SLOT);
         let st = stamp(&card);
         if self.links_stamp == Some(st) {
             return;
@@ -2769,7 +2769,7 @@ impl Render {
         // 2017-18: the game handed out a player card (the dispenser fix counts them)
         let finished = test || patches::take_owed_new() > 0 || {
             let Some(f) = FILES.get() else { return };
-            let (now, _) = card::session(&f.data.join("save").join(card::SLOT), None);
+            let (now, _) = card::session(&f.save.join(card::SLOT), None);
             // no card, or caught mid-write: wait for the next look
             if !matches!(now, Session::Open | Session::Closed) {
                 return;
@@ -3210,7 +3210,7 @@ impl Render {
         use forza::cards::formations as fm;
         use forza_ui::widgets::Tone;
         let Some(f) = FILES.get() else { return };
-        let dir = fm::dir(&f.data.join("save"));
+        let dir = fm::dir(&f.save);
         let edition = self.st.edition;
         if std::mem::take(&mut self.st.formations_open) {
             self.st.in_match = in_match();

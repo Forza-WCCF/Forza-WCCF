@@ -1141,3 +1141,80 @@ fn closing_seat_1_ends_the_2017_18_run() {
     let aime = fs::read_to_string(kit.save().join("seat1_aime.txt")).unwrap();
     assert!(aime.trim().len() >= 20, "the Aime card was made: {aime}");
 }
+
+/// Every file under `dir` and its bytes.
+fn tree(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    for e in fs::read_dir(dir).unwrap().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(tree(&p));
+        } else {
+            out.insert(p.clone(), fs::read(&p).unwrap());
+        }
+    }
+    out
+}
+
+/// (b) A Create-a-Team run: its card is made in its own save, the free save is byte-identical after the run, and free
+/// play's card table goes to its board folder, never lost.
+#[test]
+fn a_create_a_team_run_leaves_the_free_save_and_table_alone() {
+    let top = tempfile::Builder::new().prefix("wccf-1718-cat-").tempdir().unwrap();
+    let kit = scratch_kit_1718(top.path());
+    let mut p = params("cat1718", Shared::new());
+    p.setup_1718 = set_up_nothing;
+    let _control = TcpListener::bind(("127.0.0.1", p.control_port)).unwrap(); // "the server answers"
+    let _desk = seat_desk(p.seat_port);
+    let free = kit.data().join("save");
+    fs::create_dir_all(free.join("gamesvr")).unwrap();
+    let code = "50123456789012345678";
+    fs::write(free.join("seat1_aime.txt"), code).unwrap();
+    fs::write(free.join("aimedb.json"), format!("{{\"{code}\": 7}}")).unwrap();
+    fs::write(free.join(r"gamesvr\gamesvr.db"), b"free play's clubs").unwrap();
+    let seat = top.path().join("seat1");
+    fs::write(seat.join("fpr_table0.txt"), b"1 100 0 0\r\n").unwrap();
+    let before = tree(&free);
+    fs::write(kit.settings_file(), r#"{"profile": "create-a-team"}"#).unwrap();
+    let kit = Kit::at(kit.dir());
+    assert_eq!(kit.save(), kit.data().join(r"profiles\create-a-team\save"));
+    let shown = Arc::new(AtomicBool::new(false));
+    let panel_log = seat.join("forza_panel.log");
+    let writer = {
+        let shown = shown.clone();
+        thread::spawn(move || {
+            while !shown.load(Ordering::Relaxed) {
+                if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&panel_log) {
+                    let _ = writeln!(f, "first frame shown");
+                }
+                thread::sleep(Duration::from_millis(200));
+            }
+        })
+    };
+    let (ui, t) = run_on_thread(&kit, p, &["remote", "127.0.0.1"]);
+    wait_said(&ui, &t, "  6/6 ", 120);
+    shown.store(true, Ordering::Relaxed);
+    writer.join().unwrap();
+    let said = ui.text();
+    assert!(
+        said.contains(r"cabinet (card file data\profiles\create-a-team\save\seat1_aime.txt)"),
+        "{said}"
+    );
+    assert!(
+        !seat.join("fpr_table0.txt").exists(),
+        "Create-a-Team starts with its own, empty table"
+    );
+    let rc = ended_clean(&kit, top.path(), &ui, t, Duration::from_secs(60));
+    assert_eq!(rc, run::OK, "{}", ui.text());
+    assert!(tree(&free) == before, "the free save is byte-identical");
+    let own = fs::read_to_string(kit.save().join("seat1_aime.txt")).unwrap();
+    assert!(own.trim().len() >= 20 && own.trim() != code, "its own card: {own}");
+    assert_eq!(
+        fs::read(kit.data().join(r"profiles\free\board\fpr_table0.txt")).unwrap(),
+        b"1 100 0 0\r\n"
+    );
+    assert_eq!(
+        fs::read_to_string(seat.join(forza::profile::MARKER)).unwrap(),
+        "create-a-team"
+    );
+}

@@ -1191,6 +1191,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_already").part("names", names));
         return Err(REFUSED);
     };
+    // the active profile's card table in the seat folder before the game reads it; the one there goes to its own
+    // profile first (forza::profile)
+    if edition == Edition::E1718
+        && !mode.is_server()
+        && let Err(e) = forza::profile::board_in(&kit.data(), &seat, kit.profile())
+    {
+        let why = Text::key("launcher.run_table_failed").arg("error", e);
+        tell(ui, "", &Text::key("launcher.run_failed").part("why", why));
+        return Err(FAILED);
+    }
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
@@ -2233,10 +2243,14 @@ impl Run<'_> {
         );
         self.tell(
             "  4/6 ",
-            &Text::key(match self.edition {
-                Edition::E1011 => "launcher.run_cabinet_1011",
-                Edition::E1718 => "launcher.run_cabinet_1718",
-            }),
+            &match self.edition {
+                Edition::E1011 => Text::key("launcher.run_cabinet_1011"),
+                Edition::E1718 => {
+                    let card = self.kit.save().join("seat1_aime.txt");
+                    let card = card.strip_prefix(self.kit.dir()).unwrap_or(&card);
+                    Text::key("launcher.run_cabinet_1718").arg("path", card.display())
+                }
+            },
         );
 
         let mut env = self.panel_env();
@@ -3127,6 +3141,14 @@ impl Run<'_> {
         };
         let left = self.job.active();
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
+        if self.edition == Edition::E1718
+            && !self.mode.is_server()
+            && let Err(e) = forza::profile::board_out(&self.kit.data(), &self.seat, self.kit.profile())
+        {
+            // the next start copies it from the seat folder all the same
+            let line = format!("card table: not copied back to its profile ({e})");
+            crate::logs::append(&self.logs().join("run_launcher.txt"), &line);
+        }
         self.job.stop(STOP_DEADLINE);
         let _ = fs::remove_file(self.running_file());
         if left > 0 {

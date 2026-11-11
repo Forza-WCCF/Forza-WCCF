@@ -820,9 +820,10 @@ launcher.run_open_ports: {en: "Open TCP ports %{control} and %{desk}, and UDP %{
 launcher.run_local_ports: {en: "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json opens them to the network). Launcher.exe stop ends it.", it: "Banco dei posti e relay solo su questo PC (\"shop_lan\": true in data\\settings.json li apre alla rete). Launcher.exe stop lo ferma.", ja: "席デスクとリレーはこのPCのみです (data\\settings.json の \"shop_lan\": true でネットワークに公開されます)。Launcher.exe stop で終了します。"}
 launcher.run_net_ports: {en: "the cabinet's network ports did not open: 127.0.0.1:%{port} (%{error}) - is the other edition's game running?", it: "le porte di rete del cabinato non si sono aperte: 127.0.0.1:%{port} (%{error}) - è in esecuzione il gioco dell'altra edizione?", ja: "筐体のネットワークポートを開けませんでした: 127.0.0.1:%{port} (%{error}) - 別のエディションのゲームが動いていませんか?"}
 launcher.run_reader_failed: {en: "the card reader did not start (%{error})", it: "il lettore di carte non si è avviato (%{error})", ja: "カードリーダーが起動しませんでした (%{error})"}
+launcher.run_table_failed: {en: "the card table was not switched to this mode (%{error}); both tables are kept", it: "il tavolo delle carte non è stato cambiato per questa modalità (%{error}); entrambi i tavoli restano salvati", ja: "カードテーブルをこのモードに切り替えられませんでした (%{error})。どちらのテーブルも保存されています"}
 launcher.run_board_failed: {en: "the I/O board did not start (%{error})", it: "la scheda I/O non si è avviata (%{error})", ja: "I/Oボードが起動しませんでした (%{error})"}
 launcher.run_cabinet_1011: {en: "cabinet (card file data\\save\\seat1_club.bin)", it: "cabinato (file della carta data\\save\\seat1_club.bin)", ja: "筐体 (カードファイル data\\save\\seat1_club.bin)"}
-launcher.run_cabinet_1718: {en: "cabinet (card file data\\save\\seat1_aime.txt)", it: "cabinato (file della carta data\\save\\seat1_aime.txt)", ja: "筐体 (カードファイル data\\save\\seat1_aime.txt)"}
+launcher.run_cabinet_1718: {en: "cabinet (card file %{path})", it: "cabinato (file della carta %{path})", ja: "筐体 (カードファイル %{path})"}
 launcher.run_window_up: {en: "seat %{n} window up", it: "finestra del posto %{n} aperta", ja: "席 %{n} のウィンドウ表示"}
 launcher.run_panel_missing: {en: "forza_panel.dll is missing", it: "forza_panel.dll manca", ja: "forza_panel.dll がありません"}
 launcher.run_panels: {en: "panels loaded", it: "pannelli caricati", ja: "パネルを読み込みました"}

@@ -34,6 +34,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 pub struct Files {
     pub edition: Edition,
     pub data: PathBuf,
+    /// The active profile's save (`forza::kit::save_in`): the Launcher locks the choice while the game runs.
+    pub save: PathBuf,
     pub catalogue: PathBuf,
     pub cards: PathBuf,
     pub keys: PathBuf,
@@ -70,6 +72,7 @@ impl Files {
             catalogue: var("WCCF_CATALOGUE").unwrap_or_else(|| cache.join("catalogue.tsv")),
             cards: var("WCCF_CARDS").unwrap_or_else(|| cache.join("cards")),
             keys,
+            save: forza::kit::save_in(&data),
             data,
         }
     }
@@ -137,7 +140,7 @@ impl Files {
         let since = std::fs::metadata(self.data.join("running.json"))
             .and_then(|m| m.modified())
             .ok();
-        let save = self.data.join("save");
+        let save = &self.save;
         let (session, bad) =
             card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since);
         let now = SystemTime::now();
@@ -564,6 +567,7 @@ mod tests {
         let files = Files {
             edition: Edition::E1718,
             data: d.clone(),
+            save: d.join("save"),
             catalogue: d.join("catalogue.tsv"),
             cards: d.join("cards"),
             keys: d.join("keys.txt"),
