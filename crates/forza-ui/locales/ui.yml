@@ -475,8 +475,8 @@ settings.card_cut: {en: "Last session cut short", it: "Ultima sessione interrott
 settings.card_new: {en: "New club card", it: "Nuova tessera club", ja: "新しいクラブカード"}
 settings.card_unreadable: {en: "Club card unreadable", it: "Tessera club illeggibile", ja: "クラブカードを読めません"}
 settings.card_none: {en: "No club card yet", it: "Nessuna carta club", ja: "クラブカードなし"}
-settings.bad_one: {en: "1 of 2", it: "1 su 2", ja: "2 回中 1 回"}
-settings.bad_many: {en: "%{n} of 2", it: "%{n} su 2", ja: "2 回中 %{n} 回"}
+settings.bad_one: {en: "1 (limit 2)", it: "1 (limite 2)", ja: "1 回（上限 2 回）"}
+settings.bad_many: {en: "%{n} (limit 2)", it: "%{n} (limite 2)", ja: "%{n} 回（上限 2 回）"}
 settings.never: {en: "Never", it: "Mai", ja: "なし"}
 settings.no_backup: {en: "None yet", it: "Ancora nessuno", ja: "まだありません"}
 settings.backups: {en: "%{t} (%{n} kept)", it: "%{t} (%{n} conservati)", ja: "%{t}（%{n} 件保存）"}
