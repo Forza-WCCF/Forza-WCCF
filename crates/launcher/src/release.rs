@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn notes_are_kept_once_per_version() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let data = dir.path();
         assert_eq!(kept_notes(data, "v0.6.0"), None);
         keep_notes(data, "v0.6.0", "");

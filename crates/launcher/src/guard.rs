@@ -160,7 +160,7 @@ mod tests {
     /// no record at all.
     #[test]
     fn the_record_must_match_every_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let (a, b) = (dir.path().join("a.exe"), dir.path().join("b.dll"));
         fs::write(&a, b"guarded copy").unwrap();
         fs::write(&b, b"the guard").unwrap();
@@ -199,7 +199,7 @@ mod tests {
     /// record from before det-math (no hash for them: setup must run again).
     #[test]
     fn the_engine_and_dmath_dll_are_checked() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let (game, seat) = (dir.path().join("game"), dir.path().join("seat1"));
         let (client, control, engine) = ("client.exe", "control.exe", "match_Release.exe");
         let names = [client, control, WCCFNET, ICMP, engine, DMATH];
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn a_2010_11_program_must_load_the_hook() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let exe = dir.path().join("client.exe");
         fs::write(&exe, b"MZ nothing").unwrap();
         let why = hook_1011(&[exe]).unwrap_err();

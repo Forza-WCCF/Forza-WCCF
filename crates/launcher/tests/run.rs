@@ -823,7 +823,7 @@ fn guarded_copy(to: &Path) {
 /// guard, and only the renamed copy passes.
 #[test]
 fn the_guard_reads_the_import_table() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("wccf-").tempdir().unwrap();
     let (plain, iphlp, guarded) = (
         dir.path().join("plain.exe"),
         dir.path().join("iphlp.exe"),

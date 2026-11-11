@@ -139,7 +139,7 @@ mod tests {
         let tmp = env::temp_dir();
         let at = if is_ascii(&tmp) { tmp } else { base().join("tests") };
         fs::create_dir_all(&at).unwrap();
-        tempfile::tempdir_in(at).unwrap()
+        tempfile::Builder::new().prefix("wccf-").tempdir_in(at).unwrap()
     }
 
     /// A game folder at `game` as setup leaves it, and its seat 1: the three programs and a settings file in each.

@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn the_issue_link_is_encoded_and_carries_the_last_errors() {
         assert_eq!(encode("a b&c=é\n"), "a%20b%26c%3D%C3%A9%0A");
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let kit = Kit::at(dir.path());
         std::fs::create_dir_all(kit.logs()).unwrap();
         std::fs::write(kit.logs().join("launcher.txt"), "ok\nerror: one\nfine\n").unwrap();
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn a_report_is_saved_with_the_words() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let kit = Kit::at(dir.path());
         std::fs::create_dir_all(kit.logs()).unwrap();
         std::fs::write(kit.logs().join("run_seat1.txt"), "crash\n").unwrap();

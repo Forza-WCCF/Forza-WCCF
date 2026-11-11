@@ -11,7 +11,7 @@ use serde_json::Value;
 fn find_game_as_recorded() {
     let rec = include_str!("../rec/kit.jsonl");
     let mut lines = rec.lines().map(|l| serde_json::from_str::<Value>(l).unwrap());
-    let root = tempfile::tempdir().unwrap();
+    let root = crate::scratch();
     let root = root.path();
     for f in lines.next().unwrap()["tree"].as_array().unwrap() {
         let f = root.join(f.as_str().unwrap());

@@ -17,7 +17,7 @@ fn bytes(v: &Value) -> Vec<u8> {
 
 #[test]
 fn conf_edits_as_recorded() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let conf = dir.path().join("client_user_option.conf");
     let mut n = 0;
     for line in include_str!("../rec/conf.jsonl").lines() {
