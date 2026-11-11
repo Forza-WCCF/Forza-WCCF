@@ -239,8 +239,8 @@ jobs:
         env:
           CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          # CI only (local runs keep none): a test that passes on a retry is reported as FLAKY in the log, not red
-          NEXTEST_RETRIES: '2'
+          # CI only: xtask's test runner then selects nextest's `ci` profile (.config/nextest.toml: retries 2, no
+          # fail-fast, so a test that passes on a retry is reported as FLAKY in the log, not red)
         run: |
           if [ -n "$BASE" ]; then
             cargo xtask check quick --base "$BASE"

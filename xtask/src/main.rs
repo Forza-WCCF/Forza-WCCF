@@ -1702,6 +1702,10 @@ fn tests(
         ]);
     }
     if nextest {
+        // CI selects nextest's own `ci` profile (retries and no fail-fast, .config/nextest.toml), not a cargo one
+        if in_ci() {
+            test.args(["--profile", "ci"]);
+        }
         // one expression: nextest runs the union of several -E
         let expr: Vec<String> = only
             .map(|o| format!("({o})"))
