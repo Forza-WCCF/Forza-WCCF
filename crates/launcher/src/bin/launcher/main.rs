@@ -837,6 +837,7 @@ impl App {
             rejoin: None,
             set_up,
             running: RUNNING.load(Ordering::Relaxed),
+            profile: (kit.edition() == Edition::E1718).then(|| kit.profile()),
             cup_started: launcher::run::cup_started(),
             busy: false,
             steps: None,
@@ -1242,6 +1243,20 @@ impl App {
                         refuse(write_failed(&file, &e));
                         break;
                     }
+                }
+            }
+            Action::Profile => {
+                // data\settings.json "profile", which the next start reads (forza::profile); never while a game runs:
+                // the run keeps the save and the card table it started with
+                let file = kit.settings_file();
+                if run::any_on(&kit) {
+                    self.st.profile = Some(kit.profile());
+                    refuse(t("launcher.msg_running"));
+                } else if let Some(p) = self.st.profile
+                    && let Err(e) = choices::set_setting(&file, forza::profile::KEY, p.code())
+                {
+                    self.st.profile = Some(kit.profile());
+                    refuse(write_failed(&file, &e));
                 }
             }
             Action::VsLink => {

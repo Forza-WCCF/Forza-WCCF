@@ -13,6 +13,7 @@ use super::widgets::{
 };
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
+use forza::profile::Profile;
 
 pub const SIZE: egui::Vec2 = egui::vec2(600.0, 820.0);
 
@@ -74,6 +75,8 @@ pub enum Action {
     FramePacing,
     /// The direct VS link switch changed.
     VsLink,
+    /// FREE or CREATE-A-TEAM chosen (`profile`).
+    Profile,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
     Update(usize),
     /// UPDATE, confirmed.
@@ -148,6 +151,8 @@ pub struct LauncherState {
     pub set_up: bool,
     /// A run is on in this folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
     pub running: bool,
+    /// FREE or CREATE-A-TEAM, the PLAY tab's top buttons (2017–18 only; locked while a game runs).
+    pub profile: Option<Profile>,
     /// What the run on this folder got for the Universal Cup (2017-18, this PC): the PLAY tab shows it while the run is
     /// on, so a slot keeps the open time PLAY gave it and a refusal stays refused instead of moving with the clock.
     pub cup_started: Option<Result<CupPlan, CupRefused>>,
@@ -267,6 +272,7 @@ impl LauncherState {
             rejoin: None,
             set_up: true,
             running: false,
+            profile: None,
             cup_started: None,
             busy: false,
             steps: None,
@@ -312,6 +318,7 @@ impl LauncherState {
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
+            st.profile = Some(Profile::Free);
             st.projector = Some(true);
             st.cpu_championship = Some(true);
             st.frame_cap = Some(true);
@@ -492,7 +499,7 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
                 .show(ui, |ui| match st.tab {
-                    Tab::Play => play(ui, st, lang, accent),
+                    Tab::Play => play(ui, st, lang, accent, &mut act),
                     Tab::Setup => setup(ui, st, lang, &mut act),
                     Tab::Update => update(ui, st, lang, &mut act),
                     Tab::Details | Tab::Online => {}
@@ -529,8 +536,41 @@ fn tab_row(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
     st.tab = tabs[i].0;
 }
 
-/// The PLAY tab: where to play (Online opens the ONLINE tab) and, without UPDATE, this version.
-fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
+/// The height of the FREE and CREATE-A-TEAM buttons.
+pub const PROFILE_H: f32 = 56.0;
+
+/// The PLAY tab: FREE / CREATE-A-TEAM (2017–18), where to play (Online opens the ONLINE tab) and, without UPDATE, this
+/// version.
+fn play(
+    ui: &mut Ui,
+    st: &mut LauncherState,
+    lang: Lang,
+    accent: Color32,
+    act: &mut Option<Action>,
+) {
+    if let Some(now) = st.profile {
+        ui.add_enabled_ui(!st.running && !st.busy, |ui| {
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+                for (p, key, kind) in [
+                    (Profile::Free, "launcher.profile_free", Cab::Keeper),
+                    (Profile::CreateATeam, "launcher.profile_cat", Cab::KeyPlayer),
+                ] {
+                    if cabinet(ui, vec2(w, PROFILE_H), &tr!(lang, key), kind, now == p).clicked()
+                        && now != p
+                    {
+                        st.profile = Some(p);
+                        *act = Some(Action::Profile);
+                    }
+                }
+            });
+        });
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.profile_hint"))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
+        );
+    }
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;

@@ -76,6 +76,64 @@ fn launcher_online_starts_from_the_lobby() {
     assert_eq!(st.borrow().tab, launcher::Tab::Online);
 }
 
+/// FREE and CREATE-A-TEAM sit side by side at the top of the PLAY tab and fit its smallest window (600 x 700) in every
+/// language, above the footer's PLAY; a click chooses, and while a game runs neither answers.
+#[test]
+fn profile_buttons_fit_the_play_tab() {
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let st = std::cell::RefCell::new(launcher::LauncherState::sample(
+            Edition::E1718,
+            lang,
+            launcher::Scenario::Ready,
+        ));
+        let got = std::cell::RefCell::new(None);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                *got.borrow_mut() = Some(a);
+            }
+        });
+        h.run_steps(4);
+        let (free, cat) = (
+            h.get_by_label(&t("launcher.profile_free")).rect(),
+            h.get_by_label(&t("launcher.profile_cat")).rect(),
+        );
+        let play_top = h
+            .get_all_by_label(&t("launcher.play"))
+            .map(|n| n.rect().top())
+            .fold(f32::MIN, f32::max);
+        let tag = format!("{lang:?}: FREE {free:?}, CREATE-A-TEAM {cat:?}");
+        assert!(
+            free.left() >= 14.0 && cat.right() <= size.x - 14.0,
+            "{tag}: inside the window"
+        );
+        assert!(free.right() <= cat.left(), "{tag}: side by side");
+        assert!((free.top() - cat.top()).abs() < 0.5, "{tag}: one row");
+        for r in [free, cat] {
+            assert_eq!(r.height(), launcher::PROFILE_H, "{tag}");
+            assert!(r.width() >= 250.0, "{tag}: large");
+            assert!(r.bottom() < play_top, "{tag}: above PLAY at {play_top}");
+        }
+        h.get_by_label(&t("launcher.profile_cat")).click();
+        h.run_steps(2);
+        assert_eq!(got.take(), Some(launcher::Action::Profile), "{tag}");
+        assert_eq!(
+            st.borrow().profile,
+            Some(forza::profile::Profile::CreateATeam)
+        );
+        st.borrow_mut().running = true;
+        h.run_steps(2);
+        h.get_by_label(&t("launcher.profile_free")).click();
+        h.run_steps(2);
+        assert_eq!(got.take(), None, "{tag}: locked while a game runs");
+        assert_eq!(
+            st.borrow().profile,
+            Some(forza::profile::Profile::CreateATeam)
+        );
+    }
+}
+
 /// The cup rows fit the Launcher (its width is fixed; 700 tall is its smallest) in every language, on the PLAY tab and
 /// in the host dialog: the four segments and the stepper inside the window, each segment's label no wider than its
 /// segment at the 70 % `fit` floor.

@@ -7,6 +7,9 @@ common.close: {en: "Close", it: "Chiudi", ja: "閉じる"}
 
 # ---- launcher ----
 launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
+launcher.profile_free: {en: "FREE", it: "LIBERO", ja: "フリー"}
+launcher.profile_cat: {en: "CREATE-A-TEAM", it: "CREA LA TUA SQUADRA", ja: "クリエイト・ア・チーム"}
+launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: "Ogni modalità ha il suo club e il suo tavolo delle carte.", ja: "モードごとにクラブとカードテーブルは別々です。"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
