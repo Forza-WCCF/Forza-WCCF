@@ -520,12 +520,12 @@ settings.msg_not_saved: {en: "Could not save the settings. Try again.", it: "Imp
 club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
 club.manager: {en: "Manager: %{name}", it: "Allenatore: %{name}", ja: "監督：%{name}"}
 club.your_cards: {en: "YOUR CARDS", it: "LE TUE TESSERE", ja: "あなたのカード"}
-club.clear_bad: {en: "CLEAR BAD ENDINGS", it: "AZZERA CHIUSURE ANOMALE", ja: "異常終了をクリア"}
+club.clear_bad: {en: "CLEAR AND RESTART", it: "AZZERA E RIAVVIA", ja: "クリアして再起動"}
 club.new_card: {en: "NEW CLUB CARD", it: "NUOVA TESSERA CLUB", ja: "新しいクラブカード"}
 club.new_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.play: {en: "PLAY THIS CLUB", it: "GIOCA QUESTO CLUB", ja: "このクラブでプレイ"}
 club.click_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
-club.transferred: {en: "TRANSFERRED", it: "TRASFERITA", ja: "移籍済み"}
+club.transferred: {en: "NOT PLAYABLE", it: "NON GIOCABILE", ja: "使用できません"}
 club.clear_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.clear_hint: {en: "The count of bad endings goes back to 0 when the game restarts.", it: "Il conteggio delle chiusure anomale torna a 0 al riavvio del gioco.", ja: "異常終了の回数は、ゲームを再起動すると 0 に戻ります。"}
 club.intro: {en: "Your club card is saved with every game save.", it: "La tua carta club viene salvata a ogni salvataggio del gioco.", ja: "クラブカードはゲームのセーブごとに保存されます。"}
@@ -562,7 +562,7 @@ club.row_all_matches: {en: "ALL MATCHES", it: "TUTTE LE PARTITE", ja: "全試合
 club.row_prize: {en: "PRIZE MONEY", it: "PREMI", ja: "賞金"}
 club.row_trade: {en: "TRADE RIGHTS", it: "DIRITTI DI SCAMBIO", ja: "トレード権"}
 club.row_last_played: {en: "LAST PLAYED", it: "ULTIMA PARTITA", ja: "最終プレイ"}
-club.row_health: {en: "CARD HEALTH", it: "STATO DELLA TESSERA", ja: "カードの状態"}
+club.row_health: {en: "CARD CONDITION", it: "STATO DELLA TESSERA", ja: "カードの状態"}
 club.row_session: {en: "SESSION", it: "SESSIONE", ja: "セッション"}
 club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
 club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
