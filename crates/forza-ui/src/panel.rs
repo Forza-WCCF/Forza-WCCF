@@ -7165,7 +7165,7 @@ mod tests {
         assert_eq!(m.tone, Tone::Notice);
         assert_eq!(
             m.text,
-            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+            "Away: 3 cards on the table.\nCards not imported: 999 (not in this game)"
         );
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
@@ -7304,7 +7304,7 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[kp], st.capturing), (0x05, None));
         assert!(st.keys_changed);
-        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER = Mouse 4");
+        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER is now Mouse 4.");
         let text = forza::keys::keys_text(true, &st.keys, &st.pads);
         assert!(text.contains("\nKEYPLAYER=0x05\n"));
         #[cfg(windows)]
