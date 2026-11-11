@@ -605,7 +605,7 @@ lobby.refresh: {en: "Refresh", it: "Aggiorna", ja: "更新"}
 lobby.updated: {en: "updated %{s} s ago", it: "aggiornato %{s} s fa", ja: "%{s} 秒前に更新"}
 lobby.all_langs: {en: "All", it: "Tutte", ja: "すべて"}
 lobby.no_answer: {en: "NO ANSWER", it: "NESSUNA RISPOSTA", ja: "応答なし"}
-lobby.needs_version: {en: "This room needs Forza-WCCF %{v}", it: "Questa stanza richiede Forza-WCCF %{v}", ja: "このルームには Forza-WCCF %{v} が必要です"}
+lobby.needs_version: {en: "Needs Forza-WCCF %{v}", it: "Richiede Forza-WCCF %{v}", ja: "Forza-WCCF %{v} が必要"}
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
