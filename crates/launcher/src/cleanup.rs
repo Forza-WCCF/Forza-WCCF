@@ -75,7 +75,8 @@ pub fn clean(
     }
     if !files.is_empty() {
         let dir = backup_dir(data, stamp)?;
-        copy_save(&save, &dir.join("save"))?;
+        // the save keeps its path under data: a Create-a-Team backup never looks like free play's
+        copy_save(&save, &dir.join(save.strip_prefix(data).unwrap_or(Path::new("save"))))?;
         for f in &files {
             let rel = f.strip_prefix(data).unwrap_or(f);
             let to = dir.join(rel);
@@ -241,6 +242,25 @@ mod tests {
             data.join("backup").join("bad-ending-2026-11-02-2")
         );
         assert_eq!(fs::read(b.join("running.json")).unwrap(), b"stale");
+    }
+
+    /// Create-a-Team's backup keeps the save's own path, never `save\` (free play's).
+    #[test]
+    fn a_create_a_team_backup_is_named_after_its_profile() {
+        let t = tempfile::tempdir().unwrap();
+        let data = t.path().join("data");
+        let store = data.join(r"profiles\create-a-team\save\gamesvr");
+        fs::create_dir_all(&store).unwrap();
+        fs::write(data.join("settings.json"), r#"{"profile": "create-a-team"}"#).unwrap();
+        fs::write(store.join("gamesvr.db"), b"new club").unwrap();
+        fs::write(store.join("club_out.json"), b"{}").unwrap();
+        let r = run(&data, false, &[], &[], &RefCell::new(Vec::new()));
+        let b = r.backup.unwrap();
+        assert_eq!(
+            fs::read(b.join(r"profiles\create-a-team\save\gamesvr\gamesvr.db")).unwrap(),
+            b"new club"
+        );
+        assert!(!b.join("save").exists());
     }
 
     #[test]

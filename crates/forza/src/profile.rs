@@ -73,6 +73,8 @@ impl Profile {
 
 /// The profile whose table the seat folder holds: free play without a marker, `None` while a switch is half done. A
 /// marker naming no profile is an error: its table is nobody's to overwrite.
+// shortcut: the marker is the only witness; a lost one (a seat folder copied from another install, a hand deletion)
+// means free play, so a Create-a-Team table left there goes to free play's board. Upgrade if a launcher path loses it.
 fn held(seat: &Path) -> io::Result<Option<Profile>> {
     match fs::read_to_string(seat.join(MARKER)) {
         Ok(s) if s.trim().is_empty() => Ok(None),
@@ -101,20 +103,36 @@ fn mirror(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// The marker through a temporary file and one rename: a power cut never leaves a torn name that refuses every start.
+fn mark(seat: &Path, code: &str) -> io::Result<()> {
+    let (marker, tmp) = (seat.join(MARKER), seat.join(format!("{MARKER}.tmp")));
+    fs::write(&tmp, code)?;
+    fs::rename(&tmp, &marker)
+}
+
 /// A run's start: the seat folder gets `p`'s card table. The table there is first copied to the profile it belongs to;
 /// only then is it replaced. Each step is safe to repeat, so a start that stops halfway is finished by the next.
+/// A seat folder with no table (rebuilt by UNDO SETUP and SET UP, or a new game folder) holds nobody's table: it is
+/// never copied over a profile's board, and `p`'s saved table, when it has one, is copied in.
 pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     let held = held(seat)?;
+    let empty = !seat.join(BOARD[0]).is_file();
     if held == Some(p) {
+        // free play that never switched has no board folder: nothing moves, nothing new on disk
+        if empty && p.board(data).join(BOARD[0]).is_file() {
+            mirror(&p.board(data), seat)?;
+            mark(seat, p.code())?;
+        }
         return Ok(());
     }
-    let marker = seat.join(MARKER);
     if let Some(h) = held {
-        mirror(seat, &h.board(data))?;
-        fs::write(&marker, "")?;
+        if !empty {
+            mirror(seat, &h.board(data))?;
+        }
+        mark(seat, "")?;
     }
     mirror(&p.board(data), seat)?;
-    fs::write(&marker, p.code())
+    mark(seat, p.code())
 }
 
 /// A run's end: the seat folder's table copied back to `p`'s board folder when it is `p`'s. Free play's table is never
@@ -222,5 +240,99 @@ mod tests {
         fs::write(seat.join(MARKER), "career").unwrap();
         assert!(board_in(&data, &seat, Profile::Free).is_err());
         assert_eq!(table(&seat).as_deref(), Some("cat"));
+    }
+    fn board(data: &Path, p: Profile) -> Option<String> {
+        fs::read_to_string(p.board(data).join("fpr_table0.txt")).ok()
+    }
+
+    /// A seat folder with a marker but no table (a table deleted by hand, a rebuilt seat that kept the marker): no
+    /// profile's board is emptied, and the marker's own profile gets its saved table back.
+    #[test]
+    fn an_empty_seat_with_a_marker_empties_no_board() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        for p in Profile::ALL {
+            fs::create_dir_all(p.board(&data)).unwrap();
+            fs::write(p.board(&data).join("fpr_table0.txt"), p.code()).unwrap();
+        }
+        let kept = Profile::Free
+            .board(&data)
+            .join("fpr_table0.before-match.txt");
+        fs::write(&kept, "last match").unwrap();
+        fs::create_dir_all(&seat).unwrap();
+        fs::write(seat.join(MARKER), "free").unwrap();
+        board_in(&data, &seat, Profile::Free).unwrap();
+        assert_eq!(
+            table(&seat).as_deref(),
+            Some("free"),
+            "free play's table is copied in"
+        );
+        assert_eq!(
+            fs::read_to_string(seat.join("fpr_table0.before-match.txt")).unwrap(),
+            "last match"
+        );
+        fs::remove_file(seat.join("fpr_table0.txt")).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        assert_eq!(table(&seat).as_deref(), Some("create-a-team"));
+        assert_eq!(
+            board(&data, Profile::Free).as_deref(),
+            Some("free"),
+            "free play's board kept its table"
+        );
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "last match");
+    }
+
+    /// UNDO SETUP and SET UP after a past switch: the seat folder comes back with no table and no marker. Neither
+    /// profile's board is emptied, and free play's table comes back; a free-only player's empty seat stays as it is.
+    #[test]
+    fn a_rebuilt_seat_after_a_switch_gets_the_profiles_table_back() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        fs::create_dir_all(&seat).unwrap();
+        board_in(&data, &seat, Profile::Free).unwrap();
+        assert!(
+            !data.exists() && fs::read_dir(&seat).unwrap().next().is_none(),
+            "nothing new on disk"
+        );
+        fs::create_dir_all(Profile::Free.board(&data)).unwrap();
+        fs::write(Profile::Free.board(&data).join("fpr_table0.txt"), "free").unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        assert_eq!(
+            board(&data, Profile::Free).as_deref(),
+            Some("free"),
+            "the empty seat overwrote nothing"
+        );
+        fs::write(seat.join("fpr_table0.txt"), "cat").unwrap();
+        board_out(&data, &seat, Profile::CreateATeam).unwrap();
+        // the seat folder is rebuilt
+        fs::remove_dir_all(&seat).unwrap();
+        fs::create_dir_all(&seat).unwrap();
+        board_in(&data, &seat, Profile::Free).unwrap();
+        assert_eq!(table(&seat).as_deref(), Some("free"));
+        assert_eq!(fs::read_to_string(seat.join(MARKER)).unwrap(), "free");
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        assert_eq!(table(&seat).as_deref(), Some("cat"));
+        assert_eq!(board(&data, Profile::Free).as_deref(), Some("free"));
+    }
+
+    /// A marker write that fails partway leaves the old marker whole and no temporary file a later start trips on.
+    #[test]
+    fn a_failed_marker_write_leaves_the_old_marker_whole() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        fs::create_dir_all(&seat).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "free").unwrap();
+        fs::write(seat.join(MARKER), "free").unwrap();
+        let tmp = seat.join(format!("{MARKER}.tmp"));
+        fs::create_dir_all(&tmp).unwrap(); // the temporary file cannot be made
+        assert!(board_in(&data, &seat, Profile::CreateATeam).is_err());
+        assert_eq!(fs::read_to_string(seat.join(MARKER)).unwrap(), "free");
+        fs::remove_dir(&tmp).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        assert_eq!(
+            fs::read_to_string(seat.join(MARKER)).unwrap(),
+            "create-a-team"
+        );
+        assert!(!tmp.exists());
     }
 }

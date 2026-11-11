@@ -323,7 +323,8 @@ pub fn pc_text() -> String {
 /// access code), the card's clubs in this PC's store (name, card and coach ids, plays, [`super::club::team_tag`]) and
 /// each kept run's `session:` line from run_launcher.txt (the arcade role and id, the seat, the projector).
 pub fn session_text(kit: &Path) -> String {
-    let save = crate::kit::Kit::at(kit).save();
+    let kit_at = crate::kit::Kit::at(kit);
+    let save = kit_at.save();
     let mut t = String::from("\n[session]\n");
     let code = fs::read_to_string(save.join("seat1_aime.txt")).map(|c| c.trim().to_owned());
     match code {
@@ -347,6 +348,7 @@ pub fn session_text(kit: &Path) -> String {
         }
         _ => t += "card: none on this PC\n",
     }
+    t += &format!("profile: {}\n", kit_at.profile().code());
     for sub in ["", "previous", "previous-2", "previous-3"] {
         let log = kit
             .join("data")
@@ -1695,6 +1697,7 @@ mod tests {
             "\n[session]\ncard: sha256:",
             ", Aime id 7 here, ",
             "\nclub: ",
+            "\nprofile: free\n",
             "last run: 14:31:02  session: role guest, mode remote, arcade abc, seat 2, projector off\n",
         ] {
             assert!(pc.contains(want), "{want:?} in {pc}");
