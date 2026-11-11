@@ -7,6 +7,7 @@
 //! - The catalogue and the card pictures: `WCCF_CATALOGUE` / `WCCF_CARDS` (the run sets them), else 2010-11's
 //!   `data\cache\catalogue.tsv` and `data\cache\cards\`, 2017-18's beside the DLL.
 //! - The keys: `WCCF_KEYS`, else `data\keys.txt` when `data\` is there, else beside the DLL.
+//! - Create-a-Team's collection: `WCCF_COLLECTION` (the run sets it for that profile only); none = free play.
 //! - The card table and its formation copy: the game's own folder (the program's), never configured.
 //! - Links (`lib.rs` `affinity`, `links_in`): `prog_data\player_data\` in the game's own folder and the program itself,
 //!   read once; the club card `data\save\seat1_club.bin`, read again when it changes (2010-11 only).
@@ -39,6 +40,8 @@ pub struct Files {
     pub catalogue: PathBuf,
     pub cards: PathBuf,
     pub keys: PathBuf,
+    /// Create-a-Team's collection folder, where the deal saves the match card; `None` = free play, only shown.
+    pub collection: Option<PathBuf>,
 }
 
 fn var(name: &str) -> Option<PathBuf> {
@@ -72,6 +75,7 @@ impl Files {
             catalogue: var("WCCF_CATALOGUE").unwrap_or_else(|| cache.join("catalogue.tsv")),
             cards: var("WCCF_CARDS").unwrap_or_else(|| cache.join("cards")),
             keys,
+            collection: var("WCCF_COLLECTION"),
             save: forza::kit::save_in(&data),
             data,
         }
@@ -571,6 +575,7 @@ mod tests {
             catalogue: d.join("catalogue.tsv"),
             cards: d.join("cards"),
             keys: d.join("keys.txt"),
+            collection: None,
         };
         (files, d)
     }

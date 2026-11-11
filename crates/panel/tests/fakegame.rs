@@ -730,6 +730,42 @@ fn board_and_buttons_with_real_data() {
         !said.contains("game: left down"),
         "the click went through to the game"
     );
+    // 1.2 (b) free play (no WCCF_COLLECTION): the deal is only shown, no collection file anywhere
+    assert!(
+        log.contains("shown only"),
+        "the free deal was not shown only"
+    );
+    let profiles = data.join("profiles");
+    assert!(!profiles.exists(), "free play made {}", profiles.display());
+
+    // 7. 1.2 (a) Create-a-Team (the run's WCCF_COLLECTION): the dealt card is saved, one `match` line in grants.jsonl
+    let _ = fs::remove_file(seat.join("forza_panel.log"));
+    let collection = profiles.join(r"create-a-team\collection");
+    let dir = collection.display().to_string();
+    run_with(
+        &[("WCCFPANEL_DEALTEST", "1"), ("WCCF_COLLECTION", &dir)],
+        &[
+            READY.into(),
+            "until:20000:forza_panel.log:saved to".into(),
+            "wait:300".into(),
+            "copy:deal_saved.bmp".into(),
+        ],
+    );
+    let log = fs::read_to_string(seat.join("forza_panel.log")).unwrap_or_default();
+    println!("forza_panel.log:\n{log}");
+    assert!(
+        log.contains("drawn for the collection (test)"),
+        "no card drawn"
+    );
+    let text = fs::read_to_string(collection.join("grants.jsonl")).unwrap();
+    let lines: Vec<forza::collection::Entry> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1, "{text}");
+    assert_eq!(lines[0].kind, forza::collection::Kind::Match);
+    assert_eq!(lines[0].tokens, forza::collection::MATCH_TOKENS);
+    assert!((101..=105).contains(&lines[0].card.unwrap()), "{text}");
     if env::var_os("FORZA_PANEL_KEEP").is_none() {
         let _ = fs::remove_dir_all(&t);
     }

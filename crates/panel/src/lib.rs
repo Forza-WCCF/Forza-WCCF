@@ -42,6 +42,7 @@
 mod cost;
 mod exe_text;
 mod fullscreen;
+mod grant;
 mod graphics;
 mod kit;
 mod money;
@@ -1501,9 +1502,11 @@ struct Render {
     /// The crash screen's report request, when it was written.
     report_at: Option<Instant>,
     logs_stamp: Option<std::time::SystemTime>,
-    /// The deal: when the club card was last looked at, and its session then.
+    /// The deal: when the match end was last looked for, and the match ends seen.
     deal_at: Instant,
-    deal_last: Option<forza::card::Session>,
+    match_end: grant::MatchEnd,
+    /// Create-a-Team: the thread that draws and saves the match card ([`grant::Granter`]).
+    granter: Option<grant::Granter>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
     /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
@@ -1668,7 +1671,18 @@ impl Render {
             notice_pending: None,
             notice_shown: None,
             deal_at: Instant::now(),
-            deal_last: None,
+            match_end: grant::MatchEnd::default(),
+            granter: files.collection.clone().map(|dir| {
+                log(&format!(
+                    "deal: Create-a-Team, match cards saved in {}",
+                    dir.display()
+                ));
+                grant::Granter::start(
+                    dir,
+                    CATALOGUE.get().cloned().unwrap_or_else(|| Arc::from([])),
+                    log,
+                )
+            }),
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -2756,37 +2770,60 @@ impl Render {
         ok
     }
 
-    /// A card dealt after each match (wccfpanel.c deal_tick): once a second the club card's session; open, then closed
-    /// (the locker-room save) = a match finished. `WCCFPANEL_DEALTEST=1` deals one at the first frame (the tests).
-    /// Only shown: nothing is written.
+    /// A card dealt after each match (wccfpanel.c deal_tick), looked for once a second: the cards the game hands out
+    /// (2017-18's dispenser count) or, where it cannot count them, the club card session's close (the locker-room save);
+    /// [`grant::MatchEnd`] makes one deal per match and logs every source. `WCCFPANEL_DEALTEST=1` deals one at the first
+    /// frame (the tests). Free play: only shown, nothing written. Create-a-Team: the grant thread draws the card and
+    /// saves it; the frame only asks and reads its news.
     fn deal_in(&mut self) {
         use forza::card::{self, Session};
+        if let Some(g) = &self.granter {
+            while let Some((i, grant)) = g.news() {
+                if grant == panel::Grant::Saving {
+                    let mut d = panel::Deal::new(i);
+                    d.grant = Some(grant);
+                    self.st.deal = Some(d);
+                } else if let Some(d) = self.st.deal.as_mut().filter(|d| d.card == i) {
+                    d.grant = Some(grant); // a closed window: the save goes on unseen
+                }
+            }
+        }
         let test = self.frames == 0 && std::env::var("WCCFPANEL_DEALTEST").is_ok_and(|v| v == "1");
         if !test && self.deal_at.elapsed() < Duration::from_secs(1) {
             return;
         }
         self.deal_at = Instant::now();
-        // 2017-18: the game handed out a player card (the dispenser fix counts them)
-        let finished = test || patches::take_owed_new() > 0 || {
-            let Some(f) = FILES.get() else { return };
-            let (now, _) = card::session(&f.save.join(card::SLOT), None);
-            // no card, or caught mid-write: wait for the next look
-            if !matches!(now, Session::Open | Session::Closed) {
-                return;
-            }
-            let was = self.deal_last.replace(now);
-            was == Some(Session::Open) && now == Session::Closed
+        let owed = patches::take_owed_new();
+        // no card, or caught mid-write: no news from the session this time
+        let session = FILES
+            .get()
+            .map(|f| card::session(&f.save.join(card::SLOT), None).0)
+            .filter(|s| matches!(s, Session::Open | Session::Closed));
+        let why = if test {
+            Some("test")
+        } else {
+            self.match_end.look(
+                owed,
+                session,
+                patches::dispenser_counts(),
+                Instant::now(),
+                &mut |s| log(&s),
+            )
         };
-        if finished {
-            self.deal();
+        if let Some(why) = why {
+            self.deal(why);
         }
     }
 
-    fn deal(&mut self) {
+    fn deal(&mut self, why: &'static str) {
+        if let Some(g) = &self.granter {
+            g.ask(why);
+            return;
+        }
         match cards::deal_now(catalogue()).and_then(|i| Some((i, catalogue().get(i)?))) {
             Some((i, c)) => {
                 log(&format!(
-                    "deal: card {} {} ({:?}) - shown only, the club card is not changed",
+                    "deal: card {} {} ({:?}) - shown only, the club card is not changed ({why})",
                     c.number,
                     c.short_name(),
                     c.rarity

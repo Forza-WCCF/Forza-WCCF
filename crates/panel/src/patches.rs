@@ -649,6 +649,8 @@ static OWED_FIX: AtomicBool = AtomicBool::new(false);
 static OWED_AT: AtomicUsize = AtomicUsize::new(0x009F_BCAC);
 /// 2017-18: player cards the game handed out since the last [`take_owed_new`].
 static OWED_NEW: AtomicU32 = AtomicU32::new(0);
+/// 2017-18: FUN_005c0970 jumps to [`owed_hit`], so [`take_owed_new`] counts the hand-outs.
+static OWED_COUNTS: AtomicBool = AtomicBool::new(false);
 static OWED_NEXT: Mutex<Option<Instant>> = Mutex::new(None);
 static OWED_SAID: AtomicU32 = AtomicU32::new(0);
 
@@ -669,6 +671,12 @@ extern "C" fn owed_hit() {
 /// 2017-18: cards handed out since the last call (the deal window); always 0 on 2010-11.
 pub fn take_owed_new() -> u32 {
     OWED_NEW.swap(0, Relaxed)
+}
+
+/// Whether [`take_owed_new`] counts the game's card hand-outs (2017-18 with the dispenser fix in): the deal's match
+/// end then comes from it, and the club card session's close is only logged.
+pub fn dispenser_counts() -> bool {
+    OWED_COUNTS.load(Relaxed)
 }
 
 /// The C's `dispenser_install`, each edition's.
@@ -716,6 +724,7 @@ pub fn dispenser_install(e1718: bool, log: fn(&str)) {
         return;
     }
     OWED_FIX.store(true, Relaxed);
+    OWED_COUNTS.store(y1718, Relaxed);
     if y1718 {
         log(&format!(
             "dispenser: FUN_005c0970 at {f:08X} -> owed_hit - each player card handed out is shown, none owed"
