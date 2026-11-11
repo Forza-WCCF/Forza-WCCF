@@ -2,15 +2,18 @@
 
 ## Version numbers
 
-- The release number is the git tag (`v<number>`, [semver](https://semver.org)); no commit bumps it. `cargo xtask`
-  reads it with `git describe` and sets `FORZA_VERSION` for the build: the edition ZIPs (`version.txt`, `kit-<number>`),
-  the file names and the three crates that show it to players (`launcher`, `wccf-installer`, `forza-panel`: their
-  version information and `env!("FORZA_VERSION")`, from `crates/launcher/version_rc.rs`) carry it. The commit tagged
-  `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev+<short sha>` (the next patch, so the Launcher offers the next
-  release, never the one the build came from); a clone without tags builds `0.0.0-dev+<short sha>`.
-  A non-empty `FORZA_VERSION` in the environment wins over `git describe` and must be semver (`0.7.0`); the
+- The release number is the git tag (`v<number>`, [semver](https://semver.org)); no commit on `main` bumps it. `cargo
+  xtask` reads it with `git describe` and sets `FORZA_VERSION` for the build: the edition ZIPs (`version.txt`,
+  `kit-<number>`), the file names and the three crates that show it to players (`launcher`, `wccf-installer`,
+  `forza-panel`: their version information and `env!("FORZA_VERSION")`, from `crates/launcher/version_rc.rs`) carry it.
+  The commit tagged `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev+<short sha>` (the next patch, so the
+  Launcher offers the next release, never the one the build came from); a clone without tags builds `0.0.0-dev+<short
+  sha>`. A non-empty `FORZA_VERSION` in the environment wins over `git describe` and must be semver (`0.7.0`); the
   [candidate](#release-candidate) build sets it from the dispatch input `version`.
-  `[workspace.package] version` in `Cargo.toml` only serves a plain `cargo build`.
+- `[workspace.package] version` in `Cargo.toml` serves a plain `cargo build`, which has no `FORZA_VERSION`. The release
+  cut sets it, and the matching `Cargo.lock` entries, to the release number in the one `chore(release): <ver>` commit on
+  `next`, so a local build of a candidate shows the release number instead of a stale one. It goes in with the rest of
+  the cut and never as a second commit: the candidate build compiles it once. `main` carries the last release's number.
 - Every other crate has its own `version` in its `Cargo.toml`, embedded in its programs' version information. Bump a
   crate's own version (patch for a fix, minor for a feature) in the PR that changes it, if at all; never bump an unchanged
   crate (`git diff --stat v<last> -- <crate dir> native/common`): an unchanged helper program (FPR_Emu.exe,
