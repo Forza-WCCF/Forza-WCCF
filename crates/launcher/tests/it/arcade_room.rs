@@ -77,7 +77,7 @@ fn host_arcade_then_a_guest_joins_by_code_through_the_tunnel() {
     let d = desk();
     let server = d.addr().to_string();
     let addr: SocketAddr = d.addr();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (relay, _url, _relay_server) = rt.block_on(iroh::test_utils::run_relay_server()).unwrap();
     let cfg = |role, ports, key: &str, log| ArcadeConfig {
@@ -185,7 +185,7 @@ fn a_host_back_from_a_crash_gets_a_new_room_with_its_code() {
     (c.bind, c.port, c.lobby_gap, c.lobby_cache) = ("127.0.0.1".into(), 0, Duration::ZERO, Duration::ZERO);
     c.host_stale = Duration::from_millis(300);
     let d = start(c, Arc::new(|_| {})).unwrap();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let key = dir.path().join("host.key");
     let id = arcade::id_text(&arcade::own_id(&key).unwrap());
     let secret = launcher::lobby::room_secret(&key).unwrap();
@@ -214,7 +214,7 @@ fn a_lost_room_lets_nobody_in() {
     c.reserve_lease = Duration::from_millis(2500);
     let d = start(c, Arc::new(|_| {})).unwrap();
     let addr = d.addr();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("lost host");
     let room = HostRoom::open(&addr.to_string(), &id, None, false, "", log, &|_| {}).unwrap();
@@ -239,7 +239,7 @@ fn a_lost_room_lets_nobody_in() {
 fn a_closed_room_admits_nobody_and_is_not_lost() {
     let d = desk();
     let addr = d.addr();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, lines) = logger("closing host");
     let room = HostRoom::open(&addr.to_string(), &id, None, false, "", log, &|_| {}).unwrap();
@@ -259,7 +259,7 @@ fn a_closed_room_admits_nobody_and_is_not_lost() {
 fn a_listed_room_is_joined_from_its_row() {
     let d = desk();
     let addr = d.addr();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("listed host");
     let room = HostRoom::open(&addr.to_string(), &id, None, true, "Sala Roma", log, &|_| {}).unwrap();
@@ -307,7 +307,7 @@ fn creates(asked: &Lines) -> Vec<String> {
 /// the name; a private room sends no name, so the CREATE with the secret, then the plain one.
 #[test]
 fn an_old_desk_gets_the_room_without_its_name() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let secret = launcher::lobby::room_secret(&dir.path().join("host.key")).unwrap();
     let (addr, asked) = old_desk();
@@ -339,7 +339,7 @@ fn an_old_desk_gets_the_room_without_its_name() {
 /// limit, not two or three.
 #[test]
 fn an_old_desk_is_asked_its_own_form_from_then_on() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let secret = launcher::lobby::room_secret(&dir.path().join("host.key")).unwrap();
     let (addr, asked) = old_desk();
@@ -384,7 +384,7 @@ fn an_old_desk_with_a_stale_room_never_gets_the_name_again() {
             let _ = c.write_all(answer);
         }
     });
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let id = arcade::id_text(&arcade::own_id(&dir.path().join("host.key")).unwrap());
     let (log, _) = logger("old desk stale host");
     let said = Mutex::new(vec![]);

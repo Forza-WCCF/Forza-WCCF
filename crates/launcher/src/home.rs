@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn every_state() {
-        let root = tempfile::tempdir().unwrap();
+        let root = crate::scratch();
         let r = root.path();
         let ed = Edition::E1011;
         assert_eq!(state(r, ed), State::NotInstalled);
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn both_editions_under_one_root() {
-        let root = tempfile::tempdir().unwrap();
+        let root = crate::scratch();
         let r = root.path();
         for ed in EDITIONS {
             game(&r.join(ed.folder()), ed);
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn the_legacy_install_is_2010_11() {
-        let root = tempfile::tempdir().unwrap();
+        let root = crate::scratch();
         let r = root.path();
         dirs(r, &["wccf-revival/local"]);
         fs::write(r.join("wccf-revival/local/SBWG_Table.dat"), b"").unwrap();
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn a_dead_junction_is_not_installed() {
-        let root = tempfile::tempdir().unwrap();
+        let root = crate::scratch();
         let (r, target) = (root.path(), root.path().join("gone"));
         fs::create_dir(&target).unwrap();
         junction::create(&target, r.join("2010-2011")).unwrap();
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn this_folder_without_an_edition_name() {
-        let root = tempfile::tempdir().unwrap();
+        let root = crate::scratch();
         let here = root.path().join("Downloads kit");
         dirs(&here, &["programs"]);
         let rows = rows_in(&here, &[]);

@@ -32,7 +32,7 @@ fn put(path: &Path, raw: &Value) {
 
 #[test]
 fn sessions_as_recorded() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let (slot, new) = (dir.path().join("slot.bin"), dir.path().join("new.bin"));
     let mut cards = HashMap::new();
     let (mut singles, mut pairs) = (0, 0);

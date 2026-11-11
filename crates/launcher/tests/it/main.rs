@@ -11,3 +11,9 @@ mod rec_keys;
 mod rec_kit;
 mod rec_logs;
 mod sound;
+
+/// A scratch folder under `%TEMP%` named `wccf-…`, as `launcher::scratch` in the lib (it is not built there for this
+/// binary): one Defender exclusion of `%TEMP%\wccf-*` covers it.
+fn scratch() -> tempfile::TempDir {
+    tempfile::Builder::new().prefix("wccf-").tempdir().unwrap()
+}

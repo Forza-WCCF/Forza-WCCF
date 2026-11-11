@@ -69,6 +69,20 @@ enum Task {
         #[arg(last = true)]
         test_args: Vec<String>,
     },
+    /// The tests of the crates named, built as `check quick` builds them (its target, profile and rustflags, and the wide
+    /// workspace scope it builds with): a per-commit test run then reuses the gate's build tree instead of compiling a
+    /// second one; the 32-bit hook builds with the 2017-18 feature, as `quick` does when no 2010-11 path changed. The GPU
+    /// snapshot tests are skipped, as in `quick` (their pixels move in the `fast` profile): `cargo test --locked -p
+    /// forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1` runs them in the dev profile,
+    /// as CI does.
+    Test {
+        /// The crates to test, each as cargo's `-p`; a 32-bit one (forza-panel, the native crates) runs for its own target
+        #[arg(short = 'p', long = "package", required = true)]
+        package: Vec<String>,
+        /// Passed on to the test runner, e.g. `-- --partition count:1/2` with cargo-nextest
+        #[arg(last = true)]
+        test_args: Vec<String>,
+    },
     /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
         /// 2010-11 or 2017-18
@@ -490,6 +504,14 @@ fn hooks(e1011: bool) -> impl Iterator<Item = (&'static str, bool, &'static str)
         .into_iter()
         .filter(move |(f, _, _)| e1011 || !f.starts_with("forza-hook/e1011"))
 }
+/// The hook feature a target builds with: the 2010-11 hook's only when `e1011` ([`hooks`]). `check quick` decides it per
+/// branch, and a per-commit test run takes the 2017-18 one, so both build the gate's tree.
+fn hook_feature(e1011: bool) -> &'static str {
+    let (feature, _, _) = hooks(e1011)
+        .next()
+        .expect("HOOKS holds both editions' hooks");
+    feature
+}
 /// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
 /// winmm.dll) only when a change touches one of these; the full check, `check ci` (main, schedule, releases),
@@ -614,6 +636,10 @@ fn main() -> Result<()> {
             }
             build_all(&root, &kit, &kit_1718, true)
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
+        }
+        Task::Test { package, test_args } => {
+            let _ = PROFILE.set(pick_profile(Some("quick"), false, false, in_ci()));
+            test_packages(&root, &kit, &package, &test_args)
         }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
@@ -1410,7 +1436,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
-    let needs_kit = has("launcher") || has("forza-panel") || has(INSTALLER) || native;
+    let needs_kit = kit_needed(has);
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1422,12 +1448,12 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         println!("quick: the staged kit is missing or older than the sources: rebuilding it");
         build_all(root, kit, kit_1718, e1011)?;
     }
-    let hooks: Vec<_> = hooks(e1011).map(|(f, _, _)| f).collect();
-    let runs = target_scopes(&scope, hooks[0]);
+    let hook = hook_feature(e1011);
+    let runs = target_scopes(&scope, hook);
     // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
     // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
     // whole workspace's took 4); the changed crates' tests alone run
-    let wide = target_scopes(&["--workspace".to_owned()], hooks[0]);
+    let wide = target_scopes(&["--workspace".to_owned()], hook);
     let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
             .find(|(w, _)| *w == t)
@@ -1442,7 +1468,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     }
     // the hook's other features, as `check` lints them
     if native {
-        for feature in &hooks[1..] {
+        for (feature, _, _) in hooks(e1011).skip(1) {
             let mut clippy = rust("clippy", root);
             clippy.args(["--locked", "--all-targets", "--target", PANEL_TARGET]);
             clippy.args([
@@ -1702,6 +1728,10 @@ fn tests(
         ]);
     }
     if nextest {
+        // CI selects nextest's own `ci` profile (retries and no fail-fast, .config/nextest.toml), not a cargo one
+        if in_ci() {
+            test.args(["--profile", "ci"]);
+        }
         // one expression: nextest runs the union of several -E
         let expr: Vec<String> = only
             .map(|o| format!("({o})"))
@@ -1724,6 +1754,58 @@ fn tests(
         test.args(extra);
     }
     test
+}
+
+/// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
+/// workspace scope of each target, same profile and rustflags), so a per-commit run reuses the gate's build tree
+/// instead of making a second one; nextest's filterset then picks the crates named.
+fn test_packages(root: &Path, kit: &Path, packages: &[String], extra: &[String]) -> Result<()> {
+    // a rebuild on every run would defeat the per-commit use, and a kit older than the sources only runs the tests'
+    // programs from before the change: one line names the fix, as a missing kit fails in the tests themselves
+    let has = |p: &str| packages.iter().any(|x| x == p);
+    if kit_needed(has) && kit_stale(root, kit)? {
+        println!(
+            "test: the staged kit is missing or older than the sources: `cargo xtask build` first, or the tests start the old programs"
+        );
+    }
+    // one test run at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936)
+    let _lock = check_lock()?;
+    for c in test_commands(root, packages, extra) {
+        run_ok(c, "cargo test")?;
+    }
+    Ok(())
+}
+
+/// The tests that start the programs `cargo xtask build` stages in the kit: the launcher's and the panel's stand-ins,
+/// the installer's and the native crates' own.
+fn kit_needed(has: impl Fn(&str) -> bool) -> bool {
+    has("launcher") || has("forza-panel") || has(INSTALLER) || NATIVE_PKGS.iter().any(|p| has(p))
+}
+
+/// The commands [`test_packages`] runs: one per target the crates named build for, as `check quick`'s test step.
+fn test_commands(root: &Path, packages: &[String], extra: &[String]) -> Vec<Command> {
+    let pkgs: BTreeSet<String> = packages.iter().cloned().collect();
+    let scope: Vec<String> = pkgs
+        .iter()
+        .flat_map(|p| ["-p".to_owned(), p.clone()])
+        .collect();
+    let hook = hook_feature(false);
+    let wide = target_scopes(&["--workspace".to_owned()], hook);
+    target_scopes(&scope, hook)
+        .into_iter()
+        .filter_map(|(target, _)| {
+            let only = test_filter(&pkgs, target)?;
+            let wide: Vec<&str> = wide
+                .iter()
+                .find(|(t, _)| *t == target)?
+                .1
+                .iter()
+                .map(String::as_str)
+                .collect();
+            // the GPU snapshot tests are skipped, as in `quick`: their pixels move in the `fast` profile
+            Some(tests(root, true, extra, target, &wide, Some(&only)))
+        })
+        .collect()
 }
 
 /// `cargo xtask check text`: the checks that read only tracked text; no build, no kit.
@@ -2976,6 +3058,47 @@ mod tests {
         );
         let run = line(tests(Path::new("C:/repo"), false, &[], TARGET, &[], None));
         assert!(!run.contains("snapshots"), "{run}");
+    }
+
+    #[test]
+    fn a_per_commit_test_builds_what_check_quick_builds() {
+        let line = |c: &Command| {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let root = Path::new("C:/repo");
+        // `quick` builds the whole workspace of each target and picks the tests with a filterset: the per-commit run
+        // must ask for the same build, or it compiles the workspace a second time
+        let x64 = test_commands(root, &["forza".to_owned()], &[]);
+        assert_eq!(x64.len(), 1);
+        let x64 = line(&x64[0]);
+        assert!(
+            x64.contains("--target x86_64-pc-windows-msvc --workspace --exclude forza-panel"),
+            "{x64}"
+        );
+        // a 32-bit crate is tested for its own target
+        let panel = test_commands(root, &["forza-panel".to_owned()], &[]);
+        assert_eq!(panel.len(), 1);
+        let panel = line(&panel[0]);
+        assert!(panel.contains("--target i686-pc-windows-msvc"), "{panel}");
+        assert!(!panel.contains("--workspace"), "{panel}");
+        // the 32-bit hook builds with the 2017-18 feature, as `quick` does on a branch that changes no 2010-11 path:
+        // the gate's build tree, and the 2017-18 hook's cfg'd tests
+        let hook = test_commands(root, &["forza-hook".to_owned()], &[]);
+        let hook = line(
+            hook.iter()
+                .find(|c| line(c).contains("i686"))
+                .expect("a 32-bit command"),
+        );
+        assert!(hook.contains("--features forza-hook/e1718"), "{hook}");
+    }
+
+    #[test]
+    fn the_hook_feature_is_the_2017_18_one_unless_2010_11_changed() {
+        assert_eq!(hook_feature(false), "forza-hook/e1718");
+        assert_eq!(hook_feature(true), "forza-hook/e1011");
     }
 
     #[test]

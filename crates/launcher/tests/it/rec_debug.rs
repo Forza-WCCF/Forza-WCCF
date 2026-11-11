@@ -53,7 +53,7 @@ fn model(v: &Value) -> impl Fn(u64, usize) -> Option<Vec<u8>> {
 #[test]
 fn debugger_parts_as_recorded() {
     let mut count: BTreeMap<String, usize> = BTreeMap::new();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     for line in include_str!("../rec/debug.jsonl").lines() {
         let rec: Value = serde_json::from_str(line).unwrap();
         let f = rec["fn"].as_str().unwrap();

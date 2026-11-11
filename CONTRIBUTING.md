@@ -44,8 +44,11 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    cargo xtask build          # the programs, staged in target/kit/<edition>/ (`fast` profile; --release: release)
    cargo xtask check          # fmt, clippy, tests, the guard and hook test programs, the run tests, the publisher-name grep
    cargo xtask check quick    # only the crates changed since the base branch (`fast` profile; rebuilds a stale kit;
-                              # no GPU snapshot tests, which `cargo nextest run -p forza-ui` runs in the dev profile)
+                              # no GPU snapshot tests, which the dev-profile command in "Faster builds" runs)
    cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
+   cargo xtask test -p forza  # the tests of one crate, built as `check quick` builds them (same target, profile and
+                              # rustflags): a per-commit run reuses that build tree instead of making a second one;
+                              # a staged kit older than the sources only prints a warning (`cargo xtask build`)
    cargo xtask package 2017-18 --name Forza-WCCF-2017-18-0.2.0
    ```
 
@@ -62,6 +65,11 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    - [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`): `check` runs the tests with it when
      it is installed, one process per test on all cores. Arguments after `--` go to it, e.g.
      `cargo xtask check ci -- --partition count:1/2`.
+   - The GPU snapshot tests (`forza-ui`): the `check` commands skip them, since their pixels move in the `fast` profile,
+     and nextest gives them one process each. Run them all in one process, in the dev profile, as CI's `snapshots` job
+     does: `cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1`
+     (48 tests: 333 s this way, 397 s summed through nextest). A snapshot that changed is never regenerated to make a
+     check pass: report it.
    - A new worktree builds every crate from zero. Share the dependencies between worktrees with
      [sccache](https://github.com/mozilla/sccache) (`cargo install sccache --locked`; `cargo xtask` finds it on `PATH`
      or in `%USERPROFILE%\.cargo\bin` and sets `RUSTC_WRAPPER` itself, even from WSL, where `setx` variables are not
@@ -139,8 +147,8 @@ Refs: #12
 - **Breaking change:** a `!` before the colon and/or a `BREAKING CHANGE:` footer.
 - **Versions** ([docs/RELEASING.md](docs/RELEASING.md)): `fix` is a patch, `feat` a minor version, a breaking change a
   major version (a minor one while the version is 0.x).
-  The release number is the git tag (no commit bumps it); each crate has its own version besides it, bumped in the
-  pull request that changes the crate, if at all.
+  The release number is the git tag (no commit on `main` bumps it); each crate has its own version besides it, bumped
+  in the pull request that changes the crate, if at all.
 - **Revert:** `revert(scope): description of the reverted commit`, with `Refs:` naming the commit hash.
 - Git's own `Merge ...` lines pass; `fixup!`, `squash!` and `amend!` commits are fine locally but must be squashed
   (`git rebase -i --autosquash`) before a pull request.

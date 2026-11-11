@@ -38,7 +38,7 @@ fn quickedit_is_switched_off_in_another_programs_console() {
 /// Output redirected to a file lands in the file, not in the parent's console (`Launcher.exe status > out.txt`).
 #[test]
 fn redirected_output_goes_to_the_file() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let exe = dir.path().join("Launcher.exe");
     std::fs::copy(launcher_exe(), &exe).unwrap();
     let out = dir.path().join("out.txt");

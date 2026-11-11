@@ -72,7 +72,7 @@ mod tests {
 
     /// A pack served from a `file://` address (curl resumes those too) in a scratch folder.
     fn served(bytes: &[u8]) -> (tempfile::TempDir, String, String) {
-        let d = tempfile::tempdir().unwrap();
+        let d = crate::scratch();
         let src = d.path().join("card-pictures-test.zip");
         fs::write(&src, bytes).unwrap();
         let url = format!("file:///{}", src.display().to_string().replace('\\', "/"));
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn no_address_fails_in_one_line_and_keeps_nothing() {
-        let d = tempfile::tempdir().unwrap();
+        let d = crate::scratch();
         let url = format!("file:///{}/none.zip", d.path().display().to_string().replace('\\', "/"));
         let p = Pack {
             url: &url,

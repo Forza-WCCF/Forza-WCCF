@@ -120,7 +120,7 @@ fn wait_for(log: &Log, what: &str) {
 /// test_crash_dump.py: a write to address 0 in a 32-bit program, run as a client.
 #[test]
 fn a_crash_leaves_a_lean_and_a_full_snapshot() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let exe = stand_in("crashme.exe", &top.path().join("game"), "standin_crash.exe");
     let (job, log, t) = start(options(exe, top.path(), Role::Client));
     let code = t.join().unwrap();
@@ -175,7 +175,7 @@ fn a_crash_leaves_a_lean_and_a_full_snapshot() {
 /// Children watched from outside (no follow) on the way.
 #[test]
 fn a_closed_window_ends_the_program() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let exe = stand_in("fakegame.exe", &top.path().join("game"), "standin_window.exe");
     let mut opts = options(exe, top.path(), Role::Client);
     // any DLL for its panel slot; the window shows at once, closes after ~8.5 s (a window must have been up 5 s), and
@@ -274,7 +274,7 @@ fn show_window(title: &str, shown: bool) -> windows_sys::Win32::Foundation::HWND
 /// A client whose window stops answering gets one set of snapshots after `hang_after`, a log line, and runs on.
 #[test]
 fn a_hung_window_is_dumped_once() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
     opts.args = ["debug::hung_stand_in", "--exact", "--ignored", "--nocapture"]
         .map(String::from)
@@ -303,7 +303,7 @@ fn a_hung_window_is_dumped_once() {
 #[test]
 fn hide_starts_the_windows_hidden() {
     for hide in [true, false] {
-        let top = tempfile::tempdir().unwrap();
+        let top = crate::scratch();
         let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Control);
         opts.args = ["debug::window_stand_in", "--exact", "--ignored", "--nocapture"]
             .map(String::from)
@@ -339,7 +339,7 @@ fn hide_starts_the_windows_hidden() {
 /// it for a closed one and end the championship.
 #[test]
 fn a_hidden_projector_window_is_not_a_closed_one() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let mut opts = options(std::env::current_exe().unwrap(), top.path(), Role::Client);
     opts.args = ["debug::projector_stand_in", "--exact", "--ignored", "--nocapture"]
         .map(String::from)
@@ -391,7 +391,7 @@ fn a_hidden_projector_window_is_not_a_closed_one() {
 /// `above_normal` (2017-18): a game program starts at above-normal priority and the log says so.
 #[test]
 fn above_normal_raises_a_game_program() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let game = top.path().join("game");
     fs::create_dir_all(&game).unwrap();
     let exe = game.join("match_Release.exe");
@@ -423,7 +423,7 @@ fn above_normal_raises_a_game_program() {
 /// `background` (the 2017-18 projector): the program starts at below-normal priority, over `above_normal`.
 #[test]
 fn background_lowers_a_game_program() {
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let game = top.path().join("game");
     fs::create_dir_all(&game).unwrap();
     let exe = game.join("client_Release.exe");
@@ -457,7 +457,7 @@ fn background_lowers_a_game_program() {
 /// already exists too small is reported and left alone.
 #[test]
 fn the_shared_memory_holds_the_motion_files() {
-    let game = tempfile::tempdir().unwrap();
+    let game = crate::scratch();
     let files = [
         ("AI/motion_data/game_motion_data.moai", 5),
         ("data/motion/launcherMotion/management_motion_data.moai", 0),
@@ -510,7 +510,7 @@ fn the_shared_memory_holds_the_motion_files() {
 /// 2010-11's.
 #[test]
 fn the_2017_18_shared_memory_holds_the_player_data() {
-    let game = tempfile::tempdir().unwrap();
+    let game = crate::scratch();
     let dir = game.path().join("prog_data/player_data");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("player_data.bin"), [7, 8, 9]).unwrap();
@@ -542,7 +542,7 @@ fn the_2017_18_shared_memory_holds_the_player_data() {
 #[test]
 fn save_logs_dumps_the_running_client_and_match_engine() {
     use forza::online::save_logs::Scrub;
-    let top = tempfile::tempdir().unwrap();
+    let top = crate::scratch();
     let game = top.path().join("game");
     fs::create_dir_all(&game).unwrap();
     let (kit, dumps, zips) = (

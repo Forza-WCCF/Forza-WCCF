@@ -582,7 +582,7 @@ mod tests {
 
         let me = env::current_exe().unwrap();
         let real = me.parent().unwrap();
-        let top = tempfile::tempdir().unwrap();
+        let top = crate::scratch();
         let link = top.path().join("run");
         junction::create(real, &link).unwrap();
         let through = link.join(me.file_name().unwrap());

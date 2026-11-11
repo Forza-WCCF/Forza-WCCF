@@ -3453,7 +3453,7 @@ mod tests {
     #[test]
     fn pictures_are_made_at_play_when_missing_older_or_changed_but_not_after_a_failure() {
         let v = forza::cards::pictures::VERSION;
-        let d = tempfile::tempdir().unwrap();
+        let d = crate::scratch();
         let cards = d.path().join("cards");
         assert!(due(&cards, true, None), "no folder: made, as before");
         assert!(!due(&cards, false, None), "no game set up: nothing to make them from");

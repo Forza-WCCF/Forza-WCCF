@@ -6,3 +6,14 @@ gpu = { max-threads = 1 }
 [[profile.default.overrides]]
 filter = "test(/^snapshots::/)"
 test-group = "gpu"
+
+[profile.default]
+# A test that hangs (the launcher's start real processes) ends after 3 minutes instead of at the runner's 20 min limit
+# or CI's 90 min job limit. The slowest test today takes 82 s (a GPU snapshot), so a real one is only reported as slow.
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# CI, which passes `--profile ci` (xtask's tests() does when CI is set): a test that passes on a retry is reported as
+# FLAKY in the log, not red, and one failure no longer stops the others.
+[profile.ci]
+retries = 2
+fail-fast = false

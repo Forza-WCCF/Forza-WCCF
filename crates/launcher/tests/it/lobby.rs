@@ -187,7 +187,7 @@ fn servers_take_host_port_and_names() {
 fn the_project_server_is_asked_when_none_is_saved() {
     use launcher::Edition;
     use launcher::lobby::{PROJECT_SERVER_1011, PROJECT_SERVER_1718, servers, valid_server};
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::scratch();
     let settings = dir.path().join("settings.json");
     assert!(valid_server(PROJECT_SERVER_1011) && valid_server(PROJECT_SERVER_1718));
     assert_eq!(servers(&settings, "", Edition::E1011), [PROJECT_SERVER_1011]);

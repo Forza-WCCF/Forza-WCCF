@@ -325,7 +325,7 @@ mod tests {
     /// The view follows its files on a clock the test moves.
     #[test]
     fn the_view_waits_for_the_files_to_hold_still_and_retries_a_failure() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::scratch();
         let data = dir.path();
         fs::create_dir_all(data.join("save")).unwrap();
         let card = data.join("save").join("seat1_club.bin");

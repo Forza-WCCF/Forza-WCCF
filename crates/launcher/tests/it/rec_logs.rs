@@ -177,7 +177,7 @@ fn logs_as_recorded() {
         eprintln!("recorded at UTC{offset:+}s, this PC is UTC{here:+}s at those times: not replayed");
         return;
     }
-    let root = tempfile::tempdir().unwrap();
+    let root = crate::scratch();
     let (mut archives, mut rotations) = (0, 0);
     for rec in lines {
         if rec["op"] == "archive" {
@@ -193,7 +193,7 @@ fn logs_as_recorded() {
 
 #[test]
 fn append_makes_the_folder_and_adds_timed_lines() {
-    let d = tempfile::tempdir().unwrap();
+    let d = crate::scratch();
     let f = d.path().join("logs").join("launcher.txt");
     launcher::logs::append(&f, "one");
     launcher::logs::append(&f, "two");
@@ -206,7 +206,7 @@ fn append_makes_the_folder_and_adds_timed_lines() {
 
 #[test]
 fn rotate_keeps_the_last_three_runs() {
-    let d = tempfile::tempdir().unwrap();
+    let d = crate::scratch();
     let logs = d.path().join("logs");
     for run in 1..=5 {
         rotate(&logs).unwrap();

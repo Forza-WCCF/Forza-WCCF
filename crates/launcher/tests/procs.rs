@@ -19,6 +19,12 @@ use windows_sys::Win32::System::Threading::{
     UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
+/// A scratch folder under `%TEMP%` named `wccf-…`, as `launcher::scratch` in the lib: one Defender exclusion of
+/// `%TEMP%\wccf-*` covers it.
+fn scratch() -> tempfile::TempDir {
+    tempfile::Builder::new().prefix("wccf-").tempdir().unwrap()
+}
+
 #[test]
 fn this_process_is_listed_with_its_path() {
     let me = processes()
@@ -35,7 +41,7 @@ fn this_process_is_listed_with_its_path() {
 /// processes() reads (2026-10-12: a kit started through its first-run link could not stop its own helpers).
 #[test]
 fn a_program_started_through_a_junction_is_found() {
-    let top = tempfile::tempdir().unwrap(); // %TEMP%: a local NTFS drive, where junctions work
+    let top = scratch(); // %TEMP%: a local NTFS drive, where junctions work
     let (real, link) = (top.path().join("real"), top.path().join("link"));
     fs::create_dir(&real).unwrap();
     let system = env::var_os("SystemRoot").unwrap();
@@ -70,7 +76,7 @@ fn a_program_started_through_a_junction_is_found() {
 
 #[test]
 fn same_form_keeps_a_missing_tail_and_folds_case() {
-    let top = tempfile::tempdir().unwrap();
+    let top = scratch();
     let real = same_form(top.path());
     assert!(!real.starts_with(r"\\?\"), "{real}");
     assert_eq!(
@@ -87,7 +93,7 @@ fn same_form_keeps_a_missing_tail_and_folds_case() {
 /// runner's %TEMP% is C:\Users\RUNNER~1 and a program in it was reported under C:\Users\runneradmin).
 #[test]
 fn same_form_expands_short_names() {
-    let top = tempfile::tempdir().unwrap();
+    let top = scratch();
     let long = top.path().join("A Long Folder Name");
     fs::create_dir(&long).unwrap();
     let wide: Vec<u16> = long.as_os_str().encode_wide().chain([0]).collect();
@@ -119,7 +125,7 @@ fn same_form_expands_short_names() {
 
 #[test]
 fn no_game_runs_from_a_scratch_folder() {
-    let top = tempfile::tempdir().unwrap();
+    let top = scratch();
     assert!(game_processes(&top.path().join("game")).is_empty());
 }
 
@@ -127,7 +133,7 @@ fn no_game_runs_from_a_scratch_folder() {
 /// that runs from the real folder (Windows names the target) is still found.
 #[test]
 fn a_game_program_is_found_from_its_run_junction() {
-    let top = tempfile::tempdir().unwrap();
+    let top = scratch();
     let (game, link) = (top.path().join(r"install\game"), top.path().join(r"run\0123456789ab"));
     fs::create_dir_all(&game).unwrap();
     fs::create_dir_all(link.parent().unwrap()).unwrap();

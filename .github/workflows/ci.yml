@@ -239,8 +239,8 @@ jobs:
         env:
           CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          # CI only (local runs keep none): a test that passes on a retry is reported as FLAKY in the log, not red
-          NEXTEST_RETRIES: '2'
+          # CI only: xtask's test runner then selects nextest's `ci` profile (.config/nextest.toml: retries 2, no
+          # fail-fast, so a test that passes on a retry is reported as FLAKY in the log, not red)
         run: |
           if [ -n "$BASE" ]; then
             cargo xtask check quick --base "$BASE"
@@ -394,6 +394,13 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check licenses bans sources
+      # New advisories arrive with the database, not with a branch: the weekly scheduled run checks them, so one never
+      # turns an unrelated pull request red (deny.toml's [advisories])
+      - name: advisories (weekly run only)
+        if: github.event_name == 'schedule'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories
 
   # One check to require in the ruleset: fails when any job failed or was cancelled; skipped jobs (docs-only changes) pass.
   ci-ok:

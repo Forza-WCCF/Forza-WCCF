@@ -173,7 +173,7 @@ mod tests {
 
     /// An install with every leftover and a club save.
     fn install() -> tempfile::TempDir {
-        let t = tempfile::tempdir().unwrap();
+        let t = crate::scratch();
         let data = t.path().join("data");
         let store = data.join("save").join("gamesvr");
         fs::create_dir_all(store.join("backups")).unwrap();
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn nothing_to_clean_makes_no_backup() {
-        let t = tempfile::tempdir().unwrap();
+        let t = crate::scratch();
         let killed = RefCell::new(Vec::new());
         let r = run(&t.path().join("data"), false, &[], &[], &killed);
         assert_eq!(r, Report::default());
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_stray_alone_is_stopped_without_a_backup() {
-        let t = tempfile::tempdir().unwrap();
+        let t = crate::scratch();
         let killed = RefCell::new(Vec::new());
         let r = run(t.path(), false, &[proc(7, "control_Release.exe")], &[], &killed);
         assert_eq!(*killed.borrow(), [7]);

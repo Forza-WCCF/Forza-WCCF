@@ -1965,6 +1965,13 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// A scratch folder under `%TEMP%` named `wccf-…`, as `launcher::scratch` in the lib: one Defender exclusion of
+/// `%TEMP%\wccf-*` covers it.
+#[cfg(test)]
+fn scratch() -> tempfile::TempDir {
+    tempfile::Builder::new().prefix("wccf-").tempdir().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1972,7 +1979,7 @@ mod tests {
     /// The title bar and the UPDATE tab show `version(kit)`; the panel's bar shows `Kit::release` (`panel` `Files::status`).
     #[test]
     fn the_version_is_the_panels() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = scratch();
         std::fs::write(dir.path().join("version.txt"), "kit-0.6.0\n").unwrap();
         let kit = Kit::at(dir.path());
         assert_eq!(version(&kit), "0.6.0");
