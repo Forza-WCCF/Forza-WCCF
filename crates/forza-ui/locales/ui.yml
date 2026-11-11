@@ -637,7 +637,7 @@ lobby.room_lost: {en: "The lobby no longer shows this room, so nobody new can jo
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.arcade_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
 lobby.lan: {en: "LAN", it: "Rete locale (LAN)", ja: "LAN（同じネットワーク）"}
-lobby.lan_found: {en: "%{n} arcades found", it: "%{n} sale trovate", ja: "%{n} 件のゲームセンター"}
+lobby.lan_found: {en: "Arcades found: %{n}", it: "Sale trovate: %{n}", ja: "見つかったゲームセンター：%{n} 件"}
 lobby.host_lan: {en: "HOST LAN ARCADE", it: "APRI SALA LAN", ja: "LAN でゲームセンターを開く"}
 lobby.lan_type: {en: "Host address", it: "Indirizzo host", ja: "ホストのアドレス"}
 lobby.lan_none: {en: "No arcade found on this network. Not listed? Type the host's address, or allow Forza-WCCF in Windows Firewall on the host PC.", it: "Nessuna sala trovata in questa rete. Non c'è? Scrivi l'indirizzo dell'host, o consenti Forza-WCCF in Windows Firewall sul PC dell'host.", ja: "このネットワークにゲームセンターが見つかりません。表示されないときは、ホストのアドレスを入力するか、ホストの PC の Windows ファイアウォールで Forza-WCCF を許可してください。"}
