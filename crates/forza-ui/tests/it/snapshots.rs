@@ -1234,6 +1234,43 @@ fn catalogue_imported() {
     all.unwrap();
 }
 
+/// Create-a-Team's CATALOGUE (plan step 1.3): only the collection's cards. (c) twelve starter cards, each with the
+/// STARTER mark; (e) imported copies show the IMPORT mark, earned copies none.
+#[test]
+fn catalogue_owned_marks() {
+    use forza::collection::Copies;
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let copies = |starter, imported, earned| Copies {
+        starter,
+        imported,
+        earned,
+        ..Copies::default()
+    };
+    let owned = [
+        (
+            "panel_catalogue_starters_1718_en",
+            (1..=12).map(|n| (n, copies(1, 0, 0))).collect(),
+        ),
+        (
+            "panel_catalogue_marks_1718_en",
+            (1..=3)
+                .map(|n| (n, copies(0, 1, 0)))
+                .chain((4..=6).map(|n| (n, copies(0, 0, 1))))
+                .collect(),
+        ),
+    ];
+    for (name, owned) in owned {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.catalogue.filter = panel::Filter::default();
+        st.set_owned(Some(owned));
+        snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+}
+
 /// CATALOGUE as a player uses it: the page opens with the search line taking the keys, typed words narrow the list,
 /// Enter asks for the first card listed, and the table takes it with a message; Esc closes the page.
 #[test]

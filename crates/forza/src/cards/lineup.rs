@@ -50,6 +50,8 @@ pub enum Skip {
     Duplicate,
     /// A number this edition's catalogue does not have.
     NotInCatalogue,
+    /// Create-a-Team: a card the collection does not hold, or holds only on the market (the panel's check).
+    NotOwned,
     /// More than 11 on the pitch and 5 on the bench.
     NoRoom,
 }

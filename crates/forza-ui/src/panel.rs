@@ -19,7 +19,9 @@ use forza::cards::formations;
 use forza::cards::lineup::{self, LineupError, Skip, Skipped};
 use forza::cards::{self, AddRefused, Placed};
 use forza::club_view::{self as forza_club, ClubView};
+use forza::collection::Copies;
 use forza::panel_txt::{PanelFile, valid_address};
+use std::collections::BTreeMap;
 use std::sync::{Arc, mpsc};
 
 /// The game's own picture size (both editions) and the smallest sheet: a smaller window scales this sheet down.
@@ -331,6 +333,12 @@ pub fn fold(s: &str) -> String {
 
 impl Index {
     pub fn new(cards: &[Card]) -> Index {
+        Index::of(cards, |_| true)
+    }
+
+    /// The index of the cards `keep` lets through (Create-a-Team: the owned ones): the order and the counts hold only
+    /// them, the positions still index all of `cards`.
+    pub fn of(cards: &[Card], keep: impl Fn(&Card) -> bool) -> Index {
         // "regular", "normale", "レギュラー": the rarity as the chips name it, in any language
         let rarities =
             Rarity::ALL.map(|r| (r, Lang::ALL.map(|l| tr!(l, rarity_key(r))).join("\n")));
@@ -364,11 +372,11 @@ impl Index {
             })
             .collect();
         // the C panel's catalogue order: by the shown name, then the number
-        let mut order: Vec<usize> = (0..cards.len()).collect();
+        let mut order: Vec<usize> = (0..cards.len()).filter(|&i| keep(&cards[i])).collect();
         order.sort_by_cached_key(|&i| (fold(cards[i].short_name()), cards[i].number));
         let picks = |of: fn(&Card) -> &str| {
             let mut v: Vec<(String, usize)> = Vec::new();
-            for c in cards {
+            for c in cards.iter().filter(|c| keep(c)) {
                 let name = of(c);
                 if name.is_empty() {
                     continue;
@@ -483,8 +491,10 @@ impl Catalogue {
     }
 
     /// The index made once and the search run again when the filter changed; `true` = the results changed.
-    fn refresh(&mut self, cards: &[Card]) -> bool {
-        let index = self.index.get_or_insert_with(|| Index::new(cards));
+    fn refresh(&mut self, cards: &[Card], owned: Option<&BTreeMap<u32, Copies>>) -> bool {
+        let index = self
+            .index
+            .get_or_insert_with(|| Index::of(cards, |c| owns(owned, c.number)));
         if self.searched.as_ref() == Some(&self.filter) {
             return false;
         }
@@ -616,6 +626,9 @@ pub struct PanelState {
     pub links: board::Links,
     /// The player's catalogue (the CATALOGUE page's cards).
     pub cards: Arc<[Card]>,
+    /// Create-a-Team: the collection's copies by card number ([`PanelState::set_owned`]); the catalogue lists, and the
+    /// table takes, only owned cards. `None`: Free, every card.
+    pub owned: Option<Arc<BTreeMap<u32, Copies>>>,
     /// Seconds before a resting mouse shows the card big; None: never (CARD HOVER DELAY off).
     pub hover_delay: Option<f32>,
     /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: lit when the order is on.
@@ -798,6 +811,7 @@ impl PanelState {
             board,
             links: board::Links::default(),
             cards,
+            owned: None,
             hover_delay: Some(0.5),
             tactics: [false; 5],
             online: false,
@@ -886,6 +900,39 @@ impl PanelState {
         self.message = Some(Note::new(tone, text));
     }
 
+    /// Create-a-Team's collection (`None`: Free): the catalogue's list and counts are made again from it.
+    pub fn set_owned(&mut self, owned: Option<BTreeMap<u32, Copies>>) {
+        self.owned = owned.map(Arc::new);
+        self.catalogue.index = None;
+        self.catalogue.searched = None;
+    }
+
+    /// Card `no` may go on the table: Free, or the collection holds a copy that is not on the market.
+    pub fn owns(&self, no: u32) -> bool {
+        owns(self.owned.as_deref(), no)
+    }
+}
+
+fn owns(owned: Option<&BTreeMap<u32, Copies>>, no: u32) -> bool {
+    owned.is_none_or(|o| o.get(&no).is_some_and(Copies::owned))
+}
+
+/// A catalogue card's mark key: STARTER or IMPORT when every copy held is a starter or an imported one (none sells),
+/// none for a card with an earned copy, and none in Free.
+pub fn card_mark(owned: Option<&BTreeMap<u32, Copies>>, no: u32) -> Option<&'static str> {
+    let c = owned?.get(&no)?;
+    if c.earned > 0 {
+        None
+    } else if c.starter > 0 {
+        Some("cat.mark_starter")
+    } else if c.imported > 0 {
+        Some("cat.mark_import")
+    } else {
+        None
+    }
+}
+
+impl PanelState {
     /// A hash of everything a pass can draw or act on: the in-game panel runs egui again only when it changed (or on
     /// input, a repaint egui asked for, a new size: [`crate::idle`]). Every field is listed (no `..`), so a new one
     /// cannot be left out; the catalogue's cards and the affinity table go in by identity (they are replaced, never
@@ -907,6 +954,7 @@ impl PanelState {
             board,
             links,
             cards,
+            owned,
             hover_delay,
             tactics,
             online,
@@ -1001,7 +1049,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 95] = [
+        let parts: [&dyn std::fmt::Debug; 96] = [
             edition,
             lang,
             page,
@@ -1010,6 +1058,7 @@ impl PanelState {
             &links.affinity.as_ref().map(Arc::as_ptr),
             &Arc::as_ptr(cards).cast::<()>(),
             &cards.len(),
+            &owned.as_ref().map(Arc::as_ptr),
             hover_delay,
             tactics,
             online,
@@ -1198,6 +1247,10 @@ pub fn add_card(st: &mut PanelState, placed: &mut Vec<Placed>, no: u32) -> bool 
         return false;
     };
     let name = card.short_name().to_owned();
+    if !st.owns(no) {
+        st.note(Tone::Refused, tr!(lang, "cat.msg_not_owned", name = name));
+        return false;
+    }
     // a team holds one card per player: refused while another card of this one is on the table
     let other = placed.iter().filter(|p| p.no != no).find_map(|p| {
         st.cards
@@ -1416,6 +1469,20 @@ fn checked_lineup(st: &mut PanelState, text: &str, in_match: bool) -> Option<lin
             return None;
         }
     };
+    let mut l = l;
+    // Create-a-Team: a card the collection does not hold (or holds only on the market) is skipped and named
+    for list in [&mut l.pitch, &mut l.bench] {
+        list.retain(|e| {
+            let keep = st.owns(e.no) || !st.cards.iter().any(|c| c.number == e.no);
+            if !keep {
+                l.skipped.push(Skipped {
+                    label: e.label.clone(),
+                    why: Skip::NotOwned,
+                });
+            }
+            keep
+        });
+    }
     match lineup::table(&l, &st.cards) {
         Ok(imp) => Some(imp),
         Err(_) => {
@@ -1513,6 +1580,28 @@ pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::System
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
 }
 
+/// The saved table and RESET LINEUP's kept one without the cards the collection does not own (Create-a-Team, at the
+/// panel's start); the board shows what stays and the message says how many left. The cards taken off: the caller
+/// writes the table when there are any.
+pub fn owned_table(st: &mut PanelState, placed: &mut Vec<Placed>) -> Vec<u32> {
+    let owned = st.owned.clone();
+    let gone: Vec<u32> = placed
+        .iter()
+        .filter(|p| !owns(owned.as_deref(), p.no))
+        .map(|p| p.no)
+        .collect();
+    placed.retain(|p| owns(owned.as_deref(), p.no));
+    if let Some(kept) = &mut st.before_match {
+        kept.retain(|p| owns(owned.as_deref(), p.no));
+    }
+    if !gone.is_empty() {
+        st.board = cards::board(placed, &st.cards);
+        let text = tr!(st.lang, "cat.msg_table_not_owned", n = gone.len());
+        st.note(Tone::Notice, text);
+    }
+    gone
+}
+
 /// RESET LINEUP's hover text: where it goes back to, or why it is greyed out.
 fn reset_hint(st: &PanelState, lang: Lang) -> String {
     let at = st.before_match_at.clone().unwrap_or_default();
@@ -1604,6 +1693,7 @@ fn skip_list(skipped: &[Skipped], lang: Lang) -> String {
                 Skip::BadLine => "cat.skip_bad_line",
                 Skip::Duplicate => "cat.skip_duplicate",
                 Skip::NotInCatalogue => "cat.skip_not_in_catalogue",
+                Skip::NotOwned => "cat.skip_not_owned",
                 Skip::NoRoom => "cat.skip_no_room",
             };
             format!("{} ({})", s.label, tr!(lang, why))
@@ -3945,8 +4035,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         return card_view(ui, st, lang);
     }
     let cards = st.cards.clone();
+    let owned = st.owned.clone();
     let c = &mut st.catalogue;
-    let fresh = c.refresh(&cards);
+    let fresh = c.refresh(&cards, owned.as_deref());
     let mut add = None;
     let mut open = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
     ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
@@ -4160,6 +4251,9 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                                     g.card,
                                     *focus == Some(i),
                                     on_table.contains(&card.number),
+                                    card_mark(owned.as_deref(), card.number)
+                                        .map(|k| tr!(lang, k))
+                                        .as_deref(),
                                 );
                                 if resp.hovered() {
                                     *focus = Some(i);
@@ -6850,6 +6944,128 @@ mod tests {
         assert!(!add_card(&mut st, &mut placed, 32));
         assert_eq!(st.message.as_ref().unwrap().tone, Tone::Refused);
         assert!(!add_card(&mut st, &mut placed, 999)); // not in the catalogue: nothing happens
+    }
+
+    /// Create-a-Team's collection: `n` owned as one starter copy each.
+    fn starters(nos: impl IntoIterator<Item = u32>) -> Option<BTreeMap<u32, Copies>> {
+        Some(
+            nos.into_iter()
+                .map(|n| {
+                    let c = Copies {
+                        starter: 1,
+                        ..Copies::default()
+                    };
+                    (n, c)
+                })
+                .collect(),
+        )
+    }
+
+    /// Plan 1.3 (a): an unowned card, or one whose only copy is on the market, is refused with its own message.
+    #[test]
+    fn add_card_refuses_a_card_the_collection_does_not_own() {
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        let mut owned = starters([10]).unwrap();
+        owned.insert(
+            101,
+            Copies {
+                earned: 1,
+                listed: 1,
+                ..Copies::default()
+            },
+        );
+        st.set_owned(Some(owned));
+        let mut placed = Vec::new();
+        for no in [210, 101] {
+            assert!(!add_card(&mut st, &mut placed, no));
+            let m = st.message.as_ref().unwrap();
+            assert_eq!(m.tone, Tone::Refused);
+            assert!(
+                m.text
+                    .ends_with("is not in your collection, or every copy is on the market."),
+                "{}",
+                m.text
+            );
+        }
+        assert!(placed.is_empty());
+        assert!(add_card(&mut st, &mut placed, 10));
+        // the catalogue lists the owned card only, and its counts follow
+        st.catalogue
+            .refresh(&st.cards.clone(), st.owned.clone().as_deref());
+        assert_eq!(st.catalogue.results.len(), 1);
+        assert_eq!(
+            st.catalogue.index.as_ref().unwrap().countries,
+            [("Brasilia".to_owned(), 1)]
+        );
+        // Free: every card
+        st.set_owned(None);
+        assert!(add_card(&mut st, &mut placed, 210));
+    }
+
+    /// Plan 1.3 (b): a saved table with 3 unowned cards loads without them, and RESET LINEUP's table too.
+    #[test]
+    fn a_table_loads_without_the_cards_the_collection_does_not_own() {
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            crate::sample::cards().into(),
+        );
+        let mut placed: Vec<Placed> = (1..=11)
+            .map(|no| Placed {
+                slot: no as i32,
+                no,
+                x: 0.5,
+                y: 0.5,
+            })
+            .collect();
+        st.before_match = Some(placed.clone());
+        st.set_owned(starters((1..=11).filter(|n| ![2, 5, 9].contains(n))));
+        assert_eq!(owned_table(&mut st, &mut placed), [2, 5, 9]);
+        assert_eq!(placed.len(), 8);
+        assert!(placed.iter().all(|p| ![2, 5, 9].contains(&p.no)));
+        assert_eq!(st.before_match.as_ref().unwrap().len(), 8);
+        assert_eq!(st.board.cards.len(), 8);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Cards taken off the table, not in your collection: 3"
+        );
+        // all owned: nothing changes, nothing said
+        st.message = None;
+        assert!(owned_table(&mut st, &mut placed).is_empty());
+        assert!(st.message.is_none());
+    }
+
+    /// Plan 1.3 (d): IMPORT LINEUP of 16 lines with 2 unowned cards places 14 and names the 2.
+    #[test]
+    fn import_skips_and_names_the_cards_the_collection_does_not_own() {
+        let mut st = PanelState::new(
+            Edition::E1011,
+            Lang::En,
+            cards::board(&[], &[]),
+            crate::sample::cards().into(),
+        );
+        st.set_owned(starters((1..=16).filter(|n| ![4, 13].contains(n))));
+        let mut text = String::from("game 1011\n");
+        for no in 1..=11 {
+            text += &format!("P {no} {} {}\n", 10 + no * 7, 20 + no * 5);
+        }
+        for no in 12..=16 {
+            text += &format!("S {no}\n");
+        }
+        let new = import_lineup(&mut st, &[], &text, false, 0.0).unwrap();
+        assert_eq!(new.len(), 14, "{new:?}");
+        assert!(new.iter().all(|p| ![4, 13].contains(&p.no)));
+        let m = &st.message.as_ref().unwrap().text;
+        assert!(
+            m.ends_with("Skipped: 4 (not in your collection), 13 (not in your collection)"),
+            "{m}"
+        );
     }
 
     fn importer() -> (PanelState, Vec<Placed>) {

@@ -360,6 +360,10 @@ cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavol
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
 cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
 cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
+cat.msg_not_owned: {en: "%{name} is not in your collection, or every copy is on the market.", it: "%{name} non è nella tua collezione, oppure tutte le sue copie sono sul mercato.", ja: "%{name} はコレクションにないか、すべて出品中です。"}
+cat.msg_table_not_owned: {en: "Cards taken off the table, not in your collection: %{n}", it: "Carte tolte dal tavolo, non nella tua collezione: %{n}", ja: "コレクションにないためテーブルから外したカード：%{n}枚"}
+cat.mark_starter: {en: "STARTER", it: "INIZIALE", ja: "初期"}
+cat.mark_import: {en: "IMPORT", it: "IMPORTATA", ja: "引継ぎ"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
 cat.import_help: {en: "Build a lineup on the Lineup page of db.wccf.it, then press Copy link there (or Export, then Copy). Come back and press IMPORT FROM CLIPBOARD to put its cards on the table.", it: "Crea una formazione nella pagina Rosa di db.wccf.it, poi premi Copia link (o Esporta, poi Copia). Torna qui e premi IMPORTA DAGLI APPUNTI per mettere le carte sul tavolo.", ja: "db.wccf.it の「編成」ページで編成を作り、「リンクをコピー」（または「書き出し」→「コピー」）を押してください。ここに戻って「クリップボードから読み込む」を押すと、カードがテーブルに置かれます。"}
 cat.import_paste: {en: "IMPORT FROM CLIPBOARD", it: "IMPORTA DAGLI APPUNTI", ja: "クリップボードから読み込む"}
@@ -408,6 +412,7 @@ cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読め�
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
 cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
 cat.skip_no_room: {en: "no room on the table", it: "nessuno spazio sul tavolo", ja: "テーブルに空きなし"}
+cat.skip_not_owned: {en: "not in your collection", it: "non nella tua collezione", ja: "コレクションにない"}
 board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
 board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
 board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}
