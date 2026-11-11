@@ -1090,6 +1090,52 @@ impl Log {
     }
 }
 
+/// The welcome mark's file, in `data\` beside `market.key` (`PLAN.md` 3.1): outside the profile, so a reset keeps it
+/// and the welcome pays once per installation.
+pub const WELCOME_MARK: &str = "market.welcome";
+
+/// The first start (`PLAN.md` 2.4): one `starter` line per card (the 11 dealt and the RARE picked) and, when `mark`
+/// is not there yet, the [`WELCOME`] line, under one lock; then the mark. A log that already holds a starter copy gets
+/// nothing (an empty result). `why` names the choice ("starter All seasons").
+pub fn first_start(
+    log: &Log,
+    mark: &std::path::Path,
+    at: OffsetDateTime,
+    cards: &[u32],
+    why: &str,
+) -> io::Result<Vec<Entry>> {
+    let welcome = !mark.exists();
+    let out = log.append_lines_at(at, |state| {
+        if state.cards.values().any(|c| c.starter > 0) {
+            return Ok(vec![]);
+        }
+        let mut lines: Vec<Line> = cards
+            .iter()
+            .map(|&no| Line {
+                kind: Kind::Starter,
+                card: Some(no),
+                tokens: 0,
+                why: why.to_owned(),
+            })
+            .collect();
+        if welcome {
+            lines.push(Line {
+                kind: Kind::Welcome,
+                card: None,
+                tokens: WELCOME,
+                why: "welcome".to_owned(),
+            });
+        }
+        Ok(lines)
+    })?;
+    if out.iter().any(|e| e.kind == Kind::Welcome) {
+        // shortcut: a crash between the log's write and this one leaves no mark, so a later reset pays the welcome
+        // again; the market refuses a second welcome per key (3.1b). Upgrade if local tokens ever matter alone.
+        std::fs::write(mark, format!("{}\n", at.unix_timestamp()))?;
+    }
+    Ok(out)
+}
+
 /// Why a copy cannot convert; the caller words it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoConvert {
@@ -2392,5 +2438,60 @@ mod tests {
         let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.match_week, 100);
+    }
+
+    /// 1.4 (a), (b): the first start writes 12 `starter` lines of the choice and 1 `welcome` under the release rules,
+    /// then the mark; a second start writes nothing; a new log (a reset) gets its starters again but no welcome.
+    #[test]
+    fn the_first_start_writes_once_and_the_welcome_once_per_installation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mark = dir.path().join(WELCOME_MARK);
+        let log = Log::new(dir.path().join("a"));
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        let at = when("2026-11-11T12:00:00+01:00");
+        let cards: Vec<u32> = (101..=112).collect();
+        let out = first_start(&log, &mark, at, &cards, "starter All seasons").unwrap();
+        assert_eq!(out.len(), 13);
+        let text = log.lines().unwrap();
+        let entries: Vec<Entry> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let starters: Vec<&Entry> = entries.iter().filter(|e| e.kind == Kind::Starter).collect();
+        assert_eq!(starters.len(), 12);
+        assert!(
+            starters
+                .iter()
+                .all(|e| e.why == "starter All seasons" && e.tokens == 0)
+        );
+        assert_eq!(
+            starters.iter().map(|e| e.card.unwrap()).collect::<Vec<_>>(),
+            cards
+        );
+        let welcome: Vec<&Entry> = entries.iter().filter(|e| e.kind == Kind::Welcome).collect();
+        assert_eq!((welcome.len(), welcome[0].tokens), (1, WELCOME));
+        assert!(entries.iter().all(|e| e.rules == RULES));
+        assert!(mark.is_file());
+        let folded = fold_at(&text, this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(112).starter),
+            (150, 1)
+        );
+
+        // (b) a second start: nothing written
+        assert!(
+            first_start(&log, &mark, at, &cards, "starter 2013")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(log.lines().unwrap(), text);
+
+        // a reset's new log: the starters again, the welcome not
+        let fresh = Log::new(dir.path().join("b"));
+        std::fs::create_dir_all(dir.path().join("b")).unwrap();
+        let out = first_start(&fresh, &mark, at, &cards, "starter 2013").unwrap();
+        assert_eq!(out.len(), 12);
+        assert!(out.iter().all(|e| e.kind == Kind::Starter));
     }
 }
