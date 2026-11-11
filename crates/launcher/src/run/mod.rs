@@ -1338,13 +1338,18 @@ impl Run<'_> {
     fn kit_env(&self) -> Vec<(String, String)> {
         let s = |p: PathBuf| p.display().to_string();
         let cache = self.kit.cache();
-        vec![
+        let mut env = vec![
             ("WCCF_GAME".into(), s(self.game.clone())),
             ("WCCF_LOGS".into(), s(self.logs())),
             ("MXHOOK_LOG_DIR".into(), s(self.logs().join("hook"))),
             ("WCCF_CATALOGUE".into(), s(cache.join("catalogue.tsv"))),
             ("WCCF_CARDS".into(), s(cache.join("cards"))),
-        ]
+        ];
+        // Create-a-Team: the panel saves the match card there; free play has no variable (the deal is only shown)
+        if let Some(dir) = self.kit.profile().collection(&self.kit.data()) {
+            env.push(("WCCF_COLLECTION".into(), s(dir)));
+        }
+        env
     }
 
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
