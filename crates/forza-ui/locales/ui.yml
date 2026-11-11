@@ -362,6 +362,8 @@ cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to m
 cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
 cat.msg_not_owned: {en: "%{name} is not in your collection, or every copy is on the market.", it: "%{name} non è nella tua collezione, oppure tutte le sue copie sono sul mercato.", ja: "%{name} はコレクションにないか、すべて出品中です。"}
 cat.msg_table_not_owned: {en: "Cards taken off the table, not in your collection: %{n}", it: "Carte tolte dal tavolo, non nella tua collezione: %{n}", ja: "コレクションにないためテーブルから外したカード：%{n}枚"}
+cat.msg_collection_unread: {en: "The collection could not be read: no card is listed and the table shows nothing. Your saved table is unchanged. Restart the game to try again.", it: "Impossibile leggere la collezione: nessuna carta è elencata e il tavolo è vuoto. Il tavolo salvato non è stato modificato. Riavvia il gioco per riprovare.", ja: "コレクションを読み込めませんでした。カードを表示できず、テーブルも空です。保存されたテーブルは変更していません。ゲームを再起動して、もう一度お試しください。"}
+cat.msg_collection_other: {en: "This game is not CREATE-A-TEAM, so no card is listed. Choose CREATE-A-TEAM in the Launcher and start the game again.", it: "Questa partita non è CREA LA TUA SQUADRA: nessuna carta è elencata. Scegli CREA LA TUA SQUADRA nel Launcher e avvia di nuovo il gioco.", ja: "このゲームはクリエイト・ア・チームではないため、カードは表示されません。Launcher でクリエイト・ア・チームを選び、ゲームを起動し直してください。"}
 cat.mark_starter: {en: "STARTER", it: "INIZIALE", ja: "初期"}
 cat.mark_import: {en: "IMPORT", it: "IMPORTATA", ja: "引継ぎ"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
@@ -413,6 +415,7 @@ cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同�
 cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
 cat.skip_no_room: {en: "no room on the table", it: "nessuno spazio sul tavolo", ja: "テーブルに空きなし"}
 cat.skip_not_owned: {en: "not in your collection", it: "non nella tua collezione", ja: "コレクションにない"}
+cat.skip_all_listed: {en: "all copies are on the market", it: "tutte le copie sono sul mercato", ja: "すべて出品中"}
 board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
 board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
 board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}

@@ -918,10 +918,10 @@ fn owns(owned: Option<&BTreeMap<u32, Copies>>, no: u32) -> bool {
 }
 
 /// A catalogue card's mark key: STARTER or IMPORT when every copy held is a starter or an imported one (none sells),
-/// none for a card with an earned copy, and none in Free.
+/// none for a card with an earned copy that is not on the market (that one can be sold), and none in Free.
 pub fn card_mark(owned: Option<&BTreeMap<u32, Copies>>, no: u32) -> Option<&'static str> {
     let c = owned?.get(&no)?;
-    if c.earned > 0 {
+    if c.earned > c.listed {
         None
     } else if c.starter > 0 {
         Some("cat.mark_starter")
@@ -1475,9 +1475,11 @@ fn checked_lineup(st: &mut PanelState, text: &str, in_match: bool) -> Option<lin
         list.retain(|e| {
             let keep = st.owns(e.no) || !st.cards.iter().any(|c| c.number == e.no);
             if !keep {
+                // held, every copy on the market: the card is in the collection, so say that instead
+                let listed = st.owned.as_deref().is_some_and(|o| o.contains_key(&e.no));
                 l.skipped.push(Skipped {
                     label: e.label.clone(),
-                    why: Skip::NotOwned,
+                    why: if listed { Skip::Listed } else { Skip::NotOwned },
                 });
             }
             keep
@@ -1694,6 +1696,7 @@ fn skip_list(skipped: &[Skipped], lang: Lang) -> String {
                 Skip::Duplicate => "cat.skip_duplicate",
                 Skip::NotInCatalogue => "cat.skip_not_in_catalogue",
                 Skip::NotOwned => "cat.skip_not_owned",
+                Skip::Listed => "cat.skip_all_listed",
                 Skip::NoRoom => "cat.skip_no_room",
             };
             format!("{} ({})", s.label, tr!(lang, why))
@@ -7007,6 +7010,28 @@ mod tests {
         assert!(add_card(&mut st, &mut placed, 210));
     }
 
+    /// Plan 1.3: the mark answers "which copies can I sell?" - an earned copy on the market cannot be sold, so the mark
+    /// says the copy left is a starter.
+    #[test]
+    fn a_mark_hides_only_a_copy_that_can_be_sold() {
+        let copies = |earned, starter, listed| Copies {
+            earned,
+            starter,
+            listed,
+            ..Copies::default()
+        };
+        let owned = BTreeMap::from([
+            (1, copies(1, 1, 0)), // an earned copy to sell
+            (2, copies(1, 1, 1)), // the earned copy is on the market: only the starter is left
+            (3, copies(0, 0, 1)), // held, every copy on the market
+        ]);
+        assert_eq!(card_mark(Some(&owned), 1), None);
+        assert_eq!(card_mark(Some(&owned), 2), Some("cat.mark_starter"));
+        assert_eq!(card_mark(Some(&owned), 3), None);
+        assert_eq!(card_mark(Some(&owned), 4), None, "not held");
+        assert_eq!(card_mark(None, 1), None, "Free");
+    }
+
     /// Plan 1.3 (b): a saved table with 3 unowned cards loads without them, and RESET LINEUP's table too.
     #[test]
     fn a_table_loads_without_the_cards_the_collection_does_not_own() {
@@ -7064,6 +7089,30 @@ mod tests {
         let m = &st.message.as_ref().unwrap().text;
         assert!(
             m.ends_with("Skipped: 4 (not in your collection), 13 (not in your collection)"),
+            "{m}"
+        );
+    }
+
+    /// Plan 1.3 (N3): a card the collection holds with every copy on the market is skipped with its own words.
+    #[test]
+    fn import_names_a_card_with_every_copy_on_the_market() {
+        let (mut st, old) = importer();
+        let mut owned = starters([10, 101]).unwrap();
+        owned.insert(
+            210,
+            Copies {
+                earned: 1,
+                listed: 1,
+                ..Copies::default()
+            },
+        );
+        st.set_owned(Some(owned));
+        let text = "game 1011\nP 10 50 90\nP 101 60 80\nP 210 40 60\n";
+        let new = import_lineup(&mut st, &old, text, false, 0.0).unwrap();
+        assert_eq!(new.iter().map(|p| p.no).collect::<Vec<_>>(), [10, 101]);
+        let m = &st.message.as_ref().unwrap().text;
+        assert!(
+            m.ends_with("Skipped: 210 (all copies are on the market)"),
             "{m}"
         );
     }
