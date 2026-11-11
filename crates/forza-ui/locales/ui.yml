@@ -15,7 +15,7 @@ launcher.rejoin: {en: "Rejoin %{name}, seat %{seat}", it: "Rientra in %{name}, p
 launcher.play: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
 launcher.stop: {en: "STOP THE GAME", it: "FERMA IL GIOCO", ja: "ゲームを終了"}
 launcher.stop_again: {en: "CLICK AGAIN (%{s} s)", it: "CLICCA ANCORA (%{s} s)", ja: "もう一度押す（%{s} 秒）"}
-launcher.msg_stop_armed: {en: "The game asks to confirm. Click OK in the game window.", it: "Il gioco chiede conferma. Premi OK nella finestra del gioco.", ja: "ゲーム内で確認が出ます。「OK」を押してください。"}
+launcher.msg_stop_armed: {en: "Click again to stop. During a match the game asks to confirm: choose QUIT NOW in the game window.", it: "Clicca ancora per fermare. Durante una partita il gioco chiede conferma: scegli ESCI ORA nella finestra del gioco.", ja: "もう一度押すと終了します。試合中はゲーム側で確認が出ます。ゲームのウィンドウで「今すぐ終了」を選んでください。"}
 launcher.status_ready: {en: "Ready.", it: "Pronto.", ja: "準備完了。"}
 launcher.status_not_set_up: {en: "Pick the game folder, then SET UP.", it: "Scegli la cartella del gioco, poi CONFIGURA.", ja: "ゲームフォルダーを選び、「設定する」を押してください。"}
 launcher.setup: {en: "SETUP", it: "CONFIGURAZIONE", ja: "セットアップ"}
