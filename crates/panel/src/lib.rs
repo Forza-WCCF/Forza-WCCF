@@ -662,6 +662,42 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     unsafe { DefWindowProcW(h, m, wp, lp) }
 }
 
+/// Create-a-Team (plan step 1.3): the catalogue and the table hold only the collection's cards; a table card the
+/// collection does not own is taken off and the table written. An unreadable log leaves the table as it is (nothing is
+/// written over it) and the catalogue empty.
+fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>, dir: &Path) {
+    let text = match forza::collection::Log::new(dir).lines() {
+        Ok(text) => text,
+        Err(e) => {
+            log(&format!(
+                "collection: {} could not be read: {e} - no card listed, the table kept",
+                dir.display()
+            ));
+            st.set_owned(Some(Default::default()));
+            return;
+        }
+    };
+    let folded = forza::collection::fold(&text);
+    for w in &folded.warnings {
+        log(&format!("collection: {w}"));
+    }
+    log(&format!(
+        "collection: {} card(s) owned",
+        folded.state.cards.values().filter(|c| c.owned()).count()
+    ));
+    st.set_owned(Some(folded.state.cards));
+    let gone = panel::owned_table(st, placed);
+    if !gone.is_empty() {
+        log(&format!(
+            "board: {} card(s) not in the collection taken off the table: {gone:?}",
+            gone.len()
+        ));
+        if let Err(e) = table.write(placed) {
+            log(&format!("board: the table could not be written: {e}"));
+        }
+    }
+}
+
 fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
     let exe = std::env::current_exe().ok()?;
     let game = exe.parent()?;
@@ -1580,7 +1616,7 @@ impl Render {
             c.options_mut(|o| o.reduce_texture_memory = true);
         }
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
-        let placed = table.read().unwrap_or_default();
+        let mut placed = table.read().unwrap_or_default();
         log(&format!(
             "board: table {} - {} card(s)",
             table.table.display(),
@@ -1603,6 +1639,10 @@ impl Render {
                 kept.display(),
                 st.before_match.as_ref().map_or(0, Vec::len)
             ));
+        }
+        let collection = files.checked_collection();
+        if let Ok(Some(dir)) = &collection {
+            owned_only(&mut st, &mut table, &mut placed, dir);
         }
         // both files are read once and then written whole: a failed read is remembered, and nothing is written back
         let panel_ok = match files.panel_text() {
@@ -1672,7 +1712,7 @@ impl Render {
             notice_shown: None,
             deal_at: Instant::now(),
             match_end: grant::MatchEnd::default(),
-            granter: match files.checked_collection() {
+            granter: match collection {
                 Ok(dir) => dir.map(|dir| {
                     log(&format!(
                         "deal: Create-a-Team, match cards saved in {}",
@@ -2785,6 +2825,14 @@ impl Render {
         use forza::card::{self, Session};
         if let Some(g) = &self.granter {
             while let Some((i, grant)) = g.news() {
+                // the saved card joins the catalogue at once
+                if matches!(grant, panel::Grant::Saved { .. })
+                    && let (Some(owned), Some(c)) = (self.st.owned.as_deref(), catalogue().get(i))
+                {
+                    let mut owned = owned.clone();
+                    owned.entry(c.number).or_default().earned += 1;
+                    self.st.set_owned(Some(owned));
+                }
                 if let Some(note) = grant::show(&mut self.st.deal, i, grant) {
                     let no = catalogue().get(i).map_or(0, |c| c.number);
                     log(&format!("deal: card {no} {note}"));
