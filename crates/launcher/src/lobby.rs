@@ -5,7 +5,7 @@
 
 use crate::Edition;
 use forza::online::SEAT_PORT;
-use forza::online::lobby::{self, Created, Lobby, Peers, Reserved, State, VsRoom};
+use forza::online::lobby::{self, Created, Lobby, Mode, Peers, Reserved, State, VsRoom};
 use forza::service::Log;
 use forza_ui::Lang;
 use forza_ui::lobby::{LobbyView, Row, RowState};
@@ -150,6 +150,34 @@ pub fn close(server: &str, id: &str, ticket: &str) -> thread::JoinHandle<()> {
             let _ = lobby::close(a, &id, &ticket);
         }
     })
+}
+
+/// The mode this PC's VS seats play: Create-a-Team when it is settings.json's active profile, else free.
+// shortcut: reads the "profile" key by hand; use forza::profile::Profile::of once the profiles are on main
+pub fn seat_mode(settings: &Path) -> Mode {
+    match crate::choices::setting(settings, "profile").as_deref() {
+        Some("create-a-team") => Mode::Cat,
+        _ => Mode::Free,
+    }
+}
+
+/// `MODE id ticket cat` on its own thread when this PC plays Create-a-Team (a seat is free until it says, so free play
+/// sends nothing). Best effort like [`close`]: a desk before `MODE` answers `ERR`, and the seat goes on as a free one.
+pub fn tell_mode(
+    settings: &Path,
+    server: &str,
+    id: &str,
+    ticket: &str,
+) -> Option<thread::JoinHandle<Result<bool, String>>> {
+    let mode = seat_mode(settings);
+    if mode.is_free() {
+        return None;
+    }
+    let (server, id, ticket) = (server.to_owned(), id.to_owned(), ticket.to_owned());
+    Some(thread::spawn(move || {
+        let a = socket(&server).ok_or_else(|| "not an address".to_owned())?;
+        lobby::mode(a, &id, &ticket, mode)
+    }))
 }
 
 /// `RELEASE ticket` on its own thread (best effort: the lease lapses by itself if this fails). Join the handle
@@ -798,6 +826,52 @@ impl Book {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (c) A desk before `MODE` (a stand-in that answers it as such a desk does, `ERR say WANT ...`): the Launcher's
+    /// MODE comes back as an error and the seat's heartbeat goes on; free play sends no `MODE`.
+    #[test]
+    fn an_old_desks_error_leaves_the_seat_working() {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = l.local_addr().unwrap().to_string();
+        let (heard, said) = mpsc::channel::<String>();
+        thread::spawn(move || {
+            for c in l.incoming() {
+                let c = c.unwrap();
+                let mut line = String::new();
+                BufReader::new(&c).read_line(&mut line).unwrap();
+                let answer = if line.starts_with("HEARTBEAT ") {
+                    "OK\n"
+                } else {
+                    "ERR say WANT or WANT SEAT n\n"
+                };
+                (&c).write_all(answer.as_bytes()).unwrap();
+                if heard.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("settings.json");
+        std::fs::write(&settings, r#"{"profile":"free"}"#).unwrap();
+        assert_eq!(seat_mode(&settings), Mode::Free);
+        assert!(tell_mode(&settings, &server, "r7x1", "t9").is_none());
+        std::fs::write(&settings, r#"{"profile":"create-a-team"}"#).unwrap();
+        assert_eq!(seat_mode(&settings), Mode::Cat);
+        let answer = tell_mode(&settings, &server, "r7x1", "t9").unwrap().join().unwrap();
+        assert!(answer.is_err_and(|e| e.starts_with("ERR")));
+        assert_eq!(said.recv().unwrap(), "MODE r7x1 t9 cat\n");
+        let lost = Arc::new(AtomicBool::new(false));
+        let flag = lost.clone();
+        let b = beat(&server, "t9", Duration::from_millis(30), move || {
+            flag.store(true, Ordering::Relaxed);
+        });
+        for _ in 0..2 {
+            assert_eq!(said.recv_timeout(Duration::from_secs(5)).unwrap(), "HEARTBEAT t9\n");
+        }
+        assert!(!lost.load(Ordering::Relaxed), "the seat is still held");
+        drop(b);
+    }
 
     #[test]
     fn arcade_rooms_meet_on_the_club_servers_desk() {
