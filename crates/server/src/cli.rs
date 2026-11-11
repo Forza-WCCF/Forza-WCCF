@@ -102,8 +102,8 @@ enum Service {
         life: Option<f64>,
         logs_dir: Option<PathBuf>,
     },
-    /// Writes the market's value table (card number, tier, TOTAL) from an installed `catalogue.tsv`, for
-    /// `all --market-table`. The table is card data: it stays on this host and out of git
+    /// Writes the market's value table (card number, tier, TOTAL, series, secret mark) from an installed 2017-18
+    /// `catalogue.tsv`, for `all --market-table`. The table is card data: it stays on this host and out of git
     MarketTable { catalogue: PathBuf, out: PathBuf },
 }
 

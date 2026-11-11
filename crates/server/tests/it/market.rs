@@ -61,10 +61,10 @@ fn request(verb: Verb, key: &SigningKey, at: u64, log: &str) -> Vec<u8> {
         key: *key.verifying_key().as_bytes(),
         at,
         rules: RULES,
-        name: "Loopback FC".into(),
         log: log.into(),
     }
     .signed(key)
+    .unwrap()
 }
 
 /// What the desk sends back to `bytes` until it hangs up or goes quiet for half a second.
@@ -125,7 +125,7 @@ fn a_signed_join_and_leave_over_the_desk() {
     assert_eq!(market::send(d.addr(), &sent).unwrap(), "12 lines");
     assert_eq!(
         market::send(d.addr(), &sent).unwrap_err(),
-        "an old request (sent twice?)"
+        format!("{}, the last at {at}", market::OLD)
     );
     // a log the check refuses: a 13th starter card
     let mut more = log.clone();
@@ -174,4 +174,27 @@ fn old_words_answer_as_before() {
         assert!(!b.is_empty() || line == "HOLD\n", "{line}: no answer");
         assert_eq!(a, b, "{line}");
     }
+}
+
+/// M1: a JOIN made with the PC's clock 10 hours fast, then the clock set right: a plain request is refused as old,
+/// and `market::ask` signs it again past the server's last time.
+#[test]
+fn a_clock_set_back_does_not_lock_the_key_out() {
+    let root = scratch("market_clock");
+    let table = Table::of(
+        &(1..=40)
+            .map(|c| (c, forza::collection::Rarity::Regular, 80))
+            .collect::<Vec<_>>(),
+    );
+    let d = desk(Some(Market::with(table, &root.join("market.db")).unwrap()));
+    let key = SigningKey::from_bytes(&[5; 32]);
+    let ahead = now_ms() + 10 * 3600 * 1000;
+    let join = request(Verb::Join, &key, ahead, &starter_log());
+    assert_eq!(market::send(d.addr(), &join).unwrap(), "12 lines");
+    let why = market::send(d.addr(), &request(Verb::Leave, &key, now_ms(), "")).unwrap_err();
+    assert!(why.starts_with(market::OLD), "{why}");
+    assert_eq!(
+        market::ask(d.addr(), &key, Verb::Leave, "", now_ms()).unwrap(),
+        "left"
+    );
 }

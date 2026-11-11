@@ -3,9 +3,12 @@
 //! (`forza-server`, `crates/server/src/market.rs`) reads them with [`Request::open`], so the format lives here once.
 //!
 //! A request is one line and a body: `MARKET VERB size sig` + `size` bytes. The body's first line is
-//! `VERB key at rules [name]` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`, and on
-//! JOIN the club name, cleaned as arcade names are), then on JOIN the grant log `grants.jsonl` as it is on disk. `sig`
-//! is the ed25519 signature of the whole body in hex. Answers: `OK ...` or `NO reason`, one line.
+//! `VERB key at rules` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`), then on JOIN
+//! the grant log `grants.jsonl` as it is on disk. No name is sent: listings never show the seller (PLAN.md 3.5). `sig`
+//! is the ed25519 signature of the whole body in hex. Answers: `OK ...` or `NO reason`, one line. A request whose `at`
+//! is not after the key's last one answers [`OLD`] with the last time, and [`ask`] signs it again once past it (a PC
+//! clock set back must not lock the key out). LEAVE answers `OK left`, then `returned` and the card numbers of the
+//! open listings it closed (the Launcher writes their `unlist` lines), then `waiting n` when n sales wait for COLLECT.
 //!
 //! The key is made on first use and lives outside the profile folder, so a profile reset keeps it (PLAN.md 3.6).
 
@@ -17,19 +20,22 @@ use std::time::Duration;
 
 /// The key's file in the Launcher's `data` folder, beside `vslink.key`.
 pub const KEY_FILE: &str = "market.key";
-/// The biggest body a desk reads: the grant log of years of play (a line is about 200 bytes) and its header line.
-pub const MAX_BODY: usize = 2 << 20;
-/// The body's first line at most: the words and a 24-character name in 4-byte characters.
+/// The biggest body a desk reads: a grant log of about 40,000 lines (a line is about 200 bytes), some 9 years at 4,500
+/// lines a year; [`Request::signed`] refuses a bigger one with the reason.
+pub const MAX_BODY: usize = 8 << 20;
+/// The body's first line at most: four words, about 90 bytes.
 pub const MAX_HEAD: usize = 256;
 /// What every `MARKET` word answers on a desk without the market's value table.
 pub const NOT_SET_UP: &str = "the market is not set up on this server";
+/// How a refusal of a request not later than the key's last one starts; the server adds `, the last at <ms>`.
+pub const OLD: &str = "an old request (sent twice?)";
 
 /// What a request asks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {
     /// Opt in, or send the grant log again: the server checks it and keeps it.
     Join,
-    /// Leave the market: the server deletes the name, the log and the ledger rows.
+    /// Leave the market: the server deletes the log and returns the open listings.
     Leave,
     /// A profile reset: the server starts a new history for the same key.
     Reset,
@@ -63,8 +69,6 @@ pub struct Request {
     pub at: u64,
     /// The Launcher's economy table ([`crate::collection::RULES`]).
     pub rules: u32,
-    /// JOIN: the club name, cleaned ([`crate::online::lobby::arcade_name`]); else empty.
-    pub name: String,
     /// JOIN: `grants.jsonl` as it is; else empty.
     pub log: String,
 }
@@ -85,23 +89,24 @@ fn unhex<const N: usize>(s: &str) -> Option<[u8; N]> {
 }
 
 impl Request {
-    /// The bytes to send: the request line and the body, signed with `key` (whose public half the body names).
-    #[must_use]
-    pub fn signed(&self, key: &SigningKey) -> Vec<u8> {
-        let name = crate::online::lobby::arcade_name(&self.name);
+    /// The bytes to send: the request line and the body, signed with `key` (whose public half the body names); refused
+    /// with the reason when the body passes [`MAX_BODY`], so the Launcher says so before it sends anything.
+    pub fn signed(&self, key: &SigningKey) -> Result<Vec<u8>, String> {
         let mut body = format!(
-            "{} {} {} {}",
+            "{} {} {} {}\n",
             self.verb.word(),
             hex(key.verifying_key().as_bytes()),
             self.at,
             self.rules
         );
-        if !name.is_empty() {
-            body.push(' ');
-            body.push_str(&name);
-        }
-        body.push('\n');
         body.push_str(&self.log);
+        if body.len() > MAX_BODY {
+            return Err(format!(
+                "the grant log is {} KiB, over the market's limit of {} KiB: this collection cannot join the market",
+                body.len() / 1024,
+                MAX_BODY / 1024
+            ));
+        }
         let sig = key.sign(body.as_bytes());
         let mut out = format!(
             "MARKET {} {} {}\n",
@@ -111,7 +116,7 @@ impl Request {
         )
         .into_bytes();
         out.extend_from_slice(body.as_bytes());
-        out
+        Ok(out)
     }
 
     /// The request line's words after `MARKET`: the verb, the body's size (at most [`MAX_BODY`]) and the signature.
@@ -131,7 +136,7 @@ impl Request {
     }
 
     /// The body of a request whose line said `verb` and `sig`: the signature checked against the key the body names,
-    /// the words parsed and the name cleaned again (the PC is not trusted to have done it).
+    /// the words parsed.
     pub fn open(verb: Verb, sig: &[u8; 64], body: &[u8]) -> Result<Self, String> {
         let end = body
             .iter()
@@ -142,8 +147,8 @@ impl Request {
         let head =
             std::str::from_utf8(head).map_err(|_| "the request's first line is not UTF-8")?;
         let words: Vec<&str> = head.split_whitespace().collect();
-        let [word, key, at, rules, name @ ..] = words.as_slice() else {
-            return Err("the request's first line is short".into());
+        let [word, key, at, rules] = words.as_slice() else {
+            return Err("the request's first line is not VERB key at rules".into());
         };
         if Verb::parse(word) != Some(verb) {
             return Err("the request's line and body name different words".into());
@@ -165,7 +170,6 @@ impl Request {
             key,
             at,
             rules,
-            name: crate::online::lobby::arcade_name(&name.join(" ")),
             log: log.to_owned(),
         })
     }
@@ -217,6 +221,41 @@ pub fn send(desk: SocketAddr, request: &[u8]) -> Result<String, String> {
     }
 }
 
+/// The key's last accepted time in an [`OLD`] refusal.
+#[must_use]
+pub fn last_at(why: &str) -> Option<u64> {
+    why.strip_prefix(OLD)?.rsplit(' ').next()?.parse().ok()
+}
+
+/// Signs `verb` (with `log` on JOIN) at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
+/// [`send`]. Refused as [`OLD`] because the key's last request is not before `at` (the PC's clock went back after it,
+/// or two requests in one millisecond), it signs again once just after that time.
+pub fn ask(
+    desk: SocketAddr,
+    key: &SigningKey,
+    verb: Verb,
+    log: &str,
+    at: u64,
+) -> Result<String, String> {
+    let signed = |at| {
+        Request {
+            verb,
+            key: *key.verifying_key().as_bytes(),
+            at,
+            rules: crate::collection::RULES,
+            log: log.to_owned(),
+        }
+        .signed(key)
+    };
+    match send(desk, &signed(at)?) {
+        Err(why) => match last_at(&why) {
+            Some(last) if last >= at => send(desk, &signed(last + 1)?),
+            _ => Err(why),
+        },
+        answer => answer,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,7 +270,6 @@ mod tests {
             key: *key(7).verifying_key().as_bytes(),
             at: 1_762_000_000_000,
             rules: 1,
-            name: "  Real\u{202E} Club\tTokyo ".into(),
             log: "{\"seq\":1}\n{\"seq\":2}\n".into(),
         }
     }
@@ -255,11 +293,9 @@ mod tests {
     /// Acceptance 3.1 (a): a signed log verifies, and fails with any one byte of the body changed.
     #[test]
     fn a_signed_log_verifies_and_fails_with_one_byte_changed() {
-        let sent = join().signed(&key(7));
+        let sent = join().signed(&key(7)).unwrap();
         let got = open(&sent).unwrap();
-        assert_eq!(got.log, join().log);
-        assert_eq!(got.name, "Real Club Tokyo", "cleaned as arcade names are");
-        assert_eq!(got.key, join().key);
+        assert_eq!(got, join());
         let body_at = sent.iter().position(|&b| b == b'\n').unwrap() + 1;
         for i in body_at..sent.len() {
             let mut bad = sent.clone();
@@ -271,7 +307,7 @@ mod tests {
     #[test]
     fn another_key_or_another_word_is_refused() {
         // signed by key 8, naming key 7's public half
-        let mut sent = join().signed(&key(8));
+        let mut sent = join().signed(&key(8)).unwrap();
         let k8 = hex(key(8).verifying_key().as_bytes());
         let k7 = hex(key(7).verifying_key().as_bytes());
         let s = String::from_utf8(sent.clone())
@@ -280,7 +316,7 @@ mod tests {
         sent = s.into_bytes();
         assert_eq!(open(&sent).unwrap_err(), "the signature does not match");
         // a LEAVE line over a JOIN body
-        let sent = join().signed(&key(7));
+        let sent = join().signed(&key(7)).unwrap();
         let s = String::from_utf8(sent)
             .unwrap()
             .replacen("MARKET JOIN", "MARKET LEAVE", 1);
@@ -305,6 +341,40 @@ mod tests {
         assert!(Request::open(Verb::Join, &s, &[b'x'; 300]).is_err());
         assert!(Request::open(Verb::Join, &s, b"JOIN abc\n").is_err());
         assert!(Request::open(Verb::Join, &s, b"\xff\xfe\n").is_err());
+    }
+
+    /// No name travels: a first line with a fifth word (an older Launcher's club name) is refused.
+    #[test]
+    fn a_join_carries_no_name() {
+        let sent = join().signed(&key(7)).unwrap();
+        let (_, body) = split(&sent);
+        let head = String::from_utf8(body).unwrap();
+        let head = head.lines().next().unwrap().to_owned();
+        assert_eq!(head.split(' ').count(), 4, "{head}");
+        let named = format!("{head} Real Club\n").into_bytes();
+        let sig = key(7).sign(&named).to_bytes();
+        assert!(
+            Request::open(Verb::Join, &sig, &named)
+                .unwrap_err()
+                .contains("not VERB key at rules")
+        );
+    }
+
+    /// M5: a log over the cap is refused before sending, with the size in the reason; one that fits is signed.
+    #[test]
+    fn a_log_over_the_cap_is_refused_with_its_size() {
+        let mut r = join();
+        r.log = "x".repeat(MAX_BODY);
+        let why = r.signed(&key(7)).unwrap_err();
+        assert!(why.contains("over the market's limit of 8192 KiB"), "{why}");
+        r.log.truncate(MAX_BODY - 200);
+        assert!(r.signed(&key(7)).is_ok());
+    }
+
+    #[test]
+    fn an_old_refusal_gives_the_last_time() {
+        assert_eq!(last_at(&format!("{OLD}, the last at 1762")), Some(1762));
+        assert_eq!(last_at("the signature does not match"), None);
     }
 
     #[test]

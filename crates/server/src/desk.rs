@@ -720,7 +720,13 @@ fn session(
             if sh.slow(ip, Instant::now()) {
                 return out.write_all(b"NO slow\n");
             }
-            let said = market.serve(words, std::mem::take(&mut lines.buf), &mut out, unix_ms())?;
+            let said = market.serve(
+                words,
+                std::mem::take(&mut lines.buf),
+                &mut out,
+                unix_ms(),
+                ip,
+            )?;
             log(&format!("{peer}: {said}"));
             return Ok(());
         }

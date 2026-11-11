@@ -11,7 +11,7 @@ One program for every online service of both editions. Std threads and blocking 
 | `gmsvr` | 2017-18 game server, VS matcher (runs until stopped) | TCP `--port`, 20060 |
 | `reflect [LIFE] [LOG_FILE]` | 2017-18 VS reflect alone | UDP `--port`, 20070 |
 | `all [LIFE] [LOGS_DIR]` | desk + relay + (2017-18) gmsvr | `--desk-port`, `--relay-port`, `--gmsvr-port` |
-| `market-table CATALOGUE OUT` | writes the market's value table (below) | - |
+| `market-table CATALOGUE OUT` | writes the market's value table from a 2017-18 catalogue (below) | - |
 
 - `LIFE` is in seconds (default 12 h); exit 0 = ran its time, 1 = a port could not be bound.
 - `gmsvr` and `reflect` need `--edition 2017-18`. The game server binds `WCCF_BIND`, else 127.0.0.1, and serves only
@@ -78,26 +78,32 @@ answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 ## Market (2017-18, Create-a-Team)
 
 `all --edition 2017-18 --market-table FILE` turns on Create-a-Team's market on the desk, with `market.db` beside
-`gamesvr.db` (`src/market.rs`). FILE is the value table (card number, tier, TOTAL, the economy rules version and the
-catalogue's SHA-256): `forza-server market-table CATALOGUE_TSV FILE` writes it from an installed `catalogue.tsv` on
-the host. It is card data: it stays on the host, never in git or a release. Without it, or with one built for other
-rules, every `MARKET` word answers `NO the market is not set up on this server`.
+`gamesvr.db` (`src/market.rs`). FILE is the value table (card number, tier, TOTAL, series, secret mark, the edition,
+the economy rules version and the catalogue's SHA-256): `forza-server market-table CATALOGUE_TSV FILE` writes it from
+an installed 2017-18 `catalogue.tsv` on the host (a 2010-11 catalogue, without card codes, is refused). It is card
+data: it stays on the host, never in git or a release. Without it, or with one built for other rules or another
+edition, every `MARKET` word answers `NO the market is not set up on this server`.
 
 | Ask | Answer |
 |---|---|
-| `MARKET JOIN size sig` + body: `JOIN key at rules name` and the grant log `grants.jsonl` | `OK n lines` (the log passed the check and is kept), `NO why` |
-| `MARKET RESET size sig` + body `RESET key at rules` (a profile reset) | `OK reset`: the stored log, open listings and waiting proceeds go; key, name and counters stay |
-| `MARKET LEAVE size sig` + body `LEAVE key at rules` | `OK left`: name, log and ledger rows deleted; the key's SHA-256 and its counters stay 7 days |
+| `MARKET JOIN size sig` + body: `JOIN key at rules` and the grant log `grants.jsonl` | `OK n lines` (the log passed the check and is kept), `NO why` |
+| `MARKET RESET size sig` + body `RESET key at rules` (a profile reset) | `OK reset`: the stored log, open listings and every sale of the old history go; key, counters, welcome mark and the stock slots sold stay |
+| `MARKET LEAVE size sig` + body `LEAVE key at rules` | `OK left [returned card ...] [waiting n]`: the log is deleted (and cleared from the file), open listings come back (the Launcher writes their `unlist` lines); the key's SHA-256 and its counters stay 7 days, longer while n sales wait for COLLECT |
 
-`key` is the installation's ed25519 public key (`data\market.key`, hex), `at` Unix milliseconds (later than the
-key's last request, within a day of the server's clock), `sig` the signature of the whole body (hex), `size` at most
-2 MiB; the name is cleaned as arcade names are. The words count in the per-address `RESERVE`/`CREATE` limit
-(`NO slow`), and 8 bodies are read at once at most. The check (`market::check`) refuses, naming the line: a broken
-chain, `match` lines under 8 minutes apart or over the day's token cap, a pack or craft not paid at the table's
-price, a convert of a starter, imported or last unlisted earned copy, a listing of a starter or imported copy, an
-`import` after a `list` or `market_buy` or more than 7 days after the first `starter`, market lines outside the price
-band, a balance below zero, a card not in the table. A JOIN whose log drops lines the server accepted is a fork
-(`NO a fork: ...`, counted in `keys.forks`); nothing is banned.
+No name is sent or stored: listings never show the seller. `key` is the installation's ed25519 public key
+(`data\market.key`, hex), `at` Unix milliseconds (later than the key's last request, within a day of the server's
+clock; an older one answers `NO an old request (sent twice?), the last at <ms>` and `forza::market::ask` signs it
+again past that time), `sig` the signature of the whole body (hex), `size` at most 8 MiB (the Launcher refuses a
+bigger log before sending). The words count in the per-address `RESERVE`/`CREATE` limit (`NO slow`), and 8 bodies
+are read at once at most, 2 from one address. The replay test comes before the check. The check (`market::check`)
+refuses, naming the line: a broken chain, `match` lines under 8 minutes apart, over 50 tokens or over the week's cap
+of their `rules` (1,050, the week turning Monday 05:00 in the line's own offset), a second `welcome` (also after a
+RESET: the key keeps the mark), a pack or craft not paid at the table's price, a craft above black, a convert of a
+starter, imported or last unlisted earned copy, a listing of a starter or imported copy, an `import` after a `list`,
+`market_buy` or `stock_buy` or outside the 7 days after the first `starter`, market lines outside the price band, a
+`stock_buy` without a stock sale of that card and price in `market.db`, a balance below zero, a card not in the table.
+A torn last line is left out. A JOIN whose log drops lines the server accepted is a fork (`NO a fork: ...`, counted in
+`keys.forks`); nothing is banned.
 
 ## Arcade rooms (2017-18)
 
