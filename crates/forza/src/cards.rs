@@ -572,7 +572,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             rarity,
             code: Some(get(c_code))
                 .filter(|c| !c.is_empty())
-                .unwrap_or_else(|| mvp_mark(&get(c_pic)).into()),
+                .unwrap_or_else(|| crate::board::mvp_mark(&get(c_pic)).into()),
             // 2017-18 only (the catalogue with card codes); 2010-11's legends print their stats
             secret: crate::collection::secret(stats),
             stats,
@@ -581,16 +581,6 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
         });
     }
     Ok(out)
-}
-
-/// An older MVP card's mark, which the catalogue has no card code for: its picture's name carries it
-/// (`EMVP0506_RONALDINHO_f.dds` -> EMVP, `WMVP_RONALDINHO.dds` -> WMVP, `CMVP_001_NEDVED.dds` -> CMVP, `MVP_1.dds` -> MVP).
-fn mvp_mark(picture: &str) -> &str {
-    let file = picture.rsplit('/').next().unwrap_or_default();
-    file.split(['_', '.'])
-        .map(|t| t.trim_end_matches(|c: char| c.is_ascii_digit()))
-        .find(|t| ["MVP", "EMVP", "WMVP", "CMVP"].contains(t))
-        .unwrap_or_default()
 }
 
 // ---- the card deal after a match ----
@@ -661,7 +651,7 @@ mod tests {
             ("data/player_card/1718_CardImage_8993.dds", ""),
             ("", ""),
         ] {
-            assert_eq!(mvp_mark(pic), want, "{pic}");
+            assert_eq!(crate::board::mvp_mark(pic), want, "{pic}");
         }
     }
 

@@ -2143,6 +2143,7 @@ dependencies = [
  "chrono-tz",
  "csv",
  "deunicode",
+ "ed25519-dalek",
  "emath",
  "encoding_rs",
  "freetype-rs",
@@ -2241,8 +2242,10 @@ dependencies = [
  "getrandom 0.3.4",
  "ipnet",
  "regex",
+ "rusqlite",
  "serde_json",
  "sha2",
+ "tempfile",
  "time",
 ]
 

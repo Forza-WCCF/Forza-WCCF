@@ -1,6 +1,6 @@
 //! `forza-server`'s command line, shared by the Linux `forza-server` binary (`main.rs`) and, on Windows, by
 //! `Launcher.exe server ...` (the 2017-18 kit ships no `forza-server.exe`). Every online service in one program:
-//! `desk | relay | gmsvr | reflect | all` (the Python
+//! `desk | relay | gmsvr | reflect | all`, and `market-table` (the Python
 //! `server/seat_desk.py` and `relay.py` it replaced each took `LIFE_SECONDS [LOG_FILE]`, as `desk` and `relay` still
 //! do). Ports are flags (`--port`, and `--desk-port` ... for `all`) so both editions share
 //! one host; a flag wins over the Python's environment variables, which win over the defaults:
@@ -95,9 +95,16 @@ enum Service {
         lan: Option<String>,
         #[command(flatten)]
         g: GmsvrOpts,
+        /// 2017-18: Create-a-Team's market on the desk, with this value table (`market-table` writes it) and
+        /// `market.db` beside `gamesvr.db`; without it every MARKET word answers that the market is not set up
+        #[arg(long)]
+        market_table: Option<PathBuf>,
         life: Option<f64>,
         logs_dir: Option<PathBuf>,
     },
+    /// Writes the market's value table (card number, tier, TOTAL, series, secret mark) from an installed 2017-18
+    /// `catalogue.tsv`, for `all --market-table`. The table is card data: it stays on this host and out of git
+    MarketTable { catalogue: PathBuf, out: PathBuf },
 }
 
 /// The game server's switches, for `gmsvr` and `all`.
@@ -187,10 +194,26 @@ fn start_desk(
     club: Option<(PathBuf, Option<desk::Allow>)>,
     sessions: Option<Arc<Sessions>>,
     store: Option<&Path>,
+    market_table: Option<&Path>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.sessions = sessions;
+    // the market's store beside the game server's (`all`); a table that does not load leaves the market off
+    if let (Some(table), Some(store)) = (market_table, store) {
+        match crate::market::Market::open(table, &store.join("market.db")) {
+            Ok(m) => {
+                log(&format!(
+                    "market on: {} cards, rules {}, catalogue {}",
+                    m.table().len(),
+                    m.table().rules,
+                    m.table().catalogue
+                ));
+                c.market = Some(Arc::new(m));
+            }
+            Err(e) => log(&format!("market not set up: {e}")),
+        }
+    }
     // the operator's notice: beside the game server's store (`all`), else in data\ beside hold_projector.txt
     c.notice = c.notice.or_else(|| {
         Some(
@@ -377,6 +400,7 @@ where
                 None,
                 None,
                 None,
+                None,
                 file_log(log_file.clone()),
             )],
         ),
@@ -412,9 +436,13 @@ where
             no_gmsvr,
             lan,
             g,
+            market_table,
             life,
             logs_dir,
         } => {
+            if market_table.is_some() {
+                need_1718(ed, "--market-table");
+            }
             let file = |n: &str| logs_dir.as_ref().map(|d| d.join(n));
             let (desk_log, relay_log) = (file("seat_broker.txt"), file("match_relay.txt"));
             let gmsvr = ed == Edition::E1718 && !no_gmsvr;
@@ -434,6 +462,7 @@ where
                     club,
                     sessions.clone(),
                     Some(&g.store),
+                    market_table.as_deref(),
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),
@@ -473,6 +502,16 @@ where
                 }
             }
             (life.unwrap_or(day), services)
+        }
+        Service::MarketTable { catalogue, out } => {
+            match crate::market::write_table(catalogue, out) {
+                Ok(n) => println!("{}: {n} cards", out.display()),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+            std::process::exit(0);
         }
     };
     let failed = services.iter().any(Result::is_err) || forza_svcs.iter().any(Result::is_err);

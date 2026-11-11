@@ -11,6 +11,9 @@ description = "Forza-WCCF's shared code: setup, the stand-ins, online play, the 
 # `full` (default): the cards, the game text and the install steps. The Linux server builds `forza` with `--no-default-features`.
 default = ["full"]
 full = ["dep:csv", "dep:image", "dep:freetype-rs", "dep:regex", "dep:unicode-normalization"]
+# `market`: the market key and its signed requests (forza::market), for the server and the Launcher only: the installer
+# and the panel stay without ed25519
+market = ["dep:ed25519-dalek"]
 
 [dependencies]
 aes.workspace = true
@@ -27,6 +30,8 @@ emath.workspace = true
 image = { version = "0.25.10", default-features = false, features = ["png", "dds", "jpeg"], optional = true }
 zip.workspace = true
 getrandom = "0.3.4"
+# the market key (forza::market): signs the grant log the market server checks; as crates/server takes it
+ed25519-dalek = { version = "3.0.0", default-features = false, optional = true }
 tempfile = "3.27.0"
 # setup (2010-11): whether seat 1's hard link is already the game's file
 same-file = "1.0.6"

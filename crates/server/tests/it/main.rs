@@ -6,5 +6,6 @@ mod gmsvr;
 #[cfg(target_os = "linux")]
 mod load;
 mod lobby;
+mod market;
 mod relay;
 mod rooms;
