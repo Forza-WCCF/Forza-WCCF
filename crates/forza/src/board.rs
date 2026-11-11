@@ -98,6 +98,16 @@ pub fn series(code: &str) -> &str {
         .trim_end_matches(['-', ' '])
 }
 
+/// An older MVP card's mark, which the catalogue has no card code for: its picture's name carries it
+/// (`EMVP0506_RONALDINHO_f.dds` -> EMVP, `WMVP_RONALDINHO.dds` -> WMVP, `CMVP_001_NEDVED.dds` -> CMVP, `MVP_1.dds` -> MVP).
+pub fn mvp_mark(picture: &str) -> &str {
+    let file = picture.rsplit('/').next().unwrap_or_default();
+    file.split(['_', '.'])
+        .map(|t| t.trim_end_matches(|c: char| c.is_ascii_digit()))
+        .find(|t| ["MVP", "EMVP", "WMVP", "CMVP"].contains(t))
+        .unwrap_or_default()
+}
+
 // ---- suitable positions ----
 
 /// The 16 roles of a card's position ratings, in the order the original files keep them. The names are inferred by
