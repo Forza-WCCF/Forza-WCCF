@@ -202,7 +202,7 @@ jobs:
           ls "$VS/VC/Tools/MSVC"
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
       # `cargo xtask check` runs the tests with cargo-nextest when it is installed; the action checks the download's hash
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2.89.0
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest@0.9.148
       # rust-cache saves nothing over an exact key match, and its key changed only with Cargo.lock or a manifest: the
