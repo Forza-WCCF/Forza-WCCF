@@ -293,24 +293,24 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 # ---- formation board ----
 board.flip: {en: "Click the card to see its back.", it: "Clicca la carta per vedere il retro.", ja: "カードをクリックすると裏面になります。"}
 board.flip_back: {en: "Click the card to see its face.", it: "Clicca la carta per vedere il fronte.", ja: "カードをクリックすると表面になります。"}
-board.hint: {en: "Drag cards to the pitch. Drop one on a card to swap, drag it off the table to remove.", it: "Trascina le carte sul campo. Su un'altra si scambiano, fuori dal tavolo si tolgono.", ja: "カードをピッチへドラッグ。重ねると入れ替え、外へドラッグすると外れます。"}
+board.hint: {en: "Drag cards onto the table. Drop one on a card to swap them; drag it off the table to remove it.", it: "Trascina le carte sul tavolo. Se metti una carta su un'altra, si scambiano; se la trascini fuori dal tavolo, si toglie.", ja: "カードをテーブルへドラッグします。カードに重ねると入れ替わり、テーブルの外へドラッグすると外れます。"}
 board.kept: {en: "You cannot remove cards during a match.", it: "Durante una partita le carte non si possono togliere.", ja: "試合中はカードをテーブルから外せません"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
 board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}
 board.reset: {en: "RESET LINEUP", it: "RIPRISTINA", ja: "試合前に戻す"}
 board.fit_best: {en: "BEST POSITION", it: "POSIZIONE IDEALE", ja: "ベストポジション"}
 board.fit_ok: {en: "FITS", it: "ADATTO", ja: "適性あり"}
-board.fit_out: {en: "OUT OF POSITION", it: "FUORI RUOLO", ja: "ポジション外"}
-board.no_data: {en: "No position data", it: "Nessun dato di ruolo", ja: "ポジションデータなし"}
+board.fit_out: {en: "OUT OF POSITION", it: "FUORI POSIZIONE", ja: "ポジション外"}
+board.no_data: {en: "No position data", it: "Nessun dato di posizione", ja: "ポジションデータなし"}
 board.positions: {en: "POSITIONS", it: "POSIZIONI", ja: "適性ポジション"}
 board.roles: {en: "Roles: %{roles}", it: "Ruoli: %{roles}", ja: "役割：%{roles}"}
-board.links_of: {en: "LINKS · %{name}", it: "INTESE · %{name}", ja: "%{name}の連携"}
-board.on_team: {en: "ON THE TEAM", it: "IN SQUADRA", ja: "チーム内"}
-board.not_on_team: {en: "BEST OUTSIDE LINKS", it: "MIGLIORI INTESE ESTERNE", ja: "チーム外の好連携"}
-board.no_links: {en: "No links yet.", it: "Nessuna intesa.", ja: "連携なし。"}
-board.more: {en: "+%{n} more", it: "+ altri %{n}", ja: "ほか%{n}人"}
-board.pop_out: {en: "POP OUT BOARD", it: "FORMAZIONE IN FINESTRA", ja: "別ウィンドウで表示"}
-board.dock: {en: "DOCK BOARD", it: "RIPORTA NEL GIOCO", ja: "ボードを戻す"}
+board.links_of: {en: "Links with %{name}", it: "Intese con %{name}", ja: "%{name} との連携"}
+board.on_team: {en: "ON THE TABLE", it: "SUL TAVOLO", ja: "テーブル内"}
+board.not_on_team: {en: "BEST LINKS OFF THE TABLE", it: "MIGLIORI INTESE FUORI", ja: "テーブル外の好連携"}
+board.no_links: {en: "No links on the table.", it: "Nessuna intesa sul tavolo.", ja: "テーブルに連携相手はいません。"}
+board.more: {en: "+%{n} more players", it: "+ altri %{n} giocatori", ja: "ほか %{n} 人"}
+board.pop_out: {en: "OPEN IN A WINDOW", it: "APRI IN UNA FINESTRA", ja: "別ウィンドウで開く"}
+board.dock: {en: "DOCK THE BOARD", it: "RIPORTA NEL GIOCO", ja: "フォーメーションを戻す"}
 board.window_title: {en: "Formation board", it: "Formazione", ja: "フォーメーション"}
 
 # ---- catalogue ----
