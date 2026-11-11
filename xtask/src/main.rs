@@ -638,7 +638,7 @@ fn main() -> Result<()> {
         }
         Task::Test { package, test_args } => {
             let _ = PROFILE.set(pick_profile(Some("quick"), false, false, in_ci()));
-            test_packages(&root, &package, &test_args)
+            test_packages(&root, &kit, &package, &test_args)
         }
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
@@ -1435,7 +1435,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
-    let needs_kit = has("launcher") || has("forza-panel") || has(INSTALLER) || native;
+    let needs_kit = kit_needed(has);
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1758,13 +1758,27 @@ fn tests(
 /// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
 /// workspace scope of each target, same profile and rustflags), so a per-commit run reuses the gate's build tree
 /// instead of making a second one; nextest's filterset then picks the crates named.
-fn test_packages(root: &Path, packages: &[String], extra: &[String]) -> Result<()> {
+fn test_packages(root: &Path, kit: &Path, packages: &[String], extra: &[String]) -> Result<()> {
+    // a rebuild on every run would defeat the per-commit use, and a kit older than the sources only runs the tests'
+    // programs from before the change: one line names the fix, as a missing kit fails in the tests themselves
+    let has = |p: &str| packages.iter().any(|x| x == p);
+    if kit_needed(has) && kit_stale(root, kit)? {
+        println!(
+            "test: the staged kit is missing or older than the sources: `cargo xtask build` first, or the tests start the old programs"
+        );
+    }
     // one test run at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936)
     let _lock = check_lock()?;
     for c in test_commands(root, packages, extra) {
         run_ok(c, "cargo test")?;
     }
     Ok(())
+}
+
+/// The tests that start the programs `cargo xtask build` stages in the kit: the launcher's and the panel's stand-ins,
+/// the installer's and the native crates' own.
+fn kit_needed(has: impl Fn(&str) -> bool) -> bool {
+    has("launcher") || has("forza-panel") || has(INSTALLER) || NATIVE_PKGS.iter().any(|p| has(p))
 }
 
 /// The commands [`test_packages`] runs: one per target the crates named build for, as `check quick`'s test step.
