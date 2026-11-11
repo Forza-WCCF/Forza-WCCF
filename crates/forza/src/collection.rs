@@ -2,9 +2,9 @@
 //! the locked append, the economy table, the seeded draws and CONVERT. Pure code: the caller passes its own `Card` rows
 //! (built from the catalogue), so the module needs no catalogue and the Linux server builds it ('--no-default-features').
 //!
-//! The table is draft 7.3 (`PLAN.md` 2.1-2.4): a card is worth base x rating step x series factor, a secret card a flat
-//! price until the catalogue gives it a TOTAL; a match pays 50 tokens until the week's 1,050, and the week turns on
-//! Monday at 05:00.
+//! The table is draft 7.3 (`PLAN.md` 2.1-2.4): a card is worth base x rating step x series factor, a secret card (its
+//! back prints the placeholder, [`secret`]) a flat price; a match pays 50 tokens until the week's 1,050, and the week
+//! turns on Monday at 05:00.
 //!
 //! The log is the source of truth: one JSON object per line, append-only, each line's `prev` the SHA-256 of the line
 //! before it. The state is a fold over the lines and is never stored. The log stores tokens, never card values, so a
@@ -43,8 +43,8 @@ const PREMIUM: [(&str, u32); 10] = [
     ("BMF", 150),
     ("BFW", 150),
 ];
-/// A secret card's flat price per series, until the catalogue's second block gives it a TOTAL (`PLAN.md` 2.1, m1).
-/// The seven ALL TIME LEGEND series cover its 173 secret cards; `S-ATLE` is the spelling of one of SATLE's seven.
+/// A secret card's flat price per series (`PLAN.md` 2.1, m1). The seven ALL TIME LEGEND series cover its 173 secret
+/// cards; `S-ATLE` is the spelling of one of SATLE's seven.
 const SECRET_PRICES: [(&str, u32); 8] = [
     ("ATLE", 3_750),
     ("HOLE", 6_250),
@@ -411,10 +411,8 @@ pub struct Card<'a> {
     /// The card's series, its printed code without the number (`board::series`: `MVP-1` -> `MVP`, `S-ATLE` stays):
     /// the premium factor and a secret card's flat price key on it.
     pub series: &'a str,
-    /// A card whose back prints SECRET: the six stats are the placeholder, so its TOTAL is no rating.
+    /// A card whose back prints SECRET ([`secret`]): the six stats are the placeholder, so its TOTAL is no rating.
     pub secret: bool,
-    /// The TOTAL the catalogue's second block gives a secret card, once step 1.6 reads it: it yields the flat price.
-    pub secret_total: Option<u32>,
     /// The season's first year (2001 for 2001-02).
     pub season: u16,
     /// The catalogue's `nationality_name`, as the nation list spells it.
@@ -424,15 +422,21 @@ pub struct Card<'a> {
     pub position: Position,
 }
 
-/// A card's craft value: its tier's base times its rating step times its series factor, or a secret card's flat price
-/// while the catalogue gives it no TOTAL. All cells of the table are whole tokens.
+/// A card's craft value: its tier's base times its rating step times its series factor, or a secret card's flat price.
+/// All cells of the table are whole tokens.
 #[must_use]
 pub fn value(card: &Card) -> u32 {
-    if card.secret && card.secret_total.is_none() {
+    if card.secret {
         return secret_value(card);
     }
-    let total = card.secret_total.unwrap_or(card.total);
-    card.rarity.base() * step(total) / 100 * factor(card.rarity, card.series) / 100
+    card.rarity.base() * step(card.total) / 100 * factor(card.rarity, card.series) / 100
+}
+
+/// Whether a card's back prints SECRET rather than its six stats: only the placeholder card prints the six 16s and the
+/// 20 (TOTAL 100). Every other card, an ALL TIME LEGEND that prints real stats included, is priced from its TOTAL.
+#[must_use]
+pub fn secret(stats: [u8; 6]) -> bool {
+    stats == [16, 16, 16, 16, 16, 20]
 }
 
 /// A secret card's flat price (`PLAN.md` 2.1): its series' cell, or 40 for the white reprints.
@@ -592,7 +596,7 @@ pub fn match_card<'a>(rng: &mut Rng, pool: &'a [Card<'a>]) -> Option<&'a Card<'a
 pub fn pack<'a>(
     rng: &mut Rng,
     pool: &'a [Card<'a>],
-    pick: impl Fn(&Card) -> bool + Copy,
+    pick: impl Fn(&Card) -> bool,
 ) -> Vec<&'a Card<'a>> {
     let mut out: Vec<&Card> = vec![];
     while out.len() < PACK_CARDS {
@@ -624,6 +628,10 @@ pub fn pack<'a>(
 /// then keeps the deal closest to it; a season start keeps its first deal.
 pub fn starter<'a>(rng: &mut Rng, pool: &'a [Card<'a>], start: Start) -> Vec<&'a Card<'a>> {
     let mut best = deal(rng, pool, start);
+    // An unknown league name deals nothing: the first deal settles it, not a thousand empty ones.
+    if best.is_empty() {
+        return best;
+    }
     let mut off = band_off(&best);
     for _ in 1..STARTER_DEALS {
         if !start.banded() || off == 0 {
@@ -807,9 +815,10 @@ pub struct Folded {
     pub warnings: Vec<String>,
 }
 
-/// Fold a log into the state, counting the week's match tokens against `week` ([`week`]). A line that does not parse
-/// ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match that line are
-/// warnings, and the lines around them are kept.
+/// Fold a log into the state, counting the week's match tokens against `this_week`, a [`week`] label (YYYYWW) and never
+/// a [`day`] one (YYYYMMDD): both are `u32`, so a `day` argument compiles and the cap then never applies. A line that
+/// does not parse ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match
+/// that line are warnings, and the lines around them are kept.
 #[must_use]
 pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut out = Folded::default();
@@ -863,7 +872,7 @@ impl State {
             self.match_week += entry.tokens;
         }
         if let Some(card) = entry.card {
-            let copies = self.cards.entry(card).or_default();
+            let mut copies = self.cards.get(&card).copied().unwrap_or_default();
             match entry.kind {
                 Kind::Starter => copies.starter += 1,
                 Kind::Import => copies.imported += 1,
@@ -880,6 +889,11 @@ impl State {
                 }
                 Kind::List => copies.listed += 1,
                 Kind::Unlist => copies.listed = copies.listed.saturating_sub(1),
+            }
+            // A welcome line pays tokens only, and a convert, sale or unlist of a card never held changes nothing:
+            // neither leaves an entry for a card the player does not own.
+            if copies != Copies::default() || self.cards.contains_key(&card) {
+                self.cards.insert(card, copies);
             }
         }
     }
@@ -1120,7 +1134,6 @@ mod tests {
             total,
             series: "",
             secret: false,
-            secret_total: None,
             season: 2017,
             nation: "Italy",
             club: "",
@@ -1168,7 +1181,7 @@ mod tests {
                 -STANDARD_PACK,
             )
             .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(4), 0)
-            .add("2026-11-11T12:04:00+01:00", Kind::Convert, Some(3), 30)
+            .add("2026-11-11T12:04:00+01:00", Kind::Convert, Some(3), 48)
             .add("2026-11-11T12:05:00+01:00", Kind::Import, Some(1), 0)
             .add("2026-11-11T12:06:00+01:00", Kind::List, Some(2), 0)
             .add("2026-11-11T12:07:00+01:00", Kind::Unlist, Some(2), 0);
@@ -1215,7 +1228,7 @@ mod tests {
             }
         );
         assert_eq!(s.copies(9), Copies::default());
-        assert_eq!(s.tokens, 50 + 50 - STANDARD_PACK + 30);
+        assert_eq!(s.tokens, 50 + 50 - STANDARD_PACK + 48);
         assert_eq!(s.match_week, 100);
         assert!(s.copies(3).owned());
 
@@ -1348,15 +1361,39 @@ mod tests {
         assert_eq!(value(&printed), 10_000);
         // The one RARE that prints a real TOTAL 100 is not secret: 400 x 4, no flat price.
         assert_eq!(value(&card(Rarity::Rare, 100)), 1_600);
-        // R.1: once the catalogue's second block gives the secret card a TOTAL, its value is computed like any other.
-        let hole_88 = Card {
-            secret_total: Some(88),
-            ..secret(Rarity::AllTimeLegend, "HOLE")
-        };
-        assert_eq!(value(&hole_88), 3_750);
         // The one line that needs rounding: 95 % of 142.5, and the narrowest band of all (a white 40: 32-38).
         assert_eq!(floor_value(40), 32);
         assert_eq!(ceiling_value(40), 38);
+    }
+
+    /// (M1) the secret mark is the six printed stats, not the tier: the one RARE that prints a real TOTAL 100 and an
+    /// ALL TIME LEGEND that prints real stats are priced from their TOTAL.
+    #[test]
+    fn secret_is_the_printed_placeholder() {
+        assert!(secret([16, 16, 16, 16, 16, 20]), "the placeholder");
+        // The one RARE that prints a real TOTAL 100: 20/8/20/16/20/16, a stat block like any other.
+        assert!(!secret([20, 8, 20, 16, 20, 16]), "real stats are no secret");
+        let rare = Card {
+            secret: secret([20, 8, 20, 16, 20, 16]),
+            ..card(Rarity::Rare, 100)
+        };
+        assert!(!rare.secret);
+        assert_eq!(value(&rare), 1_600, "400 x 4, no flat cell");
+        // An ALL TIME LEGEND that prints real stats at TOTAL 95 is 2,500 x 4, not the flat 3,750.
+        let atle = Card {
+            secret: secret([18, 12, 19, 16, 14, 20]),
+            ..card(Rarity::AllTimeLegend, 95)
+        };
+        assert!(!atle.secret);
+        assert_eq!(value(&atle), 10_000);
+        // The placeholder on the same tier, with its series, takes the flat cell.
+        let hole = Card {
+            secret: secret([16, 16, 16, 16, 16, 20]),
+            series: "HOLE",
+            ..card(Rarity::AllTimeLegend, 100)
+        };
+        assert!(hole.secret);
+        assert_eq!(value(&hole), 6_250);
     }
 
     /// (e) PLAN 2.3: the release crafts white and black only, at the card's value.
@@ -1400,7 +1437,6 @@ mod tests {
                     club: "Juventus",
                     series: "",
                     secret: false,
-                    secret_total: None,
                     position: Position::Mf,
                 })
             })
@@ -1435,7 +1471,6 @@ mod tests {
                     club: "Juventus",
                     series: "",
                     secret: false,
-                    secret_total: None,
                     position: Position::Df,
                 })
             })
@@ -1469,7 +1504,6 @@ mod tests {
                 club: "",
                 series: "",
                 secret: false,
-                secret_total: None,
                 position: Position::Mf,
             });
         }
@@ -1484,7 +1518,6 @@ mod tests {
                 club: "",
                 series: "",
                 secret: false,
-                secret_total: None,
                 position: Position::Gk,
             });
         }
@@ -1510,7 +1543,6 @@ mod tests {
                 club: if i < 15 { "Urawa Reds" } else { "Sao Paulo" },
                 series: "",
                 secret: false,
-                secret_total: None,
                 position: Position::Mf,
             });
         }
@@ -1546,7 +1578,6 @@ mod tests {
             total,
             series: "",
             secret: false,
-            secret_total: None,
             season: 2004,
             nation: "Italy",
             club: "Juventus",
@@ -1571,7 +1602,6 @@ mod tests {
                 total: 85,
                 series: "",
                 secret: false,
-                secret_total: None,
                 season,
                 nation,
                 club: "",
@@ -1654,7 +1684,6 @@ mod tests {
                     total: 80,
                     series: "",
                     secret: false,
-                    secret_total: None,
                     season: 2004,
                     nation: "Italy",
                     club: "Juventus",
@@ -1868,6 +1897,10 @@ mod tests {
         );
         assert_eq!(league_of("Nowhere United"), None);
         assert!(!Start::League("Nowhere League").has(&pool[0]));
+        assert!(
+            starter(&mut rng, &pool, Start::League("Nowhere League")).is_empty(),
+            "an unknown league name deals nothing"
+        );
         let mut seen = std::collections::BTreeSet::new();
         for (league, clubs) in LEAGUES {
             assert!(!clubs.is_empty(), "{league}");
@@ -1916,7 +1949,7 @@ mod tests {
                 rules: RULES,
                 kind: Kind::Convert,
                 card: Some(7),
-                tokens: 30,
+                tokens: 48,
                 why: String::new(),
                 prev: String::new(),
             },
@@ -2046,6 +2079,29 @@ mod tests {
             "the starter copy still plays"
         );
         assert_eq!(folded.state.tokens, 170);
+    }
+
+    /// (N7) a `welcome` line pays tokens only, and a `convert`, sale or `unlist` of a card the log never granted adds
+    /// no entry: a page counting `state.cards` shows only the cards the player has held.
+    #[test]
+    fn unknown_card_lines_add_no_entry() {
+        let mut f = Fixture::default();
+        f.add("2026-11-11T12:00:00+01:00", Kind::Welcome, Some(9), WELCOME)
+            .add("2026-11-11T12:01:00+01:00", Kind::Convert, Some(9), 48)
+            .add("2026-11-11T12:02:00+01:00", Kind::MarketSell, Some(8), 192)
+            .add("2026-11-11T12:03:00+01:00", Kind::Unlist, Some(8), 0)
+            .add("2026-11-11T12:04:00+01:00", Kind::Welcome, None, WELCOME);
+        let state = fold_at(&f.text, this_week()).state;
+        assert!(state.cards.is_empty(), "{:?}", state.cards);
+        assert_eq!(state.tokens, 2 * WELCOME + 48 + 192);
+
+        // A card the log granted keeps its entry, and a welcome of it adds no copy.
+        let mut f = Fixture::default();
+        f.add("2026-11-11T12:00:00+01:00", Kind::Match, Some(1), 50)
+            .add("2026-11-11T12:01:00+01:00", Kind::Welcome, Some(1), WELCOME);
+        let state = fold_at(&f.text, this_week()).state;
+        assert_eq!(state.cards.len(), 1);
+        assert_eq!(state.copies(1).earned, 1);
     }
 
     /// (2.1) two grants of one card fold to 2 earned copies and write no convert line.
