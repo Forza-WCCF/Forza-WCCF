@@ -2351,6 +2351,8 @@ pub struct Deal {
     pub until: Option<f64>,
     /// Turned over: its back.
     pub back: bool,
+    /// Create-a-Team: the card's place in the collection; `None` in free play, where the card is only shown.
+    pub grant: Option<Grant>,
 }
 
 impl Deal {
@@ -2359,8 +2361,28 @@ impl Deal {
             card,
             until: None,
             back: false,
+            grant: None,
         }
     }
+}
+
+/// Create-a-Team's save of a dealt card, as the deal window tells it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Grant {
+    /// Drawn; the write runs off the frame.
+    Saving,
+    /// A write failed (the log held by another program, a disk error); it is tried again.
+    Retrying,
+    Saved {
+        /// The match's tokens: 50, or 0 once the week's cap is reached.
+        tokens: i64,
+        /// The copies held now, this one in: 2 or more = a copy of an owned card.
+        copies: u32,
+        /// CONVERT's pay for a spare earned copy (`None`: no spare).
+        convert: Option<u32>,
+        /// The market's lowest price for the card.
+        floor: u32,
+    },
 }
 
 /// The dealt card's window over the middle, as `wccfpanel.c` `deal_draw`: NEW PLAYER CARD (RARE! for a card better
@@ -2380,13 +2402,20 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_secs_f64(until - now));
     let back = d.back;
+    let grant = d.grant.clone();
     let rare = cards::deal_class(&card) == 0;
     let col = match cards::deal_class(&card) {
         0 => theme::GOLD,
         2 => theme::TEXT_DIM,
         _ => theme::TEXT,
     };
-    let size = vec2(360.0, 640.0f32.min(area.height() - 20.0));
+    // the collection's lines under TOTAL: saved and tokens; for a copy of an owned card its count and values too
+    let extra: f32 = match &grant {
+        None => 0.0,
+        Some(Grant::Saved { copies, .. }) if *copies > 1 => 120.0,
+        Some(_) => 56.0,
+    };
+    let size = vec2(360.0, (640.0 + extra).min(area.height() - 20.0));
     let r = Rect::from_center_size(area.center(), size);
     let resp = egui::Area::new(egui::Id::unique("deal"))
         .order(egui::Order::Foreground)
@@ -2461,6 +2490,40 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                     .font(theme::display(20.0))
                     .color(theme::AMBER),
             );
+            if let Some(g) = &grant {
+                let line = |c: &mut Ui, text: String, col: Color32| {
+                    c.label(egui::RichText::new(text).font(theme::body(15.0)).color(col));
+                };
+                c.add_space(6.0);
+                match g {
+                    Grant::Saving => line(&mut c, tr!(lang, "deal.saving"), theme::TEXT_DIM),
+                    Grant::Retrying => line(&mut c, tr!(lang, "deal.not_saved"), theme::AMBER),
+                    Grant::Saved {
+                        tokens,
+                        copies,
+                        convert,
+                        floor,
+                    } => {
+                        line(&mut c, tr!(lang, "deal.saved"), theme::TEXT);
+                        if *tokens > 0 {
+                            line(&mut c, tr!(lang, "deal.tokens", n = tokens), theme::GOLD);
+                        } else {
+                            line(&mut c, tr!(lang, "deal.no_tokens"), theme::TEXT_DIM);
+                        }
+                        if *copies > 1 {
+                            line(&mut c, tr!(lang, "deal.copy", n = copies), theme::AMBER);
+                            if let Some(v) = convert {
+                                line(&mut c, tr!(lang, "deal.convert", n = v), theme::TEXT_DIM);
+                            }
+                            line(
+                                &mut c,
+                                tr!(lang, "deal.sell_from", n = floor),
+                                theme::TEXT_DIM,
+                            );
+                        }
+                    }
+                }
+            }
             let g = p.layout(
                 tr!(lang, "deal.foot"),
                 theme::body(HINT),

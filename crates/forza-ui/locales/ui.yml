@@ -575,6 +575,15 @@ club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
 deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
 deal.foot: {en: "Click to flip. Click elsewhere to close.", it: "Clicca per girare. Clicca altrove per chiudere.", ja: "クリックで裏返す。他をクリックで閉じる。"}
+# Create-a-Team: the dealt card's save into the collection, under TOTAL (%{n}: tokens, or the copies held now)
+deal.saving: {en: "Saving to your collection…", it: "Salvataggio nella tua collezione…", ja: "コレクションに保存しています…"}
+deal.saved: {en: "Saved to your collection.", it: "Salvata nella tua collezione.", ja: "コレクションに保存しました。"}
+deal.not_saved: {en: "The card is not saved yet. Trying again.", it: "La carta non è ancora salvata. Nuovo tentativo in corso.", ja: "カードはまだ保存されていません。再試行しています。"}
+deal.tokens: {en: "+%{n} tokens", it: "+%{n} gettoni", ja: "+%{n} トークン"}
+deal.no_tokens: {en: "This week's match tokens are all earned.", it: "Hai già tutti i gettoni partita di questa settimana.", ja: "今週の試合トークンはすべて獲得済みです。"}
+deal.copy: {en: "You own %{n} copies of this card.", it: "Hai %{n} copie di questa carta.", ja: "このカードは %{n} 枚目です。"}
+deal.convert: {en: "Convert value: %{n} tokens", it: "Valore di conversione: %{n} gettoni", ja: "変換：%{n} トークン"}
+deal.sell_from: {en: "Market price: from %{n} tokens", it: "Prezzo di mercato: da %{n} gettoni", ja: "マーケット価格：%{n} トークンから"}
 
 # ---- closing the window during a card session ----
 close.title: {en: "MATCH IN PROGRESS", it: "PARTITA IN CORSO", ja: "試合中"}

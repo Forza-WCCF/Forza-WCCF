@@ -1520,6 +1520,38 @@ fn card_deal() {
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
 }
 
+/// Create-a-Team's deal of a card already owned: saved, the match's tokens, the copies held, CONVERT's pay and the
+/// market's lowest price; no buttons (CONVERT and selling live in the collection). A 2017-18 card of value 150.
+#[test]
+fn card_deal_second_copy() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::new(
+            Edition::E1718,
+            lang,
+            forza_ui::sample::board(),
+            forza_ui::sample::cards().into(),
+        );
+        let mut deal = panel::Deal::new(3);
+        deal.grant = Some(panel::Grant::Saved {
+            tokens: 15,
+            copies: 2,
+            convert: Some(30),
+            floor: 120,
+        });
+        st.deal = Some(deal);
+        snap(
+            &mut all,
+            &format!("panel_deal_copy_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
+}
+
 /// The close dialog after a close refused during a card session, over the whole middle: KEEP PLAYING answers Enter and
 /// Esc, QUIT only its own click.
 #[test]
