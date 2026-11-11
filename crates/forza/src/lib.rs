@@ -112,6 +112,7 @@ pub mod pause;
 /// Windows only: the game's processes and windows (the Launcher's run, the panel).
 #[cfg(windows)]
 pub mod procs;
+pub mod profile;
 pub mod service;
 /// The install steps need the card catalogue (`cards`), so the `full` feature too.
 #[cfg(feature = "full")]

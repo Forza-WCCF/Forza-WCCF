@@ -103,7 +103,7 @@ pub fn drop_panel_line(name: &str, path: &Path) {
 /// Run one card step, as `python card_steps.py ARGS` does in the kit whose data folder is `data` -> (exit code, what it
 /// printed). Anything wrong is said and never stops the start: the game starts with the card that is in the slot.
 pub fn run(data: &Path, args: &[&str]) -> (i32, String) {
-    let save = data.join("save");
+    let save = crate::kit::save_in(data);
     let (card, panel) = (save.join("seat1_club.bin"), data.join("panel.txt"));
     let catalogue = data.join("cache").join("catalogue.tsv");
     let mut out = String::new();

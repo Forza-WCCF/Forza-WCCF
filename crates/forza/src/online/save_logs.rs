@@ -138,7 +138,7 @@ fn dumps(kit: &Path) -> Vec<(String, PathBuf)> {
 /// The save data: `data\save`'s own files (not the access code, not `*.tmp`) and the game server's store. The store's
 /// WAL is not here: [`snapshot`] folds it in.
 fn saves(kit: &Path) -> Vec<(String, PathBuf)> {
-    let save = kit.join("data").join("save");
+    let save = crate::kit::Kit::at(kit).save();
     let mut out: Vec<(String, PathBuf)> = files_in(&save)
         .into_iter()
         .map(|p| {
@@ -189,17 +189,20 @@ fn save_data(kit: &Path) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
     (out, notes)
 }
 
-/// The access codes this PC knows (`seat1_aime.txt`, `aimedb.json`'s keys), each as the Aime stand-ins log it: the 20
-/// digits and the reader's spaced hex (`50 12 34 ...`).
+/// The access codes this PC knows (`seat1_aime.txt`, `aimedb.json`'s keys, of every profile: the logs hold them all),
+/// each as the Aime stand-ins log it: the 20 digits and the reader's spaced hex (`50 12 34 ...`).
 fn access_codes(kit: &Path) -> Vec<String> {
-    let save = kit.join("data").join("save");
-    let mut codes: Vec<String> = fs::read_to_string(save.join("seat1_aime.txt"))
-        .map(|c| vec![c.trim().to_owned()])
-        .unwrap_or_default();
-    if let Ok(d) = fs::read(save.join("aimedb.json")) {
-        let map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_slice(&d).unwrap_or_default();
-        codes.extend(map.into_iter().map(|(c, _)| c));
+    let mut codes: Vec<String> = Vec::new();
+    for p in crate::profile::Profile::ALL {
+        let save = p.save(&kit.join("data"));
+        if let Ok(c) = fs::read_to_string(save.join("seat1_aime.txt")) {
+            codes.push(c.trim().to_owned());
+        }
+        if let Ok(d) = fs::read(save.join("aimedb.json")) {
+            let map: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_slice(&d).unwrap_or_default();
+            codes.extend(map.into_iter().map(|(c, _)| c));
+        }
     }
     codes.retain(|c| c.len() >= 8);
     let spaced: Vec<String> = codes
@@ -320,7 +323,7 @@ pub fn pc_text() -> String {
 /// access code), the card's clubs in this PC's store (name, card and coach ids, plays, [`super::club::team_tag`]) and
 /// each kept run's `session:` line from run_launcher.txt (the arcade role and id, the seat, the projector).
 pub fn session_text(kit: &Path) -> String {
-    let save = kit.join("data").join("save");
+    let save = crate::kit::Kit::at(kit).save();
     let mut t = String::from("\n[session]\n");
     let code = fs::read_to_string(save.join("seat1_aime.txt")).map(|c| c.trim().to_owned());
     match code {
@@ -1571,6 +1574,29 @@ mod tests {
         let mut v = vec![];
         z.by_name(n).unwrap().read_to_end(&mut v).unwrap();
         v
+    }
+
+    /// The logs hold both profiles' cards: both access codes are scrubbed, whichever profile is active.
+    #[test]
+    fn access_codes_of_every_profile_are_known() {
+        let d = tempfile::tempdir().unwrap();
+        let data = d.path().join("data");
+        for (p, code) in crate::profile::Profile::ALL
+            .into_iter()
+            .zip(["50123456789012345678", "50999999999999999999"])
+        {
+            fs::create_dir_all(p.save(&data)).unwrap();
+            fs::write(p.save(&data).join("seat1_aime.txt"), code).unwrap();
+        }
+        let codes = access_codes(d.path());
+        assert!(
+            codes.contains(&"50123456789012345678".to_owned()),
+            "{codes:?}"
+        );
+        assert!(
+            codes.contains(&"50999999999999999999".to_owned()),
+            "{codes:?}"
+        );
     }
 
     #[test]

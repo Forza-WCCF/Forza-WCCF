@@ -11,9 +11,12 @@ use std::path::{Path, PathBuf};
 /// [`Kit::edition`] tells them apart.
 pub use crate::Edition;
 
-/// The kit folder: the one this exe is in.
+pub use crate::profile::Profile;
+
+/// The kit folder: the one this exe is in, and the profile active when it was looked at (settings.json "profile").
 pub struct Kit {
     pub(crate) dir: PathBuf,
+    profile: Profile,
 }
 
 impl Kit {
@@ -40,7 +43,7 @@ impl Kit {
         let dir = exe
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        Self { dir }
+        Self::at(dir)
     }
 
     /// This program's own file name (Launcher.exe, or whatever the release calls it).
@@ -64,7 +67,14 @@ impl Kit {
 
     /// A kit in `dir` (tests, tools).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        let dir = dir.into();
+        let profile = Profile::of(&read_settings(&dir.join("data").join("settings.json")));
+        Self { dir, profile }
+    }
+
+    /// The active profile: free play or Create-a-Team.
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub fn dir(&self) -> &Path {
@@ -112,8 +122,9 @@ impl Kit {
         self.data().join("logs")
     }
 
+    /// The active profile's save: `data\save` for free play, `data\profiles\create-a-team\save` for Create-a-Team.
     pub fn save(&self) -> PathBuf {
-        self.data().join("save")
+        self.profile.save(&self.data())
     }
 
     pub fn settings_file(&self) -> PathBuf {
@@ -210,6 +221,11 @@ pub fn seat_dir(game: &Path) -> PathBuf {
 /// The FPR_Emu helper's folder beside the game folder.
 pub fn misc_dir(game: &Path) -> PathBuf {
     game.parent().unwrap_or(game).join("misc")
+}
+
+/// The active profile's save for a kit's `data` folder (callers that know only that folder: the panel, the card steps).
+pub fn save_in(data: &Path) -> PathBuf {
+    Profile::of(&read_settings(&data.join("settings.json"))).save(data)
 }
 
 /// A settings.json file; an empty object when it is missing or not JSON.
@@ -334,5 +350,27 @@ mod tests {
             "the undo of setup refuses on the file, valid or not"
         );
         assert!(!kit.english_on());
+    }
+
+    /// (a) Free play's save is data\save, as before profiles; Create-a-Team's is its own folder.
+    #[test]
+    fn the_save_follows_the_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        assert_eq!(Kit::at(dir.path()).profile(), Profile::Free);
+        assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("settings.json"), r#"{"profile": "free"}"#).unwrap();
+        assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
+        assert_eq!(save_in(&data), data.join("save"));
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.profile(), Profile::CreateATeam);
+        assert_eq!(kit.save(), data.join(r"profiles\create-a-team\save"));
+        assert_eq!(save_in(&data), kit.save());
     }
 }
