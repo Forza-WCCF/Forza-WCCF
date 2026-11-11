@@ -184,10 +184,10 @@ impl Table {
 }
 
 /// `forza-server market-table`: the value table at `out` from an installed 2017-18 `catalogue.tsv` (tab-separated, a
-/// header naming the columns `card_no`, `rarity_name`, `stats_total`, `card_code`, and `is_placeholder` and
-/// `image_archive_path` when present). The series and the secret mark follow `forza::cards::load_catalogue`: the card
-/// code without its number (an older MVP card's mark from its picture), secret for every ALL TIME LEGEND and the
-/// legend reprints. A catalogue without `card_code` is 2010-11's and refused. Placeholders and rows without a tier are
+/// header naming the columns `card_no`, `rarity_name`, `stats_total`, `card_code`, `stat_offence` .. `stat_stamina`,
+/// and `is_placeholder` and `image_archive_path` when present). The series and the secret mark follow
+/// `forza::cards::load_catalogue`: the card code without its number (an older MVP card's mark from its picture), secret
+/// by the six printed stats ([`collection::secret`]). A catalogue without `card_code` is 2010-11's and refused. Placeholders and rows without a tier are
 /// left out. Returns the number of cards written.
 pub fn write_table(catalogue: &Path, out: &Path) -> Result<usize, String> {
     let bytes = std::fs::read(catalogue).map_err(|e| format!("{}: {e}", catalogue.display()))?;
@@ -209,6 +209,21 @@ pub fn write_table(catalogue: &Path, out: &Path) -> Result<usize, String> {
             catalogue.display()
         ));
     };
+    let stat_cols = [
+        "stat_offence",
+        "stat_defence",
+        "stat_technique",
+        "stat_power",
+        "stat_speed",
+        "stat_stamina",
+    ]
+    .map(col);
+    if stat_cols.contains(&None) {
+        return Err(format!(
+            "{}: no stat_offence .. stat_stamina columns, so no secret mark",
+            catalogue.display()
+        ));
+    }
     let (placeholder, picture) = (col("is_placeholder"), col("image_archive_path"));
     let mut cards = BTreeMap::new();
     for line in lines {
@@ -227,7 +242,7 @@ pub fn write_table(catalogue: &Path, out: &Path) -> Result<usize, String> {
         let code = Some(get(Some(code_col)))
             .filter(|c| !c.is_empty())
             .unwrap_or_else(|| forza::board::mvp_mark(get(picture)));
-        let secret = r == Rarity::AllTimeLegend || forza::board::LEGEND_REPRINTS.contains(&n);
+        let secret = collection::secret(stat_cols.map(|c| get(c).parse::<u8>().unwrap_or(0)));
         if n != 0 {
             cards
                 .entry(n)
@@ -1684,14 +1699,14 @@ mod tests {
         let cat = dir.path().join("catalogue.tsv");
         std::fs::write(
             &cat,
-            "card_no\trecord_index\trarity_name\tis_placeholder\tstats_total\tcard_code\timage_archive_path\n\
-             101\t0\tREGULAR\t0\t80\tWGK-3\t\n\
-             102\t1\tALL TIME LEGEND\t0\t100\tHOLE-3\t\n\
-             103\t2\tREGULAR\t1\t70\t\t\n\
-             0\t3\tRARE\t0\t90\t\t\n\
-             104\t4\t\t0\t90\t\t\n\
-             105\t5\tRARE\t0\t85\t\tcards/EMVP0506_X_f.dds\n\
-             4659\t6\tREGULAR\t0\t100\tATLE-RE-4\t\n",
+            "card_no\trecord_index\trarity_name\tis_placeholder\tstats_total\tcard_code\timage_archive_path\tstat_offence\tstat_defence\tstat_technique\tstat_power\tstat_speed\tstat_stamina\n\
+             101\t0\tREGULAR\t0\t80\tWGK-3\t\t14\t13\t13\t13\t13\t14\n\
+             102\t1\tALL TIME LEGEND\t0\t100\tHOLE-3\t\t16\t16\t16\t16\t16\t20\n\
+             103\t2\tREGULAR\t1\t70\t\t\t14\t13\t13\t13\t13\t14\n\
+             0\t3\tRARE\t0\t90\t\t\t14\t13\t13\t13\t13\t14\n\
+             104\t4\t\t0\t90\t\t\t14\t13\t13\t13\t13\t14\n\
+             105\t5\tRARE\t0\t85\t\tcards/EMVP0506_X_f.dds\t14\t13\t13\t13\t13\t14\n\
+             4659\t6\tREGULAR\t0\t100\tATLE-RE-4\t\t16\t16\t16\t16\t16\t20\n",
         )
         .unwrap();
         let out = dir.path().join("values.tsv");
@@ -1730,5 +1745,45 @@ mod tests {
                 .contains("2017-18 only")
         );
         assert!(write_table(&dir.path().join("none.tsv"), &out).is_err());
+    }
+
+    /// M1: the secret mark comes from the six printed stats, not the tier. An ALL TIME LEGEND that prints its stats is
+    /// priced from its TOTAL; one that prints the placeholder 16/16/16/16/16/20 gets its series' flat price.
+    #[test]
+    fn only_placeholder_stats_make_a_card_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let cat = dir.path().join("catalogue.tsv");
+        std::fs::write(
+            &cat,
+            "card_no\trarity_name\tstats_total\tcard_code\tstat_offence\tstat_defence\tstat_technique\tstat_power\tstat_speed\tstat_stamina\n\
+             201\tALL TIME LEGEND\t97\tATLE-1\t18\t12\t17\t16\t17\t17\n\
+             202\tALL TIME LEGEND\t100\tATLE-2\t16\t16\t16\t16\t16\t20\n",
+        )
+        .unwrap();
+        let out = dir.path().join("values.tsv");
+        assert_eq!(write_table(&cat, &out).unwrap(), 2);
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(
+            text.contains("\n201\tALL TIME LEGEND\t97\tATLE\t0\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n202\tALL TIME LEGEND\t100\tATLE\t1\n"),
+            "{text}"
+        );
+        let t = Table::load(&out).unwrap();
+        assert_eq!(t.value(202), Some(3_750));
+        assert_ne!(t.value(201), Some(3_750));
+        // a catalogue without the stat columns cannot mark secrets and is refused
+        std::fs::write(
+            &cat,
+            "card_no\trarity_name\tstats_total\tcard_code\n201\tALL TIME LEGEND\t97\tATLE-1\n",
+        )
+        .unwrap();
+        assert!(
+            write_table(&cat, &out)
+                .unwrap_err()
+                .contains("stat_offence")
+        );
     }
 }
