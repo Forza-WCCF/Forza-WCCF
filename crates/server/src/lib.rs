@@ -19,6 +19,7 @@ pub mod arcade_room;
 pub mod cli;
 pub mod desk;
 pub mod desync;
+pub mod market;
 pub mod relay;
 
 pub use forza::service::Log;

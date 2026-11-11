@@ -6,6 +6,7 @@
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ...` (older Launchers' problem
 //! reports) -> `NO ...`: logs are not collected, players save them and send them themselves. `CLUB PUT|GET|DONE ...`:
 //! a 2017-18 arcade guest's club to the host's store and back ([`forza::online::club`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//! `MARKET JOIN|LEAVE|RESET size sig` + a signed body -> `OK ...` | `NO why`: Create-a-Team's market ([`crate::market`]).
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
@@ -131,6 +132,9 @@ pub struct DeskConfig {
     /// example: `docs/SELF-HOSTING.md`). Read again when its time changes; missing or unreadable = no notice, and a
     /// `start`/`end` that is not such a date drops the notice too (the log says why). None: never a notice.
     pub notice: Option<PathBuf>,
+    /// Create-a-Team's market (`forza-server all --market-table`): its value table and `market.db`. None: every
+    /// `MARKET` word answers [`forza::market::NOT_SET_UP`].
+    pub market: Option<Arc<crate::market::Market>>,
 }
 
 /// An address check ([`DeskConfig::club_allow`]).
@@ -196,6 +200,7 @@ impl DeskConfig {
             host_stale: Duration::from_secs(45),
             old_host_stale: Duration::from_secs(15),
             ask_window: Duration::from_secs(60),
+            market: None,
         }
     }
 }
@@ -707,6 +712,18 @@ fn session(
         }
         ["SHOP", t] if !e1011 => return arcade_peers(sh, t, None, &mut out),
         ["SHOP", t, own] if !e1011 => return arcade_peers(sh, t, Some(own), &mut out),
+        // Create-a-Team's market (crate::market): signed requests with a body, under the per-address ask limit
+        ["MARKET", ref words @ ..] => {
+            let Some(market) = &sh.cfg.market else {
+                return out.write_all(format!("NO {}\n", forza::market::NOT_SET_UP).as_bytes());
+            };
+            if sh.slow(ip, Instant::now()) {
+                return out.write_all(b"NO slow\n");
+            }
+            let said = market.serve(words, std::mem::take(&mut lines.buf), &mut out, unix_ms())?;
+            log(&format!("{peer}: {said}"));
+            return Ok(());
+        }
         // an arcade guest's own club, to the host's store and back (forza::online::club checks every record)
         ["CLUB", ..] if !e1011 => {
             let Some(db) = &sh.cfg.club_db else {
@@ -1018,6 +1035,12 @@ fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// A notice and when it is live (Unix seconds, either end open).
