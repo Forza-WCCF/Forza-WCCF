@@ -267,8 +267,14 @@ pub fn write_table(catalogue: &Path, out: &Path) -> Result<usize, String> {
     Ok(cards.len())
 }
 
-/// `match` lines this far apart at least (PLAN.md 3.5).
-const MATCH_GAP: time::Duration = time::Duration::minutes(8);
+/// `match` lines this far apart at least (PLAN.md 3.5): one match, `GAME-CLOCK.md`'s MATCHING 5 s, plus a game plus
+/// the result screens. The doc gives no lower bound on a game (a forfeit ends one early), so 3 minutes stands for the
+/// shortest honest pair.
+const MATCH_GAP: time::Duration = time::Duration::minutes(3);
+/// `match` lines a week holds at most. PLAN.md 2.2 pays the first 21 matches and deals a card on every match after
+/// them with no card cap; its heaviest reference player plays 12 a day (84 a week), so 120 leaves that player room and
+/// still bounds a forged log to 120 cards a week.
+const MATCHES_PER_WEEK: u32 = 120;
 /// Import lines only this long after the first `starter` line (PLAN.md 3.8).
 const IMPORT_WINDOW: time::Duration = time::Duration::days(7);
 /// The starter's copies: 11 REGULAR cards and the picked RARE.
@@ -296,9 +302,10 @@ pub struct Checked<'a> {
     pub welcome: Option<&'a str>,
 }
 
-/// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 8
-/// minutes apart, paying 50 at most and within each week's cap ([`collection::week`], the line's own offset, as the
-/// Launcher counts it), one `welcome` of [`collection::WELCOME`], pack lines at a pack's price, crafts of white and
+/// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 3
+/// minutes apart and [`MATCHES_PER_WEEK`] a week at most, each paying what [`collection::match_tokens`] says at the
+/// week's counter ([`collection::week`], the line's own offset, as the Launcher counts it), one `welcome` of
+/// [`collection::WELCOME`], pack lines at a pack's price, crafts of white and
 /// black cards only at the table's price, conversions at [`collection::CONVERT_SHARE`] and only while another unlisted
 /// earned copy remains, no `convert` or `list` of a starter or imported copy, `import` lines only before the first
 /// `list`, `market_buy` or `stock_buy` and within 7 days after the first `starter`, market lines inside the price
@@ -314,7 +321,8 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
     let mut held: HashMap<u32, Copies> = HashMap::new();
     let mut balance: i64 = 0;
     let mut last_match: Option<time::OffsetDateTime> = None;
-    let mut match_weeks: HashMap<u32, i64> = HashMap::new();
+    // a week: its match tokens earned and its `match` lines so far
+    let mut match_weeks: HashMap<u32, (i64, u32)> = HashMap::new();
     let mut first_starter: Option<time::OffsetDateTime> = None;
     let mut starters = 0;
     let mut market_used = false;
@@ -384,6 +392,12 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
         let band = |v: u32| {
             i64::from(collection::floor_value(v))..=i64::from(collection::ceiling_value(v))
         };
+        // the line's tokens as a spend; i64::MIN has no positive form
+        let spent = || {
+            e.tokens
+                .checked_neg()
+                .ok_or_else(|| no(format!("{} tokens is not a price", e.tokens)))
+        };
         // a pack's cards follow its paid line directly (one append writes them)
         if !(e.kind == Kind::Pack && e.card.is_some()) {
             pack_left = 0;
@@ -427,13 +441,28 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                     && e.at - last < MATCH_GAP
                 {
                     return Err(no(format!(
-                        "a match {} s after the one before; matches are 8 minutes apart at least",
-                        (e.at - last).whole_seconds()
+                        "a match {} s after the one before; matches are {} minutes apart at least",
+                        (e.at - last).whole_seconds(),
+                        MATCH_GAP.whole_minutes()
                     )));
                 }
                 last_match = Some(e.at);
                 let week = collection::week(e.at);
-                let earned = match_weeks.entry(week).or_default();
+                let (earned, lines) = match_weeks.entry(week).or_default();
+                if *lines >= MATCHES_PER_WEEK {
+                    return Err(no(format!(
+                        "match {} in the week {week}; a week holds {MATCHES_PER_WEEK}",
+                        *lines + 1
+                    )));
+                }
+                *lines += 1;
+                let pays = collection::match_tokens(*earned);
+                if e.tokens != pays {
+                    return Err(no(format!(
+                        "a match for {} tokens; the week {week} holds {earned} of its {cap}: this one pays {pays}",
+                        e.tokens
+                    )));
+                }
                 *earned = earned.saturating_add(e.tokens);
                 if *earned > cap {
                     return Err(no(format!(
@@ -449,7 +478,7 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                     if !PACK_PRICES.iter().any(|p| e.tokens == -p) {
                         return Err(no(format!(
                             "a pack for {} tokens, no pack costs that",
-                            -e.tokens
+                            spent()?
                         )));
                     }
                     pack_left = collection::PACK_CARDS;
@@ -538,10 +567,10 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
             }
             Kind::MarketBuy => {
                 let (c, card) = need()?;
-                if !band(collection::value(&card)).contains(&-e.tokens) {
+                let price = spent()?;
+                if !band(collection::value(&card)).contains(&price) {
                     return Err(no(format!(
-                        "a purchase of card {c} for {} tokens, outside its price band",
-                        -e.tokens
+                        "a purchase of card {c} for {price} tokens, outside its price band"
                     )));
                 }
                 held.entry(c).or_default().earned += 1;
@@ -564,10 +593,10 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
             }
             Kind::StockBuy => {
                 let (c, _) = need()?;
-                let Some(i) = stock.iter().position(|&s| s == (c, -e.tokens)) else {
+                let price = spent()?;
+                let Some(i) = stock.iter().position(|&s| s == (c, price)) else {
                     return Err(no(format!(
-                        "a stock purchase of card {c} for {} tokens the server never sold to this installation",
-                        -e.tokens
+                        "a stock purchase of card {c} for {price} tokens the server never sold to this installation"
                     )));
                 };
                 stock.swap_remove(i);
@@ -759,12 +788,16 @@ impl Market {
                     ));
                 }
                 let welcome = checked.welcome.map(collection::hash);
-                if let (Some(new), Some((.., Some(had)))) = (&welcome, &row)
-                    && new != had
-                {
-                    return Err(
-                        "a second welcome: this installation had its welcome tokens before".into(),
-                    );
+                if let (Some(new), Some((_, log, left, Some(had)))) = (&welcome, &row) {
+                    // after RESET the log is gone and the key is not left: only the mark of the first welcome remains, so
+                    // not even that line comes back; after LEAVE the same log may
+                    let reset = log.is_none() && left.is_none();
+                    if reset || new != had {
+                        return Err(
+                            "a second welcome: this installation had its welcome tokens before"
+                                .into(),
+                        );
+                    }
                 }
                 let mut log = lines.join("\n");
                 log.push('\n');
@@ -1036,7 +1069,7 @@ mod tests {
 
     /// Acceptance 3.1 (b): 8 matches in 10 minutes are refused, with the reason.
     #[test]
-    fn matches_closer_than_8_minutes_are_refused() {
+    fn matches_closer_than_the_gap_are_refused() {
         let mut l = started();
         let at = t("2026-11-01T12:00:00+09:00");
         for i in 0..8 {
@@ -1049,7 +1082,31 @@ mod tests {
         }
         let why = refused(&l);
         assert!(
-            why.contains("line 15") && why.contains("8 minutes apart"),
+            why.contains("line 15") && why.contains("3 minutes apart"),
+            "{why}"
+        );
+    }
+
+    /// M2: two honest matches [`MATCH_GAP`] apart pass; one second closer is refused. The gap is 3 minutes because
+    /// `GAME-CLOCK.md` gives the menus around a match (MATCHING 5 s, a 5 s result screen in one mode) but no lower
+    /// bound on the game itself.
+    #[test]
+    fn two_honest_matches_at_the_gap_pass() {
+        let at = t("2026-11-01T12:00:00+09:00");
+        let mut l = started();
+        l.add(at, Kind::Match, Some(20), 50)
+            .add(at + MATCH_GAP, Kind::Match, Some(20), 50);
+        assert_eq!(passes(&l), 15);
+        let mut l = started();
+        l.add(at, Kind::Match, Some(20), 50).add(
+            at + MATCH_GAP - time::Duration::seconds(1),
+            Kind::Match,
+            Some(20),
+            50,
+        );
+        let why = refused(&l);
+        assert!(
+            why.contains("line 15") && why.contains("179 s after the one before"),
             "{why}"
         );
     }
@@ -1071,7 +1128,7 @@ mod tests {
         let why = refused(&matches("2026-11-03T10:00:00+09:00", 22));
         assert!(
             why.contains("line 35")
-                && why.contains("1100 match tokens in the week 202645, over its cap of 1050"),
+                && why.contains("the week 202645 holds 1050 of its 1050: this one pays 0"),
             "{why}"
         );
         let mut l = matches("2026-11-03T10:00:00+09:00", 21);
@@ -1094,6 +1151,73 @@ mod tests {
         assert!(refused(&l).contains("one pays 0 to 50"));
     }
 
+    /// M1: a week holds [`MATCHES_PER_WEEK`] `match` lines; an honest week of them passes and the one past them is
+    /// refused, card or not.
+    #[test]
+    fn match_lines_over_the_weeks_count_are_refused() {
+        let at = t("2026-11-03T10:00:00+09:00");
+        let mut l = started();
+        for i in 0..i64::from(MATCHES_PER_WEEK) {
+            l.add(
+                at + mins(3 * i),
+                Kind::Match,
+                Some(20),
+                if i < 21 { 50 } else { 0 },
+            );
+        }
+        assert_eq!(passes(&l), 13 + MATCHES_PER_WEEK as usize);
+        l.add(
+            at + mins(3 * i64::from(MATCHES_PER_WEEK)),
+            Kind::Match,
+            Some(21),
+            0,
+        );
+        let why = refused(&l);
+        assert!(
+            why.contains("line 134") && why.contains("match 121 in the week 202645"),
+            "{why}"
+        );
+    }
+
+    /// M1: a `match` line pays what the week's counter says, so it cannot underpay to stay inside the cap.
+    #[test]
+    fn an_underpaid_match_is_refused() {
+        let at = t("2026-11-03T10:00:00+09:00");
+        let mut l = started();
+        l.add(at, Kind::Match, Some(20), 50)
+            .add(at + mins(3), Kind::Match, Some(20), 49);
+        let why = refused(&l);
+        assert!(
+            why.contains("line 15")
+                && why.contains("the week 202645 holds 50 of its 1050: this one pays 50"),
+            "{why}"
+        );
+        let mut l = started();
+        l.add(at, Kind::Match, Some(20), 0);
+        assert!(refused(&l).contains("this one pays 50"));
+    }
+
+    /// N1: `i64::MIN` tokens has no positive spend; a purchase, a stock purchase or a pack of them is refused with the
+    /// reason, never an overflow panic.
+    #[test]
+    fn the_lowest_tokens_is_not_a_price() {
+        let at = t("2026-11-01T12:00:00+09:00");
+        for (kind, card) in [
+            (Kind::MarketBuy, Some(20)),
+            (Kind::StockBuy, Some(20)),
+            (Kind::Pack, None),
+        ] {
+            let mut l = started();
+            l.add(at, kind, card, i64::MIN);
+            let why = refused(&l);
+            assert!(
+                why.starts_with("line 14")
+                    && why.contains("-9223372036854775808 tokens is not a price"),
+                "{kind:?}: {why}"
+            );
+        }
+    }
+
     /// N2: each line's week follows its own offset, as the Launcher counts it (normalizing would refuse an honest log
     /// across a DST change); hopping offsets still meets each week's cap, so it gains at most the week at either end.
     #[test]
@@ -1114,7 +1238,7 @@ mod tests {
     #[test]
     fn an_import_after_a_listing_is_refused() {
         let mut l = started();
-        l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(20), 40)
+        l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(20), 50)
             .add(t("2026-11-01T12:01:00+09:00"), Kind::List, Some(20), 0)
             .add(t("2026-11-01T12:02:00+09:00"), Kind::Import, Some(30), 0);
         let why = refused(&l);
@@ -1153,7 +1277,7 @@ mod tests {
         assert!(refused(&l).contains("listing of a starter or imported copy of card 30"));
         // 1 earned + 1 starter copy: the earned copy is the last earned one
         let mut l = started();
-        l.add(at, Kind::Match, Some(1), 40)
+        l.add(at, Kind::Match, Some(1), 50)
             .add(at + mins(8), Kind::Convert, Some(1), 8);
         assert!(refused(&l).contains("last unlisted earned copy"));
     }
@@ -1163,25 +1287,24 @@ mod tests {
         let at = t("2026-11-01T12:00:00+09:00");
         // a craft below the table's price
         let mut l = started();
-        l.add(at, Kind::Match, Some(20), 40)
+        l.add(at, Kind::Match, Some(20), 50)
             .add(at, Kind::Craft, Some(21), -30);
         assert!(refused(&l).contains("the table says -40"));
         // a pack for a price no pack has, and a pack card without a paid pack
         let mut l = started();
-        l.add(at, Kind::Match, Some(20), 40)
+        l.add(at, Kind::Match, Some(20), 50)
             .add(at, Kind::Pack, None, -10);
         assert!(refused(&l).contains("no pack costs that"));
         let mut l = started();
         l.add(at, Kind::Pack, Some(20), 0);
         assert!(refused(&l).contains("without a paid pack"));
-        // a pack bought on credit: 150 + 40 < 200
+        // a pack bought on credit: the welcome's 150 is not its 200
         let mut l = started();
-        l.add(at, Kind::Match, Some(20), 40)
-            .add(at, Kind::Pack, None, -200);
+        l.add(at, Kind::Pack, None, -200);
         assert!(refused(&l).contains("below zero"));
         // a card the server does not know, a broken chain, a skipped seq
         let mut l = started();
-        l.add(at, Kind::Match, Some(999), 40);
+        l.add(at, Kind::Match, Some(999), 50);
         assert!(refused(&l).contains("card 999 is not in this server's table"));
         let l = started();
         let text = l.text.replacen("\"why\":\"\"", "\"why\":\"x\"", 1);
@@ -1203,7 +1326,7 @@ mod tests {
         );
         // a sale above the band
         let mut l = started();
-        l.add(at, Kind::Match, Some(20), 40)
+        l.add(at, Kind::Match, Some(20), 50)
             .add(at, Kind::List, Some(20), 0)
             .add(at, Kind::MarketSell, Some(20), 39);
         assert!(refused(&l).contains("outside its price band"));
@@ -1454,10 +1577,13 @@ mod tests {
             .unwrap()
             .execute("UPDATE keys SET sales = 3, listings = 2", [])
             .unwrap();
-        // a rewritten history: the first 13 lines kept, the rest another story
+        // a rewritten history: the starter cards and a match, no welcome (the key keeps its mark)
         let other = {
-            let mut l = started();
-            l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(40), 40);
+            let mut l = Log::default();
+            for c in (1..=11).chain([51]) {
+                l.add(t(START), Kind::Starter, Some(c), 0);
+            }
+            l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(40), 50);
             l.text
         };
         let why = m
@@ -1472,7 +1598,7 @@ mod tests {
         );
         assert_eq!(
             m.handle(&req(Verb::Join, NOW + 4, &other), NOW).unwrap(),
-            "14 lines"
+            "13 lines"
         );
         assert_eq!(
             row(dir.path(), "SELECT sales, listings FROM keys"),
@@ -1538,8 +1664,17 @@ mod tests {
             row(dir.path(), "SELECT card, state FROM ledger"),
             [[s("8"), s("stock_reset")]]
         );
-        m.handle(&req(Verb::Join, NOW + 2, &started().text), NOW)
-            .unwrap();
+        // a new log after the reset: no welcome line, the mark stayed
+        let reset: String = started()
+            .text
+            .lines()
+            .take(12)
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(
+            m.handle(&req(Verb::Join, NOW + 2, &reset), NOW).unwrap(),
+            "12 lines"
+        );
         ledger(
             dir.path(),
             &[(5, "open"), (7, "open"), (6, "sold"), (9, "paid")],
@@ -1622,8 +1757,9 @@ mod tests {
         assert!(!found(), "the log's bytes stay on disk after LEAVE");
     }
 
-    /// Acceptance 3.1b (e): a JOIN carries no name and `market.db` has no name column; a second welcome after a
-    /// RESET is refused, the first one's log again is not.
+    /// Acceptance 3.1b (e) and N2: a JOIN carries no name and `market.db` has no name column; a second welcome after a
+    /// RESET is refused even when the line is the identical one (the balance starts at 0 again, the mark does not go),
+    /// while after LEAVE the same log comes back with the welcome it already paid.
     #[test]
     fn a_second_welcome_after_a_reset_is_refused() {
         let dir = tempfile::tempdir().unwrap();
@@ -1654,8 +1790,16 @@ mod tests {
             "12 lines"
         );
         m.handle(&req(Verb::Reset, NOW + 4, ""), NOW).unwrap();
+        // the identical welcome line again, after the reset: the log's balance restarts, the mark does not
+        let why = m
+            .handle(&req(Verb::Join, NOW + 5, &started().text), NOW)
+            .unwrap_err();
+        assert!(why.starts_with("a second welcome"), "{why}");
+        // after LEAVE the same log comes back with its welcome, which the key already paid
+        m.handle(&req(Verb::Join, NOW + 6, &without), NOW).unwrap();
+        m.handle(&req(Verb::Leave, NOW + 7, ""), NOW).unwrap();
         assert_eq!(
-            m.handle(&req(Verb::Join, NOW + 5, &started().text), NOW)
+            m.handle(&req(Verb::Join, NOW + 8, &started().text), NOW)
                 .unwrap(),
             "13 lines"
         );
