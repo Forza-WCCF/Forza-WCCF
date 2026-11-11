@@ -579,7 +579,7 @@ close.body: {en: "Closing now damages your card.", it: "Chiudere ora danneggia l
 
 # ---- online lobby ----
 lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
-lobby.arcades: {en: "ARCADES", it: "SALE GIOCHI", ja: "ゲームセンター"}
+lobby.arcades: {en: "ARCADES", it: "SALE", ja: "ゲームセンター"}
 lobby.vs: {en: "VS ROOMS", it: "SFIDE VS", ja: "対戦ルーム"}
 lobby.players: {en: "PLAYERS", it: "GIOCATORI", ja: "人数"}
 lobby.open: {en: "OPEN", it: "APERTA", ja: "受付中"}
@@ -589,7 +589,7 @@ lobby.closed: {en: "CLOSED", it: "CHIUSA", ja: "終了"}
 lobby.join: {en: "JOIN", it: "ENTRA", ja: "参加"}
 lobby.connect: {en: "CONNECT", it: "CONNETTI", ja: "接続"}
 lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッチ"}
-lobby.host: {en: "HOST VS", it: "CREA SFIDA", ja: "ルームを作る"}
+lobby.host: {en: "HOST A VS ROOM", it: "CREA UNA SFIDA", ja: "対戦ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
 lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
@@ -605,7 +605,7 @@ lobby.refresh: {en: "Refresh", it: "Aggiorna", ja: "更新"}
 lobby.updated: {en: "updated %{s} s ago", it: "aggiornato %{s} s fa", ja: "%{s} 秒前に更新"}
 lobby.all_langs: {en: "All", it: "Tutte", ja: "すべて"}
 lobby.no_answer: {en: "NO ANSWER", it: "NESSUNA RISPOSTA", ja: "応答なし"}
-lobby.needs_version: {en: "needs Forza-WCCF %{v}", it: "serve Forza-WCCF %{v}", ja: "バージョン %{v} が必要"}
+lobby.needs_version: {en: "This room needs Forza-WCCF %{v}", it: "Questa stanza richiede Forza-WCCF %{v}", ja: "このルームには Forza-WCCF %{v} が必要です"}
 lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
@@ -618,26 +618,26 @@ lobby.why_pick: {en: "Pick a room", it: "Scegli una stanza", ja: "ルームを�
 lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato preso.", ja: "その席はたった今埋まりました。"}
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
-lobby.arcade_rooms_off: {en: "Arcade rooms are off on this PC.", it: "Le stanze delle sale sono disattivate su questo PC.", ja: "このPCではゲームセンターのルームがオフになっています。"}
+lobby.arcade_rooms_off: {en: "Arcades are off on this PC.", it: "Le sale sono disattivate su questo PC.", ja: "このPCではゲームセンターがオフになっています。"}
 lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le SFIDE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
 lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
-lobby.room_code: {en: "Room code", it: "Codice stanza", ja: "ルームコード"}
+lobby.room_code: {en: "Arcade code", it: "Codice della sala", ja: "ゲームセンターのコード"}
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
-lobby.howto_code: {en: "1. Give your friends the room code.", it: "1. Dai il codice della stanza ai tuoi amici.", ja: "1. ルームコードを友だちに伝えます。"}
+lobby.howto_code: {en: "1. Give your friends the arcade code.", it: "1. Dai il codice della sala ai tuoi amici.", ja: "1. ゲームセンターのコードを友だちに伝えます。"}
 lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
 lobby.howto_entry: {en: "2. Both players insert their club card during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
-lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
+lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で対戦相手を設定します。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
-lobby.code_target: {en: "JOIN: the room with code %{code}.", it: "ENTRA: la stanza con codice %{code}.", ja: "参加：コード %{code} のルーム。"}
+lobby.code_target: {en: "JOIN: the arcade with code %{code}.", it: "ENTRA: la sala con codice %{code}.", ja: "参加：コード %{code} のゲームセンター。"}
 lobby.no_room: {en: "No room has that code on %{desk}. The arcade may have restarted with a new code: pick it from the list, or ask the host for the new code.", it: "Nessuna stanza ha quel codice su %{desk}. La sala potrebbe essere ripartita con un codice nuovo: sceglila dall'elenco, oppure chiedi all'host il nuovo codice.", ja: "%{desk} にそのコードのルームはありません。ゲームセンターが再起動してコードが変わった可能性があります。一覧から選ぶか、ホストに新しいコードを尋ねてください。"}
-lobby.room_desk: {en: "Room on %{desk}", it: "Stanza su %{desk}", ja: "ルームの場所：%{desk}"}
+lobby.room_desk: {en: "Arcade on %{desk}", it: "Sala su %{desk}", ja: "ゲームセンターの場所：%{desk}"}
 lobby.host_players: {en: "Players here: %{n}/%{max}", it: "Giocatori in sala: %{n}/%{max}", ja: "現在の人数：%{n}/%{max}"}
 lobby.room_lost: {en: "The lobby no longer shows this room, so nobody new can join.", it: "La lobby non mostra più questa stanza: nessun altro può entrare.", ja: "ロビーにこのルームが表示されなくなりました。新しいプレイヤーは参加できません。"}
 lobby.room_full: {en: "That room is full.", it: "Quella stanza è piena.", ja: "そのルームは満員です。"}
 lobby.arcade_closed: {en: "The host has left: the arcade is closed.", it: "L'host è uscito: la sala è chiusa.", ja: "ホストが退出しました：ゲームセンターは閉じています。"}
 lobby.lan: {en: "LAN", it: "Rete locale (LAN)", ja: "LAN（同じネットワーク）"}
-lobby.lan_found: {en: "%{n} found", it: "%{n} trovate", ja: "%{n} 件"}
+lobby.lan_found: {en: "%{n} arcades found", it: "%{n} sale trovate", ja: "%{n} 件のゲームセンター"}
 lobby.host_lan: {en: "HOST LAN ARCADE", it: "APRI SALA LAN", ja: "LAN でゲームセンターを開く"}
 lobby.lan_type: {en: "Host address", it: "Indirizzo host", ja: "ホストのアドレス"}
 lobby.lan_none: {en: "No arcade found on this network. Not listed? Type the host's address, or allow Forza-WCCF in Windows Firewall on the host PC.", it: "Nessuna sala trovata in questa rete. Non c'è? Scrivi l'indirizzo dell'host, o consenti Forza-WCCF in Windows Firewall sul PC dell'host.", ja: "このネットワークにゲームセンターが見つかりません。表示されないときは、ホストのアドレスを入力するか、ホストの PC の Windows ファイアウォールで Forza-WCCF を許可してください。"}
@@ -663,22 +663,22 @@ lobby.list_arcade_off: {en: "Only players with the code can join.", it: "Entra s
 lobby.cup: {en: "Universal Cup", it: "Universal Cup", ja: "ユニバーサルカップ"}
 lobby.cup_game_times: {en: "Usual times", it: "Orari soliti", ja: "通常の時間"}
 lobby.cup_off: {en: "Off", it: "No", ja: "なし"}
-lobby.cup_in: {en: "In %{m} min", it: "Tra %{m} min", ja: "%{m}分後"}
+lobby.cup_in: {en: "In %{m} min", it: "Tra %{m} min", ja: "%{m} 分後"}
 lobby.cup_at: {en: "At %{t}", it: "Alle %{t}", ja: "%{t}開始"}
-lobby.cup_minutes: {en: "%{m} min", it: "%{m} min", ja: "%{m}分"}
+lobby.cup_minutes: {en: "%{m} min", it: "%{m} min", ja: "%{m} 分"}
 lobby.cup_in_field: {en: "Opens in", it: "Apre tra", ja: "開始まで"}
 lobby.cup_at_field: {en: "Opens at", it: "Apre alle", ja: "開始時刻"}
-lobby.cup_earlier: {en: "5 min earlier", it: "5 min prima", ja: "5分早く"}
-lobby.cup_later: {en: "5 min later", it: "5 min dopo", ja: "5分遅く"}
+lobby.cup_earlier: {en: "5 min earlier", it: "5 min prima", ja: "5 分早く"}
+lobby.cup_later: {en: "5 min later", it: "5 min dopo", ja: "5 分遅く"}
 lobby.cup_off_line: {en: "No Universal Cup in this arcade.", it: "Nessuna Universal Cup in questa sala.", ja: "このゲームセンターではユニバーサルカップを開催しません。"}
 lobby.cup_game_times_line: {en: "Cups open at 12:00, 15:00, 18:00 and 21:00.", it: "Le cup aprono alle 12:00, 15:00, 18:00 e 21:00.", ja: "大会は12:00、15:00、18:00、21:00に開始します。"}
-lobby.cup_opens: {en: "Entries open at about %{time}. Insert your card before then and choose the Universal Cup in the game as soon as it can be selected; entries close about a minute and a half later.", it: "Le iscrizioni aprono verso le %{time}. Inserisci la carta prima di quell'ora e scegli la Universal Cup nel gioco appena è selezionabile; le iscrizioni chiudono circa un minuto e mezzo dopo.", ja: "%{time}ごろエントリー開始。それまでにカードを入れ、ゲームでユニバーサルカップが選べるようになったらすぐに選んでください。エントリーは約1分30秒後に締め切られます。"}
+lobby.cup_opens: {en: "Entries open at about %{time}. Insert your card before then and choose the Universal Cup in the game as soon as it can be selected; entries close about a minute and a half later.", it: "Le iscrizioni aprono verso le %{time}. Inserisci la carta prima di quell'ora e scegli la Universal Cup nel gioco appena è selezionabile; le iscrizioni chiudono circa un minuto e mezzo dopo.", ja: "%{time} ごろエントリー開始。それまでにカードを入れ、ゲームでユニバーサルカップが選べるようになったらすぐに選んでください。エントリーは約 1 分 30 秒後に締め切られます。"}
 lobby.cup_night: {en: "The cup and its championship must end before 05:00.", it: "La cup e il suo campionato devono finire prima delle 05:00.", ja: "大会と選手権は5:00までに終了する必要があります。"}
-lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m}分以上先にしてください。"}
-lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m}分以内にしてください。"}
+lobby.cup_too_soon: {en: "Too soon: the cup needs at least %{m} min.", it: "Troppo presto: servono almeno %{m} min.", ja: "早すぎます。%{m} 分以上先にしてください。"}
+lobby.cup_too_far: {en: "Too far ahead: at most %{m} min from now.", it: "Troppo lontano: al massimo tra %{m} min.", ja: "先すぎます。%{m} 分以内にしてください。"}
 lobby.cup_restart: {en: "Set when the arcade opens. To change it, close the arcade and host again.", it: "Si sceglie all'apertura della sala. Per cambiarlo, chiudi la sala e riaprila.", ja: "ゲームセンターを開くときに決まります。変更するには、閉じてから開き直してください。"}
 lobby.cup_off_local: {en: "No Universal Cup: normal play.", it: "Nessuna Universal Cup: gioco normale.", ja: "ユニバーサルカップなし：通常プレイ。"}
-lobby.cup_local: {en: "Your club and 7 CPU teams. To change the time, or if you missed the entries, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Per cambiare orario, o se hai perso le iscrizioni, ferma il gioco e riavvialo.", ja: "あなたのクラブとCPU 7チーム。時間を変えるときやエントリーに間に合わなかったときは、ゲームを終了して再度プレイしてください。"}
+lobby.cup_local: {en: "Your club and 7 CPU teams. To change the time, or if you missed the entries, stop the game and play again.", it: "Il tuo club e 7 squadre CPU. Per cambiare orario, o se hai perso le iscrizioni, ferma il gioco e riavvialo.", ja: "あなたのクラブと CPU 7 チーム。時間を変えるときやエントリーに間に合わなかったときは、ゲームを終了して再度プレイしてください。"}
 
 # ---- pause (the panel holds the match, at most 20 s) ----
 pause.button: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
