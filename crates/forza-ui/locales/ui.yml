@@ -447,7 +447,7 @@ keys.defaults: {en: "Reset keys", it: "Ripristina tasti", ja: "キーを初期�
 settings.now: {en: "NOW", it: "ADESSO", ja: "現在"}
 settings.server: {en: "Server", it: "Server", ja: "サーバー"}
 settings.session: {en: "Club card session", it: "Sessione tessera club", ja: "クラブカードのセッション"}
-settings.bad_endings: {en: "Bad endings", it: "Chiusure anomale", ja: "異常終了"}
+settings.bad_endings: {en: "Bad endings (trade rights are lost at 2)", it: "Chiusure anomale (diritti di scambio persi a 2)", ja: "異常終了（2 回でトレード権を失います）"}
 settings.last_saved: {en: "Last saved", it: "Ultimo salvataggio", ja: "最終保存"}
 settings.backup: {en: "Latest backup", it: "Ultimo backup", ja: "最新のバックアップ"}
 settings.version: {en: "Version", it: "Versione", ja: "バージョン"}
@@ -458,7 +458,7 @@ settings.view: {en: "VIEW", it: "VISTA", ja: "表示"}
 settings.layout: {en: "LAYOUT", it: "DISPOSIZIONE", ja: "レイアウト"}
 settings.cabinet: {en: "CABINET", it: "CABINATO", ja: "筐体"}
 settings.compact: {en: "COMPACT", it: "COMPATTA", ja: "コンパクト"}
-settings.hover: {en: "CARD HOVER DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
+settings.hover: {en: "CARD PREVIEW DELAY", it: "RITARDO ANTEPRIMA CARTA", ja: "カード拡大までの時間"}
 settings.hover_off: {en: "OFF", it: "NO", ja: "なし"}
 settings.logs: {en: "LOGS", it: "LOG", ja: "ログ"}
 settings.graphics: {en: "GRAPHICS", it: "GRAFICA", ja: "グラフィック"}
@@ -472,11 +472,11 @@ settings.unknown: {en: "Unknown", it: "Sconosciuto", ja: "不明"}
 settings.card_open: {en: "In use: do not close the game", it: "In uso: non chiudere il gioco", ja: "使用中：ゲームを閉じないでください"}
 settings.card_closed: {en: "Closed: safe to close the game", it: "Chiusa: puoi chiudere il gioco", ja: "終了済み：ゲームを閉じて大丈夫です"}
 settings.card_cut: {en: "Last session cut short", it: "Ultima sessione interrotta", ja: "前回は途中終了"}
-settings.card_new: {en: "New card", it: "Carta nuova", ja: "新しいカード"}
-settings.card_unreadable: {en: "Card unreadable", it: "Carta illeggibile", ja: "カードを読めません"}
+settings.card_new: {en: "New club card", it: "Nuova tessera club", ja: "新しいクラブカード"}
+settings.card_unreadable: {en: "Club card unreadable", it: "Tessera club illeggibile", ja: "クラブカードを読めません"}
 settings.card_none: {en: "No club card yet", it: "Nessuna carta club", ja: "クラブカードなし"}
 settings.bad_one: {en: "1 of 2", it: "1 su 2", ja: "2 回中 1 回"}
-settings.bad_many: {en: "%{n}", it: "%{n}", ja: "%{n}"}
+settings.bad_many: {en: "%{n} of 2", it: "%{n} su 2", ja: "2 回中 %{n} 回"}
 settings.never: {en: "Never", it: "Mai", ja: "なし"}
 settings.no_backup: {en: "None yet", it: "Ancora nessuno", ja: "まだありません"}
 settings.backups: {en: "%{t} (%{n} kept)", it: "%{t} (%{n} conservati)", ja: "%{t}（%{n} 件保存）"}
@@ -491,12 +491,12 @@ settings.board_here: {en: "WITH THE GAME", it: "CON IL GIOCO", ja: "ゲームと
 settings.board_window: {en: "OWN WINDOW", it: "IN FINESTRA", ja: "別ウィンドウ"}
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
-settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "ボードのウィンドウにもボタン"}
+settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "フォーメーションのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della formazione in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
 settings.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. If it does not appear now, it appears the next time you play.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Se non compare subito, compare la prossima volta che giochi.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。すぐに表示されない場合は、次回のプレイから表示されます。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
-settings.pad_bg_seats: {en: "The setting turns off while 2 or more seats run on this PC, because all controllers count as one.", it: "L'impostazione si disattiva mentre su questo PC girano 2 o più posti: i controller contano come uno solo.", ja: "このPCで2席以上を動かしている間は無効になります。コントローラーが1台として扱われるためです。"}
+settings.pad_bg_seats: {en: "The setting turns off while 2 or more seats run on this PC, because all controllers count as one.", it: "L'impostazione si disattiva mentre su questo PC girano 2 o più posti: i controller contano come uno solo.", ja: "このPCで 2 席以上を動かしている間は無効になります。コントローラーが 1 台として扱われるためです。"}
 settings.textures: {en: "Texture filtering", it: "Filtro texture", ja: "テクスチャフィルタ"}
 settings.textures_game: {en: "Game", it: "Gioco", ja: "ゲーム"}
 settings.fps: {en: "FPS counter", it: "Contatore FPS", ja: "FPSカウンター"}
@@ -511,7 +511,7 @@ settings.msg_restart_armed: {en: "Click again to restart", it: "Clicca ancora pe
 settings.msg_restart_asked: {en: "Already restarting", it: "Riavvio già in corso", ja: "すでに再起動中です"}
 settings.msg_restarting: {en: "Restarting, about a minute...", it: "Riavvio, circa un minuto...", ja: "再起動中（約1分）..."}
 settings.msg_restart_failed: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
-settings.msg_no_helper: {en: "Restart failed. Close the game and start it again.", it: "Riavvio non riuscito. Chiudi il gioco e riavvialo.", ja: "再起動に失敗。ゲームを閉じて起動し直してください。"}
+settings.msg_no_helper: {en: "Restart failed: the Launcher did not answer. Close the game and start it again from Launcher.exe.", it: "Riavvio non riuscito: il Launcher non ha risposto. Chiudi il gioco e avvialo di nuovo da Launcher.exe.", ja: "再起動できませんでした。Launcher が応答しません。ゲームを閉じて、Launcher.exe から起動し直してください。"}
 settings.msg_logs_failed: {en: "Could not reach the Launcher. Try again.", it: "Impossibile contattare il Launcher. Riprova.", ja: "Launcher に接続できませんでした。もう一度お試しください。"}
 settings.msg_saving: {en: "Saving logs…", it: "Salvataggio dei log…", ja: "ログを保存中…"}
 settings.msg_not_saved: {en: "Could not save the settings. Try again.", it: "Impossibile salvare le impostazioni. Riprova.", ja: "設定を保存できませんでした。もう一度お試しください。"}
