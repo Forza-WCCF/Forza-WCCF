@@ -1353,6 +1353,23 @@ const FOLDER_OWNERS: &[(&str, &[&str])] = &[
     ("editions/2017-18", &["forza", "forza-panel", "xtask"]),
 ];
 
+/// A file more than one crate compiles, in the folder of the package that happens to hold it: its readers, by name.
+/// `crates/launcher/version_rc.rs` is the launcher's and the other eight crates' build scripts' (`#[path]`).
+const SHARED_FILES: &[(&str, &[&str])] = &[(
+    "crates/launcher/version_rc.rs",
+    &[
+        "launcher",
+        "wccf-installer",
+        "forza-panel",
+        "forza-server",
+        "forza-hook",
+        "forza-detmath",
+        "forza-icmp",
+        "forza-programs",
+        "forza-wccfnet",
+    ],
+)];
+
 /// [`changed_packages`] over `info`: (name, dir relative to the root, names of path dependencies) per package.
 fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option<BTreeSet<String>> {
     // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
@@ -1382,6 +1399,16 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
                         .map(|o| (*o).to_owned()),
                 ),
             }
+            continue;
+        }
+        // a file more than one crate compiles: its readers, plus their dependents below
+        if let Some((_, readers)) = SHARED_FILES.iter().find(|(p, _)| f == *p) {
+            hit.extend(
+                readers
+                    .iter()
+                    .filter(|o| info.iter().any(|(n, _, _)| n == *o))
+                    .map(|o| (*o).to_owned()),
+            );
             continue;
         }
         // the locked crates, the toolchain and its config: any crate can differ
@@ -2339,6 +2366,8 @@ fn installer_work(files: Option<&str>, everything: bool) -> InstallerWork {
             || f.eq_ignore_ascii_case(LICENSES);
         work.smoke |= [
             "crates/installer/",
+            // the version string the smoke asserts
+            "crates/launcher/version_rc.rs",
             "xtask/",
             "assets/fonts/",
             "assets/logo/",
@@ -3313,6 +3342,7 @@ mod tests {
         // the exe: its crate and build script, the packaging code, the files it embeds
         for f in [
             "crates/installer/src/main.rs\n",
+            "crates/launcher/version_rc.rs\n",
             "xtask/src/main.rs\n",
             "assets/fonts/Hack-Regular.ttf\n",
             "assets/logo/forza-wccf.ico\n",
@@ -3385,6 +3415,31 @@ mod tests {
         // a folder with no row yet keeps the old answer: everything
         assert_eq!(affected(info(), "assets/new-shared/logo.png\n"), None);
         assert_eq!(affected(info(), "editions/next-edition/README.txt\n"), None);
+    }
+
+    #[test]
+    fn the_version_file_is_the_change_of_every_crate_that_compiles_it() {
+        let names = [
+            "launcher",
+            "wccf-installer",
+            "forza-panel",
+            "forza-server",
+            "forza-hook",
+            "forza-detmath",
+            "forza-icmp",
+            "forza-programs",
+            "forza-wccfnet",
+        ];
+        // the row answers before any folder does: these are the packages' names, not their folders
+        let info = names
+            .iter()
+            .map(|n| ((*n).to_owned(), format!("crates/{n}"), vec![]))
+            .collect();
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        assert_eq!(
+            affected(info, "crates/launcher/version_rc.rs\n").unwrap(),
+            set(&names)
+        );
     }
 
     #[test]
