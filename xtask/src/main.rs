@@ -1532,8 +1532,9 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     // the installer's notices and smoke run only when the files they read changed, not for any crate it depends on,
     // and both when the whole workspace is in scope (`pkgs` is `None`: the lock, the toolchain or the root manifest)
     let installer = installer_work(files.as_deref(), pkgs.is_none());
-    // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
-    let needs_kit = kit_needed(has);
+    // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit,
+    // and the installer's smoke the exe it builds there
+    let needs_kit = kit_needed(has) || installer.smoke;
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1603,7 +1604,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     if has("launcher") {
         launcher_imports(&mut ck, kit_1718);
     }
-    if has(INSTALLER) && installer.any() {
+    if installer.any() {
         installer_checks(root, stage_root, installer, &mut ck.failed);
     }
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
@@ -3339,11 +3340,10 @@ mod tests {
         assert_eq!(work("Cargo.lock\n"), licenses);
         // the bundle the notices check reads: its folder smokes, and a change to the bundle itself runs the check
         assert_eq!(work(&format!("{LICENSES}\n")), both);
-        // the exe: its crate and build script, the packaging code, the files it embeds
+        // the exe: its crate and build script, the version file, the files it embeds
         for f in [
             "crates/installer/src/main.rs\n",
             "crates/launcher/version_rc.rs\n",
-            "xtask/src/main.rs\n",
             "assets/fonts/Hack-Regular.ttf\n",
             "assets/logo/forza-wccf.ico\n",
         ] {
@@ -3359,6 +3359,19 @@ mod tests {
             }
         );
         assert!(!depends.any());
+    }
+
+    #[test]
+    fn an_xtask_change_smokes_the_installer_it_builds() {
+        // xtask is the packaging code that builds the exe, not a crate of its: `quick` runs the smoke for this file
+        // alone (`if installer.any()`, without asking the crate scope) and builds the exe for it (`needs_kit`)
+        assert_eq!(
+            installer_work(Some("xtask/src/main.rs\n"), false),
+            InstallerWork {
+                licenses: false,
+                smoke: true
+            }
+        );
     }
 
     #[test]
