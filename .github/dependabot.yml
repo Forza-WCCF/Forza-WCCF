@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # a fresh release waits a week before an update PR opens (a stolen or broken release is caught by then)
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -11,6 +14,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       # the network stack (online VS, relay.wccf.it) gets its own PR
