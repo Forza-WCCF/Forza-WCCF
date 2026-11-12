@@ -107,6 +107,10 @@ enum Task {
 }
 
 const QUICK_BASE: &str = "main";
+/// Whether the version a build stamps carries the commit id: the package and tag builds' (a ZIP from between tags names
+/// the commit it came from), not an ordinary build's, which then keeps one version string between commits instead of
+/// relinking every program with it (SCCACHE-PLAN step 3).
+static STAMP_SHA: AtomicBool = AtomicBool::new(false);
 /// Set with a wrapper (sccache): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace
 /// crates across worktrees.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
@@ -646,18 +650,23 @@ fn main() -> Result<()> {
             "2017-18" => stage(&root, &kit_1718, ED_1718.map, ED_1718.keep),
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
         },
-        Task::Package { edition, name } => match edition.as_str() {
-            "installer" => package_installer(&root, name),
-            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, true) => Err(e),
-            "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
-            "2017-18" => package(
-                &root,
-                &kit_1718,
-                &name.unwrap_or_else(|| format!("{TOP_1718}-{}", version(&root))),
-                false,
-            ),
-            _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
-        },
+        Task::Package { edition, name } => {
+            STAMP_SHA.store(true, Ordering::Relaxed);
+            match edition.as_str() {
+                "installer" => package_installer(&root, name),
+                "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, true) => {
+                    Err(e)
+                }
+                "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
+                "2017-18" => package(
+                    &root,
+                    &kit_1718,
+                    &name.unwrap_or_else(|| format!("{TOP_1718}-{}", build_version(&root))),
+                    false,
+                ),
+                _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
+            }
+        }
     }
 }
 
@@ -675,7 +684,7 @@ fn rust(sub: &str, root: &Path) -> Command {
     if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
-    c.env("FORZA_VERSION", version(root));
+    c.env("FORZA_VERSION", build_version(root));
     // the `fast` profile stays incremental: sccache serves the dependencies either way (cargo never compiles those
     // incrementally), and an incremental rebuild of the changed workspace crate beats a whole one (measured)
     if NO_INCREMENTAL.load(Ordering::Relaxed) && profile() != "fast" {
@@ -899,9 +908,26 @@ fn dos_time(secs: i64) -> Result<zip::DateTime> {
     .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
 }
 
-/// The release number this build carries: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
+/// The release number a build stamps: [`version`] in package and tag builds (the ZIP names the commit it came from),
+/// and without the commit id otherwise, so an ordinary build keeps one version string between commits: the build
+/// scripts rerun on `FORZA_VERSION`, and every program showing the version would otherwise relink with each commit.
+fn build_version(root: &Path) -> &'static str {
+    static DEV: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let v = version(root);
+    if STAMP_SHA.load(Ordering::Relaxed) {
+        return v;
+    }
+    DEV.get_or_init(|| {
+        v.split_once("-dev+")
+            .map_or_else(|| v.to_owned(), |(next, _)| format!("{next}-dev"))
+    })
+    .as_str()
+}
+
+/// The release number from git: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
 /// (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run. A `FORZA_VERSION` already in
 /// the environment wins over git (a release candidate built before its tag, release.yml); else `git describe`.
+/// [`build_version`] is what a build stamps.
 fn version(root: &Path) -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     V.get_or_init(|| {
@@ -1303,7 +1329,13 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
 const FOLDER_OWNERS: &[(&str, &[&str])] = &[
     (
         "assets/fonts",
-        &["forza", "forza-ui", "forza-panel", "wccf-installer", "xtask"],
+        &[
+            "forza",
+            "forza-ui",
+            "forza-panel",
+            "wccf-installer",
+            "xtask",
+        ],
     ),
     (
         "assets/logo",
@@ -1352,7 +1384,7 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
             }
             continue;
         }
-        // its own crate: an xtask change runs xtask's tests and lints, not the workspace's
+        // the locked crates, the toolchain and its config: any crate can differ
         if f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
@@ -2252,18 +2284,16 @@ fn installer_exe(root: &Path, profile: &str) -> PathBuf {
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
 /// of the release build. `work` says which of the two a change can break.
-fn installer_checks(
-    root: &Path,
-    stage_root: &Path,
-    work: InstallerWork,
-    failed: &mut Vec<String>,
-) {
+fn installer_checks(root: &Path, stage_root: &Path, work: InstallerWork, failed: &mut Vec<String>) {
     for (what, r) in [
         (
             "installer licenses",
             work.licenses.then(|| check_licenses(root)),
         ),
-        ("installer smoke", work.smoke.then(|| smoke(root, stage_root))),
+        (
+            "installer smoke",
+            work.smoke.then(|| smoke(root, stage_root)),
+        ),
     ] {
         if let Some(Err(e)) = r {
             eprintln!("{what}: {e:#}");
@@ -2303,9 +2333,14 @@ fn installer_work(files: Option<&str>) -> InstallerWork {
     };
     for f in files.lines().map(str::to_lowercase) {
         work.licenses |= f == "cargo.lock" || f == "crates/installer/cargo.toml";
-        work.smoke |= ["crates/installer/", "xtask/", "assets/fonts/", "assets/logo/"]
-            .iter()
-            .any(|p| f.starts_with(p));
+        work.smoke |= [
+            "crates/installer/",
+            "xtask/",
+            "assets/fonts/",
+            "assets/logo/",
+        ]
+        .iter()
+        .any(|p| f.starts_with(p));
     }
     work
 }
@@ -2402,8 +2437,13 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
             && !help.contains("Revival"),
         "Wrong branding or edition help."
     );
+    // the exe may be a package build from an earlier run (stamped with the commit id) or this one's
+    let got = run(&[p("--version")], 0)?;
+    let want = |v: &str| format!("Forza-WCCF Installer {v}");
     ensure!(
-        run(&[p("--version")], 0)?.trim() == format!("Forza-WCCF Installer {}", version(root)),
+        [version(root), build_version(root)]
+            .iter()
+            .any(|v| got.trim() == want(v)),
         "Wrong release version/branding."
     );
     run(&[p("--dest")], 1)?;
@@ -2494,7 +2534,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         exe.display()
     );
     let name =
-        name.unwrap_or_else(|| format!("Forza-WCCF-Installer-{}-windows-x64", version(root)));
+        name.unwrap_or_else(|| format!("Forza-WCCF-Installer-{}-windows-x64", build_version(root)));
     let dist = root.join("dist");
     fs::create_dir_all(&dist)?;
     // explicit payload: never archive the repository, media, kit, saves or target tree
@@ -2711,7 +2751,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
 
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
     // what the old kit's list has and the new one's does not
-    let version = version(root);
+    let version = build_version(root);
     fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     if !is_1011 {
         let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
@@ -3075,6 +3115,18 @@ mod tests {
     }
 
     #[test]
+    fn a_build_that_ships_no_zip_keeps_the_commit_out_of_its_version() {
+        // `STAMP_SHA` is off for every task but `package`: an ordinary build's version must not move with each commit,
+        // or cargo relinks Launcher, the panel and the installer after every one
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        assert!(
+            !build_version(root).contains("-dev+"),
+            "{}",
+            build_version(root)
+        );
+    }
+
+    #[test]
     fn a_forza_version_in_the_environment_wins_and_junk_is_refused() {
         assert_eq!(version_override(None).unwrap(), None);
         assert_eq!(version_override(Some(" ")).unwrap(), None);
@@ -3272,7 +3324,11 @@ mod tests {
                 ("forza-ui", "crates/ui", &["forza"][..]),
                 ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
                 ("forza-panel", "crates/panel", &["forza"][..]),
-                ("wccf-installer", "crates/installer", &["forza", "forza-ui"][..]),
+                (
+                    "wccf-installer",
+                    "crates/installer",
+                    &["forza", "forza-ui"][..],
+                ),
                 ("xtask", "xtask", &[][..]),
             ]
             .map(|(n, d, deps)| {
@@ -3302,7 +3358,14 @@ mod tests {
         // the sheets: forza's text tests and the panel's embedded English text
         assert_eq!(
             affected(info(), "editions/2017-18/english/exe_text.tsv\n").unwrap(),
-            set(&["forza", "forza-ui", "launcher", "forza-panel", "wccf-installer", "xtask"])
+            set(&[
+                "forza",
+                "forza-ui",
+                "launcher",
+                "forza-panel",
+                "wccf-installer",
+                "xtask"
+            ])
         );
         // a folder with no row yet keeps the old answer: everything
         assert_eq!(affected(info(), "assets/new-shared/logo.png\n"), None);
@@ -3347,12 +3410,12 @@ mod tests {
         };
         // the scope `quick` hands each target is `target_scopes`' `-p` set of the changed crates, never the workspace
         let scope = ["-p", "forza", "-p", "launcher"].map(String::from);
-        let lint = line(clippy(Path::new("C:/repo"), TARGET, &scope));
+        let args = line(clippy(Path::new("C:/repo"), TARGET, &scope));
         assert!(
-            lint.contains("--locked --all-targets --target x86_64-pc-windows-msvc -p forza -p launcher -- -D warnings"),
-            "{lint}"
+            args.contains("--locked --all-targets --target x86_64-pc-windows-msvc -p forza -p launcher -- -D warnings"),
+            "{args}"
         );
-        assert!(!lint.contains("--workspace"), "{lint}");
+        assert!(!args.contains("--workspace"), "{args}");
     }
 
     #[test]
