@@ -11,12 +11,14 @@ const REV: u32 = 47565;
 /// store (slow on a loaded runner: 5 s timed out on CI). A connect is not readiness; give the first reply time.
 const READ: Duration = Duration::from_secs(30);
 
-struct Server(Child);
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
+/// The server process; the guard kills and reaps it when the test ends.
+type Server = core::mem::DropGuard<Child, fn(Child)>;
+
+fn server(child: Child) -> Server {
+    core::mem::DropGuard::new(child, |mut c: Child| {
+        let _ = c.kill();
+        let _ = c.wait();
+    })
 }
 
 fn le(b: &mut [u8], at: usize, v: u32) {
@@ -50,7 +52,7 @@ fn start_with(dir: &std::path::Path, extra: &[&str]) -> (Server, TcpStream) {
         .stdout(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    let srv = Server(child);
+    let srv = server(child);
     let t = Instant::now();
     loop {
         match TcpStream::connect(("127.0.0.1", port)) {
@@ -238,7 +240,7 @@ fn all_pairs_a_lobby_room_on_the_game_server() {
         .stdout(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    let _srv = Server(child);
+    let _srv = server(child);
     std::fs::create_dir_all(dir.join("logs")).unwrap();
     let t = Instant::now();
     let mut c = loop {
@@ -360,7 +362,7 @@ fn all_takes_a_players_club_without_a_seat() {
         .stdout(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    let _srv = Server(child);
+    let _srv = server(child);
     std::fs::create_dir_all(dir.join("logs")).unwrap();
     let t = Instant::now();
     let mut c = loop {

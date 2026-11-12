@@ -146,7 +146,7 @@ pub fn same_form(path: &Path) -> String {
     // canonicalize answers in the \\?\ form; Python's realpath and Windows' process paths do not
     let text = match text.strip_prefix(r"\\?\UNC\") {
         Some(unc) => format!(r"\\{unc}"),
-        None => text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned(),
+        None => text.trim_prefix(r"\\?\").to_owned(),
     };
     normcase(Path::new(&text))
 }

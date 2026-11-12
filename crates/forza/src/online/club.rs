@@ -877,7 +877,7 @@ fn ask(desk: SocketAddr, head: &str, body: &[u8]) -> Result<(String, Vec<u8>), S
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         ["OK", n, ..] if n.parse() == Ok(rest.len()) => Ok((line, rest)),
         ["SAME"] => Ok((line, rest)),
-        _ => Err(line.strip_prefix("NO ").unwrap_or(&line).to_owned()),
+        _ => Err(line.trim_prefix("NO ").to_owned()),
     }
 }
 

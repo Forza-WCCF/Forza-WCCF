@@ -63,7 +63,7 @@ fn releases(json: &str, edition: &str) -> Result<Vec<Release>, String> {
         .filter_map(|r| {
             let tag = r["tag_name"].as_str()?;
             launcher::release::parse(tag)?;
-            let name = format!("Forza-WCCF-{edition}-{}.zip", tag.strip_prefix('v').unwrap_or(tag));
+            let name = format!("Forza-WCCF-{edition}-{}.zip", tag.trim_prefix('v'));
             let assets = r["assets"].as_array()?;
             let find = |n: &str| assets.iter().find(|a| a["name"].as_str() == Some(n));
             let asset = find(&name)?;

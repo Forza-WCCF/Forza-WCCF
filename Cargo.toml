@@ -10,7 +10,7 @@ default-members = ["crates/*"]
 # logowin.exe) rebuilds byte-identical (docs/RELEASING.md)
 version = "0.6.1"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 publish = false
 license = "MIT OR Apache-2.0"
 

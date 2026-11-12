@@ -297,7 +297,7 @@ fn beat(server: &str, ticket: &str, every: Duration, gone: impl FnOnce() + Send 
             }
         }
     });
-    Beat(stop)
+    core::mem::DropGuard::new(stop, |s: Arc<AtomicBool>| s.store(true, Ordering::Relaxed))
 }
 
 /// The key whose id a guest tells its arcade room (`SHOP t own`) and dials the host with (data\shop_join.key).
@@ -618,13 +618,7 @@ impl Drop for HostRoom {
 }
 
 /// The heartbeat thread's handle; dropping it ends the beats (the lease then lapses by itself).
-pub struct Beat(Arc<AtomicBool>);
-
-impl Drop for Beat {
-    fn drop(&mut self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-}
+pub type Beat = core::mem::DropGuard<Arc<AtomicBool>, fn(Arc<AtomicBool>)>;
 
 /// TCP connect time in ms, or `None` when nothing answers.
 fn ping(a: SocketAddr) -> Option<u32> {

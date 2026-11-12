@@ -645,18 +645,11 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
     })
 }
 
-/// The run is over: [`CUP_STARTED`] is cleared, so the PLAY tab previews the choice again.
-struct ForgetCup;
-
-impl Drop for ForgetCup {
-    fn drop(&mut self) {
-        remember_cup(None);
-    }
-}
-
 /// Starts and supervises; a full RESTART NOW starts again with what a plain start chooses.
 pub fn play(kit: &Kit, p: &Params, mode: Option<Mode>, debug: bool, ui: &dyn Ui) -> i32 {
-    let _forget = ForgetCup; // every way out: the run it remembers has ended
+    // every way out: the run it remembers has ended (CUP_STARTED cleared), so the PLAY tab previews the
+    // choice again
+    let _forget = core::mem::DropGuard::new((), |()| remember_cup(None));
     let mut mode = mode;
     loop {
         let m = mode.take().unwrap_or_else(|| plain_mode(kit, p, ui));
