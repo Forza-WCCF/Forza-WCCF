@@ -2334,7 +2334,9 @@ fn installer_work(files: Option<&str>, everything: bool) -> InstallerWork {
         smoke: false,
     };
     for f in files.lines().map(str::to_lowercase) {
-        work.licenses |= f == "cargo.lock" || f == "crates/installer/cargo.toml";
+        work.licenses |= f == "cargo.lock"
+            || f == "crates/installer/cargo.toml"
+            || f.eq_ignore_ascii_case(LICENSES);
         work.smoke |= [
             "crates/installer/",
             "xtask/",
@@ -3306,6 +3308,8 @@ mod tests {
         // the tree the notices cover: the lock, or the manifest (which makes the exe too)
         assert_eq!(work("crates/installer/Cargo.toml\n"), both);
         assert_eq!(work("Cargo.lock\n"), licenses);
+        // the bundle the notices check reads: its folder smokes, and a change to the bundle itself runs the check
+        assert_eq!(work(&format!("{LICENSES}\n")), both);
         // the exe: its crate and build script, the packaging code, the files it embeds
         for f in [
             "crates/installer/src/main.rs\n",
