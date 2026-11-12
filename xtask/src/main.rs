@@ -3310,6 +3310,34 @@ mod tests {
     }
 
     #[test]
+    fn the_lock_the_toolchain_and_the_root_manifest_check_everything() {
+        let info = || {
+            let rows: [(&str, &str, &[&str]); 2] =
+                [("forza", "crates/forza", &[]), ("xtask", "xtask", &[])];
+            rows.map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        // the locked crates, the toolchain and its config, and the root manifest: every crate can differ
+        for f in [
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            ".cargo/config.toml",
+            "Cargo.toml",
+        ] {
+            assert_eq!(affected(info(), &format!("{f}\n")), None, "{f}");
+        }
+        // a crate's own manifest is that crate's change
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        assert_eq!(
+            affected(info(), "crates/forza/Cargo.toml\n"),
+            Some(set(&["forza"]))
+        );
+    }
+
+    #[test]
     fn quick_lints_the_changed_crates_and_their_dependents() {
         let line = |c: Command| {
             c.get_args()
