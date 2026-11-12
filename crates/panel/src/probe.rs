@@ -285,7 +285,7 @@ fn sampler() {
             .into_iter()
             // SAFETY: a module-list lookup on a NUL-terminated literal
             .filter(|m| unsafe { GetModuleHandleA(PCSTR(m.as_ptr())) }.is_ok())
-            .map(|m| String::from_utf8_lossy(m.strip_suffix(b"\0").unwrap_or(m)).into_owned())
+            .map(|m| String::from_utf8_lossy(m.trim_suffix(b"\0")).into_owned())
             .collect();
             say(&format!(
                 "sofdec: first movie; audio modules loaded: {loaded:?}"

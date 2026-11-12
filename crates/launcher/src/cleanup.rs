@@ -76,7 +76,7 @@ pub fn clean(
         let dir = backup_dir(data, stamp)?;
         copy_save(&data.join("save"), &dir.join("save"))?;
         for f in &files {
-            let rel = f.strip_prefix(data).unwrap_or(f);
+            let rel = f.trim_prefix(data);
             let to = dir.join(rel);
             if let Some(up) = to.parent() {
                 fs::create_dir_all(up)?;

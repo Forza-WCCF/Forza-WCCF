@@ -303,7 +303,7 @@ fn old_runtime(name: &str) -> bool {
 fn without_runtime_lines(text: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     for line in text.split_inclusive(|&b| b == b'\n') {
-        let body = line.strip_suffix(b"\n").unwrap_or(line);
+        let body = line.trim_suffix(b"\n");
         let keyed = [
             "CONTROL_IP=",
             "MATCH_IP=",

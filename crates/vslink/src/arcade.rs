@@ -266,20 +266,14 @@ impl Flows {
     }
 }
 
-/// Counts what is open while it lives (a flow's socket, a stream): one up at `new`, one down at drop.
-struct Live(Arc<AtomicUsize>);
-
-impl Live {
-    fn new(n: &Arc<AtomicUsize>) -> Self {
-        n.fetch_add(1, Ordering::Relaxed);
-        Live(n.clone())
-    }
-}
-
-impl Drop for Live {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
-    }
+/// Counts what is open while the guard lives (a flow's socket, a stream): one up here, one down at drop.
+fn live_guard(
+    n: &Arc<AtomicUsize>,
+) -> core::mem::DropGuard<Arc<AtomicUsize>, fn(Arc<AtomicUsize>)> {
+    n.fetch_add(1, Ordering::Relaxed);
+    core::mem::DropGuard::new(n.clone(), |n| {
+        n.fetch_sub(1, Ordering::Relaxed);
+    })
 }
 
 /// Join: whether the link went down over a bad flow stream: the host's [`CLOSE_BAD_FLOWS`], or this side's own close
@@ -679,7 +673,7 @@ async fn splice<QR, QW>(
     QR: AsyncRead + Unpin,
     QW: AsyncWrite + Unpin,
 {
-    let _live = Live::new(&sh.streams);
+    let _live = live_guard(&sh.streams);
     let (tr, tw) = tcp.into_split();
     let (out, inn) = match packed {
         true => (Codec::Pack, Codec::Unpack),
@@ -922,7 +916,7 @@ impl Sh {
                 let (sock, tx, live, conn, sh) = (
                     s.clone(),
                     out.clone(),
-                    Live::new(&self.flows),
+                    live_guard(&self.flows),
                     conn.clone(),
                     self.clone(),
                 );

@@ -274,20 +274,6 @@ fn settle(st: &mut State) {
     }
 }
 
-/// While the hold runs: on every way out, unwinding included, the game gets its input back and the PAUSED page goes.
-struct Holding;
-
-impl Drop for Holding {
-    fn drop(&mut self) {
-        HELD.store(false, Relaxed);
-        if let Ok(mut r) = RENDER.lock()
-            && let Some(r) = r.as_mut()
-        {
-            r.st.paused = None;
-        }
-    }
-}
-
 /// The pause key or button, acted on at the game's Present (the game's thread, before its frame is shown): a pause
 /// asked for is checked, then held here until it ends.
 pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
@@ -386,7 +372,15 @@ pub fn present(dev: &IDirect3DDevice9, wnd: HWND) {
         "pause: on (arcade state {arcade:?}; Stop {stop}; sound {sound}; {} ms to set up)",
         begun.elapsed().as_millis()
     ));
-    let holding = Holding;
+    // every way out, unwinding included: the game gets its input back and the PAUSED page goes
+    let holding = core::mem::DropGuard::new((), |()| {
+        HELD.store(false, Relaxed);
+        if let Ok(mut r) = RENDER.lock()
+            && let Some(r) = r.as_mut()
+        {
+            r.st.paused = None;
+        }
+    });
     HELD.store(true, Relaxed);
     let (why, frames) = hold(
         dev,

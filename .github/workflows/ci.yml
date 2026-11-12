@@ -186,7 +186,7 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       # the build no longer pins the CRT and SDK as xwin did: the log records them
-      - name: toolchain (rust-toolchain.toml installs 1.99.0 and both targets)
+      - name: toolchain (rust-toolchain.toml installs 1.100.0 and both targets)
         shell: bash
         run: |
           rustup show

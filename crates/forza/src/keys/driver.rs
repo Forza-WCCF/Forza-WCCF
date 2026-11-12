@@ -222,7 +222,7 @@ fn parse_int0(s: &str) -> Option<i128> {
     };
     // one underscore between digits (and right after a base prefix)
     let body = if prefixed {
-        digits.strip_prefix('_').unwrap_or(&digits)
+        digits.trim_prefix('_')
     } else {
         &digits
     };

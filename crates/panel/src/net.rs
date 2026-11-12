@@ -174,7 +174,7 @@ fn atoi(s: &str) -> i32 {
     let s = s.trim_start();
     let (neg, s) = match s.strip_prefix('-') {
         Some(r) => (true, r),
-        None => (false, s.strip_prefix('+').unwrap_or(s)),
+        None => (false, s.trim_prefix('+')),
     };
     let n = s.bytes().take_while(u8::is_ascii_digit).fold(0i32, |a, b| {
         a.wrapping_mul(10).wrapping_add(i32::from(b - b'0'))
