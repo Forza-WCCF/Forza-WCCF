@@ -1170,8 +1170,11 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         return Err(NOT_GUARDED);
     }
     let early = [setup_done, t0.elapsed()];
-    if !kit.cache().join("catalogue.tsv").is_file() {
-        // the panel's card browser only: never a reason not to start
+    // the panel's card browser only: never a reason not to start.  A play folder an older kit set up (copied without
+    // overlay\catalogue.tsv) gets one made here, as SET UP makes it; the note says it is still missing.
+    if !kit.cache().join("catalogue.tsv").is_file()
+        && (edition != Edition::E1718 || crate::setup::catalogue_1718(kit.dir(), &game).is_err())
+    {
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
     }
     let kind = Kind::of(&mode);
