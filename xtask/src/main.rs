@@ -1296,6 +1296,31 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
     Ok(affected(info, files))
 }
 
+/// The crates that embed or read a folder the workspace shares: a file under one of them is their change, not the whole
+/// workspace's. `forza` and `forza-ui` read the fonts and the edition sheets in their tests, `forza-panel` embeds the
+/// panel's text, Launcher, the installer, the server and FPR_Emu embed the logo, and `xtask` stages the fonts and the
+/// editions and freezes `FPR_Emu.exe` on its icon.
+const FOLDER_OWNERS: &[(&str, &[&str])] = &[
+    (
+        "assets/fonts",
+        &["forza", "forza-ui", "forza-panel", "wccf-installer", "xtask"],
+    ),
+    (
+        "assets/logo",
+        &[
+            "forza-ui",
+            "launcher",
+            "wccf-installer",
+            "forza-server",
+            "forza-programs",
+            "xtask",
+        ],
+    ),
+    ("assets/panel", &["forza-ui"]),
+    ("editions/2010-11", &["forza", "xtask"]),
+    ("editions/2017-18", &["forza", "forza-panel", "xtask"]),
+];
+
 /// [`changed_packages`] over `info`: (name, dir relative to the root, names of path dependencies) per package.
 fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option<BTreeSet<String>> {
     // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
@@ -1309,16 +1334,26 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
     let mut hit = BTreeSet::new();
     for f in files.lines() {
         let f = f.to_lowercase(); // git prints the index's spelling, cargo the folder's
+        // a folder the crates share: its readers, plus their dependents below
+        if f.starts_with("assets/") || f.starts_with("editions/") {
+            let owner = FOLDER_OWNERS
+                .iter()
+                .filter(|(d, _)| f.starts_with(&format!("{d}/")))
+                .max_by_key(|(d, _)| d.len());
+            match owner {
+                // a folder no crate is mapped to: everything, safe until it has a row here
+                None => return None,
+                Some((_, owners)) => hit.extend(
+                    owners
+                        .iter()
+                        .filter(|o| info.iter().any(|(n, _, _)| n == *o))
+                        .map(|o| (*o).to_owned()),
+                ),
+            }
+            continue;
+        }
         let xtask = f == "xtask" || f.starts_with("xtask/");
-        // assets/ and editions/ are read by several crates' tests and embedded by the installer and Launcher
-        // shortcut: whole workspace for them; a map from folder to consumers would be finer, add it if quick gets slow
-        if xtask
-            || f == "cargo.lock"
-            || f == "rust-toolchain.toml"
-            || f.starts_with(".cargo/")
-            || f.starts_with("assets/")
-            || f.starts_with("editions/")
-        {
+        if xtask || f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
         // the owning package: the longest package dir that prefixes the file
@@ -3222,6 +3257,51 @@ mod tests {
             }
         );
         assert!(!depends.any());
+    }
+
+    #[test]
+    fn a_shared_folder_is_the_change_of_the_crates_that_read_it() {
+        let info = || {
+            [
+                ("forza", "crates/forza", &[][..]),
+                ("forza-ui", "crates/ui", &["forza"][..]),
+                ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
+                ("forza-panel", "crates/panel", &["forza"][..]),
+                ("wccf-installer", "crates/installer", &["forza", "forza-ui"][..]),
+                ("xtask", "xtask", &[][..]),
+            ]
+            .map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        // the fonts: forza's and forza-ui's tests, the panel's and the installer's, whose exe the smoke runs
+        assert_eq!(
+            affected(info(), "assets/fonts/Hack-Regular.ttf\n").unwrap(),
+            set(&[
+                "forza",
+                "forza-ui",
+                "launcher",
+                "forza-panel",
+                "wccf-installer",
+                "xtask"
+            ])
+        );
+        // the panel's art is forza-ui's alone
+        assert_eq!(
+            affected(info(), "assets/panel/shoot.png\n").unwrap(),
+            set(&["forza-ui", "launcher", "wccf-installer"])
+        );
+        // the sheets: forza's text tests and the panel's embedded English text
+        assert_eq!(
+            affected(info(), "editions/2017-18/english/exe_text.tsv\n").unwrap(),
+            set(&["forza", "forza-ui", "launcher", "forza-panel", "wccf-installer", "xtask"])
+        );
+        // a folder with no row yet keeps the old answer: everything
+        assert_eq!(affected(info(), "assets/new-shared/logo.png\n"), None);
+        assert_eq!(affected(info(), "editions/next-edition/README.txt\n"), None);
     }
 
     #[test]
