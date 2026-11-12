@@ -402,6 +402,28 @@ jobs:
         with:
           command: check advisories
 
+  # Workflow and Dependabot files: zizmor, against a tagged release (online audits included, so every pinned action's
+  # SHA is checked against the real tag). A finding fails the job; a finding kept on purpose is allowlisted in zizmor.yml
+  # with the reason. Runs on docs-only changes too, like lint: what it reads is not Rust.
+  zizmor:
+    name: zizmor
+    if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: 1.32.0
+          # no code scanning upload: the job's red is the gate
+          advanced-security: false
+          annotations: true
+          inputs: .
+          collect: all
+
   # One check to require in the ruleset: fails when any job failed or was cancelled; skipped jobs (docs-only changes) pass.
   ci-ok:
     name: ci-ok
@@ -409,7 +431,7 @@ jobs:
     # that pass would stay the latest `ci-ok` until the ready run queues its own (after build-test), so the draft would
     # read mergeable. Drafts cannot merge, so a red `ci-ok` blocks nothing.
     if: always()
-    needs: [changes, lint, build-test, deny]
+    needs: [changes, lint, build-test, deny, zizmor]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
