@@ -1487,9 +1487,9 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     }
     let hook = hook_feature(e1011);
     let runs = target_scopes(&scope, hook);
-    // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
-    // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
-    // whole workspace's took 4); the changed crates' tests alone run
+    // clippy on the changed crates and their dependents. The test build below takes the whole workspace of each target,
+    // as `check` does: a smaller `-p` set unifies other features and rebuilt dependencies main's cache holds (a
+    // launcher-only CI run built its tests in 6 min, the whole workspace's took 4); the changed crates' tests alone run
     let wide = target_scopes(&["--workspace".to_owned()], hook);
     let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
@@ -1497,11 +1497,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
             .map(|(_, s)| s.clone())
             .with_context(|| format!("no workspace scope for {t}"))
     };
-    for (target, _) in &runs {
-        let mut clippy = rust("clippy", root);
-        clippy.args(["--locked", "--all-targets", "--target", target]);
-        clippy.args(wide(target)?).args(["--", "-D", "warnings"]);
-        run_ok(clippy, "cargo clippy")?;
+    for (target, lint) in &runs {
+        run_ok(clippy(root, target, lint), "cargo clippy")?;
     }
     // the hook's other features, as `check` lints them
     if native {
@@ -1791,6 +1788,14 @@ fn tests(
         test.args(extra);
     }
     test
+}
+
+/// `cargo clippy` of one target over `scope`: `check quick` passes the crates it changed and their dependents.
+fn clippy(root: &Path, target: &str, scope: &[String]) -> Command {
+    let mut c = rust("clippy", root);
+    c.args(["--locked", "--all-targets", "--target", target]);
+    c.args(scope).args(["--", "-D", "warnings"]);
+    c
 }
 
 /// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
@@ -3302,6 +3307,24 @@ mod tests {
         // a folder with no row yet keeps the old answer: everything
         assert_eq!(affected(info(), "assets/new-shared/logo.png\n"), None);
         assert_eq!(affected(info(), "editions/next-edition/README.txt\n"), None);
+    }
+
+    #[test]
+    fn quick_lints_the_changed_crates_and_their_dependents() {
+        let line = |c: Command| {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        // the scope `quick` hands each target is `target_scopes`' `-p` set of the changed crates, never the workspace
+        let scope = ["-p", "forza", "-p", "launcher"].map(String::from);
+        let lint = line(clippy(Path::new("C:/repo"), TARGET, &scope));
+        assert!(
+            lint.contains("--locked --all-targets --target x86_64-pc-windows-msvc -p forza -p launcher -- -D warnings"),
+            "{lint}"
+        );
+        assert!(!lint.contains("--workspace"), "{lint}");
     }
 
     #[test]
