@@ -1435,6 +1435,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     );
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
+    // the installer's notices and smoke run only when the files they read changed, not for any crate it depends on
+    let installer = installer_work(files.as_deref());
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
     let needs_kit = kit_needed(has);
     let mut fmt = Command::new("cargo");
@@ -1509,8 +1511,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     if has("launcher") {
         launcher_imports(&mut ck, kit_1718);
     }
-    if has(INSTALLER) {
-        installer_checks(root, stage_root, &mut ck.failed);
+    if has(INSTALLER) && installer.any() {
+        installer_checks(root, stage_root, installer, &mut ck.failed);
     }
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("quick check passed (no release build; the full check and `check ci` run everything)");
@@ -1679,7 +1681,7 @@ fn check(
     }
 
     scrub(root, &mut ck.failed)?;
-    installer_checks(root, stage_root, &mut ck.failed);
+    installer_checks(root, stage_root, InstallerWork::ALL, &mut ck.failed);
     if let Err(e) = shipped_docs_no_kit(root, &[kit, kit_1718]) {
         eprintln!("shipped docs say kit: {e:#}");
         ck.failed.push("shipped docs say kit".into());
@@ -2209,17 +2211,63 @@ fn installer_exe(root: &Path, profile: &str) -> PathBuf {
 }
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
-/// of the release build.
-fn installer_checks(root: &Path, stage_root: &Path, failed: &mut Vec<String>) {
+/// of the release build. `work` says which of the two a change can break.
+fn installer_checks(
+    root: &Path,
+    stage_root: &Path,
+    work: InstallerWork,
+    failed: &mut Vec<String>,
+) {
     for (what, r) in [
-        ("installer licenses", check_licenses(root)),
-        ("installer smoke", smoke(root, stage_root)),
+        (
+            "installer licenses",
+            work.licenses.then(|| check_licenses(root)),
+        ),
+        ("installer smoke", work.smoke.then(|| smoke(root, stage_root))),
     ] {
-        if let Err(e) = r {
+        if let Some(Err(e)) = r {
             eprintln!("{what}: {e:#}");
             failed.push(what.to_owned());
         }
     }
+}
+
+/// Which of the installer's checks the changed files ([`changed_files`]) can break: `licenses` is the dependency tree
+/// Cargo.lock and the crate's manifest resolve, `smoke` the exe the crate, the packaging code and the files it embeds
+/// make. Its unit tests still run with the crates it depends on (`affected`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InstallerWork {
+    licenses: bool,
+    smoke: bool,
+}
+
+impl InstallerWork {
+    /// Both, when no file list narrowed them down (the whole workspace is in scope).
+    const ALL: Self = Self {
+        licenses: true,
+        smoke: true,
+    };
+
+    fn any(self) -> bool {
+        self.licenses || self.smoke
+    }
+}
+
+fn installer_work(files: Option<&str>) -> InstallerWork {
+    let Some(files) = files else {
+        return InstallerWork::ALL;
+    };
+    let mut work = InstallerWork {
+        licenses: false,
+        smoke: false,
+    };
+    for f in files.lines().map(str::to_lowercase) {
+        work.licenses |= f == "cargo.lock" || f == "crates/installer/cargo.toml";
+        work.smoke |= ["crates/installer/", "xtask/", "assets/fonts/", "assets/logo/"]
+            .iter()
+            .any(|p| f.starts_with(p));
+    }
+    work
 }
 
 /// THIRD-PARTY-LICENSES.json holds a notice with text for every normal/build dependency of the installer on Windows.
@@ -3135,6 +3183,45 @@ mod tests {
             hook,
             [(TARGET, v(&["-p", "forza-hook"])), (PANEL_TARGET, native)]
         );
+    }
+
+    #[test]
+    fn the_installer_checks_follow_the_files_they_read() {
+        let work = |files: &str| installer_work(Some(files));
+        let both = InstallerWork::ALL;
+        let licenses = InstallerWork {
+            licenses: true,
+            smoke: false,
+        };
+        let smoke = InstallerWork {
+            licenses: false,
+            smoke: true,
+        };
+        // no file list (no merge base, so the whole workspace): both
+        assert_eq!(installer_work(None), both);
+        assert!(both.any());
+        // the tree the notices cover: the lock, or the manifest (which makes the exe too)
+        assert_eq!(work("crates/installer/Cargo.toml\n"), both);
+        assert_eq!(work("Cargo.lock\n"), licenses);
+        // the exe: its crate and build script, the packaging code, the files it embeds
+        for f in [
+            "crates/installer/src/main.rs\n",
+            "xtask/src/main.rs\n",
+            "assets/fonts/Hack-Regular.ttf\n",
+            "assets/logo/forza-wccf.ico\n",
+        ] {
+            assert_eq!(work(f), smoke, "{f}");
+        }
+        // a crate it depends on: neither check, only its unit tests (through `affected`)
+        let depends = work("crates/forza/src/lib.rs\n");
+        assert_eq!(
+            depends,
+            InstallerWork {
+                licenses: false,
+                smoke: false
+            }
+        );
+        assert!(!depends.any());
     }
 
     #[test]
