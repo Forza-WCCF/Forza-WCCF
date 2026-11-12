@@ -17,9 +17,9 @@ pub fn make(bin: &str, what: &str, icon: Option<&str>) -> Option<PathBuf> {
     )
 }
 
-/// The release number: FORZA_VERSION (`cargo xtask` sets it from the git tag: 0.6.1, or 0.6.2-dev+<sha> between tags),
-/// else the workspace version (a plain cargo build). The crate's code reads it as `env!("FORZA_VERSION")`, so every
-/// target calls this, also one that makes no version resource.
+/// The release number: FORZA_VERSION (`cargo xtask` sets it from the git tag: 0.6.1, or 0.6.2-dev between tags, the
+/// commit id on it only in the package builds), else the workspace version (a plain cargo build). The crate's code
+/// reads it as `env!("FORZA_VERSION")`, so every target calls this, also one that makes no version resource.
 #[allow(dead_code)]
 pub fn release_version() -> String {
     println!("cargo:rerun-if-env-changed=FORZA_VERSION");

@@ -107,6 +107,10 @@ enum Task {
 }
 
 const QUICK_BASE: &str = "main";
+/// Whether the version a build stamps carries the commit id: the package and tag builds' (a ZIP from between tags names
+/// the commit it came from), not an ordinary build's, which then keeps one version string between commits instead of
+/// relinking every program with it (SCCACHE-PLAN step 3).
+static STAMP_SHA: AtomicBool = AtomicBool::new(false);
 /// Set with a wrapper (sccache): `rust()` then builds with `CARGO_INCREMENTAL=0`, so sccache can serve the workspace
 /// crates across worktrees.
 static NO_INCREMENTAL: AtomicBool = AtomicBool::new(false);
@@ -646,18 +650,23 @@ fn main() -> Result<()> {
             "2017-18" => stage(&root, &kit_1718, ED_1718.map, ED_1718.keep),
             _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
         },
-        Task::Package { edition, name } => match edition.as_str() {
-            "installer" => package_installer(&root, name),
-            "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, true) => Err(e),
-            "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
-            "2017-18" => package(
-                &root,
-                &kit_1718,
-                &name.unwrap_or_else(|| format!("{TOP_1718}-{}", version(&root))),
-                false,
-            ),
-            _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
-        },
+        Task::Package { edition, name } => {
+            STAMP_SHA.store(true, Ordering::Relaxed);
+            match edition.as_str() {
+                "installer" => package_installer(&root, name),
+                "2010-11" | "2017-18" if let Err(e) = build_all(&root, &kit, &kit_1718, true) => {
+                    Err(e)
+                }
+                "2010-11" => package(&root, &kit, &name.unwrap_or_else(|| TOP.into()), true),
+                "2017-18" => package(
+                    &root,
+                    &kit_1718,
+                    &name.unwrap_or_else(|| format!("{TOP_1718}-{}", build_version(&root))),
+                    false,
+                ),
+                _ => anyhow::bail!("unknown edition {edition} (2010-11 or 2017-18)"),
+            }
+        }
     }
 }
 
@@ -675,7 +684,7 @@ fn rust(sub: &str, root: &Path) -> Command {
     if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
-    c.env("FORZA_VERSION", version(root));
+    c.env("FORZA_VERSION", build_version(root));
     // the `fast` profile stays incremental: sccache serves the dependencies either way (cargo never compiles those
     // incrementally), and an incremental rebuild of the changed workspace crate beats a whole one (measured)
     if NO_INCREMENTAL.load(Ordering::Relaxed) && profile() != "fast" {
@@ -899,9 +908,26 @@ fn dos_time(secs: i64) -> Result<zip::DateTime> {
     .map_err(|e| anyhow::anyhow!("{secs} is no ZIP date: {e:?}"))
 }
 
-/// The release number this build carries: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
+/// The release number a build stamps: [`version`] in package and tag builds (the ZIP names the commit it came from),
+/// and without the commit id otherwise, so an ordinary build keeps one version string between commits: the build
+/// scripts rerun on `FORZA_VERSION`, and every program showing the version would otherwise relink with each commit.
+fn build_version(root: &Path) -> &'static str {
+    static DEV: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let v = version(root);
+    if STAMP_SHA.load(Ordering::Relaxed) {
+        return v;
+    }
+    DEV.get_or_init(|| {
+        v.split_once("-dev+")
+            .map_or_else(|| v.to_owned(), |(next, _)| format!("{next}-dev"))
+    })
+    .as_str()
+}
+
+/// The release number from git: `FORZA_VERSION` for the build scripts of Launcher, installer and panel
 /// (crates/launcher/version_rc.rs), version.txt and the file names. Asked once per run. A `FORZA_VERSION` already in
 /// the environment wins over git (a release candidate built before its tag, release.yml); else `git describe`.
+/// [`build_version`] is what a build stamps.
 fn version(root: &Path) -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     V.get_or_init(|| {
@@ -1268,7 +1294,7 @@ fn changed_files(root: &Path, base: &str) -> Result<Option<String>> {
 }
 
 /// Workspace packages that own one of `files` ([`changed_files`]), plus every package that depends on one by path. A
-/// change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
+/// change to Cargo.lock, the toolchain or the root manifest means all.
 fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>> {
     let meta = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
@@ -1296,6 +1322,54 @@ fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>
     Ok(affected(info, files))
 }
 
+/// The crates that embed or read a folder the workspace shares: a file under one of them is their change, not the whole
+/// workspace's. `forza` and `forza-ui` read the fonts and the edition sheets in their tests, `forza-panel` embeds the
+/// panel's text, Launcher, the installer, the server and FPR_Emu embed the logo, and `xtask` stages the fonts and the
+/// editions and freezes `FPR_Emu.exe` on its icon.
+const FOLDER_OWNERS: &[(&str, &[&str])] = &[
+    (
+        "assets/fonts",
+        &[
+            "forza",
+            "forza-ui",
+            "forza-panel",
+            "wccf-installer",
+            "xtask",
+        ],
+    ),
+    (
+        "assets/logo",
+        &[
+            "forza-ui",
+            "launcher",
+            "wccf-installer",
+            "forza-server",
+            "forza-programs",
+            "xtask",
+        ],
+    ),
+    ("assets/panel", &["forza-ui"]),
+    ("editions/2010-11", &["forza", "xtask"]),
+    ("editions/2017-18", &["forza", "forza-panel", "xtask"]),
+];
+
+/// A file more than one crate compiles, in the folder of the package that happens to hold it: its readers, by name.
+/// `crates/launcher/version_rc.rs` is the launcher's and the other eight crates' build scripts' (`#[path]`).
+const SHARED_FILES: &[(&str, &[&str])] = &[(
+    "crates/launcher/version_rc.rs",
+    &[
+        "launcher",
+        "wccf-installer",
+        "forza-panel",
+        "forza-server",
+        "forza-hook",
+        "forza-detmath",
+        "forza-icmp",
+        "forza-programs",
+        "forza-wccfnet",
+    ],
+)];
+
 /// [`changed_packages`] over `info`: (name, dir relative to the root, names of path dependencies) per package.
 fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option<BTreeSet<String>> {
     // files that other crates embed with `include_str!`: (the file's package, the package whose tests read it)
@@ -1309,16 +1383,36 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
     let mut hit = BTreeSet::new();
     for f in files.lines() {
         let f = f.to_lowercase(); // git prints the index's spelling, cargo the folder's
-        let xtask = f == "xtask" || f.starts_with("xtask/");
-        // assets/ and editions/ are read by several crates' tests and embedded by the installer and Launcher
-        // shortcut: whole workspace for them; a map from folder to consumers would be finer, add it if quick gets slow
-        if xtask
-            || f == "cargo.lock"
-            || f == "rust-toolchain.toml"
-            || f.starts_with(".cargo/")
-            || f.starts_with("assets/")
-            || f.starts_with("editions/")
-        {
+        // a folder the crates share: its readers, plus their dependents below
+        if f.starts_with("assets/") || f.starts_with("editions/") {
+            let owner = FOLDER_OWNERS
+                .iter()
+                .filter(|(d, _)| f.starts_with(&format!("{d}/")))
+                .max_by_key(|(d, _)| d.len());
+            match owner {
+                // a folder no crate is mapped to: everything, safe until it has a row here
+                None => return None,
+                Some((_, owners)) => hit.extend(
+                    owners
+                        .iter()
+                        .filter(|o| info.iter().any(|(n, _, _)| n == *o))
+                        .map(|o| (*o).to_owned()),
+                ),
+            }
+            continue;
+        }
+        // a file more than one crate compiles: its readers, plus their dependents below
+        if let Some((_, readers)) = SHARED_FILES.iter().find(|(p, _)| f == *p) {
+            hit.extend(
+                readers
+                    .iter()
+                    .filter(|o| info.iter().any(|(n, _, _)| n == *o))
+                    .map(|o| (*o).to_owned()),
+            );
+            continue;
+        }
+        // the locked crates, the toolchain and its config: any crate can differ
+        if f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
         // the owning package: the longest package dir that prefixes the file
@@ -1408,7 +1502,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     let e1011 = files.as_deref().is_none_or(touches_1011);
     let scope: Vec<String> = match &pkgs {
         None => {
-            println!("quick: xtask, Cargo.lock or a manifest changed: whole workspace");
+            println!("quick: Cargo.lock, the toolchain or a manifest changed: whole workspace");
             vec!["--workspace".into()]
         }
         Some(p) if p.is_empty() => {
@@ -1435,8 +1529,12 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     );
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
-    // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
-    let needs_kit = kit_needed(has);
+    // the installer's notices and smoke run only when the files they read changed, not for any crate it depends on,
+    // and both when the whole workspace is in scope (`pkgs` is `None`: the lock, the toolchain or the root manifest)
+    let installer = installer_work(files.as_deref(), pkgs.is_none());
+    // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit,
+    // and the installer's smoke the exe it builds there
+    let needs_kit = kit_needed(has) || installer.smoke;
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1450,9 +1548,9 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     }
     let hook = hook_feature(e1011);
     let runs = target_scopes(&scope, hook);
-    // clippy and the test build take the whole workspace of each target, as `check` does: a smaller `-p` set unifies
-    // other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in 6 min, the
-    // whole workspace's took 4); the changed crates' tests alone run
+    // clippy on the changed crates and their dependents. The test build below takes the whole workspace of each target,
+    // as `check` does: a smaller `-p` set unifies other features and rebuilt dependencies main's cache holds (a
+    // launcher-only CI run built its tests in 6 min, the whole workspace's took 4); the changed crates' tests alone run
     let wide = target_scopes(&["--workspace".to_owned()], hook);
     let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
@@ -1460,11 +1558,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
             .map(|(_, s)| s.clone())
             .with_context(|| format!("no workspace scope for {t}"))
     };
-    for (target, _) in &runs {
-        let mut clippy = rust("clippy", root);
-        clippy.args(["--locked", "--all-targets", "--target", target]);
-        clippy.args(wide(target)?).args(["--", "-D", "warnings"]);
-        run_ok(clippy, "cargo clippy")?;
+    for (target, lint) in &runs {
+        run_ok(clippy(root, target, lint), "cargo clippy")?;
     }
     // the hook's other features, as `check` lints them
     if native {
@@ -1509,8 +1604,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     if has("launcher") {
         launcher_imports(&mut ck, kit_1718);
     }
-    if has(INSTALLER) {
-        installer_checks(root, stage_root, &mut ck.failed);
+    if installer.any() {
+        installer_checks(root, stage_root, installer, &mut ck.failed);
     }
     ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
     println!("quick check passed (no release build; the full check and `check ci` run everything)");
@@ -1679,7 +1774,7 @@ fn check(
     }
 
     scrub(root, &mut ck.failed)?;
-    installer_checks(root, stage_root, &mut ck.failed);
+    installer_checks(root, stage_root, InstallerWork::ALL, &mut ck.failed);
     if let Err(e) = shipped_docs_no_kit(root, &[kit, kit_1718]) {
         eprintln!("shipped docs say kit: {e:#}");
         ck.failed.push("shipped docs say kit".into());
@@ -1754,6 +1849,14 @@ fn tests(
         test.args(extra);
     }
     test
+}
+
+/// `cargo clippy` of one target over `scope`: `check quick` passes the crates it changed and their dependents.
+fn clippy(root: &Path, target: &str, scope: &[String]) -> Command {
+    let mut c = rust("clippy", root);
+    c.args(["--locked", "--all-targets", "--target", target]);
+    c.args(scope).args(["--", "-D", "warnings"]);
+    c
 }
 
 /// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
@@ -2209,17 +2312,71 @@ fn installer_exe(root: &Path, profile: &str) -> PathBuf {
 }
 
 /// The installer's own checks (they were crates/installer/scripts/*.ps1): the license notices, then a synthetic headless run
-/// of the release build.
-fn installer_checks(root: &Path, stage_root: &Path, failed: &mut Vec<String>) {
+/// of the release build. `work` says which of the two a change can break.
+fn installer_checks(root: &Path, stage_root: &Path, work: InstallerWork, failed: &mut Vec<String>) {
     for (what, r) in [
-        ("installer licenses", check_licenses(root)),
-        ("installer smoke", smoke(root, stage_root)),
+        (
+            "installer licenses",
+            work.licenses.then(|| check_licenses(root)),
+        ),
+        (
+            "installer smoke",
+            work.smoke.then(|| smoke(root, stage_root)),
+        ),
     ] {
-        if let Err(e) = r {
+        if let Some(Err(e)) = r {
             eprintln!("{what}: {e:#}");
             failed.push(what.to_owned());
         }
     }
+}
+
+/// Which of the installer's checks the changed files ([`changed_files`]) can break: `licenses` is the dependency tree
+/// Cargo.lock and the crate's manifest resolve, `smoke` the exe the crate, the packaging code and the files it embeds
+/// make. Its unit tests still run with the crates it depends on (`affected`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InstallerWork {
+    licenses: bool,
+    smoke: bool,
+}
+
+impl InstallerWork {
+    /// Both, when no file list narrowed them down (the whole workspace is in scope).
+    const ALL: Self = Self {
+        licenses: true,
+        smoke: true,
+    };
+
+    fn any(self) -> bool {
+        self.licenses || self.smoke
+    }
+}
+
+/// The work of `files`; `everything` is the whole workspace's scope (`pkgs` is `None`), where the files do not narrow it.
+fn installer_work(files: Option<&str>, everything: bool) -> InstallerWork {
+    let Some(files) = files.filter(|_| !everything) else {
+        return InstallerWork::ALL;
+    };
+    let mut work = InstallerWork {
+        licenses: false,
+        smoke: false,
+    };
+    for f in files.lines().map(str::to_lowercase) {
+        work.licenses |= f == "cargo.lock"
+            || f == "crates/installer/cargo.toml"
+            || f.eq_ignore_ascii_case(LICENSES);
+        work.smoke |= [
+            "crates/installer/",
+            // the version string the smoke asserts
+            "crates/launcher/version_rc.rs",
+            "xtask/",
+            "assets/fonts/",
+            "assets/logo/",
+        ]
+        .iter()
+        .any(|p| f.starts_with(p));
+    }
+    work
 }
 
 /// THIRD-PARTY-LICENSES.json holds a notice with text for every normal/build dependency of the installer on Windows.
@@ -2314,8 +2471,13 @@ fn smoke_in(root: &Path, exe: &Path, dir: &Path) -> Result<()> {
             && !help.contains("Revival"),
         "Wrong branding or edition help."
     );
+    // the exe may be a package build from an earlier run (stamped with the commit id) or this one's
+    let got = run(&[p("--version")], 0)?;
+    let want = |v: &str| format!("Forza-WCCF Installer {v}");
     ensure!(
-        run(&[p("--version")], 0)?.trim() == format!("Forza-WCCF Installer {}", version(root)),
+        [version(root), build_version(root)]
+            .iter()
+            .any(|v| got.trim() == want(v)),
         "Wrong release version/branding."
     );
     run(&[p("--dest")], 1)?;
@@ -2406,7 +2568,7 @@ fn package_installer(root: &Path, name: Option<String>) -> Result<()> {
         exe.display()
     );
     let name =
-        name.unwrap_or_else(|| format!("Forza-WCCF-Installer-{}-windows-x64", version(root)));
+        name.unwrap_or_else(|| format!("Forza-WCCF-Installer-{}-windows-x64", build_version(root)));
     let dist = root.join("dist");
     fs::create_dir_all(&dist)?;
     // explicit payload: never archive the repository, media, kit, saves or target tree
@@ -2623,7 +2785,7 @@ fn package(root: &Path, kit: &Path, name: &str, is_1011: bool) -> Result<()> {
 
     // for SETUP.exe's update: version.txt, which kit this is, and files.txt, every file this kit ships - an update removes
     // what the old kit's list has and the new one's does not
-    let version = version(root);
+    let version = build_version(root);
     fs::write(kit.join("version.txt"), format!("kit-{version}\r\n"))?;
     if !is_1011 {
         let mut commit = cmd!(sh, "git rev-parse HEAD").read()?.trim().to_owned();
@@ -2987,6 +3149,18 @@ mod tests {
     }
 
     #[test]
+    fn a_build_that_ships_no_zip_keeps_the_commit_out_of_its_version() {
+        // `STAMP_SHA` is off for every task but `package`: an ordinary build's version must not move with each commit,
+        // or cargo relinks Launcher, the panel and the installer after every one
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        assert!(
+            !build_version(root).contains("-dev+"),
+            "{}",
+            build_version(root)
+        );
+    }
+
+    #[test]
     fn a_forza_version_in_the_environment_wins_and_junk_is_refused() {
         assert_eq!(version_override(None).unwrap(), None);
         assert_eq!(version_override(Some(" ")).unwrap(), None);
@@ -3138,6 +3312,196 @@ mod tests {
     }
 
     #[test]
+    fn the_installer_checks_follow_the_files_they_read() {
+        let work = |files: &str| installer_work(Some(files), false);
+        let both = InstallerWork::ALL;
+        let licenses = InstallerWork {
+            licenses: true,
+            smoke: false,
+        };
+        let smoke = InstallerWork {
+            licenses: false,
+            smoke: true,
+        };
+        // no file list (no merge base, so the whole workspace): both
+        assert_eq!(installer_work(None, false), both);
+        assert!(both.any());
+        // rule 5's files put every crate in scope: both, whatever their own rows say
+        for f in [
+            "Cargo.lock\n",
+            "rust-toolchain.toml\n",
+            ".cargo/config.toml\n",
+            "Cargo.toml\n",
+        ] {
+            assert_eq!(installer_work(Some(f), true), both, "{f}");
+        }
+        // the tree the notices cover: the lock, or the manifest (which makes the exe too)
+        assert_eq!(work("crates/installer/Cargo.toml\n"), both);
+        assert_eq!(work("Cargo.lock\n"), licenses);
+        // the bundle the notices check reads: its folder smokes, and a change to the bundle itself runs the check
+        assert_eq!(work(&format!("{LICENSES}\n")), both);
+        // the exe: its crate and build script, the version file, the files it embeds
+        for f in [
+            "crates/installer/src/main.rs\n",
+            "crates/launcher/version_rc.rs\n",
+            "assets/fonts/Hack-Regular.ttf\n",
+            "assets/logo/forza-wccf.ico\n",
+        ] {
+            assert_eq!(work(f), smoke, "{f}");
+        }
+        // a crate it depends on: neither check, only its unit tests (through `affected`)
+        let depends = work("crates/forza/src/lib.rs\n");
+        assert_eq!(
+            depends,
+            InstallerWork {
+                licenses: false,
+                smoke: false
+            }
+        );
+        assert!(!depends.any());
+    }
+
+    #[test]
+    fn an_xtask_change_smokes_the_installer_it_builds() {
+        // xtask is the packaging code that builds the exe, not a crate of its: `quick` runs the smoke for this file
+        // alone (`if installer.any()`, without asking the crate scope) and builds the exe for it (`needs_kit`)
+        assert_eq!(
+            installer_work(Some("xtask/src/main.rs\n"), false),
+            InstallerWork {
+                licenses: false,
+                smoke: true
+            }
+        );
+    }
+
+    #[test]
+    fn a_shared_folder_is_the_change_of_the_crates_that_read_it() {
+        let info = || {
+            [
+                ("forza", "crates/forza", &[][..]),
+                ("forza-ui", "crates/ui", &["forza"][..]),
+                ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
+                ("forza-panel", "crates/panel", &["forza"][..]),
+                (
+                    "wccf-installer",
+                    "crates/installer",
+                    &["forza", "forza-ui"][..],
+                ),
+                ("xtask", "xtask", &[][..]),
+            ]
+            .map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        // the fonts: forza's and forza-ui's tests, the panel's and the installer's, whose exe the smoke runs
+        assert_eq!(
+            affected(info(), "assets/fonts/Hack-Regular.ttf\n").unwrap(),
+            set(&[
+                "forza",
+                "forza-ui",
+                "launcher",
+                "forza-panel",
+                "wccf-installer",
+                "xtask"
+            ])
+        );
+        // the panel's art is forza-ui's alone
+        assert_eq!(
+            affected(info(), "assets/panel/shoot.png\n").unwrap(),
+            set(&["forza-ui", "launcher", "wccf-installer"])
+        );
+        // the sheets: forza's text tests and the panel's embedded English text
+        assert_eq!(
+            affected(info(), "editions/2017-18/english/exe_text.tsv\n").unwrap(),
+            set(&[
+                "forza",
+                "forza-ui",
+                "launcher",
+                "forza-panel",
+                "wccf-installer",
+                "xtask"
+            ])
+        );
+        // a folder with no row yet keeps the old answer: everything
+        assert_eq!(affected(info(), "assets/new-shared/logo.png\n"), None);
+        assert_eq!(affected(info(), "editions/next-edition/README.txt\n"), None);
+    }
+
+    #[test]
+    fn the_version_file_is_the_change_of_every_crate_that_compiles_it() {
+        let names = [
+            "launcher",
+            "wccf-installer",
+            "forza-panel",
+            "forza-server",
+            "forza-hook",
+            "forza-detmath",
+            "forza-icmp",
+            "forza-programs",
+            "forza-wccfnet",
+        ];
+        // the row answers before any folder does: these are the packages' names, not their folders
+        let info = names
+            .iter()
+            .map(|n| ((*n).to_owned(), format!("crates/{n}"), vec![]))
+            .collect();
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        assert_eq!(
+            affected(info, "crates/launcher/version_rc.rs\n").unwrap(),
+            set(&names)
+        );
+    }
+
+    #[test]
+    fn the_lock_the_toolchain_and_the_root_manifest_check_everything() {
+        let info = || {
+            let rows: [(&str, &str, &[&str]); 2] =
+                [("forza", "crates/forza", &[]), ("xtask", "xtask", &[])];
+            rows.map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        // the locked crates, the toolchain and its config, and the root manifest: every crate can differ
+        for f in [
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            ".cargo/config.toml",
+            "Cargo.toml",
+        ] {
+            assert_eq!(affected(info(), &format!("{f}\n")), None, "{f}");
+        }
+        // a crate's own manifest is that crate's change
+        let set = |a: &[&str]| a.iter().map(ToString::to_string).collect::<BTreeSet<_>>();
+        assert_eq!(
+            affected(info(), "crates/forza/Cargo.toml\n"),
+            Some(set(&["forza"]))
+        );
+    }
+
+    #[test]
+    fn quick_lints_the_changed_crates_and_their_dependents() {
+        let line = |c: Command| {
+            c.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        // the scope `quick` hands each target is `target_scopes`' `-p` set of the changed crates, never the workspace
+        let scope = ["-p", "forza", "-p", "launcher"].map(String::from);
+        let args = line(clippy(Path::new("C:/repo"), TARGET, &scope));
+        assert!(
+            args.contains("--locked --all-targets --target x86_64-pc-windows-msvc -p forza -p launcher -- -D warnings"),
+            "{args}"
+        );
+        assert!(!args.contains("--workspace"), "{args}");
+    }
+
+    #[test]
     fn quick_tests_the_changed_crates_and_their_dependents() {
         let info = || {
             [
@@ -3146,6 +3510,8 @@ mod tests {
                 ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
                 ("forza-tools", "crates/tools", &[][..]),
                 ("forza-panel", "native/panel", &[][..]),
+                ("xtask", "xtask", &["cap"][..]),
+                ("cap", "xtask/cap", &[][..]),
             ]
             .map(|(n, d, deps)| {
                 let deps = deps.iter().map(ToString::to_string).collect();
@@ -3166,7 +3532,15 @@ mod tests {
         let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
         assert_eq!(panel, set(&["forza-panel", "launcher"]));
         assert_eq!(affected(info(), "Cargo.lock\n"), None);
-        assert_eq!(affected(info(), "xtask/src/main.rs\n"), None);
+        // xtask's own crate: its tests and lints, not the workspace's
+        assert_eq!(
+            affected(info(), "xtask/src/main.rs\n"),
+            Some(set(&["xtask"]))
+        );
+        assert_eq!(
+            affected(info(), "xtask/cap/src/lib.rs\n"),
+            Some(set(&["cap", "xtask"]))
+        );
         // filters per target, never an empty one
         assert_eq!(test_filter(&set(&[]), TARGET), None);
         assert_eq!(test_filter(&set(&["forza-panel"]), TARGET), None);

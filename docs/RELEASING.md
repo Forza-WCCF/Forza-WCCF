@@ -6,10 +6,13 @@
   xtask` reads it with `git describe` and sets `FORZA_VERSION` for the build: the edition ZIPs (`version.txt`,
   `kit-<number>`), the file names and the three crates that show it to players (`launcher`, `wccf-installer`,
   `forza-panel`: their version information and `env!("FORZA_VERSION")`, from `crates/launcher/version_rc.rs`) carry it.
-  The commit tagged `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev+<short sha>` (the next patch, so the
-  Launcher offers the next release, never the one the build came from); a clone without tags builds `0.0.0-dev+<short
-  sha>`. A non-empty `FORZA_VERSION` in the environment wins over `git describe` and must be semver (`0.7.0`); the
-  [candidate](#release-candidate) build sets it from the dispatch input `version`.
+  The commit tagged `v0.6.1` builds `0.6.1`; a later commit builds `0.6.2-dev` (the next patch, so the Launcher offers
+  the next release, never the one the build came from), and `cargo xtask package` stamps the commit on it,
+  `0.6.2-dev+<short sha>`, for the ZIP it names and ships; a clone without tags builds `0.0.0-dev`, `0.0.0-dev+<short
+  sha>` when packaged. An ordinary build leaves the commit id out so its version string does not change with every
+  commit (cargo would relink Launcher, the panel and the installer after each one). A non-empty `FORZA_VERSION` in the
+  environment wins over `git describe` and must be semver (`0.7.0`); the [candidate](#release-candidate) build sets it
+  from the dispatch input `version`.
 - `[workspace.package] version` in `Cargo.toml` serves a plain `cargo build`, which has no `FORZA_VERSION`. The release
   cut sets it, and the matching `Cargo.lock` entries, to the release number in the one `chore(release): <ver>` commit on
   `next`, so a local build of a candidate shows the release number instead of a stale one. It goes in with the rest of
