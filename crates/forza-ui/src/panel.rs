@@ -1683,11 +1683,21 @@ fn divider_width(st: &PanelState) -> Option<f32> {
         .map(f32::from)
 }
 
+/// The strip the divider is dragged by: on the board's side of its left edge (clicks on the picture stay the game's).
+fn divider_strip(board: Rect) -> Rect {
+    Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()))
+}
+
+/// The grip drawn on the divider: three 4-point dashes 4 points apart, 2 points thick, in a rect centred on the strip.
+fn grip_rect(strip: Rect) -> Rect {
+    Rect::from_center_size(strip.center(), vec2(6.0, 10.0))
+}
+
 /// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
 /// picture stay the game's); dragged, it sets the board's width to what the layout draws for it (on a sheet wider
 /// than 16:10 the picture's height stops the board narrowing first), saved to panel.txt when let go.
 fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
-    let strip = Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()));
+    let strip = divider_strip(board);
     let id = egui::Id::unique("panel-divider");
     let r = ui.interact(strip, id, Sense::drag());
     if r.drag_started()
@@ -1696,12 +1706,26 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
         // where in the strip it was grabbed, so the edge does not jump to the pointer
         ui.data_mut(|d| d.insert_temp(id, board.left() - o.x));
     }
-    if r.hovered() || r.dragged() {
+    let lit = r.hovered() || r.dragged();
+    if lit {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         ui.painter().vline(
             board.left() + 2.0,
             board.y_range(),
             Stroke::new(3.0, theme::RIM_HI),
+        );
+    }
+    // the grip: three short dashes down the middle of the strip, so the divider reads as one at rest too
+    let grip = grip_rect(strip);
+    let colour = if lit { theme::TEXT_DIM } else { theme::RIM_HI };
+    let p = ui.painter();
+    for dy in [-4.0, 0.0, 4.0] {
+        p.line_segment(
+            [
+                pos2(grip.center().x - 2.0, grip.center().y + dy),
+                pos2(grip.center().x + 2.0, grip.center().y + dy),
+            ],
+            Stroke::new(2.0, colour),
         );
     }
     if r.dragged()
@@ -6477,7 +6501,8 @@ mod tests {
         }
     }
 
-    /// One frame of `st` on `ctx`, a `w` x `h` sheet at time `t`.
+    /// One frame of `st` on `ctx`, a `w` x `h` sheet at time `t`; what the frame asked the backend for (the cursor
+    /// icon) comes back.
     fn frame(
         ctx: &egui::Context,
         st: &mut PanelState,
@@ -6485,14 +6510,16 @@ mod tests {
         h: f32,
         t: f64,
         events: Vec<egui::Event>,
-    ) {
+    ) -> egui::FullOutput {
         let raw = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(w, h))),
             time: Some(t),
             events,
             ..Default::default()
         };
-        ctx.run_ui(raw, |ui| show(ui, st)).textures_delta.clear();
+        let mut out = ctx.run_ui(raw, |ui| show(ui, st));
+        out.textures_delta.clear();
+        out
     }
 
     /// A card pressed on the board window is the game window's touched card: shown there at once, gone
@@ -6708,6 +6735,57 @@ mod tests {
             "{w}x{h}: {:?}",
             st.picture_rect
         );
+    }
+
+    /// The grip drawn on the divider is centred on the strip that drags it and sits inside it, at every window size
+    /// and board width.
+    #[test]
+    fn the_divider_grip_is_centred_on_the_divider() {
+        for (w, h) in [
+            (1440.0, 900.0),
+            (1920.0, 1080.0),
+            (1920.0, 1009.0),
+            (2560.0, 1440.0),
+        ] {
+            let sheet = sheet_of(w, h);
+            for set in [None, Some(BOARD_MIN), Some(board_width_max(sheet))] {
+                let l = layout_at(sheet, false, set);
+                let strip = divider_strip(l.board);
+                let grip = grip_rect(strip);
+                let at = format!("{w}x{h} {set:?}: strip {strip:?} grip {grip:?}");
+                assert!(strip.contains_rect(grip), "{at}");
+                assert!((grip.center() - strip.center()).length() < 1e-3, "{at}");
+                assert_eq!(strip.left(), l.board.left(), "{at}: on the board's edge");
+                assert!(sheet.contains_rect(strip), "{at}");
+                assert!(l.board.contains_rect(strip), "{at}");
+            }
+        }
+    }
+
+    /// Hovering the divider shows the horizontal-resize cursor; it is not there before the pointer reaches it.
+    #[test]
+    fn hovering_the_divider_shows_the_resize_cursor() {
+        let (w, h) = (1440.0, 900.0);
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+        let cursor = |out: egui::FullOutput| out.platform_output.cursor_icon;
+        let icon = cursor(frame(&ctx, &mut st, w, h, 0.0, vec![]));
+        assert_ne!(icon, egui::CursorIcon::ResizeHorizontal, "no pointer yet");
+        let strip = divider_strip(layout(sheet_of(w, h), false).board);
+        let at = pos2(strip.center().x, 300.0);
+        for t in [0.1, 0.2] {
+            let events = if t == 0.1 {
+                vec![egui::Event::PointerMoved(at)]
+            } else {
+                vec![]
+            };
+            assert_eq!(
+                cursor(frame(&ctx, &mut st, w, h, t, events)),
+                egui::CursorIcon::ResizeHorizontal,
+                "hovered at {t}"
+            );
+        }
     }
 
     #[test]
