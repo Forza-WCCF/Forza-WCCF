@@ -72,7 +72,10 @@ A release ships the bytes CI built for its candidate, never a local package.
 4. The [stability gate](#stability-gate) runs on that candidate. A fix goes on its PR; then `next` is cut again and
    dispatched again.
 5. Mark the `chore(release)` PR ready (`gh pr ready <n> -R Forza-WCCF/Forza-WCCF`), which starts its CI, and wait for
-   it to be green (`gh pr checks <n> -R Forza-WCCF/Forza-WCCF --watch --interval 60`). Then merge it with a merge
+   it to be green: find the `ci.yml` run started after `gh pr ready` (`gh run list -R Forza-WCCF/Forza-WCCF -w ci.yml
+   -b next -e pull_request -L 1`) and wait on it (`timeout 1500 gh run watch <id> -R Forza-WCCF/Forza-WCCF --exit-status --interval 30`), then
+   confirm `gh pr checks <n> -R Forza-WCCF/Forza-WCCF` shows `ci-ok` passing. `gh pr checks --watch` can exit on the
+   draft's stale red `ci-ok`, so it is not the wait. Then merge it with a merge
    commit, never squash or rebase, so the candidate sha stays an ancestor of `main`; the picked PRs then show as merged.
 6. Sign the tag on the candidate sha, not on the merge commit: `git tag -s v<x.y.z> -m "..." <candidate sha>`.
    Pushing the tag prints `Cannot create ref ... restricted` (the tag ruleset), yet the admin bypass creates it:
