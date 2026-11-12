@@ -1502,8 +1502,9 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     );
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
-    // the installer's notices and smoke run only when the files they read changed, not for any crate it depends on
-    let installer = installer_work(files.as_deref());
+    // the installer's notices and smoke run only when the files they read changed, not for any crate it depends on,
+    // and both when the whole workspace is in scope (`pkgs` is `None`: the lock, the toolchain or the root manifest)
+    let installer = installer_work(files.as_deref(), pkgs.is_none());
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit
     let needs_kit = kit_needed(has);
     let mut fmt = Command::new("cargo");
@@ -2323,8 +2324,9 @@ impl InstallerWork {
     }
 }
 
-fn installer_work(files: Option<&str>) -> InstallerWork {
-    let Some(files) = files else {
+/// The work of `files`; `everything` is the whole workspace's scope (`pkgs` is `None`), where the files do not narrow it.
+fn installer_work(files: Option<&str>, everything: bool) -> InstallerWork {
+    let Some(files) = files.filter(|_| !everything) else {
         return InstallerWork::ALL;
     };
     let mut work = InstallerWork {
@@ -3279,7 +3281,7 @@ mod tests {
 
     #[test]
     fn the_installer_checks_follow_the_files_they_read() {
-        let work = |files: &str| installer_work(Some(files));
+        let work = |files: &str| installer_work(Some(files), false);
         let both = InstallerWork::ALL;
         let licenses = InstallerWork {
             licenses: true,
@@ -3290,8 +3292,17 @@ mod tests {
             smoke: true,
         };
         // no file list (no merge base, so the whole workspace): both
-        assert_eq!(installer_work(None), both);
+        assert_eq!(installer_work(None, false), both);
         assert!(both.any());
+        // rule 5's files put every crate in scope: both, whatever their own rows say
+        for f in [
+            "Cargo.lock\n",
+            "rust-toolchain.toml\n",
+            ".cargo/config.toml\n",
+            "Cargo.toml\n",
+        ] {
+            assert_eq!(installer_work(Some(f), true), both, "{f}");
+        }
         // the tree the notices cover: the lock, or the manifest (which makes the exe too)
         assert_eq!(work("crates/installer/Cargo.toml\n"), both);
         assert_eq!(work("Cargo.lock\n"), licenses);
