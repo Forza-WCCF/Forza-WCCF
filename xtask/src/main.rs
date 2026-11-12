@@ -44,7 +44,8 @@ enum Task {
         release: bool,
     },
     /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base (pull requests' CI)
-    /// (in the `fast` profile unless CI is set or `--release`; it rebuilds the staged kit first when it is older than the sources)
+    /// (in the `fast` profile unless CI is set, a wrapper such as sccache is on (`ci` then) or `--release`; it rebuilds the
+    /// staged kit first when it is older than the sources)
     ///
     /// sccache is used when it is installed and RUSTC_WRAPPER is unset (not under CI; FORZA_NO_SCCACHE=1 turns it off)
     Check {
@@ -607,7 +608,8 @@ fn main() -> Result<()> {
         .to_path_buf();
     // `check text` and `stage` run no compiler
     let text = matches!(&task, Task::Check { mode: Some(m), .. } if m == "text");
-    if !text && !matches!(task, Task::Stage { .. }) {
+    // `package` neither: shipped programs never come from the cache (see `rust`)
+    if !text && !matches!(task, Task::Stage { .. } | Task::Package { .. }) {
         use_sccache();
     }
     // held until `main` returns
@@ -632,7 +634,15 @@ fn main() -> Result<()> {
             test_args,
         } => {
             let ci = mode.as_deref() == Some("ci");
-            let _ = PROFILE.set(pick_profile(mode.as_deref(), fast, release, in_ci()));
+            // with a wrapper `quick` takes CI's non-incremental `ci` profile: sccache serves its workspace crates across
+            // worktrees, never the incremental `fast` ones (`test` stays `fast`, an edit loop in one worktree)
+            let wrapped = NO_INCREMENTAL.load(Ordering::Relaxed);
+            let _ = PROFILE.set(pick_profile(
+                mode.as_deref(),
+                fast,
+                release,
+                in_ci() || wrapped,
+            ));
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &kit, &kit_1718, &base),
                 Some("text") => return check_text(&root),
@@ -681,7 +691,10 @@ fn stage_root(root: &Path) -> PathBuf {
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.arg(sub).current_dir(root);
-    if let Some(w) = WRAPPER.get() {
+    if STAMP_SHA.load(Ordering::Relaxed) {
+        // `package` (the only task that stamps the sha): no wrapper from the caller's environment either; empty = off
+        c.env("RUSTC_WRAPPER", "");
+    } else if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
     c.env("FORZA_VERSION", build_version(root));
