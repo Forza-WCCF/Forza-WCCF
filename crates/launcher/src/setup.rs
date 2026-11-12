@@ -107,13 +107,13 @@ pub(crate) fn again(
     }
 }
 
-/// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`), and the card
-/// catalogue a play folder needs (made when it is missing; SET UP makes it too).
+/// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`).  The card
+/// catalogue is the panel's card browser only, so it is not part of it: a start makes it after this (see
+/// `run::start`), and a build that fails is its note, never a refusal.
 pub(crate) fn setup_1718(kit: &Path, game: &Path) -> Result<(), String> {
     e1718::setup_game(kit, game, &e1718::Spec::game())
         .map(drop)
-        .map_err(|e| e.to_string())?;
-    catalogue_1718(kit, game)
+        .map_err(|e| e.to_string())
 }
 
 /// The card catalogue of the game (`overlay\catalogue.tsv`, `e1718::setup_catalogue`): made from the game when the
