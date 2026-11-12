@@ -1268,7 +1268,7 @@ fn changed_files(root: &Path, base: &str) -> Result<Option<String>> {
 }
 
 /// Workspace packages that own one of `files` ([`changed_files`]), plus every package that depends on one by path. A
-/// change to xtask, Cargo.lock, a Cargo.toml or the toolchain means all.
+/// change to Cargo.lock, the toolchain or the root manifest means all.
 fn changed_packages(root: &Path, files: &str) -> Result<Option<BTreeSet<String>>> {
     let meta = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
@@ -1352,8 +1352,8 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
             }
             continue;
         }
-        let xtask = f == "xtask" || f.starts_with("xtask/");
-        if xtask || f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
+        // its own crate: an xtask change runs xtask's tests and lints, not the workspace's
+        if f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
         // the owning package: the longest package dir that prefixes the file
@@ -1443,7 +1443,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     let e1011 = files.as_deref().is_none_or(touches_1011);
     let scope: Vec<String> = match &pkgs {
         None => {
-            println!("quick: xtask, Cargo.lock or a manifest changed: whole workspace");
+            println!("quick: Cargo.lock, the toolchain or a manifest changed: whole workspace");
             vec!["--workspace".into()]
         }
         Some(p) if p.is_empty() => {
@@ -3336,6 +3336,8 @@ mod tests {
                 ("launcher", "crates/launcher", &["forza", "forza-ui"][..]),
                 ("forza-tools", "crates/tools", &[][..]),
                 ("forza-panel", "native/panel", &[][..]),
+                ("xtask", "xtask", &["cap"][..]),
+                ("cap", "xtask/cap", &[][..]),
             ]
             .map(|(n, d, deps)| {
                 let deps = deps.iter().map(ToString::to_string).collect();
@@ -3356,7 +3358,15 @@ mod tests {
         let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
         assert_eq!(panel, set(&["forza-panel", "launcher"]));
         assert_eq!(affected(info(), "Cargo.lock\n"), None);
-        assert_eq!(affected(info(), "xtask/src/main.rs\n"), None);
+        // xtask's own crate: its tests and lints, not the workspace's
+        assert_eq!(
+            affected(info(), "xtask/src/main.rs\n"),
+            Some(set(&["xtask"]))
+        );
+        assert_eq!(
+            affected(info(), "xtask/cap/src/lib.rs\n"),
+            Some(set(&["cap", "xtask"]))
+        );
         // filters per target, never an empty one
         assert_eq!(test_filter(&set(&[]), TARGET), None);
         assert_eq!(test_filter(&set(&["forza-panel"]), TARGET), None);
