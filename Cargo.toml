@@ -8,7 +8,7 @@ default-members = ["crates/*"]
 # release cut on `next` sets this to it (cargo xtask sets FORZA_VERSION, see crates/launcher/version_rc.rs). Launcher,
 # installer and panel inherit it; every other crate has its own, so an unchanged helper program (FPR_Emu.exe,
 # logowin.exe) rebuilds byte-identical (docs/RELEASING.md)
-version = "0.6.1"
+version = "0.7.3"
 edition = "2024"
 rust-version = "1.100"
 publish = false
