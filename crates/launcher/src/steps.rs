@@ -41,12 +41,16 @@ fn parse(text: &str) -> Option<[f32; STEPS]> {
     secs.iter().all(|s| *s > 0.0).then_some(secs)
 }
 
+/// The least a step is saved as: a step that took almost nothing (the projector off) is written "0.00" otherwise,
+/// which [`parse`] refuses, and the next Launcher start would fall back to the estimate.
+const MIN_SECS: f32 = 0.01;
+
 /// Saves this start's step times for the next one's bar.
 pub fn write(kit: &Kit, secs: [f32; STEPS]) -> io::Result<()> {
     let mut text =
         String::from("# the seconds each step of a start took on this PC (the window's bar runs at this pace)\n");
     for (i, s) in secs.iter().enumerate() {
-        text.push_str(&format!("{} {s:.2}\n", i + 1));
+        text.push_str(&format!("{} {:.2}\n", i + 1, s.max(MIN_SECS)));
     }
     crate::choices::write(&file(kit), &text)
 }
@@ -62,9 +66,10 @@ mod tests {
         let dir = scratch();
         let kit = Kit::at(dir.path());
         assert_eq!(read(&kit), None, "nothing measured yet");
-        let secs = [3.4, 2.0, 1.25, 0.5, 7.75, 6.0];
+        // an instant step (the projector off) is written as the least, not as a 0.00 the read refuses
+        let secs = [3.4, 0.0004, 1.25, 0.5, 7.75, 6.0];
         write(&kit, secs).unwrap();
-        assert_eq!(read(&kit), Some(secs));
+        assert_eq!(read(&kit), Some([3.4, MIN_SECS, 1.25, 0.5, 7.75, 6.0]));
         let again = [1.0, 2.0, 3.0, 4.0, 5.0, 6.5];
         write(&kit, again).unwrap();
         assert_eq!(read(&kit), Some(again), "a later start takes over");
