@@ -291,7 +291,7 @@ impl Board {
                     let inp = self.shared.inputs();
                     out.extend([1, inp.sys]);
                     for pl in 0..players {
-                        let sw = if pl < 2 { inp.p[pl] } else { [0, 0] };
+                        let sw = inp.p.get(pl).copied().unwrap_or([0, 0]);
                         out.extend((0..nbytes).map(|k| sw.get(k).copied().unwrap_or(0)));
                     }
                     i += 3;
@@ -301,7 +301,7 @@ impl Board {
                     let inp = self.shared.inputs();
                     out.push(1);
                     for s in 0..data[i + 1] as usize {
-                        let n = if s < 2 { inp.coin[s] } else { 0 };
+                        let n = inp.coin.get(s).copied().unwrap_or(0);
                         out.extend([((n >> 8) & 0x3F) as u8, (n & 0xFF) as u8]);
                     }
                     i += 2;

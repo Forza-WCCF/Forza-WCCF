@@ -53,8 +53,8 @@ fn main() {
             let s = next();
             inp.xmm[1] = [r as u32, (r >> 32) as u32, s as u32, (s >> 32) as u32];
             let (out, _) = h.run(&inp);
-            for l in 0..lanes {
-                ours.update(out.xmm[0][l].to_le_bytes());
+            for lane in &out.xmm[0][..lanes] {
+                ours.update(lane.to_le_bytes());
             }
             // SAFETY: SSE is the target's baseline; plain bits in and out
             let est: [u32; 4] = unsafe {

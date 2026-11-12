@@ -2779,8 +2779,8 @@ mod tests {
         assert!(b.put(&card(10), 0));
         assert_eq!((b.number(0), b.number(12)), (Some(10), Some(1)));
         // a full bench: the old card goes off
-        for s in 11..16 {
-            b.slots[s].get_or_insert(0);
+        for slot in &mut b.slots[11..16] {
+            slot.get_or_insert(0);
         }
         assert!(b.put(&card(11), 2));
         assert!(!b.holds(3) && b.number(2) == Some(11));
