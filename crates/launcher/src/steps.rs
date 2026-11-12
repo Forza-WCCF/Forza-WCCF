@@ -35,7 +35,7 @@ fn parse(text: &str) -> Option<[f32; STEPS]> {
         if !(1..=STEPS).contains(&n) || !s.is_finite() || s <= 0.0 {
             return None;
         }
-        secs[n - 1] = s;
+        secs[n - 1] = s.clamp(MIN_SECS, MAX_SECS);
     }
     // a start that ended early leaves a step out: that file is not this PC's six
     secs.iter().all(|s| *s > 0.0).then_some(secs)
@@ -45,12 +45,16 @@ fn parse(text: &str) -> Option<[f32; STEPS]> {
 /// which [`parse`] refuses, and the next Launcher start would fall back to the estimate.
 const MIN_SECS: f32 = 0.01;
 
+/// The most a step is saved and read as: an update or a virus scan can stall one, and one such start must not give
+/// step 1 most of the next bar's width (hand-edited, an endless one would make the bar's total infinite).
+const MAX_SECS: f32 = 120.0;
+
 /// Saves this start's step times for the next one's bar.
 pub fn write(kit: &Kit, secs: [f32; STEPS]) -> io::Result<()> {
     let mut text =
         String::from("# the seconds each step of a start took on this PC (the window's bar runs at this pace)\n");
     for (i, s) in secs.iter().enumerate() {
-        text.push_str(&format!("{} {:.2}\n", i + 1, s.max(MIN_SECS)));
+        text.push_str(&format!("{} {:.2}\n", i + 1, s.clamp(MIN_SECS, MAX_SECS)));
     }
     crate::choices::write(&file(kit), &text)
 }
@@ -73,6 +77,23 @@ mod tests {
         let again = [1.0, 2.0, 3.0, 4.0, 5.0, 6.5];
         write(&kit, again).unwrap();
         assert_eq!(read(&kit), Some(again), "a later start takes over");
+    }
+
+    /// A hand-edited or stalled step time is capped, so the bar's total stays a number: an endless one is a NaN fill.
+    #[test]
+    fn a_silly_step_time_is_capped() {
+        assert_eq!(
+            parse("1 3e38\n2 3e38\n3 4\n4 5\n5 6\n6 1.5\n"),
+            Some([MAX_SECS, MAX_SECS, 4.0, 5.0, 6.0, 1.5])
+        );
+        let dir = scratch();
+        let kit = Kit::at(dir.path());
+        write(&kit, [0.0, 1e9, 2.0, 3.0, 4.0, 5.0]).unwrap();
+        assert_eq!(
+            read(&kit),
+            Some([MIN_SECS, MAX_SECS, 2.0, 3.0, 4.0, 5.0]),
+            "nothing is saved past the cap either"
+        );
     }
 
     /// A hand-edited or half-written file is not this PC's six times: the bar keeps its estimate.

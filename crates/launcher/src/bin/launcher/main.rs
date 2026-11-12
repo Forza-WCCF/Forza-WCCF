@@ -565,6 +565,12 @@ impl run::Ui for WindowUi {
         say(t("launcher.msg_updating_pictures"), 0);
     }
 
+    /// Step 1 of a start is timed from here: the setup again and the card catalogue before it are not its time, or one
+    /// start after an update would give step 1 most of the next bar's width.
+    fn staged(&self) {
+        shared().stage_at = Some(Instant::now());
+    }
+
     fn say(&self, line: &str) {
         self.say_logged(line, line);
     }
