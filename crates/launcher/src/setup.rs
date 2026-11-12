@@ -107,11 +107,19 @@ pub(crate) fn again(
     }
 }
 
-/// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`).
+/// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`), and the card
+/// catalogue a play folder needs (made when it is missing; SET UP makes it too).
 pub(crate) fn setup_1718(kit: &Path, game: &Path) -> Result<(), String> {
     e1718::setup_game(kit, game, &e1718::Spec::game())
         .map(drop)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    catalogue_1718(kit, game)
+}
+
+/// The card catalogue of the game (`overlay\catalogue.tsv`, `e1718::setup_catalogue`): made from the game when the
+/// play folder has none, kept as it is when it has one (an older kit set the folder up before the catalogue existed).
+fn catalogue_1718(kit: &Path, game: &Path) -> Result<(), String> {
+    e1718::setup_catalogue(kit, game, false, &|_: &str, _: &forza::Line| {}).map_err(|e| e.to_string())
 }
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.
@@ -147,4 +155,32 @@ pub(crate) fn text_step(kit: &Kit, lang: &str, ui: &dyn Ui) -> i32 {
         lang,
         &|lead, l| tell_line(ui, lead, l),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scratch;
+
+    /// A play folder set up by an older kit has no catalogue.tsv, and the board then shows no cards: the automatic
+    /// setup before a start builds it, and leaves the one already there as it is.
+    #[test]
+    fn a_missing_catalogue_is_built_and_a_present_one_kept() {
+        let kit = scratch();
+        let game = kit.path().join("game");
+        std::fs::create_dir_all(&game).unwrap();
+        let overlay = kit.path().join(crate::Edition::E1718.layout().overlay);
+        std::fs::create_dir_all(&overlay).unwrap();
+        // no catalogue, and no game files to make one from: the build is tried, and its failure is setup's
+        let err = catalogue_1718(kit.path(), &game).unwrap_err();
+        assert!(err.contains("catalogue"), "{err}");
+        let cat = overlay.join("catalogue.tsv");
+        std::fs::write(&cat, "card_no\tname\n").unwrap();
+        catalogue_1718(kit.path(), &game).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&cat).unwrap(),
+            "card_no\tname\n",
+            "one there is not built again"
+        );
+    }
 }
