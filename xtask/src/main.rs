@@ -700,8 +700,11 @@ fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.arg(sub).current_dir(root);
     if STAMP_SHA.load(Ordering::Relaxed) {
-        // `package` (the only task that stamps the sha): no wrapper from the caller's environment either; empty = off
+        // `package` (the only task that stamps the sha): no wrapper from the caller's environment or its config, empty = off
+        // (cargo's `does_not_use_empty_rustc_wrapper`). Cargo hashes the wrapper into every unit, so the empty one rebuilds
+        // all and no shipped program comes from the cache; the workspace wrapper caches the workspace crates themselves.
         c.env("RUSTC_WRAPPER", "");
+        c.env("RUSTC_WORKSPACE_WRAPPER", "");
     } else if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
@@ -3247,6 +3250,26 @@ mod tests {
         assert_eq!(p("ci", false, true, false), "release");
         assert_eq!(pick_profile(None, false, false, false), "release");
         assert_eq!(pick_profile(None, true, false, false), "fast");
+    }
+
+    /// `package` builds every shipped program under no wrapper: `RUSTC_WRAPPER` and the workspace wrapper empty (empty is
+    /// off in cargo, and overrides the config file too), so no cache-built object with another flag set ships.
+    #[test]
+    fn a_package_build_runs_under_no_wrapper() {
+        let env = |c: &Command, k: &str| {
+            c.get_envs()
+                .find(|(e, _)| *e == std::ffi::OsStr::new(k))
+                .map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+        };
+        let root = Path::new("C:/repo");
+        let was = STAMP_SHA.swap(true, Ordering::Relaxed);
+        let package = rust("build", root);
+        STAMP_SHA.store(was, Ordering::Relaxed);
+        for key in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
+            assert_eq!(env(&package, key), Some(Some(String::new())), "{key}");
+        }
+        // an ordinary build leaves the workspace wrapper to the caller: only `package` clears it
+        assert_eq!(env(&rust("build", root), "RUSTC_WORKSPACE_WRAPPER"), None);
     }
 
     #[test]
