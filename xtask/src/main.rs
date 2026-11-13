@@ -44,7 +44,8 @@ enum Task {
         release: bool,
     },
     /// fmt, clippy, tests, the kit's self-test programs, the scrub; `check quick` = fmt, clippy and the tests of the crates changed since --base (pull requests' CI)
-    /// (in the `fast` profile unless CI is set or `--release`; it rebuilds the staged kit first when it is older than the sources)
+    /// (in the `fast` profile unless CI is set, a wrapper such as sccache is on (`ci` then) or `--release`; it rebuilds the
+    /// staged kit first when it is older than the sources)
     ///
     /// sccache is used when it is installed and RUSTC_WRAPPER is unset (not under CI; FORZA_NO_SCCACHE=1 turns it off)
     Check {
@@ -124,14 +125,20 @@ fn profile() -> &'static str {
 }
 
 /// The profile of `build` (`mode` "build") and `check <mode>`: `--fast` is `fast`; `ci` is `ci` (`--release`: release);
-/// `build` and `check quick` are `fast` without CI and `--release` (`quick` under CI: `ci`); the rest (`package`, the full check) is release.
-fn pick_profile(mode: Option<&str>, fast: bool, release: bool, in_ci: bool) -> &'static str {
+/// `build` and `check quick` are `fast` without CI or a wrapper and `--release` (`quick` under either: `ci`, which `test`
+/// takes too, so a per-commit run shares the gate's build tree); the rest (`package`, the full check) is release.
+fn pick_profile(
+    mode: Option<&str>,
+    fast: bool,
+    release: bool,
+    ci_or_wrapper: bool,
+) -> &'static str {
     match mode {
         _ if fast => "fast",
         Some("ci") if !release => "ci",
-        // pull requests' CI: the profile main's `check ci` fills the cache with
-        Some("quick") if !release && in_ci => "ci",
-        Some("build" | "quick") if !release && !in_ci => "fast",
+        // pull requests' CI and a user's sccache: the `ci` profile main's `check ci` fills the cache with
+        Some("quick") if !release && ci_or_wrapper => "ci",
+        Some("build" | "quick") if !release && !ci_or_wrapper => "fast",
         _ => "release",
     }
 }
@@ -607,7 +614,8 @@ fn main() -> Result<()> {
         .to_path_buf();
     // `check text` and `stage` run no compiler
     let text = matches!(&task, Task::Check { mode: Some(m), .. } if m == "text");
-    if !text && !matches!(task, Task::Stage { .. }) {
+    // `package` neither: shipped programs never come from the cache (see `rust`)
+    if !text && !matches!(task, Task::Stage { .. } | Task::Package { .. }) {
         use_sccache();
     }
     // held until `main` returns
@@ -632,7 +640,15 @@ fn main() -> Result<()> {
             test_args,
         } => {
             let ci = mode.as_deref() == Some("ci");
-            let _ = PROFILE.set(pick_profile(mode.as_deref(), fast, release, in_ci()));
+            // with a wrapper `quick` takes CI's non-incremental `ci` profile: sccache serves its workspace crates across
+            // worktrees, never the incremental `fast` ones (`test` takes the same profile, sharing this build tree)
+            let wrapped = NO_INCREMENTAL.load(Ordering::Relaxed);
+            let _ = PROFILE.set(pick_profile(
+                mode.as_deref(),
+                fast,
+                release,
+                in_ci() || wrapped,
+            ));
             match mode.as_deref() {
                 Some("quick") => return quick(&root, &stage_root, &kit, &kit_1718, &base),
                 Some("text") => return check_text(&root),
@@ -642,7 +658,15 @@ fn main() -> Result<()> {
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Test { package, test_args } => {
-            let _ = PROFILE.set(pick_profile(Some("quick"), false, false, in_ci()));
+            // the profile `quick` picks, so a per-commit run reuses the gate's build tree instead of compiling a `fast` one
+            // beside it (with a wrapper that is `ci`; `test_commands` builds the same targets and rustflags)
+            let wrapped = NO_INCREMENTAL.load(Ordering::Relaxed);
+            let _ = PROFILE.set(pick_profile(
+                Some("quick"),
+                false,
+                false,
+                in_ci() || wrapped,
+            ));
             test_packages(&root, &kit, &package, &test_args)
         }
         Task::Stage { edition } => match edition.as_str() {
@@ -681,7 +705,13 @@ fn stage_root(root: &Path) -> PathBuf {
 fn rust(sub: &str, root: &Path) -> Command {
     let mut c = Command::new("cargo");
     c.arg(sub).current_dir(root);
-    if let Some(w) = WRAPPER.get() {
+    if STAMP_SHA.load(Ordering::Relaxed) {
+        // `package` (the only task that stamps the sha): no wrapper from the caller's environment or its config, empty = off
+        // (cargo's `does_not_use_empty_rustc_wrapper`). Cargo hashes the wrapper into every unit, so the empty one rebuilds
+        // all and no shipped program comes from the cache; the workspace wrapper caches the workspace crates themselves.
+        c.env("RUSTC_WRAPPER", "");
+        c.env("RUSTC_WORKSPACE_WRAPPER", "");
+    } else if let Some(w) = WRAPPER.get() {
         c.env("RUSTC_WRAPPER", w);
     }
     c.env("FORZA_VERSION", build_version(root));
@@ -1052,9 +1082,9 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         println!("built {}", to.display());
     }
     // dated at the start (a source saved during the build is newer than the stamp, so the next `quick` rebuilds) and
-    // holding the list of sources (a deleted or renamed one is then not a build with a file that is gone)
+    // holding the profile and the list of sources (a deleted or renamed one is then not a build with a file that is gone)
     let stamp = built_stamp(kit);
-    std::fs::write(&stamp, sources(root)?)?;
+    std::fs::write(&stamp, built_stamp_text(profile(), &sources(root)?))?;
     std::fs::OpenOptions::new()
         .write(true)
         .open(&stamp)?
@@ -1062,13 +1092,25 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
     Ok(())
 }
 
-/// Written by [`build_all`] beside the kits; [`kit_stale`] compares the sources with it.
+/// Written by [`build_all`] beside the kits; [`kit_stale`] compares the profile and the sources with it.
 fn built_stamp(kit: &Path) -> PathBuf {
     kit.with_file_name("built.stamp")
 }
 
+/// What [`build_all`] writes in the stamp: the profile the kits were built with, then the sources, one per line.
+fn built_stamp_text(profile: &str, sources: &str) -> String {
+    format!("{profile}\n{sources}")
+}
+
+/// Whether the stamp names another profile than `now`: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
+/// `fast`, and the gate must not test the other one's kit or installer (a stamp from before the profile line is stale too).
+fn other_profile(stamp: &str, now: &str) -> bool {
+    stamp.split_once('\n').map(|(built, _)| built) != Some(now)
+}
+
 /// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
-/// counts: git writes the files), or the list of sources is not the one it was built from.
+/// counts: git writes the files), or the list of sources is not the one it was built from, or it was built in another
+/// profile.
 fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     // the stamp sits outside the edition folders: a kit folder deleted by hand leaves it behind
     let stamp = built_stamp(kit);
@@ -1081,8 +1123,9 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
         return Ok(true);
     }
     let files = sources(root)?;
-    let listed = fs::read_to_string(&stamp).unwrap_or_default();
-    Ok(sources_changed(root, built, &listed, &files))
+    let stamped = fs::read_to_string(&stamp).unwrap_or_default();
+    let (_, listed) = stamped.split_once('\n').unwrap_or_default();
+    Ok(other_profile(&stamped, profile()) || sources_changed(root, built, listed, &files))
 }
 
 /// The files the kits are built from, sorted, as `git ls-files` lists them (the stamp holds this).
@@ -1533,8 +1576,10 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     // and both when the whole workspace is in scope (`pkgs` is `None`: the lock, the toolchain or the root manifest)
     let installer = installer_work(files.as_deref(), pkgs.is_none());
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit,
-    // and the installer's smoke the exe it builds there
-    let needs_kit = kit_needed(has) || installer.smoke;
+    // and the installer's smoke the exe it builds there: one another profile's run left (`release` from `package`) is not
+    // this run's, and neither is a missing one
+    let exe_missing = installer.smoke && !installer_exe(root, profile()).is_file();
+    let needs_kit = kit_needed(has) || exe_missing;
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1542,8 +1587,14 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         return Ok(());
     }
     // a kit built without the 2010-11 hook has no wccfk.dll (build_all)
-    if needs_kit && (kit_stale(root, kit)? || e1011 && !kit.join("programs/wccfk.dll").is_file()) {
-        println!("quick: the staged kit is missing or older than the sources: rebuilding it");
+    if needs_kit
+        && (exe_missing
+            || kit_stale(root, kit)?
+            || e1011 && !kit.join("programs/wccfk.dll").is_file())
+    {
+        println!(
+            "quick: the staged kit or installer is missing, older than the sources or from another profile: rebuilding"
+        );
         build_all(root, kit, kit_1718, e1011)?;
     }
     let hook = hook_feature(e1011);
@@ -2427,13 +2478,13 @@ fn check_licenses(root: &Path) -> Result<()> {
 }
 
 /// Synthetic headless run of the installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
-/// The exe is the release build that `build_all` makes.
+/// The exe is the one that `build_all` makes in this run's profile (`quick`'s `ci` under a wrapper, else `release`).
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
     let exe = installer_built(root)?;
     smoke_run(root, stage_root, &exe)
 }
 
-/// The release installer that `build_all` built; returns its path.
+/// The installer that `build_all` built in this run's profile; returns its path.
 fn installer_built(root: &Path) -> Result<PathBuf> {
     let exe = installer_exe(root, profile());
     ensure!(exe.is_file(), "{} is missing", exe.display());
@@ -3100,6 +3151,20 @@ mod tests {
         }
     }
 
+    /// A kit built in another profile is not the gate's: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
+    /// `fast`, and the smoke of the installer plus the kit tests must not run the other one's programs.
+    #[test]
+    fn a_kit_built_in_another_profile_is_stale() {
+        let stamp = built_stamp_text("ci", "a.rs\nb.rs");
+        assert_eq!(stamp.lines().next(), Some("ci"));
+        assert!(!other_profile(&stamp, "ci"));
+        assert!(other_profile(&stamp, "fast"));
+        assert!(other_profile(&stamp, "release"));
+        // a stamp from before the profile line: its first line is a source path, not a profile
+        assert!(other_profile("a.rs\nb.rs", "ci"));
+        assert!(other_profile("", "release"));
+    }
+
     /// `check quick` must rebuild when a source is gone: deleted and not staged, git still lists it and the mtime
     /// comparison skips it (the 2026-11-06 sweep); deleted and staged, it is not in the list at all.
     #[test]
@@ -3191,6 +3256,30 @@ mod tests {
         assert_eq!(p("ci", false, true, false), "release");
         assert_eq!(pick_profile(None, false, false, false), "release");
         assert_eq!(pick_profile(None, true, false, false), "fast");
+        // the fourth input is CI or a wrapper: `quick` builds `ci` under either, and nothing else moves with it
+        assert_eq!(p("ci", false, false, true), "ci");
+        assert_eq!(p("quick", true, false, true), "fast");
+        assert_eq!(p("quick", false, true, true), "release");
+    }
+
+    /// `package` builds every shipped program under no wrapper: `RUSTC_WRAPPER` and the workspace wrapper empty (empty is
+    /// off in cargo, and overrides the config file too), so no cache-built object with another flag set ships.
+    #[test]
+    fn a_package_build_runs_under_no_wrapper() {
+        let env = |c: &Command, k: &str| {
+            c.get_envs()
+                .find(|(e, _)| *e == std::ffi::OsStr::new(k))
+                .map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+        };
+        let root = Path::new("C:/repo");
+        let was = STAMP_SHA.swap(true, Ordering::Relaxed);
+        let package = rust("build", root);
+        STAMP_SHA.store(was, Ordering::Relaxed);
+        for key in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
+            assert_eq!(env(&package, key), Some(Some(String::new())), "{key}");
+        }
+        // an ordinary build leaves the workspace wrapper to the caller: only `package` clears it
+        assert_eq!(env(&rust("build", root), "RUSTC_WORKSPACE_WRAPPER"), None);
     }
 
     #[test]
