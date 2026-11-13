@@ -193,7 +193,22 @@ fn token_in(m: &[u8]) -> SocketAddrV4 {
     )
 }
 
+/// The game's peer ports (127.0.0.1:20000+seat) are fixed by the game, so these tests cannot use port 0: they hold one
+/// lock file for the whole PC while they run, and two worktrees' runs take turns instead of failing each other's binds.
+/// The OS frees the lock when the test process ends, so it cannot go stale.
+fn game_ports_lock() -> std::fs::File {
+    let f = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(std::env::temp_dir().join("wccf-test-game-peer-ports.lock"))
+        .unwrap();
+    f.lock().unwrap();
+    f
+}
+
 fn run(name: &str, seats: (u8, u8), relay_only: bool) {
+    let _ports = game_ports_lock();
     let started = Instant::now();
     let dir = std::env::temp_dir().join(format!("vslink_loopback_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

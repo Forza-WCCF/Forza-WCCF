@@ -268,3 +268,59 @@ fn the_test_stall_drops_game_packets_for_its_time() {
     std::thread::sleep(Duration::from_millis(1500));
     assert!(passes(3));
 }
+
+/// Two `forza-server relay` processes on port 0 side by side (two worktrees' checks at once, as xtask's panel self-test
+/// starts one): each says the port it bound on its "listening on UDP" line, the ports differ, and each answers a ping.
+#[test]
+fn two_relays_on_port_0_run_side_by_side() {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+    let start = || {
+        let mut c = Command::new(server_exe())
+            .args(["relay", "30"])
+            .env("WCCF_RELAY_PORT", "0")
+            .env("WCCF_BIND", "127.0.0.1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(c.stdout.take().unwrap()).lines();
+        let port: u16 = lines
+            .find_map(|l| {
+                l.ok()?
+                    .split("listening on UDP ")
+                    .nth(1)?
+                    .trim()
+                    .parse()
+                    .ok()
+            })
+            .expect("a \"listening on UDP <port>\" line");
+        (
+            core::mem::DropGuard::new(c, |mut c| {
+                let _ = c.kill();
+                let _ = c.wait();
+            }),
+            port,
+        )
+    };
+    let ((_a, pa), (_b, pb)) = (start(), start());
+    assert_ne!(pa, pb);
+    let s = udp_client();
+    s.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    for port in [pa, pb] {
+        let to: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
+        let mut buf = [0u8; 64];
+        // a busy PC can lose the first datagram (see `send`): a few tries
+        let n = (0..5)
+            .find_map(|_| {
+                send(&s, b"WRL1Ptoken", to);
+                s.recv_from(&mut buf).ok().filter(|(_, from)| *from == to)
+            })
+            .map(|(n, _)| n);
+        assert_eq!(
+            n.map(|n| &buf[..n]),
+            Some(&b"WRL1Qtoken"[..]),
+            "relay on {port}"
+        );
+    }
+}
