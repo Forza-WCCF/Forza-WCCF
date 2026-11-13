@@ -54,10 +54,10 @@ builds on plain Linux (`cargo build --release -p forza-server`).
 
    One `cargo xtask check` at a time per PC: the tests use fixed local ports.
 
-   `cargo xtask verify [--base <ref>]` is `check quick` for scripts and agents. It first refuses to run (exit 2,
+   `cargo xtask verify [--base <ref>]` is `check quick` for scripts and agents. It first refuses to run (exit 3,
    nothing built) while a game program or the Forza-WCCF Launcher runs, when "Prefer System32 images" is on (a shell
    started from WSL, `docs/SAFETY.md`) or with under 20 GB free on the build drive. Then it runs `check quick`
-   unchanged. Exit codes: 0 passed, 1 a check failed, 2 not run, 3 xtask itself failed. The last line is always
+   unchanged. Exit codes: 0 passed, 1 a check failed, 3 not run, 4 xtask itself failed. The last line is always
    `VERIFY OK <secs>s`, `VERIFY FAIL <stage> <secs>s`, `VERIFY NOT-RUN <reason>` or `VERIFY ERROR <message>`. Each run
    appends `date,worktree,base,result,secs` to `FORZA_VERIFY_CSV`, or to `wccf-builds/verify-runs.csv` beside the
    repository when that folder exists.

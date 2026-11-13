@@ -85,8 +85,8 @@ enum Task {
         test_args: Vec<String>,
     },
     /// `check quick` behind a preflight, with fixed exit codes and last line for scripts and agents: 0 `VERIFY OK <secs>s`,
-    /// 1 `VERIFY FAIL <stage> <secs>s`, 2 `VERIFY NOT-RUN <reason>` (nothing ran: a game runs, "Prefer System32 images"
-    /// is on (a shell started from WSL), or the build drive has under 20 GB free), 3 `VERIFY ERROR <msg>`. Each run
+    /// 1 `VERIFY FAIL <stage> <secs>s`, 3 `VERIFY NOT-RUN <reason>` (nothing ran: a game runs, "Prefer System32 images"
+    /// is on (a shell started from WSL), or the build drive has under 20 GB free), 4 `VERIFY ERROR <msg>`. Each run
     /// appends `date,worktree,base,result,secs` to FORZA_VERIFY_CSV, else to `wccf-builds/verify-runs.csv` beside the
     /// repository when that folder exists
     Verify {
@@ -636,7 +636,7 @@ fn run(task: Task, root: &Path) -> Result<()> {
     if !text && !matches!(task, Task::Stage { .. } | Task::Package { .. }) {
         use_sccache();
     }
-    // held until `main` returns
+    // held until `run` returns
     let _shared = shared_target(&root)?;
     let stage_root = stage_root(&root);
     let kit = stage_root.join("kit/2010-11");
@@ -1278,7 +1278,7 @@ fn build<'s>(
 
 // ---- verify ----
 
-/// A check that ran and failed, as against xtask failing to run it: `verify` exits 1 on it, 3 on any other error.
+/// A check that ran and failed, as against xtask failing to run it: `verify` exits 1 on it, 4 on any other error.
 #[derive(Debug)]
 struct CheckFailed {
     /// the check's name, which `VERIFY FAIL` prints
@@ -1318,8 +1318,9 @@ impl Verdict {
         match self {
             Self::Pass => 0,
             Self::Fail(_) => 1,
-            Self::NotRun(_) => 2,
-            Self::Error(_) => 3,
+            // 3 as run-cargo.ps1 refusing a running game, so a caller reads one code through either
+            Self::NotRun(_) => 3,
+            Self::Error(_) => 4,
         }
     }
 
@@ -1385,7 +1386,14 @@ fn preflight(root: &Path) -> Option<String> {
             dir.display(),
             VERIFY_MIN_FREE >> 30
         )),
-        _ => None,
+        Some(_) => None,
+        None => {
+            eprintln!(
+                "verify: the free space on the drive of {} is unknown: running anyway",
+                dir.display()
+            );
+            None
+        }
     }
 }
 
@@ -1576,6 +1584,8 @@ struct Checks {
     /// scratch folders of the checks, beside the kit
     tmp: PathBuf,
     failed: Vec<String>,
+    /// a check's program could not start: `verify`'s ERROR, not FAIL
+    unstarted: bool,
 }
 
 impl Checks {
@@ -1585,7 +1595,10 @@ impl Checks {
             Ok(o) => {
                 self.report(what, &o, last);
             }
-            Err(e) => self.fail(what, &format!("could not start: {e}")),
+            Err(e) => {
+                self.unstarted = true;
+                self.fail(what, &format!("could not start: {e}"));
+            }
         }
     }
 
@@ -1975,6 +1988,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         kit: kit.to_owned(),
         tmp: stage_root.join("check-tmp"),
         failed: vec![],
+        unstarted: false,
     };
     if native || has("forza-panel") {
         windows_tests(&mut ck, kit, kit_1718, e1011)?;
@@ -1985,6 +1999,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     if installer.any() {
         installer_checks(root, stage_root, installer, &mut ck.failed);
     }
+    // a program that could not start is xtask's failure (plain error), one that ran and failed the check's
+    ensure!(!ck.unstarted, "FAILED: {}", ck.failed.join(", "));
     if !ck.failed.is_empty() {
         return Err(CheckFailed {
             stage: ck.failed.join("+"),
@@ -2123,6 +2139,7 @@ fn check(
         kit: kit.to_owned(),
         tmp: stage_root.join("check-tmp"),
         failed: vec![],
+        unstarted: false,
     };
     windows_tests(&mut ck, kit, kit_1718, true)?;
     launcher_imports(&mut ck, kit_1718);
@@ -3484,8 +3501,6 @@ mod tests {
         }
     }
 
-    /// A kit built in another profile is not the gate's: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
-    /// `fast`, and the smoke of the installer plus the kit tests must not run the other one's programs.
     #[test]
     fn verify_maps_each_end_to_its_exit_code_and_last_line() {
         let failed: Result<()> = Err(anyhow::Error::from(CheckFailed {
@@ -3504,12 +3519,12 @@ mod tests {
         let v = Verdict::of(&Err(anyhow::anyhow!("git\nnot found")));
         assert_eq!(
             (v.code(), v.line(1)),
-            (3, "VERIFY ERROR git not found".into())
+            (4, "VERIFY ERROR git not found".into())
         );
         let v = Verdict::NotRun("a game process runs".into());
         assert_eq!(
             (v.code(), v.line(0)),
-            (2, "VERIFY NOT-RUN a game process runs".into())
+            (3, "VERIFY NOT-RUN a game process runs".into())
         );
     }
 
@@ -3528,6 +3543,8 @@ mod tests {
         assert!(!blocks_verify("cargo.exe", ""));
     }
 
+    /// A kit built in another profile is not the gate's: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
+    /// `fast`, and the smoke of the installer plus the kit tests must not run the other one's programs.
     #[test]
     fn a_kit_built_in_another_profile_is_stale() {
         let stamp = built_stamp_text("ci", "a.rs\nb.rs");
