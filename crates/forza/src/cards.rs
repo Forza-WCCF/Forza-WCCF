@@ -460,13 +460,6 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
 
 // ---- the catalogue ----
 
-/// The white ATLE-RE reprints the 2017-18 game treats as legends beside every ALL TIME LEGEND card (its own list of
-/// card numbers, read from the client).
-const LEGEND_REPRINTS: [u32; 18] = [
-    4659, 5747, 5748, 5749, 5752, 5754, 5755, 6151, 6153, 6154, 6299, 6417, 6635, 6720, 6721, 7131,
-    7132, 7133,
-];
-
 /// `catalogue.tsv` (one card per line, tab-separated, UTF-8, a header naming the columns) -> its cards, in the
 /// file's order. Columns by name: card_no, season, rarity_name, is_placeholder (1 = skipped), name_full_latin,
 /// name_short_latin, position_name, club_name, nationality_name, stat_offence .. stat_stamina, stats_total, and the
@@ -560,6 +553,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             // 2017-18 cards of editions 36+ have no ratings, only the 12 position flags (tail bytes 5..17)
             aptitude = Aptitude::from_flags(flags);
         }
+        let stats = stats.map(num);
         out.push(Card {
             number,
             record: get(c_rec).parse().ok(),
@@ -579,10 +573,9 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             code: Some(get(c_code))
                 .filter(|c| !c.is_empty())
                 .unwrap_or_else(|| mvp_mark(&get(c_pic)).into()),
-            // 2017-18 only (the catalogue with card codes): 2010-11's legends print their stats
-            secret: c_code.is_some()
-                && (rarity == Rarity::AllTime || LEGEND_REPRINTS.contains(&number)),
-            stats: stats.map(num),
+            // 2017-18 only (the catalogue with card codes); 2010-11's legends print their stats
+            secret: crate::collection::secret(stats),
+            stats,
             total: num(total),
             aptitude,
         });
@@ -859,7 +852,7 @@ mod tests {
         let rows = format!(
             "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\t\t\n\
              13\t1\t10-11\tREGULAR\t1\tNobody\tNOBODY\tMF\t\t\t1\t1\t1\t1\t1\t1\t60\t\n\
-             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\tHOLE\t\n\
+             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t16\t16\t16\t16\t16\t20\t100\t0 0 0\tHOLE\t\n\
              15\t3\t17-18\tREGULAR\t0\tNew Card\tNEW\tMF\tX\tY\t1\t1\t1\t1\t1\t1\t60\t0 0 0\t\t0000000000010100000000000000000000000000"
         );
         fs::write(&path, format!("{head}{rows}")).unwrap();
@@ -888,8 +881,9 @@ mod tests {
             (a.code.as_str(), b.code.as_str(), b.series()),
             ("", "HOLE", "HOLE")
         );
-        // the ALL TIME LEGEND keeps its stats secret, the LEGEND does not
+        // the ALL TIME LEGEND prints the placeholder stats (SECRET), the LEGEND prints its own
         assert_eq!((a.secret, b.secret), (false, true));
+        assert_eq!(b.stats, [16, 16, 16, 16, 16, 20]);
         let series = [
             "WGK-3",
             "MVP-1",
