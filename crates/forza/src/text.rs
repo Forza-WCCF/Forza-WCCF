@@ -1409,6 +1409,16 @@ impl Ctx {
         read_manifest(&self.manifest_path())
     }
 
+    /// A damaged list over the original text names nothing the game still needs: kept aside as
+    /// `manifest.json.bad`, so the next "on" backs the originals up again and "off" (UNDO SETUP) goes through.
+    fn set_aside_damaged_list(&self) -> R<()> {
+        if self.load_manifest().is_err() && self.text_is_original() {
+            let p = self.manifest_path();
+            fs::rename(&p, p.with_extension("json.bad"))?;
+        }
+        Ok(())
+    }
+
     fn save_manifest(&self, m: &Map<String, Value>) -> R<()> {
         let mut out = vec![];
         let mut ser = serde_json::Serializer::with_formatter(
@@ -1687,6 +1697,9 @@ pub fn run(
     );
     let r = (|| -> R<()> {
         let c = Ctx::new(ed, game, backup, sheets)?;
+        if mode != Mode::Check {
+            c.set_aside_damaged_list()?;
+        }
         let state = backup.join(pictures::STATE);
         if mode == Mode::Off {
             if c.load_manifest()?.is_empty() && !state.is_file() {
@@ -2105,7 +2118,29 @@ mod tests {
     }
 
     #[test]
-    fn no_backup_list_is_already_original() {
+    fn a_damaged_list_over_the_original_text_is_set_aside() {
+        let (t, orig, game, backup) = translated_game(false);
+        let kit = t.path().join("kit");
+        fs::write(game.join(TEAM), &orig).unwrap();
+        fs::remove_file(game.join(BIN)).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("manifest.json"), b"{").unwrap();
+        let (code, said) = run_off(&game, &backup, &kit);
+        assert_eq!(code, 0, "{said:?}");
+        assert!(
+            said.iter().any(|l| l.contains("text.already_original")),
+            "{said:?}"
+        );
+        assert_eq!(fs::read(backup.join("manifest.json.bad")).unwrap(), b"{");
+        let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
+        c.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
+            .unwrap();
+        assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
+        assert!(c.load_manifest().unwrap().contains_key(&key(TEAM)));
+    }
+
+    #[test]
+    fn a_missing_backup_list_is_not_an_error() {
         let (t, _, game, backup) = translated_game(false);
         let (code, said) = run_off(&game, &backup, &t.path().join("kit"));
         assert_eq!(code, 0, "{said:?}");
