@@ -696,8 +696,8 @@ fn show(r: i32, f: &SockaddrIn) -> String {
 }
 
 /// `relay_selftest` (`WCCFPANEL_RELAYTEST=1`, the tests): two sockets on this PC play seats 1 and 2 through a relay on
-/// 127.0.0.1:20941 (the test starts `forza-server relay 30` there, `WCCF_RELAY_PORT=20941`); 127.0.0.2 stands for
-/// "another player's address".
+/// 127.0.0.1, UDP port `WCCF_RELAY_PORT` (the test starts `forza-server relay 30` on port 0 and passes the port it got;
+/// 20941 when unset); 127.0.0.2 stands for "another player's address".
 pub fn relay_selftest(log: fn(&str)) {
     use std::os::windows::io::AsRawSocket;
     let _ = LOG.set(log);
@@ -727,7 +727,11 @@ pub fn relay_selftest(log: fn(&str)) {
     };
     REAL_SENDTO.store(st as usize, Release);
     REAL_RECVFROM.store(rf as usize, Release);
-    *RELAY.lock().unwrap_or_else(|e| e.into_inner()) = SockaddrIn::new([127, 0, 0, 1], 20941);
+    let port = std::env::var("WCCF_RELAY_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(20941);
+    *RELAY.lock().unwrap_or_else(|e| e.into_inner()) = SockaddrIn::new([127, 0, 0, 1], port);
     RELAY_ON.store(true, Release);
     RELAY_TEST.store(true, Release);
     RSOCK.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -1195,7 +1199,7 @@ mod tests {
 
     static LINES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-    /// Needs `forza-server relay 30` with `WCCF_RELAY_PORT=20941` running: run with `--ignored`.
+    /// Needs `forza-server relay 30` running on the port in `WCCF_RELAY_PORT` (20941 when unset): run with `--ignored`.
     #[test]
     #[ignore]
     fn selftest_against_a_relay() {
