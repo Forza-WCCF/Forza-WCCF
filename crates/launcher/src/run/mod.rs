@@ -212,6 +212,9 @@ pub trait Ui {
     fn running(&self, _up: bool) {}
     /// The start is about to make the card pictures (a while): the window's status line.
     fn updating_pictures(&self) {}
+    /// The run's own steps begin here: step 1 is timed from now on (the setup again and the card catalogue before it
+    /// are not a step the player waits through).
+    fn staged(&self) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
     fn report(&self) {}
     /// The language of the run's lines ([`Text`]).
@@ -1163,10 +1166,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         return Err(NOT_GUARDED);
     }
     let early = [setup_done, t0.elapsed()];
-    if !kit.cache().join("catalogue.tsv").is_file() {
-        // the panel's card browser only: never a reason not to start
+    // the panel's card browser only: never a reason not to start.  A play folder an older kit set up (copied without
+    // overlay\catalogue.tsv) gets one made here, as SET UP makes it; the note says it is still missing.
+    if !kit.cache().join("catalogue.tsv").is_file()
+        && (edition != Edition::E1718 || crate::setup::catalogue_1718(kit.dir(), &game).is_err())
+    {
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
     }
+    // step 1's time starts here: the setup again and the catalogue build above are not steps of the run
+    ui.staged();
     let kind = Kind::of(&mode);
     let beside_server = matches!(mode, Mode::Remote(..)) && is_on(kit, Kind::Server);
     let left = if beside_server { Vec::new() } else { strays(&game, p) };

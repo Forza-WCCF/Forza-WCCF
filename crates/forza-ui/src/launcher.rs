@@ -8,8 +8,8 @@ use super::lobby::{
 };
 use super::theme::{self, Edition};
 use super::widgets::{
-    self, Cab, Tone, action, cabinet, field, progress, segmented, start_bar, status_line, steps,
-    text_w, title_bar, toggle_row, working,
+    self, Cab, START_SECS, Tone, action, cabinet, field, progress, segmented, start_bar,
+    status_line, steps, text_w, title_bar, toggle_row, working,
 };
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
@@ -158,6 +158,8 @@ pub struct LauncherState {
     pub progress: f32,
     /// Seconds since the last step line and since the job began (the start's bar and clock).
     pub clock: (f32, f32),
+    /// Seconds each of a start's six steps takes on this PC (the bar's weights), the estimate until one measured them.
+    pub stage_secs: [f32; 6],
     /// The status line: a tone and its text.
     pub status: Option<(Tone, String)>,
     /// The project server's notice in the window's language (remote text, drawn only as a label), under the status.
@@ -272,6 +274,7 @@ impl LauncherState {
             steps: None,
             progress: 0.0,
             clock: (0.0, 0.0),
+            stage_secs: START_SECS,
             status: Some((Tone::Done, tr!(lang, "launcher.status_ready"))),
             server_notice: None,
             tab: Tab::Play,
@@ -666,7 +669,7 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
     }
     if st.busy {
         match st.steps {
-            Some((n, 6)) => start_bar(ui, n, st.clock, ui.available_width()),
+            Some((n, 6)) => start_bar(ui, n, st.clock, st.stage_secs, ui.available_width()),
             Some((n, m)) => steps(ui, n, m, ui.available_width()),
             // a setup or the game text says no percentage: the bar shows it works, and for how long
             None if st.progress <= 0.0 => working(ui, st.clock.1, ui.available_width()),

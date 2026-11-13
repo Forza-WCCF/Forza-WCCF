@@ -1110,29 +1110,41 @@ pub fn steps(ui: &mut Ui, done: usize, total: usize, width: f32) -> Response {
     resp
 }
 
-/// A game start's stages in seconds (club server, control, windows, seat, panels); the bar's weights.
-// ponytail: estimate after the ICMP stand-in; retune from the next live run's step times
-const START_SECS: [f32; 6] = [2.0, 3.0, 1.0, 1.0, 3.0, 6.0];
+/// A start's six steps in seconds on a PC that has not measured its own yet (the server's scenes, the server up, the
+/// projector, the cabinet, the client's boot to its window, the panels): the bar's weights until it has.
+pub const START_SECS: [f32; 6] = [2.0, 3.0, 1.0, 1.0, 3.0, 6.0];
 
-/// The start bar's fill after `done` step lines, `stage_secs` into the next stage: the stages weigh what they take,
-/// and inside one the fill creeps toward the next boundary, never reaching it before the line arrives.
-pub fn start_fraction(done: usize, stage_secs: f32) -> f32 {
-    let total: f32 = START_SECS.iter().sum();
-    let before: f32 = START_SECS.iter().take(done).sum();
-    match START_SECS.get(done) {
+/// The start bar's fill after `done` step lines, `stage_secs` into the next stage: the stages weigh what they take on
+/// this PC (`secs`, all positive), and inside one the fill creeps toward the next boundary, never reaching it before
+/// the line arrives.
+pub fn start_fraction(done: usize, stage_secs: f32, secs: [f32; 6]) -> f32 {
+    let total: f32 = secs.iter().sum::<f32>().max(0.001);
+    let before: f32 = secs.iter().take(done).sum();
+    match secs.get(done) {
         Some(d) => (before + d * 0.97 * (1.0 - (-stage_secs / d).exp())) / total,
         None => 1.0,
     }
 }
 
-/// A game start: the time-weighted bar and the elapsed time (`clock` = seconds in this stage, in all).
-pub fn start_bar(ui: &mut Ui, done: usize, clock: (f32, f32), width: f32) -> Response {
-    let secs = clock.1 as u32;
+/// A game start: the time-weighted bar (a light band runs over its fill while a step is on) and the elapsed time
+/// (`clock` = seconds in this stage, in all).
+pub fn start_bar(
+    ui: &mut Ui,
+    done: usize,
+    clock: (f32, f32),
+    secs: [f32; 6],
+    width: f32,
+) -> Response {
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(50));
+    let s = clock.1 as u32;
+    let label = format!("{}:{:02}", s / 60, s % 60);
     bar(
         ui,
-        start_fraction(done, clock.0),
+        start_fraction(done, clock.0, secs),
         width,
-        format!("{}:{:02}", secs / 60, secs % 60),
+        label,
+        Some(clock.1),
     )
 }
 
@@ -1173,18 +1185,31 @@ pub fn working(ui: &mut Ui, secs: f32, width: f32) -> Response {
 
 /// A plain progress bar with a percentage, for a download or an install stage.
 pub fn progress(ui: &mut Ui, fraction: f32, width: f32) -> Response {
-    bar(ui, fraction, width, format!("{:.0} %", fraction * 100.0))
+    bar(
+        ui,
+        fraction,
+        width,
+        format!("{:.0} %", fraction * 100.0),
+        None,
+    )
 }
 
-fn bar(ui: &mut Ui, fraction: f32, width: f32, label: String) -> Response {
+/// The band a bar's `sweep` shows over its fill at `secs` since the step began: it enters at the fill's left, runs over
+/// it and leaves at its right, one sweep in 2 s; off the fill it is empty, so the bar looks alive, never fuller.
+fn sweep_rect(fill: Rect, secs: f32) -> Rect {
+    let band = fill.width() * 0.5;
+    let x = fill.left() - band + (secs * 0.5).fract() * (fill.width() + band);
+    Rect::from_x_y_ranges(x..=(x + band), fill.y_range()).intersect(fill)
+}
+
+/// A bar; `sweep` (seconds since the step began) runs a light band over the fill, for a wait whose end is not known.
+fn bar(ui: &mut Ui, fraction: f32, width: f32, label: String, sweep: Option<f32>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 14.0), Sense::hover());
     let p = ui.painter();
     let bar = rect.with_max_x(rect.right() - 44.0);
     p.rect_filled(bar, 3, theme::WELL);
-    let f = Rect::from_min_size(
-        bar.min,
-        vec2(bar.width() * fraction.clamp(0.0, 1.0), bar.height()),
-    );
+    let fill = fraction.clamp(0.0, 1.0);
+    let f = Rect::from_min_size(bar.min, vec2(bar.width() * fill, bar.height()));
     gradient(
         p,
         f,
@@ -1193,6 +1218,19 @@ fn bar(ui: &mut Ui, fraction: f32, width: f32, label: String) -> Response {
         theme::GREEN,
         true,
     );
+    if let Some(secs) = sweep.filter(|_| fill < 1.0) {
+        let s = sweep_rect(f, secs);
+        if s.width() > 0.0 {
+            gradient(
+                p,
+                s,
+                3,
+                Color32::TRANSPARENT,
+                Color32::from_white_alpha(30),
+                true,
+            );
+        }
+    }
     p.text(
         rect.right_center(),
         Align2::RIGHT_CENTER,
@@ -1559,12 +1597,43 @@ pub fn toggle_row(ui: &mut Ui, on: &mut bool, title: &str, hint: &str) -> Respon
 mod shape_tests {
     use super::*;
 
+    /// A start bar's band runs over its fill while a step is on, and never wider than the fill.
+    #[test]
+    fn the_start_bar_sweeps_its_fill_and_never_grows_it() {
+        let fill = Rect::from_min_size(pos2(10.0, 0.0), vec2(200.0, 14.0));
+        assert_eq!(sweep_rect(fill, 0.0).width(), 0.0, "it starts off the fill");
+        let mut seen = 0;
+        for i in 0..40 {
+            let s = sweep_rect(fill, i as f32 * 0.1);
+            if s.width() > 0.0 {
+                assert!(fill.contains_rect(s), "{s:?} is not inside the fill");
+                seen += 1;
+            }
+        }
+        assert!(
+            seen >= 20,
+            "the band is over the fill half of the time ({seen})"
+        );
+    }
+
     #[test]
     fn start_bar_creeps_and_never_passes_the_next_stage() {
-        assert_eq!(start_fraction(0, 0.0), 0.0);
-        let a = start_fraction(1, 1000.0);
-        assert!(a < start_fraction(2, 0.0) && a > start_fraction(1, 5.0));
-        assert_eq!(start_fraction(6, 0.0), 1.0);
+        // this PC's measured steps, the estimate, and a start whose steps ran far from any guess
+        for secs in [START_SECS, [1.0; 6], [0.3, 9.0, 2.0, 0.4, 5.5, 3.0]] {
+            assert_eq!(start_fraction(0, 0.0, secs), 0.0);
+            for done in 1..6 {
+                let at_line = start_fraction(done, 0.0, secs);
+                let crept = start_fraction(done, 1e4, secs);
+                assert!(crept >= at_line, "the fill never goes back ({done})");
+                assert!(
+                    crept < start_fraction(done + 1, 0.0, secs),
+                    "the fill stays below the next mark until its line ({done})"
+                );
+                assert!(start_fraction(done, 2.0, secs) <= crept);
+            }
+            assert_eq!(start_fraction(6, 0.0, secs), 1.0);
+            assert_eq!(start_fraction(6, 99.0, secs), 1.0);
+        }
     }
 
     #[test]
