@@ -509,12 +509,7 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
                     } else {
                         SW_SHOWNOACTIVATE.0 as u32
                     },
-                    rcNormalPosition: RECT {
-                        left: x,
-                        top: y,
-                        right: x + w,
-                        bottom: y + hh,
-                    },
+                    rcNormalPosition: saved_place_fitted(x, y, w, hh),
                     ..Default::default()
                 };
                 let _ = SetWindowPlacement(h, &wp);
@@ -551,6 +546,77 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
     let _ = BOARD.compare_exchange(h.0 as isize, 0, Relaxed, Relaxed);
     BOARD_UP.store(false, Relaxed);
     log("board window: gone");
+}
+
+/// A saved place `x, y, w, h` cut to the work area `wa` and moved inside it (a panel.txt from a bigger screen, or a
+/// monitor that has gone).
+fn fit_place(x: i32, y: i32, w: i32, h: i32, wa: RECT) -> RECT {
+    let (w, h) = (
+        w.clamp(1, (wa.right - wa.left).max(1)),
+        h.clamp(1, (wa.bottom - wa.top).max(1)),
+    );
+    let x = x.clamp(wa.left, (wa.right - w).max(wa.left));
+    let y = y.clamp(wa.top, (wa.bottom - h).max(wa.top));
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
+}
+
+/// panel.txt's board_rect= (workspace coordinates, as GetWindowPlacement gives them) fitted to the work area of the
+/// monitor nearest to it; a hand-edited file's huge numbers are held to a sane range first.
+fn saved_place_fitted(x: i32, y: i32, w: i32, h: i32) -> RECT {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
+        MonitorFromPoint, MonitorFromRect,
+    };
+    let (x, y) = (x.clamp(-100_000, 100_000), y.clamp(-100_000, 100_000));
+    let (w, h) = (w.clamp(1, 16_384), h.clamp(1, 16_384));
+    let info = || MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let (mut pm, mut mi) = (info(), info());
+    // SAFETY: plain queries with out-parameters we own
+    unsafe {
+        let _ = GetMonitorInfoW(
+            MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY),
+            &mut pm,
+        );
+        let d = (
+            pm.rcWork.left - pm.rcMonitor.left,
+            pm.rcWork.top - pm.rcMonitor.top,
+        );
+        let screen = RECT {
+            left: x + d.0,
+            top: y + d.1,
+            right: x + d.0 + w,
+            bottom: y + d.1 + h,
+        };
+        if !GetMonitorInfoW(MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() {
+            return fit_place(x, y, w, h, screen);
+        }
+        fit_workspace(x, y, w, h, d, mi.rcWork)
+    }
+}
+
+/// A workspace place fitted to a monitor's work area `work` (screen coordinates): workspace = screen less the primary
+/// work area's offset `d` (a taskbar at the top or left of the primary monitor).
+fn fit_workspace(x: i32, y: i32, w: i32, h: i32, d: (i32, i32), work: RECT) -> RECT {
+    fit_place(
+        x,
+        y,
+        w,
+        h,
+        RECT {
+            left: work.left - d.0,
+            top: work.top - d.1,
+            right: work.right - d.0,
+            bottom: work.bottom - d.1,
+        },
+    )
 }
 
 /// The board window's place now (its restored rect, maximized), for panel.txt; not while it is full screen.
@@ -1528,6 +1594,13 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
+    /// The board window's last drawn frame: its size, the keys and modifiers it showed, and when it is due again.
+    board_last: Option<((u32, u32), BoardInput, Instant)>,
+    /// How soon the board's egui asked to be drawn again after its last pass.
+    board_delay: Duration,
+    /// Board window frames drawn and skipped (nothing changed), for the frame cost line.
+    board_drawn: u32,
+    board_skipped: u32,
     /// The window that carries WCCF_TYPING while a page is open (the game's).
     typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
@@ -1675,6 +1748,10 @@ impl Render {
             sc_failed: false,
             board_sc: None,
             board_warned: false,
+            board_last: None,
+            board_delay: Duration::ZERO,
+            board_drawn: 0,
+            board_skipped: 0,
             typing: 0,
             game: None,
             max_tex: 2048,
@@ -1730,7 +1807,7 @@ impl Render {
                 {
                     let mut vp = D3DVIEWPORT9::default();
                     let _ = dev.GetViewport(&mut vp);
-                    popped = self.board_frame(dev, bw);
+                    popped = self.board_frame(dev, bw, true); // the only pass: its keys() lets a click go
                     let _ = dev.SetViewport(&vp);
                     let _ = sb.Apply();
                 }
@@ -1759,7 +1836,7 @@ impl Render {
             // popped out: the board in its own window, the game's window the picture, the pages and the buttons; a board
             // window that could not be drawn (minimized, tiny, no swap chain) gives the board back to the game's window
             // for the frame
-            let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
+            let popped = board.is_some_and(|bw| self.board_frame(dev, bw, false));
             POPPED.store(popped, Relaxed);
             self.st.set_popped(popped);
             let drawn = self.compose(dev, &sc, w, h, true);
@@ -1916,14 +1993,18 @@ impl Render {
             return None;
         }
         let sc = sc?;
+        self.board_last = None;
         log(&format!("board window: swap chain {w}x{h}"));
         self.board_sc = Some((sc.clone(), w, h, wnd));
         Some((sc, w, h))
     }
 
     /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
-    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead.
-    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> bool {
+    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead. Unless `always`,
+    /// a frame with no input, the same size and keys, before the board's egui asked for one, keeps the last picture
+    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then; none with
+    /// idle frames off, `WCCFPANEL_IDLE=0`).
+    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
         unsafe {
@@ -1935,9 +2016,34 @@ impl Render {
             else {
                 return false;
             };
+            let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
+            let input = (
+                modifiers_with(|vk| GetAsyncKeyState(i32::from(vk)) < 0),
+                keys_held(&self.st.keys, ours),
+            );
+            let now = Instant::now();
+            let events = BOARD_EVENTS.lock().is_ok_and(|e| !e.is_empty());
+            if board_unchanged(
+                self.board_last.as_ref(),
+                (w, h),
+                &input,
+                now,
+                always || self.busy || events || BOARD_SIZING.load(Relaxed),
+            ) {
+                self.board_skipped += 1;
+                return true;
+            }
             if self.compose(dev, &sc, w, h, false).is_none() {
                 return false;
             }
+            self.board_drawn += 1;
+            self.board_last = Some((
+                (w, h),
+                input,
+                now + self
+                    .board_delay
+                    .clamp(Duration::from_millis(33), Duration::from_millis(100)),
+            ));
             let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -1963,6 +2069,12 @@ impl Render {
                 self.spent.as_secs_f64() * 1000.0 / f64::from(self.frames),
                 self.worst.as_secs_f64() * 1000.0,
                 self.frames
+            ));
+        }
+        if self.board_drawn + self.board_skipped > 0 {
+            log(&format!(
+                "board window: {} frames drawn, {} skipped (nothing changed)",
+                self.board_drawn, self.board_skipped
             ));
         }
     }
@@ -2362,6 +2474,12 @@ impl Render {
             self.st.desk = false;
             out
         });
+        if let Some(o) = &out {
+            self.board_delay = o
+                .viewport_output
+                .get(&ViewportId::ROOT)
+                .map_or(Duration::ZERO, |v| v.repaint_delay);
+        }
         self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
@@ -3948,6 +4066,21 @@ fn modifiers() -> Modifiers {
 
 /// The cabinet actions whose key is down now, `ours` (the keys the panel sent down itself) left out: the async state
 /// follows the key whichever window has the focus.
+/// What the board window shows besides egui's own input: the modifiers (Alt: the keycaps) and the keys held down.
+type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
+
+/// The board window's frame may keep its last picture: not `forced`, drawn before at this size with this input, and
+/// not yet due again.
+fn board_unchanged(
+    last: Option<&((u32, u32), BoardInput, Instant)>,
+    size: (u32, u32),
+    input: &BoardInput,
+    now: Instant,
+    forced: bool,
+) -> bool {
+    !forced && last.is_some_and(|(s, i, due)| *s == size && i == input && now < *due)
+}
+
 fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
     panel::keys_down(keys, |vk| {
         if ours.contains(&vk) {
@@ -4120,7 +4253,10 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, banner_off, cards, read_notice, side_button, take_off_lines};
+    use super::{
+        Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
+        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, take_off_lines,
+    };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
@@ -4169,6 +4305,123 @@ mod tests {
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
+
+    /// A taskbar at the top of the primary monitor (48 high): workspace y 0 is screen y 48, so a place fitted to the
+    /// 1920x1200 work area keeps the work area's size (1152) and its workspace top at 0; on a monitor to the left the
+    /// same offset puts its work area at workspace y -48 to 976.
+    #[test]
+    fn a_saved_place_converts_between_workspace_and_screen() {
+        let work = RECT {
+            left: 0,
+            top: 48,
+            right: 1920,
+            bottom: 1200,
+        };
+        let r = fit_workspace(100, 50, 960, 1232, (0, 48), work);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (100, 0, 1060, 1152));
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 1024,
+        };
+        let r = fit_workspace(-1300, -40, 900, 900, (0, 48), left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, -40, -380, 860));
+    }
+
+    /// A hand-edited board_rect= with numbers near i32's limit neither panics nor wraps: the place comes back with
+    /// a positive size.
+    #[test]
+    fn a_corrupt_saved_place_does_not_overflow() {
+        for (x, y, w, h) in [
+            (2_000_000_000, 0, 2_000_000_000, 100),
+            (i32::MAX, i32::MAX, i32::MAX, i32::MAX),
+            (i32::MIN, i32::MIN, 1, 1),
+        ] {
+            let r = saved_place_fitted(x, y, w, h);
+            assert!(
+                r.right > r.left && r.bottom > r.top,
+                "{x},{y} {w}x{h} -> {r:?}"
+            );
+        }
+    }
+
+    /// The board window's frame is skipped only when it was drawn at this size with this input and is not due yet;
+    /// a resize, a key, Alt, a forced pass (input waiting, sizing, the game's window minimized) or the due time draws.
+    #[test]
+    fn the_board_window_skips_only_unchanged_frames() {
+        let t = Instant::now();
+        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
+        let last = ((944, 891), input, t + Duration::from_millis(100));
+        assert!(
+            !board_unchanged(None, (944, 891), &input, t, false),
+            "never drawn"
+        );
+        assert!(board_unchanged(Some(&last), (944, 891), &input, t, false));
+        assert!(
+            !board_unchanged(Some(&last), (944, 890), &input, t, false),
+            "resized"
+        );
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, t, true),
+            "forced"
+        );
+        let due = t + Duration::from_millis(100);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, due, false),
+            "due"
+        );
+        let mut key = input;
+        key.1[0] = true;
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &key, t, false),
+            "a key held"
+        );
+        let alt = (Modifiers::ALT, input.1);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &alt, t, false),
+            "Alt"
+        );
+    }
+
+    /// A saved board_rect= bigger than the screen or off it (Yoshy's 1920x1200 tablet, 2026-11-09) comes back inside the
+    /// work area; one that fits stays as it was.
+    #[test]
+    fn a_saved_board_place_fits_the_work_area() {
+        let wa = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1152, // 1200 less a 48-pixel taskbar
+        };
+        let inside = |r: RECT| {
+            r.left >= wa.left && r.top >= wa.top && r.right <= wa.right && r.bottom <= wa.bottom
+        };
+        for (x, y, w, h) in [
+            (100, 50, 1100, 1500),    // taller than the work area
+            (-400, -300, 3000, 2000), // bigger both ways, above and left of it
+            (2500, 1300, 960, 1000),  // on a monitor that has gone
+            (1500, 900, 960, 1232),   // hanging over the bottom right
+        ] {
+            let r = fit_place(x, y, w, h, wa);
+            assert!(inside(r), "{x},{y} {w}x{h} -> {r:?}");
+            assert!(r.right - r.left == w.min(1920) && r.bottom - r.top == h.min(1152));
+        }
+        let fits = fit_place(200, 40, 960, 1100, wa);
+        assert_eq!(
+            (fits.left, fits.top, fits.right, fits.bottom),
+            (200, 40, 1160, 1140)
+        );
+        // a second monitor to the left: its own coordinates
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 984,
+        };
+        let r = fit_place(-1300, 10, 960, 1232, left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, 0, -320, 984));
     }
 
     /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
