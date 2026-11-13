@@ -6835,7 +6835,7 @@ mod tests {
         assert_eq!(import_lineup(&mut st, &old, "998 999", false, 0.0), None);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
+            "None of these cards is in this game.\n998 (not in this game), 999 (not in this game)"
         );
     }
 
@@ -6942,7 +6942,7 @@ mod tests {
             m.text,
             format!(
                 "Test XI: 3 cards on the table.\nThe lineup on db.wccf.it has this key player: {kp}. Set it in the game.\n\
-                 Skipped: OLD · 13 GES 3 (no number in this game), 999 (not in the catalogue)"
+                 Cards not imported: OLD · 13 GES 3 (no number in this game), 999 (not in this game)"
             )
         );
         assert_eq!(st.import_undo, Some((old.clone(), 5.0)));
@@ -7165,7 +7165,7 @@ mod tests {
         assert_eq!(m.tone, Tone::Notice);
         assert_eq!(
             m.text,
-            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+            "Away: 3 cards on the table.\nCards not imported: 999 (not in this game)"
         );
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
@@ -7257,7 +7257,10 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[2], st.keys[1], st.capturing), (0x58, 0x43, None));
         assert!(std::mem::take(&mut st.keys_changed));
-        assert_eq!(st.message.as_ref().unwrap().text, "SHOOT = X; PRESS = C");
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "SHOOT is now X; PRESS is now C."
+        );
         // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
         st.capturing = Some(0);
         st.vk_down = vec![(0x79, false), (0x47, true)];
@@ -7304,7 +7307,10 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[kp], st.capturing), (0x05, None));
         assert!(st.keys_changed);
-        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER = Mouse 4");
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "KEY PLAYER is now Mouse 4."
+        );
         let text = forza::keys::keys_text(true, &st.keys, &st.pads);
         assert!(text.contains("\nKEYPLAYER=0x05\n"));
         #[cfg(windows)]
