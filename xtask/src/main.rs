@@ -1065,9 +1065,9 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         println!("built {}", to.display());
     }
     // dated at the start (a source saved during the build is newer than the stamp, so the next `quick` rebuilds) and
-    // holding the list of sources (a deleted or renamed one is then not a build with a file that is gone)
+    // holding the profile and the list of sources (a deleted or renamed one is then not a build with a file that is gone)
     let stamp = built_stamp(kit);
-    std::fs::write(&stamp, sources(root)?)?;
+    std::fs::write(&stamp, built_stamp_text(profile(), &sources(root)?))?;
     std::fs::OpenOptions::new()
         .write(true)
         .open(&stamp)?
@@ -1075,13 +1075,25 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
     Ok(())
 }
 
-/// Written by [`build_all`] beside the kits; [`kit_stale`] compares the sources with it.
+/// Written by [`build_all`] beside the kits; [`kit_stale`] compares the profile and the sources with it.
 fn built_stamp(kit: &Path) -> PathBuf {
     kit.with_file_name("built.stamp")
 }
 
+/// What [`build_all`] writes in the stamp: the profile the kits were built with, then the sources, one per line.
+fn built_stamp_text(profile: &str, sources: &str) -> String {
+    format!("{profile}\n{sources}")
+}
+
+/// Whether the stamp names another profile than `now`: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
+/// `fast`, and the gate must not test the other one's kit or installer (a stamp from before the profile line is stale too).
+fn other_profile(stamp: &str, now: &str) -> bool {
+    stamp.split_once('\n').map(|(built, _)| built) != Some(now)
+}
+
 /// The staged kit is missing, or a source it is built from changed after the last `build_all` started (a branch switch
-/// counts: git writes the files), or the list of sources is not the one it was built from.
+/// counts: git writes the files), or the list of sources is not the one it was built from, or it was built in another
+/// profile.
 fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
     // the stamp sits outside the edition folders: a kit folder deleted by hand leaves it behind
     let stamp = built_stamp(kit);
@@ -1094,8 +1106,9 @@ fn kit_stale(root: &Path, kit: &Path) -> Result<bool> {
         return Ok(true);
     }
     let files = sources(root)?;
-    let listed = fs::read_to_string(&stamp).unwrap_or_default();
-    Ok(sources_changed(root, built, &listed, &files))
+    let stamped = fs::read_to_string(&stamp).unwrap_or_default();
+    let (_, listed) = stamped.split_once('\n').unwrap_or_default();
+    Ok(other_profile(&stamped, profile()) || sources_changed(root, built, listed, &files))
 }
 
 /// The files the kits are built from, sorted, as `git ls-files` lists them (the stamp holds this).
@@ -1546,8 +1559,10 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     // and both when the whole workspace is in scope (`pkgs` is `None`: the lock, the toolchain or the root manifest)
     let installer = installer_work(files.as_deref(), pkgs.is_none());
     // the launcher's and the panel's tests start the stand-ins and the panel DLL that `cargo xtask build` puts in the kit,
-    // and the installer's smoke the exe it builds there
-    let needs_kit = kit_needed(has) || installer.smoke;
+    // and the installer's smoke the exe it builds there: one another profile's run left (`release` from `package`) is not
+    // this run's, and neither is a missing one
+    let exe_missing = installer.smoke && !installer_exe(root, profile()).is_file();
+    let needs_kit = kit_needed(has) || exe_missing;
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     run_ok(fmt, "cargo fmt")?;
@@ -1555,8 +1570,14 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         return Ok(());
     }
     // a kit built without the 2010-11 hook has no wccfk.dll (build_all)
-    if needs_kit && (kit_stale(root, kit)? || e1011 && !kit.join("programs/wccfk.dll").is_file()) {
-        println!("quick: the staged kit is missing or older than the sources: rebuilding it");
+    if needs_kit
+        && (exe_missing
+            || kit_stale(root, kit)?
+            || e1011 && !kit.join("programs/wccfk.dll").is_file())
+    {
+        println!(
+            "quick: the staged kit or installer is missing, older than the sources or from another profile: rebuilding"
+        );
         build_all(root, kit, kit_1718, e1011)?;
     }
     let hook = hook_feature(e1011);
@@ -2440,13 +2461,13 @@ fn check_licenses(root: &Path) -> Result<()> {
 }
 
 /// Synthetic headless run of the installer in a scratch folder: inert placeholder files only, no media, keys, kit or game.
-/// The exe is the release build that `build_all` makes.
+/// The exe is the one that `build_all` makes in this run's profile (`quick`'s `ci` under a wrapper, else `release`).
 fn smoke(root: &Path, stage_root: &Path) -> Result<()> {
     let exe = installer_built(root)?;
     smoke_run(root, stage_root, &exe)
 }
 
-/// The release installer that `build_all` built; returns its path.
+/// The installer that `build_all` built in this run's profile; returns its path.
 fn installer_built(root: &Path) -> Result<PathBuf> {
     let exe = installer_exe(root, profile());
     ensure!(exe.is_file(), "{} is missing", exe.display());
@@ -3111,6 +3132,20 @@ mod tests {
             prop_assert!(!masked.contains(&k), "{masked:?}");
             prop_assert!(!names_publisher(&masked), "{masked:?}");
         }
+    }
+
+    /// A kit built in another profile is not the gate's: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
+    /// `fast`, and the smoke of the installer plus the kit tests must not run the other one's programs.
+    #[test]
+    fn a_kit_built_in_another_profile_is_stale() {
+        let stamp = built_stamp_text("ci", "a.rs\nb.rs");
+        assert_eq!(stamp.lines().next(), Some("ci"));
+        assert!(!other_profile(&stamp, "ci"));
+        assert!(other_profile(&stamp, "fast"));
+        assert!(other_profile(&stamp, "release"));
+        // a stamp from before the profile line: its first line is a source path, not a profile
+        assert!(other_profile("a.rs\nb.rs", "ci"));
+        assert!(other_profile("", "release"));
     }
 
     /// `check quick` must rebuild when a source is gone: deleted and not staged, git still lists it and the mtime
