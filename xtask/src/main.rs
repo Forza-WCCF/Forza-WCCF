@@ -1978,7 +1978,7 @@ fn check_text(root: &Path) -> Result<()> {
 }
 
 /// The panel's money and relay self-tests: forza_panel.dll loaded by fakegame.exe in a scratch folder (the 2010-11 kit's
-/// copy, so its fonts are found above it); the relay test plays two seats through `forza-server relay` on 127.0.0.1:20941 -
+/// copy, so its fonts are found above it); the relay test plays two seats through `forza-server relay` on 127.0.0.1 (port 0) -
 /// the panel's and the server's sides of the match relay checked against each other; the panel must have drawn a frame
 /// without a panic. The deal is not here: its odds are forza::cards' unit test, its window crates/panel's fakegame stage 6.
 /// The frame-wait timing stays out: a busy machine fails it (crates/panel's unit tests cover its arithmetic).
@@ -1995,23 +1995,27 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         t.join("fakegame.exe"),
     )?;
     let mut relay = Command::new(kit.join("programs/forza-server.exe"));
-    relay.args(["relay", "30"]).env("WCCF_RELAY_PORT", "20941");
+    // port 0: two checks on this PC (two worktrees) never share a relay; the panel gets the port it bound
+    relay.args(["relay", "30"]).env("WCCF_RELAY_PORT", "0");
     let mut relay: Child = relay.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
-    // waits for its "listening" line (a fixed second lost the race under load, 2026-10-13); the rest of its output is
-    // drained, so its prints never block or break
+    // waits for its "listening on UDP <port>" line (a fixed second lost the race under load, 2026-10-13); the rest of its
+    // output is drained, so its prints never block or break
     let out = std::io::BufReader::new(relay.stdout.take().context("the relay's output")?);
     let (up, listening) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut up = Some(up);
         for l in std::io::BufRead::lines(out).map_while(Result::ok) {
-            if l.contains("listening")
+            if let Some(port) = l.split("listening on UDP ").nth(1)
                 && let Some(u) = up.take()
             {
-                let _ = u.send(());
+                let _ = u.send(port.trim().to_owned());
             }
         }
     });
-    let _ = listening.recv_timeout(Duration::from_secs(20));
+    // no line: port 0 makes the panel's relay test fail and say so
+    let port = listening
+        .recv_timeout(Duration::from_secs(20))
+        .unwrap_or_else(|_| "0".into());
     let mut game = Command::new(t.join("fakegame.exe"));
     game.current_dir(&t)
         .arg(kit.join("programs/forza_panel.dll"))
@@ -2023,7 +2027,7 @@ fn panel_selftests(ck: &mut Checks) -> Result<()> {
         .env("WCCF_KEYS", t.join("data/keys.txt"))
         .env("WCCFPANEL_MONEYTEST", "1")
         .env("WCCFPANEL_RELAYTEST", "1")
-        .env("WCCF_RELAY_PORT", "20941");
+        .env("WCCF_RELAY_PORT", port);
     let run = game.status();
     let _ = relay.kill();
     let _ = relay.wait();
