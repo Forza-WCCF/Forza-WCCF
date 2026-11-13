@@ -84,6 +84,16 @@ enum Task {
         #[arg(last = true)]
         test_args: Vec<String>,
     },
+    /// `check quick` behind a preflight, with fixed exit codes and last line for scripts and agents: 0 `VERIFY OK <secs>s`,
+    /// 1 `VERIFY FAIL <stage> <secs>s`, 2 `VERIFY NOT-RUN <reason>` (nothing ran: a game runs, "Prefer System32 images"
+    /// is on (a shell started from WSL), or the build drive has under 20 GB free), 3 `VERIFY ERROR <msg>`. Each run
+    /// appends `date,worktree,base,result,secs` to FORZA_VERIFY_CSV, else to `wccf-builds/verify-runs.csv` beside the
+    /// repository when that folder exists
+    Verify {
+        /// What `quick` diffs against, as `check quick --base`
+        #[arg(long, default_value = QUICK_BASE)]
+        base: String,
+    },
     /// Copy an edition's files into target/kit/<edition>/ (copies only)
     Stage {
         /// 2010-11 or 2017-18
@@ -603,15 +613,23 @@ const PROGRAMS: &[&str] = &[
 
 fn main() -> Result<()> {
     let task = Task::parse();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .context("no repository root")?
+        .to_path_buf();
+    if let Task::Verify { base } = task {
+        std::process::exit(verify(&root, &base));
+    }
+    run(task, &root)
+}
+
+fn run(task: Task, root: &Path) -> Result<()> {
+    let root = root.to_path_buf();
     // `check text` reads only tracked text: CI's Linux lint job runs it
     ensure!(
         cfg!(windows) || matches!(&task, Task::Check { mode: Some(m), .. } if m == "text"),
         "cargo xtask runs on Windows (only `check text` runs anywhere)"
     );
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("no repository root")?
-        .to_path_buf();
     // `check text` and `stage` run no compiler
     let text = matches!(&task, Task::Check { mode: Some(m), .. } if m == "text");
     // `package` neither: shipped programs never come from the cache (see `rust`)
@@ -669,6 +687,7 @@ fn main() -> Result<()> {
             ));
             test_packages(&root, &kit, &package, &test_args)
         }
+        Task::Verify { .. } => unreachable!("main runs verify"),
         Task::Stage { edition } => match edition.as_str() {
             "2010-11" => stage(&root, &kit, ED_1011.map, ED_1011.keep),
             "2017-18" => stage(&root, &kit_1718, ED_1718.map, ED_1718.keep),
@@ -798,11 +817,15 @@ fn has_user_path(bytes: &[u8]) -> bool {
 }
 
 fn run_ok(mut c: Command, what: &str) -> Result<()> {
-    ensure!(
-        c.status().with_context(|| what.to_owned())?.success(),
-        "{what} failed"
-    );
-    Ok(())
+    if c.status().with_context(|| what.to_owned())?.success() {
+        Ok(())
+    } else {
+        Err(CheckFailed {
+            stage: what.to_owned(),
+            msg: format!("{what} failed"),
+        }
+        .into())
+    }
 }
 
 /// The design gallery built for Windows and started from the repository root, where it finds `assets/fonts/`.
@@ -1045,20 +1068,32 @@ fn build_all(root: &Path, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()
         let _ = fs::remove_file(kit.join("programs/wccfk.dll"));
     }
     let mut failed = vec![];
+    // a build that ran and failed is `verify`'s FAIL; one that could not start, its ERROR
+    let mut ran = true;
     std::thread::scope(|s| {
         for j in build(s, root, kit, kit_1718, e1011) {
             let (what, r) = j.join().expect("build thread");
             if let Err(e) = r {
+                ran &= e.downcast_ref::<CheckFailed>().is_some();
                 failed.push(format!("{what}: {e:#}"));
             }
         }
     });
-    ensure!(
-        failed.is_empty(),
-        "{} build step(s) failed:\n{}",
-        failed.len(),
-        failed.join("\n")
-    );
+    if !failed.is_empty() {
+        let msg = format!(
+            "{} build step(s) failed:\n{}",
+            failed.len(),
+            failed.join("\n")
+        );
+        if ran {
+            return Err(CheckFailed {
+                stage: "build".into(),
+                msg,
+            }
+            .into());
+        }
+        anyhow::bail!(msg);
+    }
     // the same three programs in both kits: Launcher.exe runs either edition (launcher::kit::Edition, from the layout),
     // forza_panel.dll finds its edition the same way
     let release = target_dir(root).join(TARGET).join(profile());
@@ -1239,6 +1274,298 @@ fn build<'s>(
             )
         }),
     ]
+}
+
+// ---- verify ----
+
+/// A check that ran and failed, as against xtask failing to run it: `verify` exits 1 on it, 3 on any other error.
+#[derive(Debug)]
+struct CheckFailed {
+    /// the check's name, which `VERIFY FAIL` prints
+    stage: String,
+    msg: String,
+}
+
+impl std::fmt::Display for CheckFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for CheckFailed {}
+
+/// How a `verify` run ended: its exit code and last line.
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    Pass,
+    Fail(String),
+    NotRun(String),
+    Error(String),
+}
+
+impl Verdict {
+    fn of(r: &Result<()>) -> Self {
+        match r {
+            Ok(()) => Self::Pass,
+            Err(e) => match e.downcast_ref::<CheckFailed>() {
+                Some(f) => Self::Fail(f.stage.clone()),
+                None => Self::Error(format!("{e:#}")),
+            },
+        }
+    }
+
+    fn code(&self) -> i32 {
+        match self {
+            Self::Pass => 0,
+            Self::Fail(_) => 1,
+            Self::NotRun(_) => 2,
+            Self::Error(_) => 3,
+        }
+    }
+
+    /// The last line; the stage is one word and every line one line, so a script splits it on spaces.
+    fn line(&self, secs: u64) -> String {
+        let one = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        match self {
+            Self::Pass => format!("VERIFY OK {secs}s"),
+            Self::Fail(stage) => format!("VERIFY FAIL {} {secs}s", one(stage).replace(' ', "-")),
+            Self::NotRun(why) => format!("VERIFY NOT-RUN {}", one(why)),
+            Self::Error(msg) => format!("VERIFY ERROR {}", one(msg)),
+        }
+    }
+
+    /// The CSV's result column: the word after `VERIFY`, with the stage of a failure.
+    fn result(&self) -> String {
+        match self {
+            Self::Pass => "OK".into(),
+            Self::Fail(stage) => format!("FAIL:{}", stage.replace([' ', ','], "-")),
+            Self::NotRun(_) => "NOT-RUN".into(),
+            Self::Error(_) => "ERROR".into(),
+        }
+    }
+}
+
+/// The programs no build may run beside (AGENTS.md: a release check stalled a live match), lower case.
+const GAME_RUNNING: [&str; 4] = [
+    "client_release.exe",
+    "match_release.exe",
+    "control_release.exe",
+    "launcher.exe",
+];
+
+/// A process that stops a `verify`: a game program, or a Launcher.exe that is not PowerToys' (one whose path Windows
+/// would not give counts).
+fn blocks_verify(name: &str, path: &str) -> bool {
+    GAME_RUNNING.contains(&name.to_lowercase().as_str())
+        && !(name.eq_ignore_ascii_case("launcher.exe")
+            && path.to_lowercase().contains("\\powertoys\\"))
+}
+
+/// Why `verify` must not run now, if it must not.
+fn preflight(root: &Path) -> Option<String> {
+    if let Some((name, pid, path)) = host::processes()
+        .into_iter()
+        .find(|(n, _, p)| blocks_verify(n, p))
+    {
+        return Some(format!("a game process runs: {name} pid={pid} {path}"));
+    }
+    if host::prefers_system32() {
+        return Some(
+            "\"Prefer System32 images\" is on (a shell started from WSL): run it through run-cargo.ps1 or a Windows shell"
+                .into(),
+        );
+    }
+    let dir = Some(target_dir(root))
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(|| root.to_owned());
+    match host::free_bytes(&dir) {
+        Some(free) if free < VERIFY_MIN_FREE => Some(format!(
+            "{} GB free on the drive of {} (under {} GB)",
+            free >> 30,
+            dir.display(),
+            VERIFY_MIN_FREE >> 30
+        )),
+        _ => None,
+    }
+}
+
+const VERIFY_MIN_FREE: u64 = 20 << 30;
+
+/// `cargo xtask verify`: the preflight, then `check quick`; prints the last line and returns the exit code.
+fn verify(root: &Path, base: &str) -> i32 {
+    let start = std::time::Instant::now();
+    let verdict = if let Some(why) = preflight(root) {
+        Verdict::NotRun(why)
+    } else {
+        let quick = Task::Check {
+            mode: Some("quick".into()),
+            base: base.to_owned(),
+            fast: false,
+            release: false,
+            test_args: vec![],
+        };
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(quick, root)))
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("xtask panicked")));
+        if let Err(e) = &r {
+            eprintln!("Error: {e:?}");
+        }
+        Verdict::of(&r)
+    };
+    let secs = start.elapsed().as_secs();
+    if let Err(e) = log_verify(root, base, &verdict, secs) {
+        eprintln!("verify: the run log was not written: {e:#}");
+    }
+    let _ = std::io::stderr().flush();
+    println!("{}", verdict.line(secs));
+    verdict.code()
+}
+
+/// One CSV line per run: FORZA_VERIFY_CSV, else `wccf-builds/verify-runs.csv` beside the repository when that folder
+/// exists (the maintainers' build folder), else none.
+fn log_verify(root: &Path, base: &str, v: &Verdict, secs: u64) -> Result<()> {
+    let csv = match std::env::var_os("FORZA_VERIFY_CSV") {
+        Some(p) => PathBuf::from(p),
+        None => match root.parent().map(|p| p.join("wccf-builds")) {
+            Some(d) if d.is_dir() => d.join("verify-runs.csv"),
+            _ => return Ok(()),
+        },
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let t = dos_time(i64::try_from(now)?)?;
+    let new = !csv.is_file();
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&csv)?;
+    if new {
+        writeln!(f, "date,worktree,base,result,secs")?;
+    }
+    writeln!(
+        f,
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z,{},{},{},{secs}",
+        t.year(),
+        t.month(),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second(),
+        root.display(),
+        base.replace(',', "-"),
+        v.result()
+    )?;
+    Ok(())
+}
+
+/// The few Windows calls the preflight makes; elsewhere (CI's Linux lint job builds xtask) they find nothing.
+#[cfg(windows)]
+mod host {
+    use std::path::Path;
+    use windows_sys::Win32::Foundation::{CloseHandle, FALSE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::SystemServices::PROCESS_MITIGATION_IMAGE_LOAD_POLICY;
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, GetProcessMitigationPolicy, OpenProcess, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION, ProcessImageLoadPolicy, QueryFullProcessImageNameW,
+    };
+
+    /// Every process: its file name, id and full path (empty when Windows would not say); as `forza::procs`.
+    pub fn processes() -> Vec<(String, u32, String)> {
+        let mut out = Vec::new();
+        // SAFETY: the snapshot handle is checked and closed once; the entry is plain data with its size set.
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap == INVALID_HANDLE_VALUE {
+                return out;
+            }
+            let mut e: PROCESSENTRY32W = std::mem::zeroed();
+            e.dwSize = u32::try_from(size_of::<PROCESSENTRY32W>()).unwrap_or(0);
+            let mut ok = Process32FirstW(snap, &raw mut e);
+            while ok != 0 {
+                let len = e
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(e.szExeFile.len());
+                let name = String::from_utf16_lossy(&e.szExeFile[..len]);
+                out.push((name, e.th32ProcessID, image(e.th32ProcessID)));
+                ok = Process32NextW(snap, &raw mut e);
+            }
+            CloseHandle(snap);
+        }
+        out
+    }
+
+    fn image(pid: u32) -> String {
+        // SAFETY: the handle is checked and closed once; the buffer and its length go together.
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if h.is_null() {
+                return String::new();
+            }
+            let mut buf = vec![0u16; 32_768];
+            let mut len = u32::try_from(buf.len()).unwrap_or(0);
+            let ok =
+                QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &raw mut len);
+            CloseHandle(h);
+            if ok == 0 {
+                return String::new();
+            }
+            String::from_utf16_lossy(&buf[..len as usize])
+        }
+    }
+
+    /// "Prefer System32 images" on this process, which every program a WSL session starts inherits (docs/SAFETY.md)
+    /// and four Launcher tests fail on.
+    pub fn prefers_system32() -> bool {
+        let mut policy = PROCESS_MITIGATION_IMAGE_LOAD_POLICY::default();
+        // SAFETY: the structure and its size go together; the pseudo-handle needs no closing.
+        let ok = unsafe {
+            GetProcessMitigationPolicy(
+                GetCurrentProcess(),
+                ProcessImageLoadPolicy,
+                (&raw mut policy).cast(),
+                size_of::<PROCESS_MITIGATION_IMAGE_LOAD_POLICY>(),
+            )
+        };
+        // SAFETY: the union is plain flags.
+        ok != 0 && unsafe { policy.Anonymous.Flags } & 0b100 != 0 // PreferSystem32Images
+    }
+
+    /// The bytes this user may still write on the drive of `dir`.
+    pub fn free_bytes(dir: &Path) -> Option<u64> {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+        let mut free = 0u64;
+        // SAFETY: a NUL-terminated path; the other two outputs may be null.
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &raw mut free,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        (ok != 0).then_some(free)
+    }
+}
+
+#[cfg(not(windows))]
+mod host {
+    pub fn processes() -> Vec<(String, u32, String)> {
+        vec![]
+    }
+    pub fn prefers_system32() -> bool {
+        false
+    }
+    pub fn free_bytes(_: &std::path::Path) -> Option<u64> {
+        None
+    }
 }
 
 // ---- check ----
@@ -1658,7 +1985,13 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     if installer.any() {
         installer_checks(root, stage_root, installer, &mut ck.failed);
     }
-    ensure!(ck.failed.is_empty(), "FAILED: {}", ck.failed.join(", "));
+    if !ck.failed.is_empty() {
+        return Err(CheckFailed {
+            stage: ck.failed.join("+"),
+            msg: format!("FAILED: {}", ck.failed.join(", ")),
+        }
+        .into());
+    }
     println!("quick check passed (no release build; the full check and `check ci` run everything)");
     Ok(())
 }
@@ -3153,6 +3486,48 @@ mod tests {
 
     /// A kit built in another profile is not the gate's: `check quick` builds `ci` when a wrapper is on, `cargo xtask build`
     /// `fast`, and the smoke of the installer plus the kit tests must not run the other one's programs.
+    #[test]
+    fn verify_maps_each_end_to_its_exit_code_and_last_line() {
+        let failed: Result<()> = Err(anyhow::Error::from(CheckFailed {
+            stage: "cargo clippy (32-bit)".into(),
+            msg: "cargo clippy (32-bit) failed".into(),
+        })
+        .context("around it"));
+        let v = Verdict::of(&failed);
+        assert_eq!(
+            (v.code(), v.line(7)),
+            (1, "VERIFY FAIL cargo-clippy-(32-bit) 7s".into())
+        );
+        assert_eq!(v.result(), "FAIL:cargo-clippy-(32-bit)");
+        let v = Verdict::of(&Ok(()));
+        assert_eq!((v.code(), v.line(12)), (0, "VERIFY OK 12s".into()));
+        let v = Verdict::of(&Err(anyhow::anyhow!("git\nnot found")));
+        assert_eq!(
+            (v.code(), v.line(1)),
+            (3, "VERIFY ERROR git not found".into())
+        );
+        let v = Verdict::NotRun("a game process runs".into());
+        assert_eq!(
+            (v.code(), v.line(0)),
+            (2, "VERIFY NOT-RUN a game process runs".into())
+        );
+    }
+
+    #[test]
+    fn verify_stops_for_the_game_and_its_launcher_not_powertoys() {
+        assert!(blocks_verify("client_Release.exe", ""));
+        assert!(blocks_verify(
+            "Launcher.exe",
+            r"C:\Games\Forza-WCCF\2017-2018\Launcher.exe"
+        ));
+        assert!(blocks_verify("Launcher.exe", ""));
+        assert!(!blocks_verify(
+            "Launcher.exe",
+            r"C:\Program Files\PowerToys\Launcher.exe"
+        ));
+        assert!(!blocks_verify("cargo.exe", ""));
+    }
+
     #[test]
     fn a_kit_built_in_another_profile_is_stale() {
         let stamp = built_stamp_text("ci", "a.rs\nb.rs");

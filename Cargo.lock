@@ -8254,6 +8254,7 @@ dependencies = [
  "semver",
  "serde_json",
  "sha2",
+ "windows-sys 0.61.2",
  "xshell",
  "zip",
 ]
