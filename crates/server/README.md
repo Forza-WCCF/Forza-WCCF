@@ -56,6 +56,7 @@ The desk's words (`forza::online::lobby` has the client side; one line each way,
 | `CREATE vs open` (QUICK MATCH) | `ROOM id code t 2` on seat 2 of the oldest open room still waiting, else a new open room (`… t 1`) |
 | `RESERVE room-id [2]` | `TICKET t 2`, `FULL` (two players), `TAKEN` (the seat asked for), `CLOSED` (no such room) |
 | `READY id t` | `OK` or `GONE` |
+| `MODE id t free\|cat` | `OK` or `GONE`: the ticket's seat plays free or Create-a-Team; listed as `"mode":"cat"`, free left out. Desks before it answer `ERR`, which the Launcher ignores |
 | `CLOSE id t` | `OK` or `GONE`; the host's ticket closes the room and drops the guest's, a guest's leaves its seat |
 | `HEARTBEAT t`, `RELEASE t` | as for arcade seats; the host's `RELEASE` closes the room |
 

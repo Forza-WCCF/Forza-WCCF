@@ -10,6 +10,8 @@
 //!   (the desk seats it on seat 2 of the oldest room waiting there, else makes one; QUICK MATCH on VS ROOMS).
 //! - `READY id t` -> `OK` | `GONE`: the ticket's seat in room `id` is ready (READY).
 //! - `CLOSE id t` -> `OK` | `GONE`: the host's ticket closes room `id` (LEAVE by the host).
+//! - `MODE id t free|cat` -> `OK` | `GONE`: the ticket's seat in VS room `id` plays free or Create-a-Team
+//!   ([`Occupant::mode`]). Desks before it answer `ERR`, which the Launcher ignores: the seat stays free.
 //! - `CREATE shop ID [public]` (2017-18) -> [`Created`]: an arcade room hosted by the PC whose arcade tunnel is ID (an
 //!   iroh EndpointId, 64 hex digits), the host on seat 1. Private unless `public` (then listed, without its code).
 //!   `CREATE shop ID public|private NAME...` names it too (the rest of the line, [`arcade_name`]); desks before this
@@ -169,13 +171,54 @@ impl Peers {
     }
 }
 
-/// A player in a VS room: the seat (1 = the host), a random club id, and whether READY was pressed.
+/// A player in a VS room: the seat (1 = the host), a random club id, whether READY was pressed, and its mode.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Occupant {
     pub seat: u8,
     pub club: String,
     #[serde(default)]
     pub ready: bool,
+    /// Left out when free, so a free room's line is the one desks before `MODE` sent.
+    #[serde(
+        default,
+        skip_serializing_if = "Mode::is_free",
+        deserialize_with = "Mode::lenient"
+    )]
+    pub mode: Mode,
+}
+
+/// A seat's game mode: free play or Create-a-Team (`MODE`); a seat that never said is free.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    Free,
+    Cat,
+}
+
+impl Mode {
+    pub fn is_free(&self) -> bool {
+        *self == Mode::Free
+    }
+
+    /// The word on the wire and in the JSON.
+    pub fn word(self) -> &'static str {
+        match self {
+            Mode::Free => "free",
+            Mode::Cat => "cat",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Mode> {
+        [Mode::Free, Mode::Cat]
+            .into_iter()
+            .find(|m| m.word() == word)
+    }
+
+    /// A word this build does not know reads as free: a later desk's mode must not cost the whole lobby answer.
+    fn lenient<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Mode, D::Error> {
+        Ok(Mode::parse(&String::deserialize(d)?).unwrap_or_default())
+    }
 }
 
 /// One VS room: a one-PC arcade waiting for, or holding, its opponent.
@@ -285,6 +328,11 @@ pub enum Ask {
         id: String,
         ticket: String,
     },
+    Mode {
+        id: String,
+        ticket: String,
+        mode: Mode,
+    },
 }
 
 impl Ask {
@@ -334,6 +382,7 @@ impl Ask {
             } => format!("SHOP {ticket} {id}\n"),
             Ask::Ready { id, ticket } => format!("READY {id} {ticket}\n"),
             Ask::Close { id, ticket } => format!("CLOSE {id} {ticket}\n"),
+            Ask::Mode { id, ticket, mode } => format!("MODE {id} {ticket} {}\n", mode.word()),
         }
     }
 
@@ -416,6 +465,11 @@ impl Ask {
             ["CLOSE", id, t] => Ask::Close {
                 id: s(id),
                 ticket: s(t),
+            },
+            ["MODE", id, t, m] => Ask::Mode {
+                id: s(id),
+                ticket: s(t),
+                mode: Mode::parse(m)?,
             },
             _ => return None,
         })
@@ -647,6 +701,19 @@ pub fn close(addr: SocketAddr, id: &str, ticket: &str) -> Result<bool, String> {
     )?)
 }
 
+/// `MODE id t mode`: true while the room and the ticket's seat still exist; a desk before `MODE` answers an error.
+pub fn mode(addr: SocketAddr, id: &str, ticket: &str, mode: Mode) -> Result<bool, String> {
+    ok_gone(ask(
+        addr,
+        &Ask::Mode {
+            id: id.into(),
+            ticket: ticket.into(),
+            mode,
+        }
+        .line(),
+    )?)
+}
+
 /// `RESERVE id`: a seat held for [`LEASE_SECS`]. Claim it with `WANT ... TICKET t`.
 pub fn reserve(addr: SocketAddr, id: &str) -> Result<Reserved, String> {
     reserve_seat(addr, id, None)
@@ -775,6 +842,46 @@ mod tests {
         assert_eq!(Lobby::parse(&l.line()).unwrap(), l);
     }
 
+    /// (a) A seat line without `mode` is free, and a free seat writes none; an old client's `Occupant` (no `mode`)
+    /// reads a line with it. (d) The lobby stays version 1.
+    #[test]
+    fn a_seats_mode_is_free_unless_said() {
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct OldOccupant {
+            seat: u8,
+            club: String,
+            #[serde(default)]
+            ready: bool,
+        }
+        let old = r#"{"seat":1,"club":"A7K2","ready":true}"#;
+        let o: Occupant = serde_json::from_str(old).unwrap();
+        assert_eq!(o.mode, Mode::Free);
+        assert_eq!(serde_json::to_string(&o).unwrap(), old);
+        let cat = Occupant {
+            mode: Mode::Cat,
+            ..o
+        };
+        let line = serde_json::to_string(&cat).unwrap();
+        assert_eq!(
+            line,
+            r#"{"seat":1,"club":"A7K2","ready":true,"mode":"cat"}"#
+        );
+        let o: OldOccupant = serde_json::from_str(&line).unwrap();
+        assert_eq!((o.seat, o.club.as_str(), o.ready), (1, "A7K2", true));
+        assert_eq!(serde_json::from_str::<Occupant>(&line).unwrap(), cat);
+        // a later desk's mode word reads as free, the seat still listed
+        let later: Occupant = serde_json::from_str(&line.replace("cat", "xyz")).unwrap();
+        assert_eq!(later.mode, Mode::Free);
+        assert_eq!(VERSION, 1);
+        let j = format!(
+            r#"{{"v":1,"edition":"2017-18","at":1,"vs":[{{"id":"r","code":"K7QM","players":1,"max":2,"kind":2,"occupants":[{line}]}}]}}"#
+        );
+        let l = Lobby::parse(&j).unwrap();
+        assert!(l.line().starts_with(r#"{"v":1,"#));
+        assert_eq!(l.vs[0].occupants[0].mode, Mode::Cat);
+    }
+
     /// The arcade-room words: only a well-formed tunnel id is a word.
     #[test]
     fn arcade_room_words_round_trip() {
@@ -894,11 +1001,31 @@ mod tests {
                 id: "r7x1".into(),
                 ticket: "t1".into(),
             },
+            Ask::Mode {
+                id: "r7x1".into(),
+                ticket: "t1".into(),
+                mode: Mode::Cat,
+            },
+            Ask::Mode {
+                id: "r7x1".into(),
+                ticket: "t1".into(),
+                mode: Mode::Free,
+            },
         ] {
             assert_eq!(Ask::parse(&a.line()), Some(a.clone()), "{a:?}");
         }
         assert_eq!(Ask::Create { open: false }.line(), "CREATE vs\n");
         assert_eq!(Ask::parse("READY r7x1"), None); // no ticket: no seat to mark
+        assert_eq!(Ask::parse("MODE r7x1 t1 pro"), None);
+        assert_eq!(
+            Ask::Mode {
+                id: "r7x1".into(),
+                ticket: "t1".into(),
+                mode: Mode::Cat
+            }
+            .line(),
+            "MODE r7x1 t1 cat\n"
+        );
         assert_eq!(Ask::parse("CREATE shop"), None);
         for c in [
             Created::Room {
