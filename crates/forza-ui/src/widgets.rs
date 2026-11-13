@@ -58,7 +58,8 @@ pub fn fan(painter: &Painter, center: Pos2, points: &[Pos2], color: Color32) {
     painter.add(mesh);
 }
 
-/// Text laid out on one line, shrunk (down to 70 %) until it fits `max_width`: every label fits in EN, IT and JA.
+/// Text laid out on one line, shrunk (down to 70 %) until it fits `max_width`. Text still too wide at 70 % is drawn
+/// as it is and, while a test's [`probe`] is on, recorded for [`overflows`].
 pub fn fit(
     painter: &Painter,
     text: &str,
@@ -69,11 +70,61 @@ pub fn fit(
     let mut f = font.clone();
     loop {
         let g = painter.layout_no_wrap(text.to_owned(), f.clone(), color);
-        if g.size().x <= max_width || f.size <= font.size * 0.7 {
+        if g.size().x <= max_width {
+            return g;
+        }
+        if f.size <= font.size * 0.7 {
+            if !text.is_empty() {
+                record(painter.ctx(), text, max_width, g.size().x);
+            }
             return g;
         }
         f.size -= 0.5;
     }
+}
+
+/// A text [`fit`] could not fit: its room and its width at the 70 % floor.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Overflow {
+    pub text: String,
+    pub room: f32,
+    pub width: f32,
+}
+
+#[derive(Clone, Default)]
+struct Ledger(Vec<Overflow>);
+
+fn ledger_id() -> Id {
+    Id::unique("forza_ui::widgets::ledger")
+}
+
+/// Starts (or clears) the overflow ledger on `ctx`; without it [`fit`] records nothing. For tests.
+pub fn probe(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(ledger_id(), Ledger::default()));
+}
+
+/// The texts [`fit`] could not fit since [`probe`], each once.
+pub fn overflows(ctx: &egui::Context) -> Vec<Overflow> {
+    ctx.data(|d| d.get_temp::<Ledger>(ledger_id()))
+        .map(|l| l.0)
+        .unwrap_or_default()
+}
+
+fn record(ctx: &egui::Context, text: &str, room: f32, width: f32) {
+    ctx.data_mut(|d| {
+        let Some(mut l) = d.get_temp::<Ledger>(ledger_id()) else {
+            return;
+        };
+        let o = Overflow {
+            text: text.to_owned(),
+            room,
+            width,
+        };
+        if !l.0.contains(&o) {
+            l.0.push(o);
+            d.insert_temp(ledger_id(), l);
+        }
+    });
 }
 
 /// Paints `text` centred in `rect`, fitted to its width.

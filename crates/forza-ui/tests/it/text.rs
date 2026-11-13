@@ -7,51 +7,45 @@ use std::collections::HashMap;
 fn every_key_in_three_languages() {
     let yml = std::fs::read_to_string("locales/ui.yml").unwrap();
     let table: HashMap<&str, &str> = yml.lines().filter_map(|l| l.split_once(": {")).collect();
+    // every section `ui.yml` has ("launcher", "form", ...): a quoted "section.key" in the sources must be in it
+    let sections: Vec<&str> = table
+        .keys()
+        .filter_map(|k| k.split_once('.'))
+        .map(|(s, _)| s)
+        .collect();
     let mut missing = vec![];
-    // the screens, Launcher.exe's messages (forza_ui::text, also from the run) and forza's setup, game text and card
-    // picture lines (forza::Line, worded by forza_ui::line)
-    let files = [
+    // the crates that word text with forza_ui::text or tr!, every folder under their src: the screens, Launcher.exe,
+    // the panel and forza's setup, game text, card picture and online lines
+    let mut files = vec![];
+    let mut dirs: Vec<std::path::PathBuf> = [
         "src",
         "../launcher/src",
-        "../launcher/src/bin/launcher",
-        "../launcher/src/run",
         "../installer/src",
+        "../panel/src",
         "../forza/src",
-        "../forza/src/setup",
-        "../forza/src/cards",
     ]
-    .iter()
-    .flat_map(|d| std::fs::read_dir(d).unwrap())
-    .map(|e| e.unwrap().path())
-    .filter(|p| p.is_file());
+    .map(Into::into)
+    .into();
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                files.push(p);
+            }
+        }
+    }
     for path in files {
-        let src = std::fs::read_to_string(path).unwrap();
+        let src = std::fs::read_to_string(&path).unwrap();
         for piece in src.split('"').skip(1).step_by(2) {
             let Some((section, rest)) = piece.split_once('.') else {
                 continue;
             };
-            let known = [
-                "common",
-                "launcher",
-                "installer",
-                "cab",
-                "panel",
-                "board",
-                "cat",
-                "keys",
-                "settings",
-                "club",
-                "deal",
-                "close",
-                "lobby",
-                "pause",
-                "logs",
-                "setup",
-                "text",
-            ];
-            if !known.contains(&section)
+            if !sections.contains(&section)
                 || rest.is_empty()
-                || ["txt", "exe", "json", "py", "example", "test"].contains(&rest) // file and host names: "panel.txt", "lobby.test"
+                // file and host names: "panel.txt", "lobby.test", "club.bin", "report.request"
+                || ["txt", "exe", "json", "py", "example", "test", "bin", "request"].contains(&rest)
                 || !rest
                     .chars()
                     .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
@@ -60,7 +54,7 @@ fn every_key_in_three_languages() {
             }
             match table.get(piece) {
                 Some(v) if ["en: ", "it: ", "ja: "].iter().all(|l| v.contains(l)) => {}
-                _ => missing.push(piece.to_owned()),
+                _ => missing.push(format!("{} in {}", piece, path.display())),
             }
         }
     }
