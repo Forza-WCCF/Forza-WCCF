@@ -635,7 +635,7 @@ fn main() -> Result<()> {
         } => {
             let ci = mode.as_deref() == Some("ci");
             // with a wrapper `quick` takes CI's non-incremental `ci` profile: sccache serves its workspace crates across
-            // worktrees, never the incremental `fast` ones (`test` stays `fast`, an edit loop in one worktree)
+            // worktrees, never the incremental `fast` ones (`test` takes the same profile, sharing this build tree)
             let wrapped = NO_INCREMENTAL.load(Ordering::Relaxed);
             let _ = PROFILE.set(pick_profile(
                 mode.as_deref(),
@@ -652,7 +652,15 @@ fn main() -> Result<()> {
                 .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
         }
         Task::Test { package, test_args } => {
-            let _ = PROFILE.set(pick_profile(Some("quick"), false, false, in_ci()));
+            // the profile `quick` picks, so a per-commit run reuses the gate's build tree instead of compiling a `fast` one
+            // beside it (with a wrapper that is `ci`; `test_commands` builds the same targets and rustflags)
+            let wrapped = NO_INCREMENTAL.load(Ordering::Relaxed);
+            let _ = PROFILE.set(pick_profile(
+                Some("quick"),
+                false,
+                false,
+                in_ci() || wrapped,
+            ));
             test_packages(&root, &kit, &package, &test_args)
         }
         Task::Stage { edition } => match edition.as_str() {
