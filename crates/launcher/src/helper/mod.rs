@@ -71,7 +71,7 @@ pub struct ViewFiles {
 
 impl ViewFiles {
     pub fn new(data: &Path) -> Self {
-        let save = data.join("save");
+        let save = forza::kit::save_in(data);
         Self {
             card: save.join("seat1_club.bin"),
             backups: save.join("backup"),

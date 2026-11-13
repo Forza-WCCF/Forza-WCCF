@@ -32,7 +32,7 @@ tempfile = "3.27.0"
 same-file = "1.0.6"
 # one player's cards across seasons: names spelt with and without accents (Petr CECH / Petr ČECH)
 deunicode = "1.6.2"
-time = { version = "0.3.55", features = ["local-offset"] }
+time = { version = "0.3.55", features = ["local-offset", "formatting", "parsing", "serde"] }   # collection: the log line's RFC 3339 `at`
 # the Grand Trophy week (GAME_CTRL 7,620) rolls on Sunday 23:00 Italian time, summer time included
 chrono = { version = "0.4.45", default-features = false }
 chrono-tz = "0.10.4"

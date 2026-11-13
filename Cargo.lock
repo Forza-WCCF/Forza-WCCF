@@ -1480,6 +1480,9 @@ name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "derive_more"
@@ -2264,6 +2267,7 @@ dependencies = [
  "forza",
  "image",
  "rust-i18n",
+ "serde",
  "tempfile",
  "time",
  "windows-sys 0.61.2",
@@ -3534,6 +3538,7 @@ dependencies = [
  "rfd",
  "self-replace",
  "semver",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

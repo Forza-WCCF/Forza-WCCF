@@ -11,6 +11,7 @@
 //! `layout`: the folder names of each edition's kit.
 //! `setup`: the install steps (step 11): the guarded, patched copies of the game and the seat folder.
 //! `cards`: the player's catalogue and the game's card table, read at runtime from the player's folders (step 9.4b).
+//! `collection`: Create-a-Team's grant log, its fold and the economy table (no catalogue, no screen).
 
 /// The two editions; the one type the theme, the launcher, the server and the panel share.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -100,6 +101,7 @@ pub mod card;
 #[cfg(feature = "full")]
 pub mod cards;
 pub mod club_view;
+pub mod collection;
 pub mod curl;
 pub mod keys;
 pub mod kit;
@@ -110,6 +112,7 @@ pub mod pause;
 /// Windows only: the game's processes and windows (the Launcher's run, the panel).
 #[cfg(windows)]
 pub mod procs;
+pub mod profile;
 pub mod service;
 /// The install steps need the card catalogue (`cards`), so the `full` feature too.
 #[cfg(feature = "full")]

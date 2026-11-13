@@ -460,13 +460,6 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
 
 // ---- the catalogue ----
 
-/// The white ATLE-RE reprints the 2017-18 game treats as legends beside every ALL TIME LEGEND card (its own list of
-/// card numbers, read from the client).
-const LEGEND_REPRINTS: [u32; 18] = [
-    4659, 5747, 5748, 5749, 5752, 5754, 5755, 6151, 6153, 6154, 6299, 6417, 6635, 6720, 6721, 7131,
-    7132, 7133,
-];
-
 /// `catalogue.tsv` (one card per line, tab-separated, UTF-8, a header naming the columns) -> its cards, in the
 /// file's order. Columns by name: card_no, season, rarity_name, is_placeholder (1 = skipped), name_full_latin,
 /// name_short_latin, position_name, club_name, nationality_name, stat_offence .. stat_stamina, stats_total, and the
@@ -560,6 +553,7 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             // 2017-18 cards of editions 36+ have no ratings, only the 12 position flags (tail bytes 5..17)
             aptitude = Aptitude::from_flags(flags);
         }
+        let stats = stats.map(num);
         out.push(Card {
             number,
             record: get(c_rec).parse().ok(),
@@ -579,10 +573,9 @@ pub fn load_catalogue(path: &Path) -> io::Result<Vec<Card>> {
             code: Some(get(c_code))
                 .filter(|c| !c.is_empty())
                 .unwrap_or_else(|| mvp_mark(&get(c_pic)).into()),
-            // 2017-18 only (the catalogue with card codes): 2010-11's legends print their stats
-            secret: c_code.is_some()
-                && (rarity == Rarity::AllTime || LEGEND_REPRINTS.contains(&number)),
-            stats: stats.map(num),
+            // 2017-18 only (the catalogue with card codes); 2010-11's legends print their stats
+            secret: crate::collection::secret(stats),
+            stats,
             total: num(total),
             aptitude,
         });
@@ -648,12 +641,122 @@ pub fn deal_now(cards: &[Card]) -> Option<usize> {
     deal(cards, r)
 }
 
+/// The catalogue's cards as Create-a-Team's draws see them, in the same order: `player` is one number per player by
+/// [`Card::same_player`] (name and birth date; `record` differs on every card), `season` the season's first year
+/// (`2001-02` and `01-02` give 2001), the value's rarity and TOTAL as the card prints them.
+pub fn collection_cards(cards: &[Card]) -> Vec<crate::collection::Card<'_>> {
+    use crate::collection::{Card as Owned, Position as P, Rarity as R};
+    // a player's cards share a folded name: each name keeps (a card of the player, its number) per player seen
+    let mut players: std::collections::HashMap<String, Vec<(usize, u32)>> = Default::default();
+    let mut next = 0;
+    let mut out = Vec::with_capacity(cards.len());
+    for (i, c) in cards.iter().enumerate() {
+        let seen = players
+            .entry(deunicode::deunicode(&c.name).to_lowercase())
+            .or_default();
+        let player = match seen.iter().find(|(j, _)| cards[*j].same_player(c)) {
+            Some(&(_, n)) => n,
+            None => {
+                next += 1;
+                seen.push((i, next));
+                next
+            }
+        };
+        let year = c.season.split(['-', '/']).next().unwrap_or_default();
+        let year = year.trim().parse::<u16>().unwrap_or(0);
+        out.push(Owned {
+            card_no: c.number,
+            player,
+            rarity: match c.rarity {
+                Rarity::Regular => R::Regular,
+                Rarity::Special => R::Special,
+                Rarity::Rare => R::Rare,
+                Rarity::Legend => R::Legend,
+                Rarity::AllTime => R::AllTimeLegend,
+            },
+            total: u32::from(c.total),
+            series: c.series(),
+            secret: c.secret,
+            season: if (1..100).contains(&year) {
+                2000 + year
+            } else {
+                year
+            },
+            nation: &c.country,
+            club: &c.club,
+            position: match c.pos {
+                Position::Gk => P::Gk,
+                Position::Df => P::Df,
+                Position::Mf => P::Mf,
+                Position::Fw => P::Fw,
+            },
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn p(slot: i32, no: u32, x: f32, y: f32) -> Placed {
         Placed { slot, no, x, y }
+    }
+
+    /// Create-a-Team's rows: one player number per player (name and birth date, accents and case aside), never per
+    /// card; the season's first year; the value's rarity and TOTAL.
+    #[test]
+    fn collection_cards_key_players_by_name_and_birth_date() {
+        let card = |number: u32, name: &str, born: &str, season: &str, rarity: Rarity| Card {
+            number,
+            record: Some(number),
+            name: name.into(),
+            short: String::new(),
+            club: String::new(),
+            country: "Italy".into(),
+            season: season.into(),
+            born: born.into(),
+            pos: Position::Fw,
+            rarity,
+            code: String::new(),
+            secret: false,
+            stats: [0; 6],
+            total: 91,
+            aptitude: Aptitude::default(),
+        };
+        let cat = [
+            card(1, "Aldo Bàrtoli", "1984-09-22", "2001-02", Rarity::Regular),
+            card(
+                2,
+                "aldo bartoli",
+                "1984-09-22",
+                "2004-05/2005-06",
+                Rarity::Rare,
+            ),
+            card(3, "Aldo Bartoli", "1990-01-01", "10-11", Rarity::AllTime),
+            card(4, "Aldo Bartoli", "", "", Rarity::Special),
+            card(5, "Kenji Sato", "1984-09-22", "2017-18", Rarity::Legend),
+        ];
+        let rows = collection_cards(&cat);
+        let players: Vec<u32> = rows.iter().map(|r| r.player).collect();
+        assert_eq!(players[0], players[1], "the same player in two seasons");
+        assert_ne!(players[0], players[2], "the same name, another birth date");
+        assert_eq!(
+            players[3], players[0],
+            "no birth date: the first player of that name"
+        );
+        assert_ne!(players[4], players[0]);
+        let seasons: Vec<u16> = rows.iter().map(|r| r.season).collect();
+        assert_eq!(seasons, [2001, 2004, 2010, 0, 2017]);
+        assert_eq!(
+            (
+                rows[2].card_no,
+                rows[2].rarity,
+                rows[2].total,
+                rows[2].nation
+            ),
+            (3, crate::collection::Rarity::AllTimeLegend, 91, "Italy")
+        );
     }
 
     #[test]
@@ -859,7 +962,7 @@ mod tests {
         let rows = format!(
             "12\t0\t10-11\tLEGEND\t0\tAldo Bàrtoli\tBÀRTOLI\tFW\tPorto Azzurro\tItalia\t18\t5\t16\t14\t17\t12\t82\t{roles} 99 3\t\t\n\
              13\t1\t10-11\tREGULAR\t1\tNobody\tNOBODY\tMF\t\t\t1\t1\t1\t1\t1\t1\t60\t\n\
-             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t3\t15\t9\t12\t8\t10\t71\t0 0 0\tHOLE\t\n\
+             14\t2\t15-16\tALL TIME LEGEND\t0\tKenji Sato\tSATO\tGK\tKitakaze\t日本\t16\t16\t16\t16\t16\t20\t100\t0 0 0\tHOLE\t\n\
              15\t3\t17-18\tREGULAR\t0\tNew Card\tNEW\tMF\tX\tY\t1\t1\t1\t1\t1\t1\t60\t0 0 0\t\t0000000000010100000000000000000000000000"
         );
         fs::write(&path, format!("{head}{rows}")).unwrap();
@@ -888,8 +991,9 @@ mod tests {
             (a.code.as_str(), b.code.as_str(), b.series()),
             ("", "HOLE", "HOLE")
         );
-        // the ALL TIME LEGEND keeps its stats secret, the LEGEND does not
+        // the ALL TIME LEGEND prints the placeholder stats (SECRET), the LEGEND prints its own
         assert_eq!((a.secret, b.secret), (false, true));
+        assert_eq!(b.stats, [16, 16, 16, 16, 16, 20]);
         let series = [
             "WGK-3",
             "MVP-1",

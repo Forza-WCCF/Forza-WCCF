@@ -7,6 +7,13 @@ common.close: {en: "Close", it: "Chiudi", ja: "閉じる"}
 
 # ---- launcher ----
 launcher.play_section: {en: "PLAY", it: "GIOCA", ja: "プレイ"}
+launcher.profile_free: {en: "FREE", it: "LIBERO", ja: "フリー"}
+launcher.profile_cat: {en: "CREATE-A-TEAM", it: "CREA LA TUA SQUADRA", ja: "クリエイト・ア・チーム"}
+launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: "Ogni modalità ha il suo club e il suo tavolo delle carte.", ja: "モードごとにクラブとカードテーブルは別々です。"}
+launcher.collection: {en: "COLLECTION ›", it: "COLLEZIONE ›", ja: "コレクション ›"}
+launcher.msg_no_starter: {en: "Choose your start in COLLECTION before you play.", it: "Scegli come iniziare in COLLEZIONE prima di giocare.", ja: "プレイする前に「コレクション」でスタートを選んでください。"}
+launcher.msg_pack_tokens: {en: "Not enough tokens for this pack.", it: "Gettoni insufficienti per questo pacchetto.", ja: "このパックを買うにはトークンが足りません。"}
+launcher.msg_no_catalogue: {en: "The card list is missing. Press SET UP on the SETUP tab, then open COLLECTION again.", it: "Manca l'elenco delle carte. Premi CONFIGURA nella scheda CONFIGURAZIONE, poi riapri COLLEZIONE.", ja: "カードの一覧がありません。「セットアップ」タブで「設定する」を押してから、もう一度「コレクション」を開いてください。"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
 launcher.online: {en: "Online", it: "Online", ja: "オンライン"}
@@ -357,6 +364,12 @@ cat.msg_on_table: {en: "%{name} is on the table", it: "%{name} è già sul tavol
 cat.msg_same_player: {en: "%{name}: another card of this player is on the table (%{season})", it: "%{name}: un'altra carta di questo giocatore è già sul tavolo (%{season})", ja: "%{name}：この選手の別のカードがすでにテーブルにあります（%{season}）"}
 cat.msg_full: {en: "The table is full (16 cards). Drag a card off the table to make room.", it: "Il tavolo è pieno (16 carte). Trascina una carta fuori dal tavolo per fare spazio.", ja: "テーブルが満杯です（16枚）。カードをテーブルの外へドラッグすると空きができます。"}
 cat.msg_no_place: {en: "No free place on the table for this card. Drag a card off the table to make room.", it: "Nessun posto libero sul tavolo per questa carta. Trascina una carta fuori dal tavolo per fare spazio.", ja: "このカードを置ける場所がありません。カードをテーブルの外へドラッグすると空きができます。"}
+cat.msg_not_owned: {en: "%{name} is not in your collection, or every copy is on the market.", it: "%{name} non è nella tua collezione, oppure tutte le sue copie sono sul mercato.", ja: "%{name} はコレクションにないか、すべて出品中です。"}
+cat.msg_table_not_owned: {en: "Cards taken off the table, not in your collection: %{n}", it: "Carte tolte dal tavolo, non nella tua collezione: %{n}", ja: "コレクションにないためテーブルから外したカード：%{n}枚"}
+cat.msg_collection_unread: {en: "The collection could not be read: no card is listed and the table shows nothing. Your saved table is unchanged. Restart the game to try again.", it: "Impossibile leggere la collezione: nessuna carta è elencata e il tavolo è vuoto. Il tavolo salvato non è stato modificato. Riavvia il gioco per riprovare.", ja: "コレクションを読み込めませんでした。カードを表示できず、テーブルも空です。保存されたテーブルは変更していません。ゲームを再起動して、もう一度お試しください。"}
+cat.msg_collection_other: {en: "This game is not CREATE-A-TEAM, so no card is listed. Choose CREATE-A-TEAM in the Launcher and start the game again.", it: "Questa partita non è CREA LA TUA SQUADRA: nessuna carta è elencata. Scegli CREA LA TUA SQUADRA nel Launcher e avvia di nuovo il gioco.", ja: "このゲームはクリエイト・ア・チームではないため、カードは表示されません。Launcher でクリエイト・ア・チームを選び、ゲームを起動し直してください。"}
+cat.mark_starter: {en: "STARTER", it: "INIZIALE", ja: "初期"}
+cat.mark_import: {en: "IMPORT", it: "IMPORTATA", ja: "引継ぎ"}
 cat.import: {en: "IMPORT LINEUP", it: "IMPORTA FORMAZIONE", ja: "編成を読み込む"}
 cat.import_help: {en: "Build a lineup on the Lineup page of db.wccf.it, then press Copy link there (or Export, then Copy). Come back and press IMPORT FROM CLIPBOARD to put its cards on the table.", it: "Crea una formazione nella pagina Rosa di db.wccf.it, poi premi Copia link (o Esporta, poi Copia). Torna qui e premi IMPORTA DAGLI APPUNTI per mettere le carte sul tavolo.", ja: "db.wccf.it の「編成」ページで編成を作り、「リンクをコピー」（または「書き出し」→「コピー」）を押してください。ここに戻って「クリップボードから読み込む」を押すと、カードがテーブルに置かれます。"}
 cat.import_paste: {en: "IMPORT FROM CLIPBOARD", it: "IMPORTA DAGLI APPUNTI", ja: "クリップボードから読み込む"}
@@ -405,6 +418,8 @@ cat.skip_bad_line: {en: "unreadable line", it: "riga illeggibile", ja: "読め�
 cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同じ選手"}
 cat.skip_not_in_catalogue: {en: "not in the catalogue", it: "non nel catalogo", ja: "カタログにない"}
 cat.skip_no_room: {en: "no room on the table", it: "nessuno spazio sul tavolo", ja: "テーブルに空きなし"}
+cat.skip_not_owned: {en: "not in your collection", it: "non nella tua collezione", ja: "コレクションにない"}
+cat.skip_all_listed: {en: "all copies are on the market", it: "tutte le copie sono sul mercato", ja: "すべて出品中"}
 board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
 board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
 board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}
@@ -568,10 +583,81 @@ club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
 club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
 club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
 
+# ---- Create-a-Team collection (Launcher COLLECTION) ----
+collection.back: {en: "‹ PLAY", it: "‹ GIOCA", ja: "‹ プレイ"}
+collection.choose_title: {en: "CHOOSE YOUR START", it: "SCEGLI COME INIZIARE", ja: "スタートを選ぶ"}
+collection.choose_hint: {en: "You get 11 player cards from your choice, then pick 1 of 3 RARE cards. You choose once.", it: "Ricevi 11 carte giocatore dalla tua scelta, poi scegli 1 di 3 carte RARA. Si sceglie una volta sola.", ja: "選んだ範囲から選手カードが 11 枚配られ、レアカード 3 枚から 1 枚を選びます。選べるのは一度だけです。"}
+collection.all_seasons: {en: "All seasons", it: "Tutte le stagioni", ja: "全シーズン"}
+# a start tile's line, a season's: %{n} is the mean TOTAL its 11 land near (75)
+collection.mean: {en: "Mean TOTAL %{n}", it: "TOTALE medio %{n}", ja: "平均総合 %{n}"}
+# a banded start's line (a league, All seasons): 80-82 is the band the deal aims at, not the result
+collection.band: {en: "TOTAL 80-82 target", it: "TOTALE 80-82 obiettivo", ja: "総合 80-82 目標"}
+# %{mean} is collection.mean's or collection.band's text
+collection.recommended: {en: "Recommended · %{mean}", it: "Consigliato · %{mean}", ja: "おすすめ・%{mean}"}
+collection.by_season: {en: "A SEASON", it: "UNA STAGIONE", ja: "シーズンで選ぶ"}
+collection.by_league: {en: "A LEAGUE", it: "UN CAMPIONATO", ja: "リーグで選ぶ"}
+collection.league_italy: {en: "Italy (Serie A)", it: "Italia (Serie A)", ja: "イタリア（セリエA）"}
+collection.league_spain: {en: "Spain (La Liga)", it: "Spagna (Liga)", ja: "スペイン（ラ・リーガ）"}
+collection.league_england: {en: "England (Premier League)", it: "Inghilterra (Premier League)", ja: "イングランド（プレミアリーグ）"}
+collection.league_germany: {en: "Germany (Bundesliga)", it: "Germania (Bundesliga)", ja: "ドイツ（ブンデスリーガ）"}
+collection.league_france: {en: "France (Ligue 1)", it: "Francia (Ligue 1)", ja: "フランス（リーグ・アン）"}
+collection.league_netherlands: {en: "Netherlands (Eredivisie)", it: "Paesi Bassi (Eredivisie)", ja: "オランダ（エールディヴィジ）"}
+collection.league_portugal: {en: "Portugal (Primeira Liga)", it: "Portogallo (Primeira Liga)", ja: "ポルトガル（プリメイラ・リーガ）"}
+collection.league_japan: {en: "Japan (J.League)", it: "Giappone (J.League)", ja: "日本（Jリーグ）"}
+collection.league_south_america: {en: "South America", it: "Sud America", ja: "南米"}
+collection.deal: {en: "DEAL", it: "DISTRIBUISCI", ja: "配る"}
+collection.dealt_title: {en: "YOUR 11 PLAYERS", it: "I TUOI 11 GIOCATORI", ja: "あなたの 11 人"}
+collection.pick_title: {en: "PICK 1 RARE CARD", it: "SCEGLI 1 CARTA RARA", ja: "レアカードを 1 枚選ぶ"}
+collection.pick_hint: {en: "Your 12 starter cards can play, but they can never be sold or converted.", it: "Le tue 12 carte iniziali possono giocare, ma non si possono mai vendere né convertire.", ja: "この 12 枚の初期カードは対戦で使えますが、売却も変換もできません。"}
+collection.take: {en: "TAKE THIS TEAM", it: "PRENDI QUESTA SQUADRA", ja: "このチームにする"}
+collection.tokens: {en: "%{n} tokens", it: "%{n} gettoni", ja: "%{n} トークン"}
+collection.match_left: {en: "Match tokens left this week: %{n}", it: "Gettoni partita rimasti questa settimana: %{n}", ja: "今週の残り試合トークン：%{n}"}
+collection.season: {en: "SEASON", it: "STAGIONE", ja: "シーズン"}
+collection.league: {en: "LEAGUE", it: "CAMPIONATO", ja: "リーグ"}
+collection.value: {en: "Value: %{n} tokens", it: "Valore: %{n} gettoni", ja: "価値：%{n} トークン"}
+# how the value is made: the tier's base, the step the card's TOTAL gives (1, 1.5, 2.5, 4) and the series factor
+collection.value_parts: {en: "Base %{base} × TOTAL step %{step} × series %{factor}", it: "Base %{base} × passo TOTALE %{step} × serie %{factor}", ja: "基本 %{base} × 総合ステップ %{step} × シリーズ %{factor}"}
+collection.value_secret: {en: "A SECRET card has one fixed price.", it: "Una carta SECRET ha un prezzo fisso.", ja: "SECRET カードは価格が一律です。"}
+collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
+collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
+collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
+# the pack store (PLAN.md 2.1); nation names stay as the cards print them
+collection.packs: {en: "PACKS", it: "PACCHETTI", ja: "パック"}
+collection.store_title: {en: "OPEN A PACK", it: "APRI UN PACCHETTO", ja: "パックを開ける"}
+collection.store_hint: {en: "A pack holds 3 player cards, never the same player twice.", it: "Un pacchetto contiene 3 carte giocatore, mai lo stesso giocatore due volte.", ja: "パックには選手カードが 3 枚入っています。同じ選手は入りません。"}
+collection.pack_standard: {en: "STANDARD", it: "STANDARD", ja: "スタンダード"}
+collection.pack_standard_hint: {en: "%{n} tokens · every season", it: "%{n} gettoni · tutte le stagioni", ja: "%{n} トークン・全シーズン"}
+collection.pack_season: {en: "SEASON", it: "STAGIONE", ja: "シーズン"}
+collection.pack_season_hint: {en: "%{n} tokens · one season", it: "%{n} gettoni · una stagione", ja: "%{n} トークン・1 シーズン"}
+collection.pack_nation: {en: "NATION", it: "NAZIONE", ja: "国"}
+collection.pack_nation_hint: {en: "%{n} tokens · one nation", it: "%{n} gettoni · una nazione", ja: "%{n} トークン・1 か国"}
+collection.pick_nation: {en: "A NATION", it: "UNA NAZIONE", ja: "国で選ぶ"}
+collection.cards_n: {en: "%{n} cards", it: "%{n} carte", ja: "%{n} 枚"}
+collection.odds_title: {en: "ODDS PER CARD: %{pack}", it: "PROBABILITÀ PER CARTA: %{pack}", ja: "1 枚ごとの確率：%{pack}"}
+collection.odds_guarantee: {en: "Every pack holds at least 1 SPECIAL card or better.", it: "Ogni pacchetto contiene almeno 1 carta SPECIALE o superiore.", ja: "どのパックにもスペシャル以上のカードが 1 枚以上入っています。"}
+collection.odds_step_down: {en: "A rarity this pack has no cards of (–) passes its chance to the rarity below.", it: "Una rarità senza carte in questo pacchetto (–) passa la sua probabilità alla rarità inferiore.", ja: "このパックにないレア度（–）の確率は、1 つ下のレア度に回ります。"}
+collection.buy: {en: "BUY · %{n} TOKENS", it: "COMPRA · %{n} GETTONI", ja: "購入・%{n} トークン"}
+collection.buy_short: {en: "This pack costs %{n} tokens. Play matches to earn more.", it: "Questo pacchetto costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このパックは %{n} トークンです。試合をしてトークンを集めましょう。"}
+collection.to_page: {en: "‹ COLLECTION", it: "‹ COLLEZIONE", ja: "‹ コレクション"}
+collection.open_title: {en: "YOUR PACK", it: "IL TUO PACCHETTO", ja: "パックの中身"}
+collection.new_card: {en: "NEW", it: "NUOVA", ja: "初入手"}
+collection.copy_n: {en: "COPY %{n}", it: "COPIA %{n}", ja: "%{n} 枚目"}
+collection.show_all: {en: "SHOW ALL", it: "MOSTRA TUTTE", ja: "すべて表示"}
+collection.to_store: {en: "‹ PACKS", it: "‹ PACCHETTI", ja: "‹ パック"}
+
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
 deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
 deal.foot: {en: "Click to flip. Click elsewhere to close.", it: "Clicca per girare. Clicca altrove per chiudere.", ja: "クリックで裏返す。他をクリックで閉じる。"}
+# Create-a-Team: the dealt card's save into the collection, under TOTAL (%{n}: tokens, or the copies held now)
+deal.saving: {en: "Saving to your collection…", it: "Salvataggio nella tua collezione…", ja: "コレクションに保存しています…"}
+deal.saved: {en: "Saved to your collection.", it: "Salvata nella tua collezione.", ja: "コレクションに保存しました。"}
+deal.not_saved: {en: "The card is not saved yet. Trying again.", it: "La carta non è ancora salvata. Nuovo tentativo in corso.", ja: "カードはまだ保存されていません。再試行しています。"}
+deal.tokens: {en: "+%{n} tokens", it: "+%{n} gettoni", ja: "+%{n} トークン"}
+deal.no_tokens: {en: "This week's match tokens are all earned.", it: "Hai già tutti i gettoni partita di questa settimana.", ja: "今週の試合トークンはすべて獲得済みです。"}
+deal.copy: {en: "You own %{n} copies of this card.", it: "Hai %{n} copie di questa carta.", ja: "このカードは %{n} 枚目です。"}
+deal.convert: {en: "Convert value: %{n} tokens", it: "Valore di conversione: %{n} gettoni", ja: "変換：%{n} トークン"}
+deal.sell_from: {en: "Market price: from %{n} tokens", it: "Prezzo di mercato: da %{n} gettoni", ja: "マーケット価格：%{n} トークンから"}
 
 # ---- closing the window during a card session ----
 close.title: {en: "MATCH IN PROGRESS", it: "PARTITA IN CORSO", ja: "試合中"}
@@ -820,9 +906,10 @@ launcher.run_open_ports: {en: "Open TCP ports %{control} and %{desk}, and UDP %{
 launcher.run_local_ports: {en: "Seat desk and relay on this PC only (\"shop_lan\": true in data\\settings.json opens them to the network). Launcher.exe stop ends it.", it: "Banco dei posti e relay solo su questo PC (\"shop_lan\": true in data\\settings.json li apre alla rete). Launcher.exe stop lo ferma.", ja: "席デスクとリレーはこのPCのみです (data\\settings.json の \"shop_lan\": true でネットワークに公開されます)。Launcher.exe stop で終了します。"}
 launcher.run_net_ports: {en: "the cabinet's network ports did not open: 127.0.0.1:%{port} (%{error}) - is the other edition's game running?", it: "le porte di rete del cabinato non si sono aperte: 127.0.0.1:%{port} (%{error}) - è in esecuzione il gioco dell'altra edizione?", ja: "筐体のネットワークポートを開けませんでした: 127.0.0.1:%{port} (%{error}) - 別のエディションのゲームが動いていませんか?"}
 launcher.run_reader_failed: {en: "the card reader did not start (%{error})", it: "il lettore di carte non si è avviato (%{error})", ja: "カードリーダーが起動しませんでした (%{error})"}
+launcher.run_table_failed: {en: "the card table was not switched to this mode (%{error}); both tables are kept", it: "il tavolo delle carte non è stato cambiato per questa modalità (%{error}); entrambi i tavoli restano salvati", ja: "カードテーブルをこのモードに切り替えられませんでした (%{error})。どちらのテーブルも保存されています"}
 launcher.run_board_failed: {en: "the I/O board did not start (%{error})", it: "la scheda I/O non si è avviata (%{error})", ja: "I/Oボードが起動しませんでした (%{error})"}
 launcher.run_cabinet_1011: {en: "cabinet (card file data\\save\\seat1_club.bin)", it: "cabinato (file della carta data\\save\\seat1_club.bin)", ja: "筐体 (カードファイル data\\save\\seat1_club.bin)"}
-launcher.run_cabinet_1718: {en: "cabinet (card file data\\save\\seat1_aime.txt)", it: "cabinato (file della carta data\\save\\seat1_aime.txt)", ja: "筐体 (カードファイル data\\save\\seat1_aime.txt)"}
+launcher.run_cabinet_1718: {en: "cabinet (card file %{path})", it: "cabinato (file della carta %{path})", ja: "筐体 (カードファイル %{path})"}
 launcher.run_window_up: {en: "seat %{n} window up", it: "finestra del posto %{n} aperta", ja: "席 %{n} のウィンドウ表示"}
 launcher.run_panel_missing: {en: "forza_panel.dll is missing", it: "forza_panel.dll manca", ja: "forza_panel.dll がありません"}
 launcher.run_panels: {en: "panels loaded", it: "pannelli caricati", ja: "パネルを読み込みました"}

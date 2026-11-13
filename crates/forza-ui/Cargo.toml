@@ -15,6 +15,8 @@ egui_extras = { workspace = true, features = ["file", "image"] }
 # the decoders those loaders use: the game's `<number>.png`, the album's and the pack's JPEG (board::picture_names)
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 rust-i18n.workspace = true
+# the Create-a-Team deal kept on disk (collection::Choice)
+serde = { version = "1.0.229", features = ["derive"] }
 # the catalogue's search: accents and other scripts folded to plain letters ("kaka" finds KAKÀ)
 deunicode = "1.6.2"
 time = { version = "0.3.55", features = ["local-offset"] }

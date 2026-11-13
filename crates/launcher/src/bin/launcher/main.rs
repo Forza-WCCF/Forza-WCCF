@@ -24,6 +24,7 @@
 
 #![windows_subsystem = "windows"]
 
+mod collection;
 mod link;
 mod online;
 mod pack;
@@ -42,6 +43,7 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
+use forza_ui::collection::CollectionAction;
 use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState, Tab};
 use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
@@ -793,6 +795,8 @@ struct App {
     lan_at: Option<Instant>,
     /// The window was opened for a game start given on the command line (a shortcut's `play`): it ends with that run.
     run_from_command: bool,
+    /// The setup's card list, read the first time COLLECTION needs it.
+    catalogue: Option<Vec<forza::board::Card>>,
 }
 
 /// The LAN fold searches this often while it is open.
@@ -837,6 +841,8 @@ impl App {
             rejoin: None,
             set_up,
             running: RUNNING.load(Ordering::Relaxed),
+            profile: (kit.edition() == Edition::E1718).then(|| kit.profile()),
+            collection: None,
             cup_started: launcher::run::cup_started(),
             busy: false,
             steps: None,
@@ -874,14 +880,59 @@ impl App {
             report: None,
             stop_armed: 0.0,
         };
-        App {
+        let mut app = App {
             st,
             releases: Vec::new(),
             notes_for: None,
             online: online_state,
             lan_at: None,
             run_from_command,
+            catalogue: None,
+        };
+        app.collection(kit);
+        app
+    }
+
+    /// COLLECTION's view made again from the log, while Create-a-Team is the profile (2017-18); gone otherwise.
+    fn collection(&mut self, kit: &Kit) {
+        let Some(dir) = self
+            .st
+            .profile
+            .filter(|_| kit.edition() == Edition::E1718)
+            .and_then(|p| p.collection(&kit.data()))
+        else {
+            self.st.collection = None;
+            return;
+        };
+        let file = kit.cache().join("catalogue.tsv");
+        if self.catalogue.is_none() {
+            self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
+        let old = self.st.collection.take();
+        let made = match &self.catalogue {
+            None => Err(t("launcher.msg_no_catalogue")),
+            Some(cat) => collection::view(cat, &dir, old.clone())
+                .map_err(|e| read_failed(forza::collection::Log::new(&dir).path(), &e)),
+        };
+        self.st.collection = Some(made.unwrap_or_else(|why| forza_ui::collection::CollectionView {
+            step: forza_ui::collection::Step::Choose {
+                starts: Vec::new(),
+                chosen: None,
+            },
+            cards: Vec::new(),
+            tokens: 0,
+            match_left: 0,
+            filter: Default::default(),
+            open: None,
+            problem: Some(why),
+            offers: Vec::new(),
+        }));
+    }
+
+    /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
+    fn needs_start(&self) -> bool {
+        self.st.profile == Some(forza::profile::Profile::CreateATeam)
+            && self.st.collection.as_ref().is_some_and(|v| !v.started())
     }
 
     /// The release list with this folder's marks.
@@ -968,7 +1019,11 @@ impl App {
                 s.report_done.take(),
             )
         };
+        let was_running = self.st.running;
         self.st.running = RUNNING.load(Ordering::Relaxed);
+        if was_running && !self.st.running {
+            self.collection(&Kit::here()); // the run's match cards and tokens
+        }
         // the cup time the run was started with, while it is on (its open time does not move with this window's clock)
         self.st.cup_started = launcher::run::cup_started().filter(|_| self.st.running);
         self.st.output.extend(log);
@@ -1244,6 +1299,79 @@ impl App {
                     }
                 }
             }
+            Action::Profile => {
+                // data\settings.json "profile", which the next start reads (forza::profile); never while a game runs:
+                // the run keeps the save and the card table it started with
+                let file = kit.settings_file();
+                if run::any_on(&kit) {
+                    self.st.profile = Some(kit.profile());
+                    refuse(t("launcher.msg_running"));
+                } else if let Some(p) = self.st.profile
+                    && let Err(e) = choices::set_setting(&file, forza::profile::KEY, p.code())
+                {
+                    self.st.profile = Some(kit.profile());
+                    refuse(write_failed(&file, &e));
+                }
+                self.collection(&kit);
+                if self.needs_start() {
+                    self.st.tab = Tab::Collection;
+                }
+            }
+            Action::Collection(CollectionAction::Deal(choice)) => {
+                let Some(dir) = self.st.profile.and_then(|p| p.collection(&kit.data())) else {
+                    return;
+                };
+                let written = match &self.catalogue {
+                    Some(cat) => collection::deal(cat, &dir, choice),
+                    None => return,
+                };
+                match written {
+                    Ok(()) => self.collection(&kit),
+                    Err(e) => refuse(write_failed(&dir.join(collection::PENDING), &e)),
+                }
+            }
+            Action::Collection(CollectionAction::Take) => {
+                let (Some(v), Some(dir)) = (
+                    &self.st.collection,
+                    self.st.profile.and_then(|p| p.collection(&kit.data())),
+                ) else {
+                    return;
+                };
+                match collection::take(&dir, &kit.data(), &v.step) {
+                    Ok(lines) => log(&format!("collection: first start, {} line(s) written", lines.len())),
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+                self.collection(&kit);
+            }
+            Action::Collection(CollectionAction::Buy(choice)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                if self
+                    .st
+                    .collection
+                    .as_ref()
+                    .is_some_and(|v| v.tokens < choice.pack().price())
+                {
+                    refuse(t("launcher.msg_pack_tokens"));
+                    return;
+                }
+                match collection::buy(cat, &dir, choice) {
+                    Ok(cards) => {
+                        log(&format!("collection: {}, cards {cards:?}", choice.pack().why()));
+                        self.collection(&kit);
+                        if let Some(v) = &mut self.st.collection {
+                            v.open_pack(&cards);
+                        }
+                    }
+                    // the log moved on since the view was read (another Launcher): the same words as above
+                    Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
+                        refuse(t("launcher.msg_pack_tokens"));
+                    }
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
             Action::VsLink => {
                 // data\settings.json "vs_link" (default on), which run::start_vslink reads
                 let file = kit.settings_file();
@@ -1404,6 +1532,18 @@ impl App {
     /// PLAY: the choices into data\panel.txt, then the run (`words` empty: what the choices say; else play.py's words,
     /// an arcade room's `remote ID`).
     fn play(&mut self, kit: &Kit, words: Vec<OsString>) {
+        if self.needs_start() {
+            self.st.tab = Tab::Collection;
+            // no starter yet, or COLLECTION cannot say (no catalogue, an unreadable log): its own reason
+            let why = self
+                .st
+                .collection
+                .as_ref()
+                .and_then(|v| v.problem.clone())
+                .unwrap_or_else(|| t("launcher.msg_no_starter"));
+            refuse(why);
+            return;
+        }
         let online = self.st.online;
         let mut server = self.st.lobby.address.trim().to_owned();
         // 2017-18: a club server alone is enough to play online (run::rules::vs_target)
@@ -1603,6 +1743,8 @@ impl eframe::App for App {
             let s = Kit::here().settings();
             self.st.projector = Some(choices::projector_shown(&s));
             self.st.cpu_championship = Some(choices::cpu_championship_on(&s));
+            // a run's match cards and tokens since the last look
+            self.collection(&Kit::here());
         }
         if self.st.tab == Tab::Update {
             self.notes(&Kit::here());

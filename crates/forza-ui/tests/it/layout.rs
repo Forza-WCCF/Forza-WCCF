@@ -9,6 +9,23 @@ use forza_ui::{installer, launcher, lobby, panel, widgets};
 
 use super::snapshots::{formations_state, harness, import_asked};
 
+/// Every text shape drawn in the last frame, nested ones included: painted text (the STARTER and IMPORT marks) is
+/// not on the accessibility tree, so it is checked where it lands.
+fn drawn_texts(h: &egui_kittest::Harness<'_>) -> Vec<egui::epaint::TextShape> {
+    fn walk(s: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+        match s {
+            egui::Shape::Text(t) => out.push(t.clone()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = vec![];
+    for s in &h.output().shapes {
+        walk(&s.shape, &mut out);
+    }
+    out
+}
+
 /// 2010-11 keeps its pack choice (From the game | High-quality pack, Choose pack…); 2017-18 has the one download button.
 #[test]
 fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_18() {
@@ -74,6 +91,64 @@ fn launcher_online_starts_from_the_lobby() {
     h.run_steps(2);
     assert_eq!(got.take(), None);
     assert_eq!(st.borrow().tab, launcher::Tab::Online);
+}
+
+/// FREE and CREATE-A-TEAM sit side by side at the top of the PLAY tab and fit its smallest window (600 x 700) in every
+/// language, above the footer's PLAY; a click chooses, and while a game runs neither answers.
+#[test]
+fn profile_buttons_fit_the_play_tab() {
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let st = std::cell::RefCell::new(launcher::LauncherState::sample(
+            Edition::E1718,
+            lang,
+            launcher::Scenario::Ready,
+        ));
+        let got = std::cell::RefCell::new(None);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                *got.borrow_mut() = Some(a);
+            }
+        });
+        h.run_steps(4);
+        let (free, cat) = (
+            h.get_by_label(&t("launcher.profile_free")).rect(),
+            h.get_by_label(&t("launcher.profile_cat")).rect(),
+        );
+        let play_top = h
+            .get_all_by_label(&t("launcher.play"))
+            .map(|n| n.rect().top())
+            .fold(f32::MIN, f32::max);
+        let tag = format!("{lang:?}: FREE {free:?}, CREATE-A-TEAM {cat:?}");
+        assert!(
+            free.left() >= 14.0 && cat.right() <= size.x - 14.0,
+            "{tag}: inside the window"
+        );
+        assert!(free.right() <= cat.left(), "{tag}: side by side");
+        assert!((free.top() - cat.top()).abs() < 0.5, "{tag}: one row");
+        for r in [free, cat] {
+            assert_eq!(r.height(), launcher::PROFILE_H, "{tag}");
+            assert!(r.width() >= 250.0, "{tag}: large");
+            assert!(r.bottom() < play_top, "{tag}: above PLAY at {play_top}");
+        }
+        h.get_by_label(&t("launcher.profile_cat")).click();
+        h.run_steps(2);
+        assert_eq!(got.take(), Some(launcher::Action::Profile), "{tag}");
+        assert_eq!(
+            st.borrow().profile,
+            Some(forza::profile::Profile::CreateATeam)
+        );
+        st.borrow_mut().running = true;
+        h.run_steps(2);
+        h.get_by_label(&t("launcher.profile_free")).click();
+        h.run_steps(2);
+        assert_eq!(got.take(), None, "{tag}: locked while a game runs");
+        assert_eq!(
+            st.borrow().profile,
+            Some(forza::profile::Profile::CreateATeam)
+        );
+    }
 }
 
 /// The cup rows fit the Launcher (its width is fixed; 700 tall is its smallest) in every language, on the PLAY tab and
@@ -690,4 +765,93 @@ fn lobby_list_fits_a_short_tab() {
     let bottom = h.get_by_label_contains("Server address").rect().bottom();
     assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
     assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
+}
+
+/// COLLECTION's page at the Launcher's smallest window (600 x 700), in every language (plan step 1.4, (d)): every card
+/// lies inside the page, and its STARTER or IMPORT mark inside its card. (e): a starter card's detail offers no
+/// CONVERT and no SELL.
+#[test]
+fn collection_cards_and_marks_fit_the_page() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        let view = CollectionView::sample(Scenario::Page);
+        let cards = view.cards.clone();
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        // the marks are painted, so they are checked where they land, not on the accessibility tree
+        let drawn = drawn_texts(&h);
+        let mut seen = 0;
+        for (card, copies) in &cards {
+            let Some(node) = h
+                .query_all_by_role_and_label(egui::accesskit::Role::Button, &card.name)
+                .next()
+            else {
+                continue; // scrolled below the window
+            };
+            let r = node.rect();
+            seen += 1;
+            let tag = format!("{lang:?} {}: {r:?}", card.name);
+            assert!(
+                r.left() >= 16.0 && r.right() <= size.x - 16.0,
+                "{tag}: inside the page"
+            );
+            assert!(r.width() >= 80.0, "{tag}: a card, not a chip");
+            let mark = if copies.starter > 0 {
+                Some("cat.mark_starter")
+            } else if copies.imported > 0 {
+                Some("cat.mark_import")
+            } else {
+                None
+            };
+            if let Some(k) = mark {
+                let text = t(k);
+                assert!(
+                    drawn.iter().any(|s| s.galley.text() == text
+                        && r.contains_rect(egui::Rect::from_min_size(s.pos, s.galley.size()))),
+                    "{tag}: the mark {text:?} is drawn whole inside the card"
+                );
+            }
+        }
+        assert!(seen >= 12, "{lang:?}: {seen} cards in view");
+    }
+    // (e) the detail of a starter card: it says why the card neither sells nor converts, and the gate CONVERT asks
+    // later (step 2.3) refuses a starter-only card while an earned copy in the same collection passes it
+    let view = CollectionView::sample(Scenario::Detail);
+    let cards = view.cards.clone();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    assert!(h.query_by_label("CLOSE").is_some(), "the detail is open");
+    let t = |k: &str| forza_ui::text(Lang::En, k, &[]);
+    assert!(
+        h.query_by_label(&t("collection.no_sell")).is_some(),
+        "the starter detail says the card cannot be sold or converted"
+    );
+    let (starter, earned) = (cards[0].clone(), cards[15].clone());
+    assert_eq!(starter.1.earned, 0);
+    let starter_row = forza::cards::collection_cards(std::slice::from_ref(&starter.0));
+    assert_eq!(
+        forza::collection::convert(&starter.1, &starter_row[0]),
+        Err(forza::collection::NoConvert::NoEarned)
+    );
+    let earned_row = forza::cards::collection_cards(std::slice::from_ref(&earned.0));
+    assert!(
+        forza::collection::convert(&earned.1, &earned_row[0]).is_ok(),
+        "a spare earned copy does convert"
+    );
 }

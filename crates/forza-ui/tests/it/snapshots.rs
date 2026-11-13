@@ -1234,6 +1234,43 @@ fn catalogue_imported() {
     all.unwrap();
 }
 
+/// Create-a-Team's CATALOGUE (plan step 1.3): only the collection's cards. (c) twelve starter cards, each with the
+/// STARTER mark; (e) imported copies show the IMPORT mark, earned copies none.
+#[test]
+fn catalogue_owned_marks() {
+    use forza::collection::Copies;
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let copies = |starter, imported, earned| Copies {
+        starter,
+        imported,
+        earned,
+        ..Copies::default()
+    };
+    let owned = [
+        (
+            "panel_catalogue_starters_1718_en",
+            (1..=12).map(|n| (n, copies(1, 0, 0))).collect(),
+        ),
+        (
+            "panel_catalogue_marks_1718_en",
+            (1..=3)
+                .map(|n| (n, copies(0, 1, 0)))
+                .chain((4..=6).map(|n| (n, copies(0, 0, 1))))
+                .collect(),
+        ),
+    ];
+    for (name, owned) in owned {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.catalogue.filter = panel::Filter::default();
+        st.set_owned(Some(owned));
+        snap(&mut all, name, panel::SIZE, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+    }
+    all.unwrap();
+}
+
 /// CATALOGUE as a player uses it: the page opens with the search line taking the keys, typed words narrow the list,
 /// Enter asks for the first card listed, and the table takes it with a message; Esc closes the page.
 #[test]
@@ -1518,6 +1555,38 @@ fn card_deal() {
     h.drop_at(foot);
     h.run_steps(2);
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
+}
+
+/// Create-a-Team's deal of a card already owned: saved, the match's tokens, the copies held, CONVERT's pay and the
+/// market's lowest price; no buttons (CONVERT and selling live in the collection). A 2017-18 card of value 150.
+#[test]
+fn card_deal_second_copy() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::new(
+            Edition::E1718,
+            lang,
+            forza_ui::sample::board(),
+            forza_ui::sample::cards().into(),
+        );
+        let mut deal = panel::Deal::new(3);
+        deal.grant = Some(panel::Grant::Saved {
+            tokens: 15,
+            copies: 2,
+            convert: Some(30),
+            floor: 120,
+        });
+        st.deal = Some(deal);
+        snap(
+            &mut all,
+            &format!("panel_deal_copy_{}", lang.code()),
+            panel::SIZE,
+            Edition::E1718,
+            |ui| panel::show(ui, &mut st),
+        );
+    }
+    all.unwrap();
 }
 
 /// The close dialog after a close refused during a card session, over the whole middle: KEEP PLAYING answers Enter and
@@ -1892,5 +1961,56 @@ fn lobby_screens() {
             }
         }
     }
+    all.unwrap();
+}
+
+/// Create-a-Team's COLLECTION (plan step 1.4, (c)): the start picker, the deal with its 3 RARE cards, the page with the
+/// STARTER and IMPORT marks and a starter card's detail, the pack store (a Nation pack stepped down) and an opened
+/// pack, in English, Italian and Japanese; and the PLAY tab's COLLECTION button.
+#[test]
+fn launcher_collection() {
+    use forza_ui::collection::{CollectionView, Scenario::*};
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    let state = |lang, s| {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(CollectionView::sample(s));
+        st.tab = launcher::Tab::Collection;
+        st
+    };
+    for lang in Lang::ALL {
+        for (s, tag) in [
+            (Choose, "choose"),
+            (Pick, "pick"),
+            (Page, "page"),
+            (Detail, "detail"),
+            (Store, "store"),
+            (Open, "open"),
+        ] {
+            let mut st = state(lang, s);
+            snap(
+                &mut all,
+                &format!("launcher_collection_{tag}_{}", lang.code()),
+                launcher::SIZE,
+                Edition::E1718,
+                |ui| {
+                    launcher::show(ui, &mut st);
+                },
+            );
+        }
+    }
+    let mut st = state(Lang::En, Choose);
+    st.tab = launcher::Tab::Play;
+    snap(
+        &mut all,
+        "launcher_play_create_a_team_en",
+        launcher::SIZE,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
     all.unwrap();
 }

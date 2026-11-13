@@ -3,6 +3,7 @@
 //! from the real kit, the gallery and the snapshots draw [`LauncherState::sample`].
 
 use super::Lang;
+use super::collection::{self, CollectionAction, CollectionView};
 use super::lobby::{
     self, CupPlan, CupRefused, Grey, Kind, LobbyAction, LobbyView, Scenario as LobbyScenario,
 };
@@ -13,6 +14,7 @@ use super::widgets::{
 };
 use crate::theme::Accent;
 use egui::{Color32, Ui, vec2};
+use forza::profile::Profile;
 
 pub const SIZE: egui::Vec2 = egui::vec2(600.0, 820.0);
 
@@ -43,6 +45,8 @@ pub enum Tab {
     /// Only when the edition has updates (`updates`).
     Update,
     Details,
+    /// Create-a-Team's collection (2017-18): opened from the PLAY tab, not in the tab row.
+    Collection,
 }
 
 /// What the player asked for this frame. Launcher.exe does it; the gallery ignores it.
@@ -74,6 +78,8 @@ pub enum Action {
     FramePacing,
     /// The direct VS link switch changed.
     VsLink,
+    /// FREE or CREATE-A-TEAM chosen (`profile`).
+    Profile,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
     Update(usize),
     /// UPDATE, confirmed.
@@ -94,6 +100,8 @@ pub enum Action {
     Report,
     /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
     SendReport,
+    /// The COLLECTION tab's first start (`collection`).
+    Collection(CollectionAction),
 }
 
 /// The report dialog: the player's words, what goes with them, and where the ZIP was saved.
@@ -148,6 +156,10 @@ pub struct LauncherState {
     pub set_up: bool,
     /// A run is on in this folder (here or in another Launcher.exe): PLAY offers STOP THE GAME.
     pub running: bool,
+    /// FREE or CREATE-A-TEAM, the PLAY tab's top buttons (2017–18 only; locked while a game runs).
+    pub profile: Option<Profile>,
+    /// Create-a-Team's collection, while that profile is chosen (2017-18): the PLAY tab's COLLECTION and its tab.
+    pub collection: Option<CollectionView>,
     /// What the run on this folder got for the Universal Cup (2017-18, this PC): the PLAY tab shows it while the run is
     /// on, so a slot keeps the open time PLAY gave it and a refusal stays refused instead of moving with the clock.
     pub cup_started: Option<Result<CupPlan, CupRefused>>,
@@ -267,6 +279,8 @@ impl LauncherState {
             rejoin: None,
             set_up: true,
             running: false,
+            profile: None,
+            collection: None,
             cup_started: None,
             busy: false,
             steps: None,
@@ -312,6 +326,7 @@ impl LauncherState {
         };
         if edition == Edition::E1718 {
             st.folder = r"C:\Games\Forza-WCCF\2017-2018".into();
+            st.profile = Some(Profile::Free);
             st.projector = Some(true);
             st.cpu_championship = Some(true);
             st.frame_cap = Some(true);
@@ -486,16 +501,27 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
             // `list_fit`) have no outer scroll
             match st.tab {
                 Tab::Details => return output(ui, st, lang, &mut act),
+                Tab::Collection => {
+                    if let Some(v) = &mut st.collection {
+                        if action(ui, &tr!(lang, "collection.back")).clicked() {
+                            st.tab = Tab::Play;
+                        }
+                        if let Some(a) = collection::show(ui, v, lang) {
+                            act = Some(Action::Collection(a));
+                        }
+                    }
+                    return;
+                }
                 Tab::Online => return online(ui, st, lang, &mut act),
                 _ => {}
             }
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
                 .show(ui, |ui| match st.tab {
-                    Tab::Play => play(ui, st, lang, accent),
+                    Tab::Play => play(ui, st, lang, accent, &mut act),
                     Tab::Setup => setup(ui, st, lang, &mut act),
                     Tab::Update => update(ui, st, lang, &mut act),
-                    Tab::Details | Tab::Online => {}
+                    Tab::Details | Tab::Online | Tab::Collection => {}
                 });
         });
     if let Some(c) = st.confirm.clone()
@@ -525,12 +551,67 @@ fn tab_row(ui: &mut Ui, st: &mut LauncherState, lang: Lang) {
     let labels: Vec<&str> = tabs.iter().map(|(_, l)| l.as_str()).collect();
     let mut i = tabs.iter().position(|(t, _)| *t == st.tab).unwrap_or(0);
     let w = ui.available_width();
-    segmented(ui, &mut i, &labels, w);
-    st.tab = tabs[i].0;
+    // COLLECTION is reached from PLAY, so PLAY stays lit over it
+    if segmented(ui, &mut i, &labels, w) || st.tab != Tab::Collection || st.collection.is_none() {
+        st.tab = tabs[i].0;
+    }
 }
 
-/// The PLAY tab: where to play (Online opens the ONLINE tab) and, without UPDATE, this version.
-fn play(ui: &mut Ui, st: &mut LauncherState, lang: Lang, accent: Color32) {
+/// The height of the FREE and CREATE-A-TEAM buttons.
+pub const PROFILE_H: f32 = 56.0;
+
+/// The PLAY tab: FREE / CREATE-A-TEAM (2017–18), where to play (Online opens the ONLINE tab) and, without UPDATE, this
+/// version.
+fn play(
+    ui: &mut Ui,
+    st: &mut LauncherState,
+    lang: Lang,
+    accent: Color32,
+    act: &mut Option<Action>,
+) {
+    if let Some(now) = st.profile {
+        ui.add_enabled_ui(!st.running && !st.busy, |ui| {
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+                for (p, key, kind) in [
+                    (Profile::Free, "launcher.profile_free", Cab::Keeper),
+                    (Profile::CreateATeam, "launcher.profile_cat", Cab::KeyPlayer),
+                ] {
+                    if cabinet(ui, vec2(w, PROFILE_H), &tr!(lang, key), kind, now == p).clicked()
+                        && now != p
+                    {
+                        st.profile = Some(p);
+                        *act = Some(Action::Profile);
+                    }
+                }
+            });
+        });
+        ui.label(
+            egui::RichText::new(tr!(lang, "launcher.profile_hint"))
+                .font(theme::body(13.0))
+                .color(theme::TEXT_DIM),
+        );
+        if now == Profile::CreateATeam
+            && let Some(v) = &st.collection
+        {
+            ui.horizontal(|ui| {
+                if action(ui, &tr!(lang, "launcher.collection")).clicked() {
+                    st.tab = Tab::Collection;
+                }
+                let line = if v.started() {
+                    let n = v.tokens.to_string();
+                    tr!(lang, "collection.tokens", n = n.as_str())
+                } else {
+                    tr!(lang, "launcher.msg_no_starter")
+                };
+                ui.label(
+                    egui::RichText::new(line)
+                        .font(theme::body(13.0))
+                        .color(theme::TEXT_DIM),
+                );
+            });
+        }
+    }
     widgets::section(ui, &tr!(lang, "launcher.play_section"), accent, |ui| {
         let label_w = 150.0;
         let w = ui.available_width() - label_w;

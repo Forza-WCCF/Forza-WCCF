@@ -964,6 +964,15 @@ enum Role {
 
 /// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
 /// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
+/// Create-a-Team: the panel saves the match card in the profile's collection (`WCCF_COLLECTION`). A 2017-18 run of that
+/// profile only: free play and 2010-11 get no variable (the deal is only shown).
+fn collection_env(edition: Edition, profile: forza::profile::Profile, data: &Path) -> Option<(String, String)> {
+    (edition == Edition::E1718)
+        .then(|| profile.collection(data))
+        .flatten()
+        .map(|dir| ("WCCF_COLLECTION".into(), dir.display().to_string()))
+}
+
 fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
     let r = match (edition, role) {
         (Edition::E1718, Role::Projector) => "projector",
@@ -1184,6 +1193,16 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         tell(ui, "", &Text::key("launcher.run_already").part("names", names));
         return Err(REFUSED);
     };
+    // the active profile's card table in the seat folder before the game reads it; the one there goes to its own
+    // profile first (forza::profile)
+    if edition == Edition::E1718
+        && !mode.is_server()
+        && let Err(e) = forza::profile::board_in(&kit.data(), &seat, kit.profile())
+    {
+        let why = Text::key("launcher.run_table_failed").arg("error", e);
+        tell(ui, "", &Text::key("launcher.run_failed").part("why", why));
+        return Err(FAILED);
+    }
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
@@ -1321,13 +1340,15 @@ impl Run<'_> {
     fn kit_env(&self) -> Vec<(String, String)> {
         let s = |p: PathBuf| p.display().to_string();
         let cache = self.kit.cache();
-        vec![
+        let mut env = vec![
             ("WCCF_GAME".into(), s(self.game.clone())),
             ("WCCF_LOGS".into(), s(self.logs())),
             ("MXHOOK_LOG_DIR".into(), s(self.logs().join("hook"))),
             ("WCCF_CATALOGUE".into(), s(cache.join("catalogue.tsv"))),
             ("WCCF_CARDS".into(), s(cache.join("cards"))),
-        ]
+        ];
+        env.extend(collection_env(self.edition, self.kit.profile(), &self.kit.data()));
+        env
     }
 
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
@@ -2226,10 +2247,14 @@ impl Run<'_> {
         );
         self.tell(
             "  4/6 ",
-            &Text::key(match self.edition {
-                Edition::E1011 => "launcher.run_cabinet_1011",
-                Edition::E1718 => "launcher.run_cabinet_1718",
-            }),
+            &match self.edition {
+                Edition::E1011 => Text::key("launcher.run_cabinet_1011"),
+                Edition::E1718 => {
+                    let card = self.kit.save().join("seat1_aime.txt");
+                    let card = card.strip_prefix(self.kit.dir()).unwrap_or(&card);
+                    Text::key("launcher.run_cabinet_1718").arg("path", card.display())
+                }
+            },
         );
 
         let mut env = self.panel_env();
@@ -3120,6 +3145,14 @@ impl Run<'_> {
         };
         let left = self.job.active();
         self.card_steps(&["keep"]); // the cards on the table kept with their club: data\save holds the latest
+        if self.edition == Edition::E1718
+            && !self.mode.is_server()
+            && let Err(e) = forza::profile::board_out(&self.kit.data(), &self.seat, self.kit.profile())
+        {
+            // the next start copies it from the seat folder all the same
+            let line = format!("card table: not copied back to its profile ({e})");
+            crate::logs::append(&self.logs().join("run_launcher.txt"), &line);
+        }
         self.job.stop(STOP_DEADLINE);
         let _ = fs::remove_file(self.running_file());
         if left > 0 {
@@ -3413,6 +3446,27 @@ mod tests {
         for r in [Role::Server, Role::Projector, Role::Seat] {
             assert_eq!(role(Edition::E1011, r), None, "2010-11 stays as it is");
         }
+    }
+
+    /// Finding 4: only a 2017-18 Create-a-Team run tells the panel its collection; 2010-11 has no profiles.
+    #[test]
+    fn only_a_2017_18_create_a_team_run_gets_the_collection() {
+        use super::{Edition, collection_env};
+        use forza::profile::Profile;
+        let data = Path::new(r"C:\kit\data");
+        assert_eq!(
+            collection_env(Edition::E1718, Profile::CreateATeam, data),
+            Some((
+                "WCCF_COLLECTION".into(),
+                r"C:\kit\data\profiles\create-a-team\collection".into()
+            ))
+        );
+        assert_eq!(collection_env(Edition::E1718, Profile::Free, data), None);
+        assert_eq!(
+            collection_env(Edition::E1011, Profile::CreateATeam, data),
+            None,
+            "2010-11 stays as it is"
+        );
     }
 
     #[test]

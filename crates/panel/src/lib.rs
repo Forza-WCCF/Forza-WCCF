@@ -42,6 +42,7 @@
 mod cost;
 mod exe_text;
 mod fullscreen;
+mod grant;
 mod graphics;
 mod kit;
 mod money;
@@ -661,6 +662,78 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     unsafe { DefWindowProcW(h, m, wp, lp) }
 }
 
+/// Create-a-Team (plan step 1.3): the folder the collection is read from. `Ok(None)` is Free; a folder that is not
+/// this run's (a stray variable, another profile) fails closed, with no card listed, and the player is told.
+fn collection_dir(
+    st: &mut PanelState,
+    checked: &Result<Option<PathBuf>, String>,
+) -> Option<PathBuf> {
+    match checked {
+        Ok(Some(dir)) => Some(dir.clone()),
+        Ok(None) => None,
+        Err(e) => {
+            log(&format!("collection: {e}"));
+            st.set_owned(Some(Default::default()));
+            st.say(forza_ui::widgets::Tone::Refused, "cat.msg_collection_other");
+            None
+        }
+    }
+}
+
+/// Create-a-Team (plan step 1.3): the catalogue and the table hold only the collection's cards. An unreadable log leaves
+/// the table file as it is (nothing is written over a table that cannot be checked) while the board is filtered in
+/// memory, and the catalogue stays empty.
+fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>, dir: &Path) {
+    let text = match forza::collection::Log::new(dir).lines() {
+        Ok(text) => text,
+        Err(e) => {
+            log(&format!(
+                "collection: {} could not be read: {e} - no card listed, the table kept",
+                dir.display()
+            ));
+            collection_unread(st, placed);
+            return;
+        }
+    };
+    let folded = forza::collection::fold(&text);
+    for w in &folded.warnings {
+        log(&format!("collection: {w}"));
+    }
+    log(&format!(
+        "collection: {} card(s) owned",
+        folded.state.cards.values().filter(|c| c.owned()).count()
+    ));
+    st.set_owned(Some(folded.state.cards));
+    own_table(st, table, placed);
+}
+
+/// The log could not be read: no card owned, so nothing is placeable; the table is filtered on screen only (the file is
+/// left for a read that works) and the player is told what the board shows.
+fn collection_unread(st: &mut PanelState, placed: &mut Vec<Placed>) {
+    st.set_owned(Some(Default::default()));
+    panel::owned_table(st, placed);
+    st.say(
+        forza_ui::widgets::Tone::Refused,
+        "cat.msg_collection_unread",
+    );
+}
+
+/// The collection's rule on the table after every read of it (the start and each re-read): the cards it does not own
+/// come off, the table is written when any did, and the board shows what stays.
+fn own_table(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>) {
+    let gone = panel::owned_table(st, placed);
+    if !gone.is_empty() {
+        log(&format!(
+            "board: {} card(s) not in the collection taken off the table: {gone:?}",
+            gone.len()
+        ));
+        if let Err(e) = table.write(placed) {
+            log(&format!("board: the table could not be written: {e}"));
+        }
+    }
+    st.board = cards::board(placed, catalogue());
+}
+
 fn affinity(e1718: bool, catalogue: &[Card]) -> Option<Arc<cards::links::Affinity>> {
     let exe = std::env::current_exe().ok()?;
     let game = exe.parent()?;
@@ -829,7 +902,7 @@ fn card_open() -> bool {
     FILES.get().is_some_and(|f| {
         use forza::card;
         let since = stamp(&f.data.join("running.json"));
-        let save = f.data.join("save");
+        let save = &f.save;
         card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since).0
             == card::Session::Open
     })
@@ -1501,9 +1574,11 @@ struct Render {
     /// The crash screen's report request, when it was written.
     report_at: Option<Instant>,
     logs_stamp: Option<std::time::SystemTime>,
-    /// The deal: when the club card was last looked at, and its session then.
+    /// The deal: when the match end was last looked for, and the match ends seen.
     deal_at: Instant,
-    deal_last: Option<forza::card::Session>,
+    match_end: grant::MatchEnd,
+    /// Create-a-Team: the thread that draws and saves the match card ([`grant::Granter`]).
+    granter: Option<grant::Granter>,
     /// Links: when the club card was last looked at, and its time then.
     links_at: Option<Instant>,
     /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
@@ -1577,7 +1652,7 @@ impl Render {
             c.options_mut(|o| o.reduce_texture_memory = true);
         }
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
-        let placed = table.read().unwrap_or_default();
+        let mut placed = table.read().unwrap_or_default();
         log(&format!(
             "board: table {} - {} card(s)",
             table.table.display(),
@@ -1600,6 +1675,10 @@ impl Render {
                 kept.display(),
                 st.before_match.as_ref().map_or(0, Vec::len)
             ));
+        }
+        let collection = files.checked_collection();
+        if let Some(dir) = collection_dir(&mut st, &collection) {
+            owned_only(&mut st, &mut table, &mut placed, &dir);
         }
         // both files are read once and then written whole: a failed read is remembered, and nothing is written back
         let panel_ok = match files.panel_text() {
@@ -1668,7 +1747,24 @@ impl Render {
             notice_pending: None,
             notice_shown: None,
             deal_at: Instant::now(),
-            deal_last: None,
+            match_end: grant::MatchEnd::default(),
+            granter: match collection {
+                Ok(dir) => dir.map(|dir| {
+                    log(&format!(
+                        "deal: Create-a-Team, match cards saved in {}",
+                        dir.display()
+                    ));
+                    grant::Granter::start(
+                        dir,
+                        CATALOGUE.get().cloned().unwrap_or_else(|| Arc::from([])),
+                        log,
+                    )
+                }),
+                Err(e) => {
+                    log(&format!("deal: {e}"));
+                    None
+                }
+            },
             painter: painter::Painter::default(),
             start: Instant::now(),
             sc: None,
@@ -2398,15 +2494,16 @@ impl Render {
             || egui::DragAndDrop::has_any_payload(&self.board_ctx)
     }
 
-    /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag.
+    /// The table read again when someone else changed it (FPR_Emu's own panel, a hand edit), never mid-drag: the
+    /// collection's rule applies to it as it does at the start.
     fn table_in(&mut self) {
         if self.frames.is_multiple_of(8)
             && !self.dragging()
             && self.table.changed()
-            && let Some(placed) = self.table.read()
+            && let Some(mut placed) = self.table.read()
         {
             log(&format!("board: table read - {} card(s)", placed.len()));
-            self.st.board = cards::board(&placed, catalogue());
+            own_table(&mut self.st, &mut self.table, &mut placed);
             self.placed = placed;
         }
     }
@@ -2422,7 +2519,7 @@ impl Render {
         }
         self.links_at = Some(Instant::now());
         let Some(f) = FILES.get() else { return };
-        let card = f.data.join("save").join(forza::card::SLOT);
+        let card = f.save.join(forza::card::SLOT);
         let st = stamp(&card);
         if self.links_stamp == Some(st) {
             return;
@@ -2756,37 +2853,65 @@ impl Render {
         ok
     }
 
-    /// A card dealt after each match (wccfpanel.c deal_tick): once a second the club card's session; open, then closed
-    /// (the locker-room save) = a match finished. `WCCFPANEL_DEALTEST=1` deals one at the first frame (the tests).
-    /// Only shown: nothing is written.
+    /// A card dealt after each match (wccfpanel.c deal_tick), looked for once a second: the cards the game hands out
+    /// (2017-18's dispenser count) or, where it cannot count them, the club card session's close (the locker-room save);
+    /// [`grant::MatchEnd`] makes one deal per match and logs every source. `WCCFPANEL_DEALTEST=1` deals one at the first
+    /// frame (the tests). Free play: only shown, nothing written. Create-a-Team: the grant thread draws the card and
+    /// saves it; the frame only asks and reads its news.
     fn deal_in(&mut self) {
         use forza::card::{self, Session};
+        if let Some(g) = &self.granter {
+            while let Some((i, grant)) = g.news() {
+                // the saved card joins the catalogue at once
+                if matches!(grant, panel::Grant::Saved { .. })
+                    && let (Some(owned), Some(c)) = (self.st.owned.as_deref(), catalogue().get(i))
+                {
+                    let mut owned = owned.clone();
+                    owned.entry(c.number).or_default().earned += 1;
+                    self.st.set_owned(Some(owned));
+                }
+                if let Some(note) = grant::show(&mut self.st.deal, i, grant) {
+                    let no = catalogue().get(i).map_or(0, |c| c.number);
+                    log(&format!("deal: card {no} {note}"));
+                }
+            }
+        }
         let test = self.frames == 0 && std::env::var("WCCFPANEL_DEALTEST").is_ok_and(|v| v == "1");
         if !test && self.deal_at.elapsed() < Duration::from_secs(1) {
             return;
         }
         self.deal_at = Instant::now();
-        // 2017-18: the game handed out a player card (the dispenser fix counts them)
-        let finished = test || patches::take_owed_new() > 0 || {
-            let Some(f) = FILES.get() else { return };
-            let (now, _) = card::session(&f.data.join("save").join(card::SLOT), None);
-            // no card, or caught mid-write: wait for the next look
-            if !matches!(now, Session::Open | Session::Closed) {
-                return;
-            }
-            let was = self.deal_last.replace(now);
-            was == Some(Session::Open) && now == Session::Closed
+        let owed = patches::take_owed_new();
+        // no card, or caught mid-write: no news from the session this time
+        let session = FILES
+            .get()
+            .map(|f| card::session(&f.save.join(card::SLOT), None).0)
+            .filter(|s| matches!(s, Session::Open | Session::Closed));
+        let why = if test {
+            Some("test")
+        } else {
+            self.match_end.look(
+                owed,
+                session,
+                patches::dispenser_counts(),
+                Instant::now(),
+                &mut |s| log(&s),
+            )
         };
-        if finished {
-            self.deal();
+        if let Some(why) = why {
+            self.deal(why);
         }
     }
 
-    fn deal(&mut self) {
+    fn deal(&mut self, why: &'static str) {
+        if let Some(g) = &self.granter {
+            g.ask(why);
+            return;
+        }
         match cards::deal_now(catalogue()).and_then(|i| Some((i, catalogue().get(i)?))) {
             Some((i, c)) => {
                 log(&format!(
-                    "deal: card {} {} ({:?}) - shown only, the club card is not changed",
+                    "deal: card {} {} ({:?}) - shown only, the club card is not changed ({why})",
                     c.number,
                     c.short_name(),
                     c.rarity
@@ -3210,7 +3335,7 @@ impl Render {
         use forza::cards::formations as fm;
         use forza_ui::widgets::Tone;
         let Some(f) = FILES.get() else { return };
-        let dir = fm::dir(&f.data.join("save"));
+        let dir = fm::dir(&f.save);
         let edition = self.st.edition;
         if std::mem::take(&mut self.st.formations_open) {
             self.st.in_match = in_match();
@@ -4235,7 +4360,124 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
+    /// A Create-a-Team panel state: an empty board, no catalogue (the table's own cards only).
+    fn cat_state() -> PanelState {
+        PanelState::new(
+            forza_ui::theme::Edition::E1718,
+            forza_ui::Lang::En,
+            cards::board(&[], &[]),
+            std::sync::Arc::from(Vec::<forza_ui::board::Card>::new()),
+        )
+    }
+
+    /// Plan 1.3 (M1): the table read again goes through the collection's rule as the start does, and the file is written
+    /// when a card left; nothing to take off writes nothing.
+    #[test]
+    fn a_table_read_again_loses_the_cards_the_collection_does_not_own() {
+        let dir = std::env::temp_dir().join(format!("forza_table_owned_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let at = |no| cards::Placed {
+            slot: no as i32,
+            no,
+            x: 0.5,
+            y: 0.5,
+        };
+        let mut table = forza::cards::TableFile::in_dir(&dir);
+        table.write(&[at(7), at(9)]).unwrap();
+        let mut placed = table.read().unwrap();
+        let mut st = cat_state();
+        st.set_owned(Some(
+            [(
+                7,
+                forza::collection::Copies {
+                    starter: 1,
+                    ..Default::default()
+                },
+            )]
+            .into(),
+        ));
+        own_table(&mut st, &mut table, &mut placed);
+        assert_eq!(placed.iter().map(|p| p.no).collect::<Vec<_>>(), [7]);
+        assert_eq!(st.board.cards.len(), 1);
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "Cards taken off the table, not in your collection: 1"
+        );
+        let disk = cards::parse_table(&std::fs::read(&table.table).unwrap());
+        assert_eq!(disk.iter().map(|p| p.no).collect::<Vec<_>>(), [7]);
+        // all owned now: the file is not written again
+        let before = std::fs::metadata(&table.table).unwrap().modified().unwrap();
+        let mut placed = table.read().unwrap();
+        st.message = None;
+        own_table(&mut st, &mut table, &mut placed);
+        assert_eq!(placed.len(), 1);
+        assert!(st.message.is_none());
+        assert_eq!(
+            std::fs::metadata(&table.table).unwrap().modified().unwrap(),
+            before
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Plan 1.3 (M2): a collection folder that is not this run's fails closed (no card listed) and says why; Free is
+    /// still `Ok(None)` and lists every card.
+    #[test]
+    fn a_collection_folder_for_another_run_lists_no_card() {
+        let mut st = cat_state();
+        assert!(collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into())).is_none());
+        assert!(st.owned.as_ref().is_some_and(|o| o.is_empty()));
+        assert!(!st.owns(7));
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, forza_ui::widgets::Tone::Refused);
+        assert_eq!(
+            m.text,
+            "This game is not CREATE-A-TEAM, so no card is listed. Choose CREATE-A-TEAM in the Launcher and start \
+             the game again."
+        );
+        let mut st = cat_state();
+        assert!(collection_dir(&mut st, &Ok(None)).is_none());
+        assert!(st.owned.is_none());
+        assert!(st.message.is_none());
+        assert!(st.owns(7));
+    }
+
+    /// Plan 1.3 (M3): a log that cannot be read lists no card, empties the board in memory, leaves the table file as it
+    /// is and says so.
+    #[test]
+    fn an_unreadable_log_keeps_the_table_file_and_says_so() {
+        let dir =
+            std::env::temp_dir().join(format!("forza_collection_unread_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("grants.jsonl")).unwrap(); // a folder where the log goes: the read fails
+        let at = |no| cards::Placed {
+            slot: no as i32,
+            no,
+            x: 0.5,
+            y: 0.5,
+        };
+        let mut table = forza::cards::TableFile::in_dir(&dir);
+        table.write(&[at(7), at(9)]).unwrap();
+        let mut placed = table.read().unwrap();
+        let mut st = cat_state();
+        owned_only(&mut st, &mut table, &mut placed, &dir);
+        assert!(placed.is_empty());
+        assert!(st.board.cards.is_empty());
+        assert!(st.owned.as_ref().is_some_and(|o| o.is_empty()));
+        let disk = cards::parse_table(&std::fs::read(&table.table).unwrap());
+        assert_eq!(disk.len(), 2, "the file is kept");
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, forza_ui::widgets::Tone::Refused);
+        assert!(
+            m.text.starts_with("The collection could not be read"),
+            "{}",
+            m.text
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    use super::{
+        PanelState, big_enough, clock_text, collection_dir, game_point, game_title, match_now,
+        notice_waits, own_table, owned_only,
+    };
     use egui::{Rect, pos2};
 
     #[test]

@@ -2589,6 +2589,7 @@ pub fn catalogue_card(
     size: egui::Vec2,
     selected: bool,
     on_table: bool,
+    mark: Option<&str>,
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
     resp.dnd_set_drag_payload(card.clone());
@@ -2620,6 +2621,17 @@ pub fn catalogue_card(
             r.left_top() + vec2(12.0, 34.0),
             super::widgets::Tone::Done,
         );
+    }
+    if let Some(mark) = mark {
+        // Create-a-Team: STARTER or IMPORT, a copy that plays but never sells, on the picture's left under the band
+        let p = ui.painter();
+        let g = p.layout_no_wrap(mark.to_owned(), theme::display(11.0), theme::INK);
+        let at = Rect::from_min_size(
+            r.left_top() + vec2(3.0, (r.height() * 0.62).round()),
+            g.size() + vec2(8.0, 2.0),
+        );
+        p.rect_filled(at, 3, theme::AMBER);
+        p.galley(at.min + vec2(4.0, 1.0), g, theme::INK);
     }
     resp
 }

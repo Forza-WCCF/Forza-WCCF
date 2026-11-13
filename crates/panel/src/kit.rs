@@ -7,6 +7,8 @@
 //! - The catalogue and the card pictures: `WCCF_CATALOGUE` / `WCCF_CARDS` (the run sets them), else 2010-11's
 //!   `data\cache\catalogue.tsv` and `data\cache\cards\`, 2017-18's beside the DLL.
 //! - The keys: `WCCF_KEYS`, else `data\keys.txt` when `data\` is there, else beside the DLL.
+//! - Create-a-Team's collection: `WCCF_COLLECTION` (the run sets it for that profile only), used only when it is this
+//!   2017-18 kit's Create-a-Team folder by `data\settings.json`'s profile; none = free play.
 //! - The card table and its formation copy: the game's own folder (the program's), never configured.
 //! - Links (`lib.rs` `affinity`, `links_in`): `prog_data\player_data\` in the game's own folder and the program itself,
 //!   read once; the club card `data\save\seat1_club.bin`, read again when it changes (2010-11 only).
@@ -34,9 +36,26 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 pub struct Files {
     pub edition: Edition,
     pub data: PathBuf,
+    /// The active profile's save (`forza::kit::save_in`): the Launcher locks the choice while the game runs.
+    pub save: PathBuf,
     pub catalogue: PathBuf,
     pub cards: PathBuf,
     pub keys: PathBuf,
+    /// `WCCF_COLLECTION` as the environment says; [`Files::checked_collection`] is the folder the deal writes to.
+    pub collection: Option<PathBuf>,
+}
+
+/// `var` is `want` (`data` and a tail), also when the Launcher spells `data` another way (case, `..`, a short name).
+fn same_dir(var: &Path, want: &Path, data: &Path) -> bool {
+    let Ok(tail) = want.strip_prefix(data) else {
+        return var == want;
+    };
+    let var_data = var
+        .ends_with(tail)
+        .then(|| var.ancestors().nth(tail.components().count()))
+        .flatten()
+        .and_then(|d| d.canonicalize().ok());
+    var == want || matches!((var_data, data.canonicalize()), (Some(a), Ok(b)) if a == b)
 }
 
 fn var(name: &str) -> Option<PathBuf> {
@@ -70,7 +89,34 @@ impl Files {
             catalogue: var("WCCF_CATALOGUE").unwrap_or_else(|| cache.join("catalogue.tsv")),
             cards: var("WCCF_CARDS").unwrap_or_else(|| cache.join("cards")),
             keys,
+            collection: var("WCCF_COLLECTION"),
+            save: forza::kit::save_in(&data),
             data,
+        }
+    }
+
+    /// Create-a-Team's collection folder, where the deal saves the match card: `WCCF_COLLECTION` when it is this kit's
+    /// (2017-18, settings.json's "profile"). `Ok(None)` = free play, only shown; `Err` = a stray variable (left in the
+    /// environment, a free-play run), ignored so it never writes grants.
+    pub fn checked_collection(&self) -> Result<Option<PathBuf>, String> {
+        let Some(var) = &self.collection else {
+            return Ok(None);
+        };
+        let want = (self.edition == Edition::E1718)
+            .then(|| forza::profile::Profile::of(&self.settings()).collection(&self.data))
+            .flatten();
+        match want {
+            Some(want) if same_dir(var, &want, &self.data) => Ok(Some(var.clone())),
+            Some(want) => Err(format!(
+                "WCCF_COLLECTION {} is not this kit's Create-a-Team collection {} - ignored, nothing saved",
+                var.display(),
+                want.display()
+            )),
+            None => Err(format!(
+                "WCCF_COLLECTION {} set, but this kit is not on Create-a-Team (2017-18, settings.json) - ignored, \
+                 nothing saved",
+                var.display()
+            )),
         }
     }
 
@@ -137,7 +183,7 @@ impl Files {
         let since = std::fs::metadata(self.data.join("running.json"))
             .and_then(|m| m.modified())
             .ok();
-        let save = self.data.join("save");
+        let save = &self.save;
         let (session, bad) =
             card::club_session(&save.join(card::SLOT), &save.join(card::NEW), since);
         let now = SystemTime::now();
@@ -564,9 +610,11 @@ mod tests {
         let files = Files {
             edition: Edition::E1718,
             data: d.clone(),
+            save: d.join("save"),
             catalogue: d.join("catalogue.tsv"),
             cards: d.join("cards"),
             keys: d.join("keys.txt"),
+            collection: None,
         };
         (files, d)
     }
@@ -613,6 +661,41 @@ mod tests {
         assert!(files.panel_text().is_err());
         assert!(files.load_keys().is_err());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Finding 5: the collection is used only when settings.json's profile is Create-a-Team on 2017-18 and the variable
+    /// names this kit's folder (spelled any way); a stray one is ignored.
+    #[test]
+    fn a_stray_collection_variable_is_ignored() {
+        let (mut files, d) = files("collection");
+        let ours = d.join(r"profiles\create-a-team\collection");
+        files.collection = Some(ours.clone());
+        assert!(
+            files.checked_collection().is_err(),
+            "no settings: free play"
+        );
+        std::fs::write(d.join("settings.json"), r#"{"profile": "free"}"#).unwrap();
+        assert!(files.checked_collection().is_err(), "free play");
+        std::fs::write(d.join("settings.json"), r#"{"profile": "create-a-team"}"#).unwrap();
+        assert_eq!(files.checked_collection(), Ok(Some(ours.clone())));
+        let spelled = d.join(r"save\..\profiles\create-a-team\collection");
+        std::fs::create_dir_all(d.join("save")).unwrap();
+        files.collection = Some(spelled.clone());
+        assert_eq!(files.checked_collection(), Ok(Some(spelled)));
+        files.collection = Some(d.join(r"elsewhere\collection"));
+        assert!(files.checked_collection().is_err(), "another folder");
+        files.collection = Some(ours);
+        files.edition = Edition::E1011;
+        assert!(files.checked_collection().is_err(), "2010-11");
+        assert_eq!(
+            Files {
+                collection: None,
+                ..files
+            }
+            .checked_collection(),
+            Ok(None)
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
