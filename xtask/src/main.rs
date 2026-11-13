@@ -125,14 +125,20 @@ fn profile() -> &'static str {
 }
 
 /// The profile of `build` (`mode` "build") and `check <mode>`: `--fast` is `fast`; `ci` is `ci` (`--release`: release);
-/// `build` and `check quick` are `fast` without CI and `--release` (`quick` under CI: `ci`); the rest (`package`, the full check) is release.
-fn pick_profile(mode: Option<&str>, fast: bool, release: bool, in_ci: bool) -> &'static str {
+/// `build` and `check quick` are `fast` without CI or a wrapper and `--release` (`quick` under either: `ci`, which `test`
+/// takes too, so a per-commit run shares the gate's build tree); the rest (`package`, the full check) is release.
+fn pick_profile(
+    mode: Option<&str>,
+    fast: bool,
+    release: bool,
+    ci_or_wrapper: bool,
+) -> &'static str {
     match mode {
         _ if fast => "fast",
         Some("ci") if !release => "ci",
-        // pull requests' CI: the profile main's `check ci` fills the cache with
-        Some("quick") if !release && in_ci => "ci",
-        Some("build" | "quick") if !release && !in_ci => "fast",
+        // pull requests' CI and a user's sccache: the `ci` profile main's `check ci` fills the cache with
+        Some("quick") if !release && ci_or_wrapper => "ci",
+        Some("build" | "quick") if !release && !ci_or_wrapper => "fast",
         _ => "release",
     }
 }
@@ -3250,6 +3256,10 @@ mod tests {
         assert_eq!(p("ci", false, true, false), "release");
         assert_eq!(pick_profile(None, false, false, false), "release");
         assert_eq!(pick_profile(None, true, false, false), "fast");
+        // the fourth input is CI or a wrapper: `quick` builds `ci` under either, and nothing else moves with it
+        assert_eq!(p("ci", false, false, true), "ci");
+        assert_eq!(p("quick", true, false, true), "fast");
+        assert_eq!(p("quick", false, true, true), "release");
     }
 
     /// `package` builds every shipped program under no wrapper: `RUSTC_WRAPPER` and the workspace wrapper empty (empty is
