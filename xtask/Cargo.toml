@@ -18,6 +18,16 @@ sha2.workspace = true
 xshell.workspace = true
 zip.workspace = true
 
+# `verify`'s preflight: the running processes, "Prefer System32 images", the free space
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
 [lints]
 workspace = true
 # clippy::pedantic (deny, this crate only) is in src/main.rs: Cargo cannot combine `workspace = true` with the
