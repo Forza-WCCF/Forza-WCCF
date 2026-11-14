@@ -86,7 +86,8 @@ word with `ERR rooms are on the lobby` and only seats its own PCs.
 | Ask | Answer |
 |---|---|
 | `CREATE shop ID SECRET public\|private [NAME...]` (ID = the arcade tunnel's iroh EndpointId: 64 hex, a real ed25519 key; SECRET = the host's room secret, 64 hex; NAME the rest of the line, control characters dropped, spaces collapsed, at most 24 characters); Launchers up to 0.7.0 send `CREATE shop ID [public]` or `CREATE shop ID public\|private NAME...` | `ROOM id code t 1` (the host on seat 1, an 8-letter code), `FULL`, `ERR id`, `ERR host` |
-| `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8, or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
+| `CREATE seatless ID public\|private [NAME...]` (a server that hosts the arcade and plays no game: forza-arcade; no secret) | `ROOM id code t 0` (the host on no seat, so 8 guests fit), `FULL`, `ERR id`, `ERR host` |
+| `JOIN CODE [n]` | `TICKET t n` (lowest free of 2-8 (1-8 in a seatless room), or n), `FULL`, `TAKEN`, `CLOSED` (no such code) |
 | `SHOP t [ID]` | a guest's ticket (telling its own tunnel id): `HOST id`; the host's: `GUESTS id ...` (guests that told theirs); else `GONE` |
 | `HEARTBEAT t`, `RELEASE t`, `CLOSE id t` | as for VS rooms: the host's `RELEASE`/`CLOSE` or lease end closes the room |
 

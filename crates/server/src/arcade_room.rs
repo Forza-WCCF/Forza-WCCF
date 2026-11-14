@@ -1,9 +1,10 @@
 //! 2017-18 arcade rooms (M2 plan 5.3): a player's PC that hosts an arcade opens a room with `CREATE shop ID [public]`,
 //! where ID is its arcade tunnel's iroh EndpointId. A room is private: guests join with its code alone (`JOIN CODE
-//! [n]`, seats 2-8), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
+//! [n]`, seats 2-8 (1-8 in a seatless room)), which the host passes on; `RESERVE` of a room's id gives nothing. A guest's ticket then gets the
 //! host's id through `SHOP t own-id`, the host's ticket the ids of the guests that asked, so each tunnel end learns
 //! the other's id from the room alone. `LOBBY` lists only `public` rooms, as an arcade row with x/8 and never the code;
 //! `JOIN` of a public row's id seats a guest too (the host chose to list it), a private room's id joins nothing.
+//! A server that hosts an arcade and plays no game (forza-arcade, `CREATE seatless`) takes no room seat: guests 1-8.
 //! Sans-IO: the desk passes the clock, the random ids and tickets in.
 
 pub use forza::online::lobby::Peers;
@@ -11,7 +12,7 @@ use forza::online::lobby::{Arcade, Reserved, State as ArcadeState};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-/// Seats in an arcade room: the host on 1, guests on 2-8.
+/// Seats in an arcade room: the host on 1, guests on 2-8; a seatless host on 0, guests on 1-8.
 const SEATS: std::ops::RangeInclusive<u8> = 1..=8;
 /// A room's code: this many of the desk's code letters (31^8, about 2^39.6, against `JOIN`'s budgets).
 pub const CODE_LEN: usize = 8;
@@ -77,7 +78,7 @@ struct Room {
     public: bool,
     /// Its name in `LOBBY`, from `CREATE shop` ([`forza::online::lobby::arcade_name`]); empty: the desk's default
     name: String,
-    /// seats[0] is the host (seat 1)
+    /// seats[0] is the host (seat 1, or 0 when it takes none)
     seats: Vec<Sitter>,
 }
 
@@ -192,8 +193,9 @@ impl ArcadeRooms {
         self.rooms.iter().filter(|r| r.by == by).count()
     }
 
-    /// A new room with its host on seat 1 (`host_id` checked by the caller with [`valid_id`], `name` already
-    /// [`forza::online::lobby::arcade_name`]); its code kept for `secret`'s next room, when there is space.
+    /// A new room with its host on seat 1, or on none when `seatless` (`host_id` checked by the caller with
+    /// [`valid_id`], `name` already [`forza::online::lobby::arcade_name`]); its code kept for `secret`'s next room,
+    /// when there is space.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
@@ -206,6 +208,7 @@ impl ArcadeRooms {
         name: String,
         ticket: String,
         end: Instant,
+        seatless: bool,
     ) {
         if let Some(secret) = secret {
             let until = end + KEPT_FOR;
@@ -230,7 +233,7 @@ impl ArcadeRooms {
             public,
             name,
             seats: vec![Sitter {
-                seat: 1,
+                seat: u8::from(!seatless),
                 ticket,
                 end,
                 id: Some(host_id.to_ascii_lowercase()),
@@ -248,9 +251,9 @@ impl ArcadeRooms {
         };
         let busy = |n: u8| r.seats.iter().any(|s| s.seat == n);
         let n = match seat {
-            Some(n) if n == 1 || !SEATS.contains(&n) || busy(n) => return Reserved::Taken,
+            Some(n) if !SEATS.contains(&n) || busy(n) => return Reserved::Taken,
             Some(n) => n,
-            None => match SEATS.skip(1).find(|n| !busy(*n)) {
+            None => match SEATS.clone().find(|n| !busy(*n)) {
                 Some(n) => n,
                 None => return Reserved::Full,
             },
@@ -321,7 +324,9 @@ impl ArcadeRooms {
     /// Drops guests whose lease ended and rooms whose host's did; the closed rooms' codes.
     pub fn expire(&mut self, now: Instant) -> Vec<String> {
         for r in &mut self.rooms {
-            r.seats.retain(|s| s.seat == 1 || s.end > now);
+            // the host (first) stays: its own lease closes the room below
+            let mut host = true;
+            r.seats.retain(|s| std::mem::take(&mut host) || s.end > now);
         }
         let mut closed = Vec::new();
         self.rooms.retain(|r| {
@@ -347,7 +352,7 @@ impl ArcadeRooms {
             .iter()
             .filter(|r| r.public)
             .map(|r| {
-                let seats = r.seats.len() as u8;
+                let seats = r.seats.iter().filter(|s| s.seat != 0).count() as u8;
                 Arcade {
                     id: r.id.clone(),
                     name: if r.name.is_empty() {
@@ -396,6 +401,7 @@ mod tests {
             String::new(),
             "th".into(),
             now + Duration::from_secs(60),
+            false,
         );
         (r, now, host)
     }
@@ -413,6 +419,7 @@ mod tests {
             String::new(),
             t,
             now + Duration::from_secs(60),
+            false,
         );
     }
 
@@ -462,6 +469,77 @@ mod tests {
         assert!(r.has_host(&key(1).to_uppercase()) && !r.has_host(&key(2)));
         assert_eq!(r.count_by("10.0.0.1"), 1);
         assert_eq!(r.count_by("10.0.0.2"), 0);
+    }
+
+    /// A player's arcade counts its host, who plays on seat 1: 1/8 empty, full at 7 guests.
+    #[test]
+    fn a_players_arcade_counts_its_host() {
+        let (mut r, now, _) = room(true);
+        assert_eq!(r.listed()[0].seats, 1);
+        let end = now + Duration::from_secs(60);
+        for n in 2..=8u8 {
+            r.join("K7QMZDRX", None, format!("t{n}"), end);
+        }
+        assert_eq!(
+            (r.listed()[0].seats, r.listed()[0].state),
+            (8, ArcadeState::Full)
+        );
+    }
+
+    /// A server-run arcade (forza-arcade) plays no game: its host takes no seat, so 8 guests fit on seats 1-8.
+    #[test]
+    fn a_seatless_host_leaves_8_seats_to_guests() {
+        let now = Instant::now();
+        let end = now + Duration::from_secs(60);
+        let mut r = ArcadeRooms::default();
+        r.create(
+            "r1".into(),
+            "K7QMZDRX".into(),
+            &key(1),
+            "10.0.0.1",
+            None,
+            true,
+            String::new(),
+            "th".into(),
+            end,
+            true,
+        );
+        let row = |r: &ArcadeRooms| (r.listed()[0].seats, r.listed()[0].max, r.listed()[0].state);
+        assert_eq!(row(&r), (0, 8, ArcadeState::Open), "empty: 0/8");
+        for n in 1..=8u8 {
+            assert_eq!(
+                r.join("r1", None, format!("t{n}"), end),
+                Reserved::Ticket {
+                    ticket: format!("t{n}"),
+                    seat: n
+                }
+            );
+        }
+        assert_eq!(row(&r), (8, 8, ArcadeState::Full));
+        assert_eq!(
+            r.join("r1", None, "t9".into(), end),
+            Reserved::Full,
+            "a 9th"
+        );
+        // the host still keeps the room: its lease, its guests' ids, closing it
+        r.peers("t1", Some(&key(2)));
+        assert_eq!(r.peers("th", None), Some(Peers::Guests(vec![key(2)])));
+        assert!(r.expire(now + Duration::from_secs(30)).is_empty());
+        assert_eq!(r.leave(None, "t1"), Some(None), "a guest leaves seat 1");
+        assert_eq!(row(&r).0, 7);
+        assert_eq!(
+            r.join("r1", Some(1), "t1b".into(), end),
+            Reserved::Ticket {
+                ticket: "t1b".into(),
+                seat: 1
+            },
+            "seat 1 is a guest's"
+        );
+        assert_eq!(
+            r.leave(None, "th"),
+            Some(Some("K7QMZDRX".into())),
+            "the host closes it"
+        );
     }
 
     /// Each end learns the other's id from the room: the guest the host's, the host the guests' that asked.
