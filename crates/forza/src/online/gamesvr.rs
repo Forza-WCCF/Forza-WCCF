@@ -998,7 +998,9 @@ impl Store {
     /// granted club gets the stored result again at each card-in of the week while its stored 277 is still one class
     /// below (a lost 276, or a session that ended before the info scene applied it). A club imported again (a guest's
     /// next join, online::club) has a new coachId and the granted one is gone: the row moves to it when it is the same
-    /// club (same `created`), never to another club of the card.
+    /// club (same `created`), never to another club of the card. The club's latest grant of an earlier week is the
+    /// floor of its saved class: a save that fell back below it is promoted from the granted class, or gets that
+    /// grant's result again when this week brings no promotion.
     fn promote(
         &self,
         week: u16,
@@ -1023,7 +1025,7 @@ impl Store {
         if let Some((to, next, rank, record)) = granted {
             // the same result again, only to the club it went to (or its re-import) and only while it has not
             // applied it
-            if class.checked_add(1) != Some(next) {
+            if class >= next {
                 return Ok(None);
             }
             if to != coach
@@ -1036,16 +1038,33 @@ impl Store {
             {
                 return Ok(None);
             }
-            return Ok(Some((class, rank, record)));
+            // the granted class itself: a save more than one class below must not land one below the grant
+            return Ok(Some((next - 1, rank, record)));
         }
+        // the same club as at the current week's re-issue: its coach, or its re-import once that coach is gone
+        let floor: Option<(u8, u32, i32)> = self
+            .0
+            .query_row(
+                "SELECT class, rank, record FROM gt_promotions p WHERE aime_id = ?1 AND week < ?2
+                 AND (coach_id = ?3 OR (created = (SELECT created FROM coaches WHERE coach_id = ?3)
+                      AND NOT EXISTS (SELECT 1 FROM coaches c WHERE c.coach_id = p.coach_id)))
+                 ORDER BY week DESC LIMIT 1",
+                params![aime, week, coach],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let resend = floor
+            .filter(|f| class < f.0)
+            .map(|(next, rank, record)| (next - 1, rank, record));
+        let class = floor.map_or(class, |f| class.max(f.0));
         let ranking = self.gt_ranking(last)?;
         let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
         let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
         let Some((i, &(_, record))) = entry else {
-            return Ok(None);
+            return Ok(resend);
         };
         if need == 0 || i64::from(record) < i64::from(need) {
-            return Ok(None);
+            return Ok(resend);
         }
         let n = self.0.execute(
             "INSERT INTO gt_promotions (week, aime_id, coach_id, class, at, rank, record, created)
@@ -2838,6 +2857,97 @@ mod tests {
             );
         }
         assert!(GT_RAISE[2..].iter().all(|&p| p == 0), "Area A is the cap");
+    }
+
+    /// A club granted Area B last week whose save fell back to Local: its class is the grant, also after a re-import
+    /// (a public server's clubs get new ids each session), so this week's record promotes it Area B -> Area A, each
+    /// card-in of the week sends that grant, and a record below that threshold re-sends last week's grant, writing
+    /// nothing; never Local -> Area B.
+    #[test]
+    fn an_earlier_weeks_grant_is_the_floor_of_the_saved_class() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let vs = Vs {
+            cfg: VsConfig {
+                public_ip: std::net::Ipv4Addr::LOCALHOST,
+                reflect_port: 1,
+                vslink_port: 2,
+            },
+            matcher: Arc::default(),
+        };
+        let vs = Some((&vs, IpAddr::from([127, 0, 0, 1])));
+        let ask = |cmd: u16, p: &[u8]| answer(cmd, p, &store, None, &[], vs, &log).unwrap().1;
+        let week = gt_week(now());
+        let record = |w: u16, aime: u32, points: u32| {
+            let mut r = vec![0u8; 8572];
+            put(&mut r, GT_RECORD_277, points);
+            record_gt(&store.lock().unwrap().0, w, aime, &r, 1).unwrap();
+        };
+        // a Local club of `aime`, granted Area B at a card-in of last week, saved Local again
+        let demoted = |aime: u32| {
+            let b = ask(279, &fixture(279, [aime, 0, 0]));
+            let (club, card) = (u32_at(&b, 8), u32_at(&b, 12));
+            let mut r = fixture(277, [aime, club, card]);
+            r[GT_CLASS_277] = 0;
+            ask(277, &r);
+            record(week - 2, aime, 1_000);
+            let local = vec![0u8; 8572];
+            let granted = store.lock().unwrap().promote(week - 1, aime, club, &local);
+            assert_eq!(
+                granted.unwrap().map(|g| g.0),
+                Some(0),
+                "last week: Local -> Area B"
+            );
+            (club, card)
+        };
+        let result = |aime: u32, (club, card): (u32, u32)| {
+            let a = ask(275, &req(275, [aime, club, card]));
+            (u32_at(&a, GT_FINAL_RANK_276), a[GT_NEXT_CLASS_276])
+        };
+
+        // the club imported again (a guest's next join, online::club): new coach and card ids, the old coach gone
+        let rejoin = |aime: u32| {
+            let mut st = store.lock().unwrap();
+            st.0.execute("INSERT INTO guests VALUES (?1, 't', 1, 0)", [aime])
+                .unwrap();
+            let c = st.club(aime).unwrap();
+            let link = st.import_public(&c, aime, 1, "t", &|_| false).unwrap();
+            (link.coaches[0].1, link.cards[0].1)
+        };
+
+        let old = demoted(5);
+        let k = rejoin(5);
+        assert_ne!(k, old);
+        record(week - 1, 5, 1_300);
+        assert_eq!(
+            result(5, k),
+            (1, 2),
+            "re-imported: Area B -> Area A, not Local -> Area B"
+        );
+        assert_eq!(
+            result(5, k),
+            (1, 2),
+            "the week's next card-in, save still Local: the grant again, never Area B"
+        );
+
+        let k = demoted(6);
+        record(week - 1, 6, 500);
+        assert_eq!(
+            result(6, k),
+            (2, 1),
+            "no promotion this week: last week's grant (rank 2) again"
+        );
+        let rows: i64 = store
+            .lock()
+            .unwrap()
+            .0
+            .query_row(
+                "SELECT count(*) FROM gt_promotions WHERE week = ?1 AND aime_id = 6",
+                [week],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0, "a re-sent grant spends nothing this week");
     }
 
     /// A server with VS sends the promotion thresholds as GAME_CTRL raisePoint; an arcade's stand-in sends none.
