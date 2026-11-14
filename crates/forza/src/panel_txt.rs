@@ -53,6 +53,8 @@ pub struct PanelFile {
     pub board_buttons: bool,
     /// board_rect=x,y,w,h,max: where that window was last (its restored place in screen pixels, and maximized).
     pub board_rect: Option<[i32; 5]>,
+    /// board_width=: the docked board's width in points, as its divider was last dragged (2017-18; None: the default).
+    pub board_width: Option<u16>,
     /// pad_background=on (2017-18): the controller also counts while the game is not in front; the key driver reads
     /// it again when the file changes. Ignored while two or more seats run on the PC.
     pub pad_background: bool,
@@ -63,6 +65,8 @@ pub struct PanelFile {
     pub fps: bool,
     /// The "name=value" lines not known here, each with its newline, written back as they were.
     pub other: String,
+    /// reset_ask=off (2017-18): RESET LINEUP resets at once, without its question (DON'T ASK AGAIN).
+    pub reset_ask_off: bool,
 }
 
 impl Default for PanelFile {
@@ -79,10 +83,12 @@ impl Default for PanelFile {
             board_window: false,
             board_buttons: false,
             board_rect: None,
+            board_width: None,
             pad_background: false,
             textures: 0,
             fps: false,
             other: String::new(),
+            reset_ask_off: false,
         }
     }
 }
@@ -132,6 +138,7 @@ impl PanelFile {
                         .unwrap_or(0);
                 }
                 "fps" => f.fps = is("on"),
+                "reset_ask" => f.reset_ask_off = is("off"),
                 "board_rect" => {
                     let n: Vec<i32> = val
                         .split(',')
@@ -141,6 +148,7 @@ impl PanelFile {
                         .ok()
                         .filter(|r| r[2] > 0 && r[3] > 0);
                 }
+                "board_width" => f.board_width = val.parse().ok().filter(|w| *w > 0),
                 _ => {
                     f.other += line.trim();
                     f.other.push('\n');
@@ -199,6 +207,12 @@ impl PanelFile {
         }
         if let Some([x, y, w, h, max]) = self.board_rect {
             s += &format!("board_rect={x},{y},{w},{h},{max}\n");
+        }
+        if let Some(w) = self.board_width {
+            s += &format!("board_width={w}\n");
+        }
+        if self.reset_ask_off {
+            s += "reset_ask=off\n";
         }
         s + &self.other
     }
@@ -265,12 +279,14 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwh
             textures: 8,
             fps: true,
             board_rect: Some([-1600, 20, 900, 1400, 0]),
+            board_width: Some(440),
+            reset_ask_off: true,
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\nboard_width=440\nreset_ask=off\n")
         );
         for (line, ms) in [
             ("", Some(500)),
@@ -303,6 +319,9 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwh
             "board_rect=a,b,c,d,e",
         ] {
             assert_eq!(PanelFile::parse(bad.as_bytes()).board_rect, None, "{bad}");
+        }
+        for bad in ["board_width=0", "board_width=-5", "board_width=wide"] {
+            assert_eq!(PanelFile::parse(bad.as_bytes()).board_width, None, "{bad}");
         }
     }
 }

@@ -270,8 +270,8 @@ pub fn load_keys_with(raw: &[u8], defaults: [u32; 16]) -> ([u32; 16], Vec<String
         if name.split_whitespace().next() == Some("PAD") {
             continue; // a controller line: load_pads() reads those
         }
-        if name == "PAUSE" {
-            continue; // the panel's own (forza::keys::PAUSE): the game held, no cabinet input
+        if name == "PAUSE" || name == "FLIP" {
+            continue; // the panel's own (forza::keys::PAUSE, FLIP): no cabinet input
         }
         let Some(idx) = action_index(&name) else {
             notes.push(format!("unknown action {}", py_repr(&name)));
@@ -1383,10 +1383,10 @@ mod tests {
         }
     }
 
-    /// The panel's PAUSE line is no action of the driver's: no note, no key taken from anyone.
+    /// The panel's PAUSE and FLIP lines are no actions of the driver's: no note, no key taken from anyone.
     #[test]
     fn pause_line_is_the_panels() {
-        let (keys, notes) = load_keys(b"PAUSE=0x58\nSHOOT=0x47\n");
+        let (keys, notes) = load_keys(b"PAUSE=0x58\nFLIP=0x46\nSHOOT=0x47\n");
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys[action_index("PRESS").unwrap()], 0x58);
         assert_eq!(keys[action_index("SHOOT").unwrap()], 0x47);
