@@ -669,10 +669,10 @@ fn session(
         // 2017-18 arcade rooms: no matcher needed, the arcade's own desk seats its PCs; the wire tokens `CREATE shop`
         // and `SHOP` are kept from before the arcade rename, as 0.6.x clients send them
         ["CREATE", "shop", host] if !e1011 => {
-            return create_arcade(sh, ip, host, None, false, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, false, String::new(), false, &mut out);
         }
         ["CREATE", "shop", host, "public"] if !e1011 => {
-            return create_arcade(sh, ip, host, None, true, String::new(), &mut out);
+            return create_arcade(sh, ip, host, None, true, String::new(), false, &mut out);
         }
         // the host's room secret, then public or private and maybe a name: the secret gets its last code again
         [
@@ -685,7 +685,7 @@ fn session(
         ] if !e1011 && lobby::valid_room_secret(secret) => {
             let name = lobby::arcade_name(&name.join(" "));
             let public = vis == "public";
-            return create_arcade(sh, ip, host, Some(secret), public, name, &mut out);
+            return create_arcade(sh, ip, host, Some(secret), public, name, false, &mut out);
         }
         // a named room: the rest of the line is its name
         [
@@ -696,7 +696,18 @@ fn session(
             ref name @ ..,
         ] if !e1011 => {
             let name = lobby::arcade_name(&name.join(" "));
-            return create_arcade(sh, ip, host, None, vis == "public", name, &mut out);
+            return create_arcade(sh, ip, host, None, vis == "public", name, false, &mut out);
+        }
+        // a server that hosts the arcade and plays no game (forza-arcade): no room seat of its own, guests on 1-8
+        [
+            "CREATE",
+            "seatless",
+            host,
+            vis @ ("public" | "private"),
+            ref name @ ..,
+        ] if !e1011 => {
+            let name = lobby::arcade_name(&name.join(" "));
+            return create_arcade(sh, ip, host, None, vis == "public", name, true, &mut out);
         }
         ["JOIN", code] if !e1011 => return join_arcade(sh, ip, code, None, &mut out),
         ["JOIN", code, n] if !e1011 => {
@@ -1178,7 +1189,8 @@ fn create(sh: &Shared, ip: &str, open: bool, out: &mut TcpStream) -> io::Result<
     out.write_all(reply.line().as_bytes())
 }
 
-/// `CREATE shop ID [SECRET] [public]` (or `... public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1),
+/// `CREATE shop ID [SECRET] [public]` (or `... public|private NAME...`) -> `ROOM id code t 1` (the host PC on seat 1;
+/// `seatless` from `CREATE seatless`: `ROOM id code t 0`, a host on no seat),
 /// `FULL` (the desk's rooms, or this address's [`DeskConfig::arcade_rooms_per_address`]), `ERR id` (not a tunnel id)
 /// or `ERR host` (that tunnel id or secret holds a live room already: one room per host). A `secret` gets its last
 /// room's code.
@@ -1190,6 +1202,7 @@ fn create_arcade(
     secret: Option<&str>,
     public: bool,
     name: String,
+    seatless: bool,
     out: &mut TcpStream,
 ) -> io::Result<()> {
     if !crate::arcade_room::valid_id(host) {
@@ -1250,7 +1263,7 @@ fn create_arcade(
         id: id.clone(),
         code: code.clone(),
         ticket: ticket.clone(),
-        seat: 1,
+        seat: u8::from(!seatless),
     };
     st.arcades.create(
         id,
@@ -1262,9 +1275,11 @@ fn create_arcade(
         name,
         ticket,
         now + sh.cfg.reserve_lease,
+        seatless,
     );
     (sh.log)(&format!(
-        "arcade room {code}: made - {} arcade rooms",
+        "arcade room {code}: made{} - {} arcade rooms",
+        if seatless { " (seatless host)" } else { "" },
         st.arcades.len()
     ));
     drop(st);
