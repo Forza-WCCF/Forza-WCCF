@@ -2221,6 +2221,7 @@ version = "0.6.1"
 dependencies = [
  "egui",
  "forza",
+ "forza-native",
  "forza-ui",
  "image",
  "serde_json",

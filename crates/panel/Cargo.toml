@@ -18,6 +18,8 @@ crate-type = ["cdylib"]
 # never the launcher crate, which brings the window toolkit and the network stack into the game
 forza.workspace = true
 forza-ui.workspace = true
+# what wccfnet.dll and the panel share about the 2017-18 client (its PE stamp, the boot hold's property and message)
+forza-native = { path = "../../native/common" }
 egui.workspace = true
 serde_json.workspace = true
 sha2.workspace = true # exe_text: the original texts' hashes
