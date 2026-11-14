@@ -1356,6 +1356,7 @@ fn put(path: &Path, data: &[u8]) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let mut t = tempfile::NamedTempFile::new_in(dir)?;
     t.write_all(data)?;
+    t.as_file().sync_all()?; // on disk before the rename: a power cut never leaves an empty file under the name
     t.persist(path).map(drop).map_err(|e| e.error)
 }
 
@@ -1383,15 +1384,20 @@ fn original_of(h: &Value) -> Option<&str> {
         .as_str()
 }
 
-/// A backup list, its keys folded (`..` resolved); empty when missing or unreadable.
-fn read_manifest(p: &Path) -> Map<String, Value> {
-    fs::read(p)
-        .ok()
-        .and_then(|d| serde_json::from_slice::<Map<String, Value>>(&d).ok())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(k, v)| (fold_dots(&k), v))
-        .collect()
+/// A backup list, its keys folded (`..` resolved); empty when missing, an error when unreadable or damaged (a
+/// damaged list must never read as "nothing backed up").
+fn read_manifest(p: &Path) -> R<Map<String, Value>> {
+    let d = match fs::read(p) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Map::new()),
+        r => r?,
+    };
+    let m = serde_json::from_slice::<Map<String, Value>>(&d).map_err(|e| {
+        Failed(format!(
+            "the backup list {} is damaged ({e}) - left as it is",
+            p.display()
+        ))
+    })?;
+    Ok(m.into_iter().map(|(k, v)| (fold_dots(&k), v)).collect())
 }
 
 impl Ctx {
@@ -1399,8 +1405,18 @@ impl Ctx {
         self.backup.join("manifest.json")
     }
 
-    fn load_manifest(&self) -> Map<String, Value> {
+    fn load_manifest(&self) -> R<Map<String, Value>> {
         read_manifest(&self.manifest_path())
+    }
+
+    /// A damaged list over the original text names nothing the game still needs: kept aside as
+    /// `manifest.json.bad`, so the next "on" backs the originals up again and "off" (UNDO SETUP) goes through.
+    fn set_aside_damaged_list(&self) -> R<()> {
+        if self.load_manifest().is_err() && self.text_is_original() {
+            let p = self.manifest_path();
+            fs::rename(&p, p.with_extension("json.bad"))?;
+        }
+        Ok(())
     }
 
     fn save_manifest(&self, m: &Map<String, Value>) -> R<()> {
@@ -1426,7 +1442,7 @@ impl Ctx {
 
     /// Back each file up (the first time), then replace it in ONE step; the game's file is never missing.
     pub fn turn_on(&self, files: &[(String, Vec<u8>)], lang: Lang) -> R<()> {
-        let mut man = self.load_manifest();
+        let mut man = self.load_manifest()?;
         // not listed, or its backup gone (an "off" stopped half way): a backup is needed
         let unsaved = |man: &Map<String, Value>, rel: &str| {
             !man.contains_key(&key(rel)) || !self.backup.join(rel).is_file()
@@ -1473,7 +1489,7 @@ impl Ctx {
 
     /// The originals back, one step each. Returns how many files the manifest named.
     pub fn turn_off(&self) -> R<usize> {
-        let man = self.load_manifest();
+        let man = self.load_manifest()?;
         let mut lost = vec![];
         for (k, h) in &man {
             let rel = k.replace('\\', "/");
@@ -1554,14 +1570,16 @@ impl Ctx {
 
     /// Copy this folder's backup beside the game, the manifest last: a copy cut short is not used. Entries
     /// another folder left there stay listed while their file is there: their originals are nowhere else.
-    fn save_beside(&self) -> io::Result<()> {
+    fn save_beside(&self) -> R<()> {
         let to = beside(&self.game);
-        let mut man = read_manifest(&to.join("manifest.json"));
+        // a damaged list there is replaced: this folder's own list is the one that counts
+        let mut man = read_manifest(&to.join("manifest.json")).unwrap_or_default();
         man.retain(|k, _| to.join(k.replace('\\', "/")).is_file());
         // the old list stays until the new one lands in one step: the files it names stay originals meanwhile
         copy_tree(&self.backup, &to, &["manifest.json", SHEETS])?;
-        man.extend(self.load_manifest());
-        put(&to.join("manifest.json"), &serde_json::to_vec_pretty(&man)?)
+        man.extend(self.load_manifest()?);
+        let out = serde_json::to_vec_pretty(&man).map_err(|e| Failed(e.to_string()))?;
+        Ok(put(&to.join("manifest.json"), &out)?)
     }
 
     /// Take the backup beside the game as this folder's own: each file this folder's sheets pin must be that
@@ -1571,7 +1589,8 @@ impl Ctx {
     fn adopt_beside(&self) -> Beside {
         let from = beside(&self.game);
         let mut keep = vec![];
-        for (k, h) in read_manifest(&from.join("manifest.json")) {
+        // a damaged list there backs nothing up: Foreign, nothing changed
+        for (k, h) in read_manifest(&from.join("manifest.json")).unwrap_or_default() {
             let rel = k.replace('\\', "/");
             let Some(want) = self.original_hash(&rel) else {
                 continue;
@@ -1622,10 +1641,12 @@ pub fn sync_beside(ed: Edition, game: &Path, backup: &Path, sheets: &Path) -> Be
         Ok(c) if ed == Edition::E1718 => c,
         _ => return Beside::Fine,
     };
-    let own = c.load_manifest();
+    // a damaged own list counts as none: adopting the backup beside the game (checked against the originals)
+    // replaces it
+    let own = c.load_manifest().unwrap_or_default();
     if !own.is_empty() {
         // missing beside the game, or it lacks entries or files this folder has (a newer or bigger backup): refresh it
-        let there = read_manifest(&beside(game).join("manifest.json"));
+        let there = read_manifest(&beside(game).join("manifest.json")).unwrap_or_default();
         if own
             .keys()
             .any(|k| !there.contains_key(k) || !beside(game).join(k.replace('\\', "/")).is_file())
@@ -1676,9 +1697,12 @@ pub fn run(
     );
     let r = (|| -> R<()> {
         let c = Ctx::new(ed, game, backup, sheets)?;
+        if mode != Mode::Check {
+            c.set_aside_damaged_list()?;
+        }
         let state = backup.join(pictures::STATE);
         if mode == Mode::Off {
-            if c.load_manifest().is_empty() && !state.is_file() {
+            if c.load_manifest()?.is_empty() && !state.is_file() {
                 say("  ", &Line::key("text.already_original"));
                 return Ok(());
             }
@@ -1707,7 +1731,7 @@ pub fn run(
             say("  ok    ", &Line::raw(n));
         }
         if mode == Mode::Check {
-            let man = c.load_manifest();
+            let man = c.load_manifest()?;
             let fresh = files
                 .iter()
                 .filter(|(r, _)| !man.contains_key(&key(r)))
@@ -1997,7 +2021,10 @@ mod tests {
             orig,
             "the original stays backed up"
         );
-        assert_eq!(c.load_manifest().keys().collect::<Vec<_>>(), [&key(rel)]);
+        assert_eq!(
+            c.load_manifest().unwrap().keys().collect::<Vec<_>>(),
+            [&key(rel)]
+        );
         assert_eq!(c.turn_off().unwrap(), 1);
         assert_eq!(fs::read(game.join(rel)).unwrap(), orig);
     }
@@ -2064,6 +2091,63 @@ mod tests {
             }
             assert!(!t.path().join("backup").exists(), "half={half}");
         }
+    }
+
+    /// "off" through `run`: the exit code and the keys it said.
+    fn run_off(game: &Path, backup: &Path, kit: &Path) -> (i32, Vec<String>) {
+        let said = std::cell::RefCell::new(vec![]);
+        let say: crate::Say = &|_, l| said.borrow_mut().push(format!("{l:?}"));
+        let code = run(Edition::E1718, game, backup, kit, Mode::Off, Lang::En, say);
+        (code, said.into_inner())
+    }
+
+    #[test]
+    fn a_damaged_backup_list_refuses_off_and_changes_nothing() {
+        let (t, _, game, backup) = translated_game(false);
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("manifest.json"), b"{").unwrap();
+        let before = fs::read(game.join(TEAM)).unwrap();
+        let (code, said) = run_off(&game, &backup, &t.path().join("kit"));
+        assert_eq!(code, 1, "{said:?}");
+        assert!(
+            !said.iter().any(|l| l.contains("already_original")),
+            "{said:?}"
+        );
+        assert_eq!(fs::read(game.join(TEAM)).unwrap(), before);
+        assert_eq!(fs::read(backup.join("manifest.json")).unwrap(), b"{");
+    }
+
+    #[test]
+    fn a_damaged_list_over_the_original_text_is_set_aside() {
+        let (t, orig, game, backup) = translated_game(false);
+        let kit = t.path().join("kit");
+        fs::write(game.join(TEAM), &orig).unwrap();
+        fs::remove_file(game.join(BIN)).unwrap();
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("manifest.json"), b"{").unwrap();
+        let (code, said) = run_off(&game, &backup, &kit);
+        assert_eq!(code, 0, "{said:?}");
+        assert!(
+            said.iter().any(|l| l.contains("text.already_original")),
+            "{said:?}"
+        );
+        assert_eq!(fs::read(backup.join("manifest.json.bad")).unwrap(), b"{");
+        let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
+        c.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
+            .unwrap();
+        assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
+        assert!(c.load_manifest().unwrap().contains_key(&key(TEAM)));
+    }
+
+    #[test]
+    fn a_missing_backup_list_is_not_an_error() {
+        let (t, _, game, backup) = translated_game(false);
+        let (code, said) = run_off(&game, &backup, &t.path().join("kit"));
+        assert_eq!(code, 0, "{said:?}");
+        assert!(
+            said.iter().any(|l| l.contains("text.already_original")),
+            "{said:?}"
+        );
     }
 
     #[test]
@@ -2576,7 +2660,11 @@ mod tests {
         b.turn_on(&[(TEAM.to_string(), vec![9u8; 64])], Lang::En)
             .unwrap();
         b.save_beside().unwrap();
-        assert!(read_manifest(&beside(&game).join("manifest.json")).contains_key(&key(TEAM2)));
+        assert!(
+            read_manifest(&beside(&game).join("manifest.json"))
+                .unwrap()
+                .contains_key(&key(TEAM2))
+        );
         // a fresh folder with A's sheets takes both and puts TEAM2 back
         let (kit_c, bak_c) = (
             bigger_kit(t.path(), "kit_c", &orig),
@@ -2595,7 +2683,7 @@ mod tests {
     fn a_key_this_folder_does_not_pin_is_skipped_and_the_rest_taken() {
         let (t, orig, game, backup) = translated_game(true);
         let b = beside(&game);
-        let mut man = read_manifest(&b.join("manifest.json"));
+        let mut man = read_manifest(&b.join("manifest.json")).unwrap();
         man.insert(
             key(TEAM2),
             serde_json::json!({"original": "00", "english": "11"}),
@@ -2608,7 +2696,7 @@ mod tests {
             Beside::Fine
         );
         let c = Ctx::new(Edition::E1718, &game, &backup, &kit).unwrap();
-        let got = c.load_manifest();
+        let got = c.load_manifest().unwrap();
         assert!(got.contains_key(&key(TEAM)) && !got.contains_key(&key(TEAM2)));
         assert_eq!(fs::read(backup.join(TEAM)).unwrap(), orig);
         assert!(!backup.join(TEAM2).exists());
