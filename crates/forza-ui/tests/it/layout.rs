@@ -17,11 +17,11 @@ fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_
         (
             Edition::E1011,
             "Choose pack…",
-            "Download high-quality pictures",
+            "Download high-quality card pictures",
         ),
         (
             Edition::E1718,
-            "Download high-quality pictures",
+            "Download high-quality card pictures",
             "Choose pack…",
         ),
     ] {
@@ -690,7 +690,10 @@ fn lobby_list_fits_a_short_tab() {
     h.run_steps(6);
     let bottom = h.get_by_label_contains("Server address").rect().bottom();
     assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
-    assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
+    assert!(
+        h.get_by_label("HOST A VS ROOM").rect().top()
+            > h.get_by_label("MILANO CUP").rect().bottom()
+    );
 }
 
 /// The big card floating over the pitch (the 1440x900 sheet) takes the pointer only on itself and its FRONT | BACK
