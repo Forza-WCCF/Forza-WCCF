@@ -729,8 +729,15 @@ pub fn ys_pack(data: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------- the archive
-fn load_state(path: &Path) -> Option<Map<String, Value>> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
+/// The pictures' way back: `None` when missing, an error when unreadable or damaged (never "nothing to restore").
+fn load_state(path: &Path) -> R<Option<Map<String, Value>>> {
+    let d = match fs::read(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        r => r?,
+    };
+    serde_json::from_slice(&d)
+        .map(Some)
+        .map_err(|e| super::Failed(format!("{STATE} is damaged ({e}) - left as it is")))
 }
 
 /// `{path: entry number}` for every file in the archive.
@@ -773,8 +780,18 @@ fn toc(f: &mut File) -> R<HashMap<String, usize>> {
 }
 
 fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
+    if e.len() != ENTRY {
+        return Err(super::Failed(format!(
+            "{STATE} is damaged (a short entry) - left as it is"
+        )));
+    }
     let (size, stored) = (u32_at(e, 0x94) as usize, u32_at(e, 0x98) as usize);
-    f.seek(SeekFrom::Start(u64::from(u32_at(e, 0xA0)) * SECTOR))?;
+    let at = u64::from(u32_at(e, 0xA0)) * SECTOR;
+    // a damaged size must not size the allocation: the data has to fit in the file
+    if at.saturating_add(stored as u64) > f.seek(SeekFrom::End(0))? {
+        return fail("data\\wccf_data.xaf is cut short or damaged (an entry's size)");
+    }
+    f.seek(SeekFrom::Start(at))?;
     let mut d = vec![0u8; stored];
     f.read_exact(&mut d)?;
     Ok(if stored < size { lzw(&d, size)? } else { d })
@@ -820,7 +837,7 @@ pub fn build(
         data: std::rc::Rc::new(fs::read(fp)?),
     };
     let refh = font.line(100, "Hgjy")?.height()?;
-    let saved = load_state(state)
+    let saved = load_state(state)?
         .and_then(|s| s.get("entries").and_then(Value::as_object).cloned())
         .unwrap_or_default();
     let mut f = File::open(game.join(XAF))?;
@@ -905,7 +922,7 @@ fn to_hex(d: &[u8]) -> String {
 
 /// The original entries and header back, the added pictures cut off; 0 if none were added.
 pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
-    let Some(state) = load_state(state_path) else {
+    let Some(state) = load_state(state_path)? else {
         return Ok(0);
     };
     let length = state.get("length").and_then(Value::as_u64);
@@ -961,7 +978,7 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
 /// points past that length, where [`apply`] put the pictures; and it holds what [`restore`] needs (a header that
 /// agrees with that length, whole entries). Another folder's state is taken only then.
 pub fn state_matches(game: &Path, state_path: &Path) -> bool {
-    let Some(s) = load_state(state_path) else {
+    let Ok(Some(s)) = load_state(state_path) else {
         return false;
     };
     let (Some(length), Some(header), Some(entries)) = (
@@ -1559,6 +1576,23 @@ mod tests {
         huge[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
         fs::write(s.game.join(XAF), &huge).unwrap();
         assert!(toc(&mut File::open(s.game.join(XAF)).unwrap()).is_err());
+    }
+
+    #[test]
+    fn a_short_or_unparsable_way_back_is_an_error_not_a_panic() {
+        let s = Scratch::new(true);
+        let st = json!({"length": s.original.len(), "header": to_hex(&s.hdr[0x18..0x30]), "entries": {"1": to_hex(&[0; 10])}});
+        fs::create_dir_all(s.state.parent().unwrap()).unwrap();
+        fs::write(&s.state, st.to_string()).unwrap();
+        assert!(s.build(false, "all").is_err());
+        fs::write(&s.state, b"{").unwrap();
+        assert!(s.build(false, "all").is_err());
+        assert!(
+            restore(&s.game, &s.state).is_err(),
+            "not \"nothing to restore\""
+        );
+        assert_eq!(s.archive(), s.original);
+        assert!(s.state.is_file(), "the state stays");
     }
 
     #[test]
