@@ -1017,8 +1017,8 @@ const STALL_SITES: [(usize, u8); 4] = [
     (0x004B_446A, 0x85),
     (0x004B_475A, 0x86),
 ];
-/// The client studied (SHA-256 8b55456f... before setup): its PE header's TimeDateStamp and SizeOfImage.
-const CLIENT_STAMP: (u32, u32) = (0x5AAA_3F0A, 0x06C8_E000);
+/// The client studied: its PE header's TimeDateStamp and SizeOfImage (shared with wccfnet's boot hold).
+pub(crate) const CLIENT_STAMP: (u32, u32) = forza_native::CLIENT_1718_STAMP;
 /// Peer samples that may go unmatched in a row (the original 30).
 pub(crate) const STALL_SAMPLES: u32 = 90;
 
@@ -1028,7 +1028,7 @@ fn stall_site_ok(code: &[u8; 10], modrm: u8) -> bool {
 }
 
 /// The program's TimeDateStamp and SizeOfImage from its PE header at `base`.
-fn pe_stamp(base: usize) -> Option<(u32, u32)> {
+pub(crate) fn pe_stamp(base: usize) -> Option<(u32, u32)> {
     let pe = base + read_u32(base + 0x3C)? as usize;
     Some((read_u32(pe + 8)?, read_u32(pe + 0x50)?))
 }

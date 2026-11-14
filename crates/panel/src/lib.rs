@@ -39,6 +39,7 @@
     clippy::string_slice
 )]
 
+mod boot;
 mod cost;
 mod exe_text;
 mod fullscreen;
@@ -204,6 +205,8 @@ const WM_FORZA_FS: u32 = WM_APP + 0x57;
 const WM_FORZA_DOCK: u32 = WM_APP + 0x59;
 /// The projector's window made resizable, done on the window's thread.
 const WM_FORZA_PROJ: u32 = WM_APP + 0x58;
+/// The boot screens are done: the window held hidden shows, on its thread ([`boot`]).
+const WM_FORZA_SHOW: u32 = forza_native::WM_BOOT_SHOW;
 
 /// Milliseconds since the DLL loaded.
 fn ms() -> u32 {
@@ -379,6 +382,7 @@ fn init() {
                 WINDOW.store(h.0 as isize, Relaxed);
                 log(&format!("input from window {:?}", h.0));
             }
+            boot::install(h, PRESENT.load(Relaxed) != 0, false, log);
             retitle(h); // after the subclass: it can block, and a WM_FORZA_FS posted on the first frame must arrive
             break;
         }
@@ -420,6 +424,7 @@ fn projector_window() {
         SetWindowLongPtrW(wnd, GWLP_WNDPROC, proj_wndproc as *const () as usize as _);
     }
     WINDOW.store(wnd.0 as isize, Relaxed);
+    boot::install(wnd, PRESENT.load(Relaxed) != 0, true, log);
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
     retitle(wnd); // "Projector - Forza-WCCF <edition>"; this is a worker thread
@@ -430,6 +435,11 @@ fn projector_window() {
     // either way (it keeps rendering; the run counts a hidden window by its title, forza::procs::has_window)
     let mut was = None;
     loop {
+        // held hidden through the boot screens: the reveal applies the setting ([`boot::show`])
+        if boot::held() {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
         let shown = forza::kit::projector_shown(&f.settings());
         // hidden whenever the setting is off (the game may show it again); shown again only when it is turned on
         // SAFETY: a window of this process; ShowWindowAsync posts the change to its thread and never waits for it
@@ -1211,6 +1221,13 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
             projector::frame(h, test_screen(), log);
             return LRESULT(0);
         }
+        WM_FORZA_SHOW => {
+            let on = FILES
+                .get()
+                .is_none_or(|f| forza::kit::projector_shown(&f.settings()));
+            boot::show(h, on, wp.0 == 1, log);
+            return LRESULT(0);
+        }
         WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
             if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
                 toggle_fullscreen(h, &PROJ_FS);
@@ -1273,6 +1290,7 @@ fn unload() {
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
+    boot::unload(log); // the factory's slot back before the code it points at goes
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
         // out of full screen first: no handler is left to leave it
@@ -1447,6 +1465,7 @@ unsafe extern "system" fn hook_present(
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
     IN_PRESENT.set(true);
+    boot::tick(log); // the window held hidden through the boot screens shows two frames after the start warning
     if PROJECTOR.load(Relaxed) {
         // the projector: nothing drawn; its picture composed into the resized window, else the game's own Present
         let shown = std::panic::catch_unwind(|| {
@@ -1863,6 +1882,9 @@ impl Render {
                 // (WCCFPANEL_FULLSCREEN=0 keeps the game's size: the tests)
                 if std::env::var("WCCFPANEL_FULLSCREEN").is_ok_and(|v| v.starts_with('0')) {
                     log("fullscreen at start: no");
+                } else if boot::held() {
+                    boot::defer_maximize(); // maximizing would show the window
+                    log("fullscreen at start: once the boot screens are done");
                 } else {
                     // a message to the game's window, handled by our window procedure on its thread
                     let _ = PostMessageW(Some(target), WM_FORZA_FS, WPARAM(1), LPARAM(0));
@@ -1939,8 +1961,9 @@ impl Render {
             return None;
         }
         if h == 0 {
-            // one thread at a time: a window docked a moment ago may still be going
-            if !BOARD_UP.swap(true, Relaxed) {
+            // one thread at a time: a window docked a moment ago may still be going; none while the game's window is
+            // held hidden through the boot screens
+            if !boot::held() && !BOARD_UP.swap(true, Relaxed) {
                 let place = self.st.file.board_rect;
                 let title = format!(
                     "{} - Forza-WCCF {}\0",
@@ -3756,7 +3779,7 @@ fn game_title(who: &str, edition: &str) -> String {
     format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
-/// The biggest visible top-level window of this process: the game's.
+/// The biggest visible top-level window of this process (or the one held hidden through the boot screens): the game's.
 fn game_window() -> Option<HWND> {
     unsafe extern "system" fn each(h: HWND, lp: LPARAM) -> BOOL {
         // SAFETY: `lp` is the `best` below, alive for the enumeration
@@ -3767,7 +3790,7 @@ fn game_window() -> Option<HWND> {
         unsafe {
             GetWindowThreadProcessId(h, Some(&mut pid));
             if pid == GetCurrentProcessId()
-                && IsWindowVisible(h).as_bool()
+                && (IsWindowVisible(h).as_bool() || boot::is_held(h))
                 && GetWindow(h, GW_OWNER).is_err()
                 && GetWindowRect(h, &mut r).is_ok()
             {
@@ -3859,6 +3882,10 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match m {
         WM_FORZA_FS => {
             set_maximized(h, wp.0 != 0);
+            return LRESULT(0);
+        }
+        WM_FORZA_SHOW => {
+            boot::show(h, true, wp.0 == 1, log);
             return LRESULT(0);
         }
         WM_ENTERSIZEMOVE => GAME_SIZING.store(true, Relaxed),

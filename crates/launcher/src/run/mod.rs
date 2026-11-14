@@ -1998,6 +1998,11 @@ impl Run<'_> {
                 }),
             );
         }
+        // 2017-18 shows seat 1's window only at its start warning (#229), ~20 s after the projector plays: mute it now
+        let helper_first = self.edition == Edition::E1718;
+        if helper_first {
+            self.start_helper(projector);
+        }
         self.start_cabinet()?;
         if projector {
             // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it.
@@ -2020,7 +2025,9 @@ impl Run<'_> {
                 );
             }
         }
-        self.start_helper(projector);
+        if !helper_first {
+            self.start_helper(projector);
+        }
         self.write_running();
         self.session(Some(projector));
         self.say("");
@@ -2249,6 +2256,9 @@ impl Run<'_> {
         let n = self.seat_no;
         let args = p.seat_args.clone().unwrap_or_else(|| vec![n.to_string()]);
         let seat = self.seat.clone();
+        // before the start: the 2017-18 window is held hidden until the start warning, long after "first frame shown"
+        let olog = seat.join("forza_panel.log");
+        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         self.start_game(Role::Seat, args, &seat, false, env)?;
         let mut pid = None;
         wait_for(
@@ -2271,8 +2281,6 @@ impl Run<'_> {
         )?;
         self.tell("  5/6 ", &Text::key("launcher.run_window_up").arg("n", n));
         self.startup("window", self.t0.elapsed());
-        let olog = self.seat.join("forza_panel.log");
-        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
         let panel = self.kit.program("forza_panel.dll");
         let why = if self.edition == Edition::E1718 {
@@ -3371,6 +3379,17 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    /// 2017-18's helper mutes the projector before the cabinet wait, which lasts until seat 1's start warning
+    /// (2026-11-11: ~20 s of projector sound).
+    #[test]
+    fn the_projector_is_muted_before_the_cabinet_wait() {
+        let code = include_str!("mod.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        let at = |s: &str| code.find(s).unwrap_or_else(|| panic!("{s} not found"));
+        assert!(at("if helper_first {") < at("self.start_cabinet()?;"));
+        assert!(at("self.start_helper(projector);") < at("self.start_cabinet()?;"));
+        assert!(code.contains("let helper_first = self.edition == Edition::E1718;"));
+    }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
     #[test]
