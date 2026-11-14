@@ -5,8 +5,9 @@
 //! WinInet calls fail for the publisher's network hosts, and its `connect` and `sendto` for the publisher's addresses
 //! ([`forza_native::hosts`]).
 //!
-//! DllMain also loads the panel when the Launcher sets FORZA_PANEL ([`panel`]), and, only with WCCF_TRACE_NET=1, logs
-//! the program's send and recv ([`trace`]).
+//! DllMain also loads the panel when the Launcher sets FORZA_PANEL ([`panel`]), with it keeps the 2017-18 client's
+//! window hidden through the boot screens ([`boot`]), and, only with WCCF_TRACE_NET=1, logs the program's send and recv
+//! ([`trace`]).
 #![cfg(target_arch = "x86")]
 // This code runs in the game's process, where a panic ends the game: no call that can panic (tests may, clippy.toml)
 #![deny(
@@ -90,6 +91,9 @@ extern "system" fn DllMain(
         }
         log(&forza_native::hosts::install(log));
         log(&forza_native::hosts::install_addresses(log));
+        if std::env::var_os("FORZA_PANEL").is_some_and(|d| !d.is_empty()) {
+            boot::start();
+        }
         panel::start();
         if std::env::var("WCCF_TRACE_NET").is_ok_and(|v| v == "1") {
             trace::start();
@@ -99,7 +103,8 @@ extern "system" fn DllMain(
 }
 
 /// The panel: when the Launcher sets FORZA_PANEL (seat 1 and the projector only), the DLL it names is loaded into the
-/// game 3 s after the game's window shows (the trigger inject.exe had), by a thread, never in DllMain itself.
+/// game 3 s after the game's window shows or is held hidden ([`boot`]) (the trigger inject.exe had), by a thread, never
+/// in DllMain itself.
 mod panel {
     use super::log;
     use std::ffi::OsString;
@@ -107,7 +112,7 @@ mod panel {
     use windows_sys::Win32::Foundation::{GetLastError, HWND, LPARAM};
     use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
+        EnumWindows, GetPropW, GetWindowThreadProcessId, IsWindowVisible,
     };
 
     pub fn start() {
@@ -131,7 +136,10 @@ mod panel {
         // SAFETY: a window handle EnumWindows gives, and the flag `load` passes
         unsafe {
             GetWindowThreadProcessId(w, &mut pid);
-            if pid == std::process::id() && IsWindowVisible(w) != 0 {
+            // the window held hidden through the boot screens counts as shown ([`super::boot`])
+            if pid == std::process::id()
+                && (IsWindowVisible(w) != 0 || !GetPropW(w, super::boot::PROP).is_null())
+            {
                 *(found as *mut bool) = true;
                 return 0;
             }
@@ -163,6 +171,329 @@ mod panel {
             log(&format!("panel: did NOT load {shown} (error {err})"));
         } else {
             log(&format!("panel: loaded {shown}"));
+        }
+    }
+}
+
+/// The black window at the start (2017-18 client_Release.exe with FORZA_PANEL: seat 1 and the projector). The game's
+/// window function (sub_10C86F0) shows its new window ~20 s before the game draws anything, so the boot and update
+/// screens were an unpainted black window. Its ShowWindow import is pointed here before the game runs; the one call from
+/// inside that function with SW_SHOWNORMAL, on a window that is not WS_POPUP (exclusive full screen), is held: the
+/// window stays hidden and gets [`PROP`], and the panel shows it at the start warning picture. Every other call goes
+/// to user32 unchanged. The slot is put back after the first hold (the game reads it once into a register for its loop,
+/// so the hook keeps its own copy of the real target). [`FALLBACK`] after a hold with the property still set, the window
+/// is shown anyway, without the focus (by the panel when it holds the window, so the projector setting applies). Any
+/// check that fails leaves the slot alone: the window shows as before.
+pub mod boot {
+    use super::log;
+    use forza_native::{By, imports, redirect};
+    use std::ops::Range;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    use std::time::Duration;
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::System::LibraryLoader::{
+        GetModuleHandleA, GetModuleHandleW, GetProcAddress,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GWL_STYLE, GetPropW, GetWindowLongW, PostMessageW, RemovePropW, SW_SHOWNOACTIVATE,
+        SW_SHOWNORMAL, SetPropW, ShowWindowAsync, WS_POPUP,
+    };
+    use windows_sys::core::BOOL;
+
+    /// On the game's window while it is held hidden; whoever removes it shows the window (the panel or [`fallback`]).
+    pub use forza_native::BOOT_PROP as PROP;
+    use forza_native::{BOOT_PANEL, CLIENT_1718_STAMP as STAMP, WM_BOOT_SHOW};
+    /// Its window function sub_10C86F0 (RVA), where the held call returns to.
+    const WINDOW_FN: Range<usize> = 0x00CC_86F0..0x00CC_893D;
+    /// Its import slot __imp_ShowWindow (RVA).
+    const SHOW_SLOT: usize = 0x00DA_9C60;
+    /// The window shows by itself this long after the hold if the panel has not shown it.
+    pub const FALLBACK: Duration = Duration::from_secs(60);
+
+    type Show = unsafe extern "system" fn(HWND, i32) -> BOOL;
+    static REAL: AtomicUsize = AtomicUsize::new(0);
+    static BASE: AtomicUsize = AtomicUsize::new(0);
+    /// The patched slot while it points at [`show_stub`] (0: put back, or never patched).
+    static SLOT: AtomicUsize = AtomicUsize::new(0);
+
+    /// Held: the call returns into the window function (`ret` inside it, the program at `base`), shows normally, and
+    /// the window is no exclusive full-screen one.
+    pub fn holds(ret: usize, base: usize, cmd: i32, popup: bool) -> bool {
+        cmd == SW_SHOWNORMAL
+            && !popup
+            && ret
+                .checked_sub(base)
+                .is_some_and(|r| WINDOW_FN.contains(&r))
+    }
+
+    /// The program's TimeDateStamp and SizeOfImage from its PE header at `base`.
+    fn pe_stamp(base: usize) -> (u32, u32) {
+        let u32_at = |off: usize| {
+            // SAFETY: inside the headers of the loaded program
+            unsafe { ((base + off) as *const u32).read_unaligned() }
+        };
+        let pe = u32_at(0x3C) as usize;
+        (u32_at(pe + 8), u32_at(pe + 0x50))
+    }
+
+    pub fn start() {
+        let exe = std::env::current_exe().unwrap_or_default();
+        if !exe
+            .file_name()
+            .is_some_and(|n| n.eq_ignore_ascii_case("client_Release.exe"))
+        {
+            return;
+        }
+        // SAFETY: the process's main module, loaded for its whole life; user32 is one of its imports
+        unsafe {
+            let base = GetModuleHandleW(std::ptr::null()) as usize;
+            if pe_stamp(base) != STAMP {
+                log(
+                    "boot hold: not the client studied (PE stamp) - refused, the window shows as before",
+                );
+                return;
+            }
+            let slot = imports(base as *const u8)
+                .find(|d| d.name().to_bytes().eq_ignore_ascii_case(b"user32.dll"))
+                .and_then(|d| d.find(By::Name(c"ShowWindow")));
+            let user32 = GetModuleHandleA(c"user32.dll".as_ptr().cast());
+            let real =
+                GetProcAddress(user32, c"ShowWindow".as_ptr().cast()).map_or(0, |f| f as usize);
+            let Some(slot) =
+                slot.filter(|&s| s as usize == base + SHOW_SLOT && s.read() == real && real != 0)
+            else {
+                log(&format!(
+                    "boot hold: ShowWindow slot at {:08X} is not user32's ShowWindow {real:08X} - refused, the window shows as before",
+                    base + SHOW_SLOT
+                ));
+                return;
+            };
+            REAL.store(real, Relaxed);
+            BASE.store(base, Relaxed);
+            let stub: Show = show_stub;
+            if redirect(slot, stub as usize).is_none() {
+                log(
+                    "boot hold: ShowWindow slot not writable - refused, the window shows as before",
+                );
+                return;
+            }
+            SLOT.store(slot as usize, Relaxed);
+        }
+        log("boot hold: ShowWindow import patched - the window waits for the boot screens");
+    }
+
+    /// The import's target: the caller's return address goes to [`show`] as a first argument (stdcall: `show` pops it
+    /// with the two the caller pushed).
+    #[unsafe(naked)]
+    unsafe extern "system" fn show_stub(_: HWND, _: i32) -> BOOL {
+        core::arch::naked_asm!("push dword ptr [esp]", "jmp {f}", f = sym show);
+    }
+
+    unsafe extern "system" fn show(ret: usize, h: HWND, cmd: i32) -> BOOL {
+        // SAFETY: REAL is user32's ShowWindow, stored before the slot pointed here
+        let real = unsafe { std::mem::transmute::<usize, Show>(REAL.load(Relaxed)) };
+        // SAFETY: plain window calls on the caller's window
+        unsafe {
+            let popup = GetWindowLongW(h, GWL_STYLE) as u32 & WS_POPUP != 0;
+            if !holds(ret, BASE.load(Relaxed), cmd, popup) || SetPropW(h, PROP, 1 as _) == 0 {
+                return real(h, cmd);
+            }
+        }
+        let hw = h as usize;
+        // no thread for the fallback: no hold either
+        if std::thread::Builder::new()
+            .spawn(move || {
+                std::thread::sleep(FALLBACK);
+                if let Some(line) = fallback(hw as HWND) {
+                    log(line);
+                }
+            })
+            .is_err()
+        {
+            // SAFETY: as above
+            unsafe {
+                RemovePropW(h, PROP);
+                return real(h, cmd);
+            }
+        }
+        put_back();
+        log(&format!(
+            "boot hold: window {hw:08X} kept hidden until the boot screens are done (ShowWindow from {ret:08X})"
+        ));
+        0 // "was hidden", as the real call says for a new window
+    }
+
+    /// The slot back to user32's ShowWindow, if it still points here.
+    fn put_back() {
+        let slot = SLOT.swap(0, Relaxed) as *mut usize;
+        let stub: Show = show_stub;
+        // SAFETY: the slot patched in `start`, in the loaded program
+        if !slot.is_null() && unsafe { slot.read() } == stub as usize {
+            // SAFETY: as above; REAL has the import's signature
+            unsafe { redirect(slot, REAL.load(Relaxed)) };
+        }
+    }
+
+    /// The window shown if it is still held; the log line. The panel holds it ([`BOOT_PANEL`]): the panel is told to
+    /// show it, on the window's thread and with the projector setting. Otherwise the property is taken off first (so
+    /// only one side shows it) and the window shows without taking the focus.
+    fn fallback(h: HWND) -> Option<&'static str> {
+        // SAFETY: plain window calls; a window gone since has no property
+        unsafe {
+            if GetPropW(h, PROP) as usize == BOOT_PANEL {
+                PostMessageW(h, WM_BOOT_SHOW, 1, 0);
+                return Some(
+                    "boot hold: no reveal from the panel in 60 s - the panel is told to show the window (fallback)",
+                );
+            }
+            if RemovePropW(h, PROP).is_null() {
+                return None;
+            }
+            ShowWindowAsync(h, SW_SHOWNOACTIVATE);
+        }
+        Some("boot hold: no reveal from the panel in 60 s - window shown (fallback)")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, DispatchMessageW, GetPropW, IsWindowVisible, MSG,
+            PM_REMOVE, PeekMessageW, SW_HIDE, SW_MAXIMIZE, WS_OVERLAPPEDWINDOW,
+        };
+        use windows_sys::core::w;
+
+        const BASE: usize = 0x00D5_0000;
+
+        #[test]
+        fn holds_only_the_window_functions_normal_show() {
+            let site = BASE + 0x00CC_88B1; // the return address after `call ebx` at 0x10C88AF
+            assert!(holds(site, BASE, SW_SHOWNORMAL, false));
+            assert!(holds(BASE + WINDOW_FN.start, BASE, SW_SHOWNORMAL, false));
+            assert!(!holds(BASE + WINDOW_FN.end, BASE, SW_SHOWNORMAL, false));
+            assert!(!holds(
+                BASE + WINDOW_FN.start - 1,
+                BASE,
+                SW_SHOWNORMAL,
+                false
+            ));
+            assert!(!holds(site, BASE, SW_HIDE, false)); // sub_10C8590's hide of other screens
+            assert!(!holds(site, BASE, SW_MAXIMIZE, false));
+            assert!(!holds(site, BASE, SW_SHOWNORMAL, true)); // exclusive full screen
+            assert!(!holds(0x010C_88B1, BASE, SW_SHOWNORMAL, false)); // the IDA address, not rebased
+            assert!(!holds(0x1000, BASE, SW_SHOWNORMAL, false)); // below the program
+        }
+
+        fn window() -> HWND {
+            // SAFETY: a plain hidden test window of a system class
+            let h = unsafe {
+                CreateWindowExW(
+                    0,
+                    w!("STATIC"),
+                    w!("boot test"),
+                    WS_OVERLAPPEDWINDOW,
+                    0,
+                    0,
+                    200,
+                    100,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                )
+            };
+            assert!(!h.is_null());
+            h
+        }
+
+        fn pump() {
+            // SAFETY: this thread's own messages
+            unsafe {
+                let mut m: MSG = std::mem::zeroed();
+                for _ in 0..20 {
+                    while PeekMessageW(&mut m, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                        DispatchMessageW(&m);
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+
+        #[test]
+        fn fallback_shows_a_held_window_once_and_says_so() {
+            let h = window();
+            // SAFETY: our test window
+            unsafe {
+                assert_ne!(SetPropW(h, PROP, 1 as _), 0);
+                let line = fallback(h).expect("held: shown");
+                assert!(line.contains("window shown (fallback)"), "{line}");
+                pump();
+                assert_ne!(IsWindowVisible(h), 0);
+                assert!(GetPropW(h, PROP).is_null());
+                assert_eq!(fallback(h), None, "already shown: nothing to do");
+                DestroyWindow(h);
+            }
+        }
+
+        #[test]
+        fn fallback_tells_the_panel_when_it_holds_the_window() {
+            let h = window();
+            // SAFETY: our test window, on this thread: the posted message waits in its queue
+            unsafe {
+                assert_ne!(SetPropW(h, PROP, BOOT_PANEL as _), 0);
+                let line = fallback(h).expect("held by the panel: told");
+                assert!(line.contains("the panel is told"), "{line}");
+                let mut m: MSG = std::mem::zeroed();
+                assert_ne!(
+                    PeekMessageW(&mut m, h, WM_BOOT_SHOW, WM_BOOT_SHOW, PM_REMOVE),
+                    0
+                );
+                assert_eq!(m.wParam, 1, "marked as the fallback");
+                pump();
+                assert_eq!(IsWindowVisible(h), 0, "the panel shows it, not wccfnet");
+                assert_eq!(
+                    GetPropW(h, PROP) as usize,
+                    BOOT_PANEL,
+                    "the property stays for the panel"
+                );
+                DestroyWindow(h);
+            }
+        }
+
+        #[test]
+        fn fallback_leaves_a_window_the_panel_showed() {
+            let h = window();
+            // SAFETY: our test window
+            unsafe {
+                assert_eq!(fallback(h), None);
+                pump();
+                assert_eq!(IsWindowVisible(h), 0);
+                DestroyWindow(h);
+            }
+        }
+
+        static SEEN: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "system" fn fake_show(h: HWND, cmd: i32) -> BOOL {
+            SEEN.store(h as usize ^ cmd as usize, Relaxed);
+            7
+        }
+
+        #[test]
+        fn stub_passes_other_calls_through_with_the_stack_kept() {
+            let fake: Show = fake_show;
+            REAL.store(fake as usize, Relaxed);
+            super::BASE.store(usize::MAX - 0x0100_0000, Relaxed); // every return address is below it: never held
+            let h = window();
+            let stub: Show = show_stub;
+            // SAFETY: the stub with the import's signature; REAL is set
+            let r = unsafe { stub(h, SW_MAXIMIZE) };
+            assert_eq!(r, 7);
+            assert_eq!(SEEN.load(Relaxed), h as usize ^ SW_MAXIMIZE as usize);
+            // SAFETY: our test window
+            unsafe {
+                assert!(GetPropW(h, PROP).is_null());
+                DestroyWindow(h);
+            }
         }
     }
 }

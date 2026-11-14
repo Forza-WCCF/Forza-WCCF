@@ -3288,18 +3288,27 @@ const FREEZE_SRC: &[&str] = &[
     "assets/logo/forza-wccf-small.ico",
 ];
 
-/// `<sha256> <tag> <commit>`
-fn parse_freeze(text: &str) -> Result<[&str; 3]> {
-    let Ok([hash, tag, commit]) =
-        <[&str; 3]>::try_from(text.split_whitespace().collect::<Vec<_>>())
-    else {
-        anyhow::bail!("{FREEZE_FILE} wants `<sha256> <tag> <commit>`");
+/// `<sha256> <tag> <commit> [pin]`: `pin` keeps the release's file even when the sources changed since `commit`.
+fn parse_freeze(text: &str) -> Result<([&str; 3], bool)> {
+    let words = text.split_whitespace().collect::<Vec<_>>();
+    let pinned = match words.get(3) {
+        None => false,
+        Some(&"pin") => true,
+        Some(w) => anyhow::bail!("{FREEZE_FILE} wants `<sha256> <tag> <commit> [pin]`, not `{w}`"),
+    };
+    let Ok([hash, tag, commit]) = <[&str; 3]>::try_from(&words[..3.min(words.len())]) else {
+        anyhow::bail!("{FREEZE_FILE} wants `<sha256> <tag> <commit> [pin]`");
     };
     ensure!(
         hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
         "{FREEZE_FILE}: {hash} is not a sha256"
     );
-    Ok([hash, tag, commit])
+    Ok(([hash, tag, commit], pinned))
+}
+
+/// Whether the release's file ships: a pin always wins, otherwise only while the sources are unchanged.
+fn keep_frozen(pinned: bool, changed: &str) -> bool {
+    pinned || changed.trim().is_empty()
 }
 
 /// Replace the freshly built `bin/FPR_Emu.exe` of `kit` with the release's file when `FREEZE_SRC` is unchanged since the
@@ -3308,7 +3317,7 @@ fn parse_freeze(text: &str) -> Result<[&str; 3]> {
 fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
     use std::io::Read;
     let text = fs::read_to_string(root.join(FREEZE_FILE))?;
-    let [hash, tag, commit] = parse_freeze(&text)?;
+    let ([hash, tag, commit], pinned) = parse_freeze(&text)?;
     let sh = Shell::new()?;
     sh.change_dir(root);
     // committed, uncommitted and new files since the commit
@@ -3321,12 +3330,18 @@ fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
     )
     .read()?;
     let changed = format!("{changed}\n{new}");
-    if !changed.trim().is_empty() {
+    if !keep_frozen(pinned, &changed) {
         println!(
             "FPR_Emu.exe: the frozen hash is stale, its sources changed since {commit}; built fresh:\n{}\nAfter the next release, put the new file's hash, tag and commit in {FREEZE_FILE}",
             changed.trim()
         );
         return Ok(());
+    }
+    if pinned && !changed.trim().is_empty() {
+        println!(
+            "FPR_Emu.exe: pinned to {tag} in {FREEZE_FILE}, its sources changed since {commit}:\n{}",
+            changed.trim()
+        );
     }
     let zip_path = kit.with_file_name("frozen-release.zip");
     let url = format!(
@@ -3355,7 +3370,12 @@ fn freeze_fpr_emu(root: &Path, kit: &Path) -> Result<()> {
         "the {tag} file is sha256 {got}, {FREEZE_FILE} says {hash}"
     );
     fs::write(kit.join("bin/FPR_Emu.exe"), bytes)?;
-    println!("FPR_Emu.exe: the {tag} file, sha256 {got} (sources unchanged since {commit})");
+    let why = if pinned {
+        format!("pinned in {FREEZE_FILE}")
+    } else {
+        format!("sources unchanged since {commit}")
+    };
+    println!("FPR_Emu.exe: the {tag} file, sha256 {got} ({why})");
     Ok(())
 }
 
@@ -4051,11 +4071,24 @@ mod tests {
 
     #[test]
     fn the_frozen_hash_file_parses() {
-        let [hash, tag, commit] =
+        let ([hash, tag, commit], _) =
             parse_freeze(include_str!("../../editions/2017-18/fpr_emu.sha256")).unwrap();
         assert!(tag.starts_with('v') && commit.len() == 40 && hash.len() == 64);
         assert!(parse_freeze("abc v0.6.1 33f4591e").is_err());
         assert!(parse_freeze("").is_err());
+        assert!(parse_freeze(&format!("{hash} {tag} {commit} freeze")).is_err());
+    }
+
+    #[test]
+    fn a_pinned_freeze_file_wins_over_changed_sources() {
+        let hash = "2c9a7a4372a6c21e7de4bbbb1d951f9f33e4d0154b352f7c46508bd73f9c6e00";
+        let commit = "bf787185b98b61beebbb52e0d4adff33cb8a4c18";
+        let changed = "native/common/src/lib.rs\n";
+        let (_, pinned) = parse_freeze(&format!("{hash} v0.7.2 {commit} pin")).unwrap();
+        assert!(pinned && keep_frozen(pinned, changed));
+        let (_, pinned) = parse_freeze(&format!("{hash} v0.7.2 {commit}")).unwrap();
+        assert!(!pinned && !keep_frozen(pinned, changed));
+        assert!(keep_frozen(pinned, "\n"));
     }
 
     #[test]

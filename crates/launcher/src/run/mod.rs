@@ -212,6 +212,9 @@ pub trait Ui {
     fn running(&self, _up: bool) {}
     /// The start is about to make the card pictures (a while): the window's status line.
     fn updating_pictures(&self) {}
+    /// The run's own steps begin here: step 1 is timed from now on (the setup again and the card catalogue before it
+    /// are not a step the player waits through).
+    fn staged(&self) {}
     /// REPORT A PROBLEM asked by the panel (data\report.request): the window opens its report dialog.
     fn report(&self) {}
     /// The language of the run's lines ([`Text`]).
@@ -1163,10 +1166,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         return Err(NOT_GUARDED);
     }
     let early = [setup_done, t0.elapsed()];
-    if !kit.cache().join("catalogue.tsv").is_file() {
-        // the panel's card browser only: never a reason not to start
+    // the panel's card browser only: never a reason not to start.  A play folder an older kit set up (copied without
+    // overlay\catalogue.tsv) gets one made here, as SET UP makes it; the note says it is still missing.
+    if !kit.cache().join("catalogue.tsv").is_file()
+        && (edition != Edition::E1718 || crate::setup::catalogue_1718(kit.dir(), &game).is_err())
+    {
         tell(ui, "  ", &Text::key("launcher.run_no_catalogue"));
     }
+    // step 1's time starts here: the setup again and the catalogue build above are not steps of the run
+    ui.staged();
     let kind = Kind::of(&mode);
     let beside_server = matches!(mode, Mode::Remote(..)) && is_on(kit, Kind::Server);
     let left = if beside_server { Vec::new() } else { strays(&game, p) };
@@ -1998,6 +2006,11 @@ impl Run<'_> {
                 }),
             );
         }
+        // 2017-18 shows seat 1's window only at its start warning (#229), ~20 s after the projector plays: mute it now
+        let helper_first = self.edition == Edition::E1718;
+        if helper_first {
+            self.start_helper(projector);
+        }
         self.start_cabinet()?;
         if projector {
             // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it.
@@ -2020,7 +2033,9 @@ impl Run<'_> {
                 );
             }
         }
-        self.start_helper(projector);
+        if !helper_first {
+            self.start_helper(projector);
+        }
         self.write_running();
         self.session(Some(projector));
         self.say("");
@@ -2249,6 +2264,9 @@ impl Run<'_> {
         let n = self.seat_no;
         let args = p.seat_args.clone().unwrap_or_else(|| vec![n.to_string()]);
         let seat = self.seat.clone();
+        // before the start: the 2017-18 window is held hidden until the start warning, long after "first frame shown"
+        let olog = seat.join("forza_panel.log");
+        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         self.start_game(Role::Seat, args, &seat, false, env)?;
         let mut pid = None;
         wait_for(
@@ -2271,8 +2289,6 @@ impl Run<'_> {
         )?;
         self.tell("  5/6 ", &Text::key("launcher.run_window_up").arg("n", n));
         self.startup("window", self.t0.elapsed());
-        let olog = self.seat.join("forza_panel.log");
-        let skip = fs::metadata(&olog).map_or(0, |m| m.len() as usize);
         // 2017-18: wccfnet.dll loads the panel 3 s after the window (FORZA_PANEL); 2010-11: inject.exe does
         let panel = self.kit.program("forza_panel.dll");
         let why = if self.edition == Edition::E1718 {
@@ -3371,6 +3387,17 @@ mod tests {
     use super::due;
     use std::fs;
     use std::path::Path;
+
+    /// 2017-18's helper mutes the projector before the cabinet wait, which lasts until seat 1's start warning
+    /// (2026-11-11: ~20 s of projector sound).
+    #[test]
+    fn the_projector_is_muted_before_the_cabinet_wait() {
+        let code = include_str!("mod.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        let at = |s: &str| code.find(s).unwrap_or_else(|| panic!("{s} not found"));
+        assert!(at("if helper_first {") < at("self.start_cabinet()?;"));
+        assert!(at("self.start_helper(projector);") < at("self.start_cabinet()?;"));
+        assert!(code.contains("let helper_first = self.edition == Edition::E1718;"));
+    }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
     #[test]

@@ -181,13 +181,15 @@ pub fn key_label(vk: u32) -> String {
 // ---- the KEYS page's actions and keys.txt
 
 /// How many actions keys.txt binds.
-pub const COUNT: usize = 17;
+pub const COUNT: usize = 18;
 /// PAUSE's place in [`NAMES`]: the panel's own action (the match held, `forza_panel.dll`), no cabinet input, so the key
 /// driver ([`driver`]) skips its line and it has no controller control.
 pub const PAUSE: usize = 16;
+/// FLIP's place in [`NAMES`]: the panel's own too (the card shown big on the board turns over), skipped like PAUSE.
+pub const FLIP: usize = 17;
 
 /// The actions by their names in keys.txt, in the KEYS page's order (`wccfpanel.c` `g_kact`, then PAUSE): the buttons,
-/// CARD and COIN, the tactics, the operator's, the panel's pause.
+/// CARD and COIN, the tactics, the operator's, the panel's pause and card flip.
 pub const NAMES: [&str; COUNT] = [
     "START",
     "PRESS",
@@ -206,28 +208,34 @@ pub const NAMES: [&str; COUNT] = [
     "SENSOR2",
     "SENSOR3",
     "PAUSE",
+    "FLIP",
 ];
 
 /// The default keys in [`NAMES`] order. TEST has none (one stray key opens the operator menu); SW1 and SW2 (SENSOR2/3)
 /// have none in 2010-11: on the original's club-card recovery screen SW1 overwrites the card with its backup; the 2017-18
-/// kit gives them 8 and 9. PAUSE is P.
+/// kit gives them 8 and 9. PAUSE is P, FLIP is F.
 pub fn defaults(e1718: bool) -> [u32; COUNT] {
     let sw = if e1718 { [0x38, 0x39] } else { [0, 0] };
     [
         0x0D, 0x58, 0x43, 0x42, 0x53, 0x44, 0x49, 0x35, 0x26, 0x28, 0x25, 0x27, 0, 0x71, sw[0],
-        sw[1], 0x50,
+        sw[1], 0x50, 0x46,
     ]
 }
 
-/// PAUSE's key from keys.txt (the key driver skips the line): its last good `PAUSE=0x50` line, else `default`; none
-/// (0) when another action already has that key (`taken`), as the driver gives a key to one action only.
-pub fn pause_key(raw: &[u8], default: u32, taken: &[u32]) -> u32 {
+/// A panel action's key from keys.txt (`want`: PAUSE or FLIP; the key driver skips their lines): its last good
+/// `PAUSE=0x50` line, else `default`; none (0) when another action already has that key (`taken`), as the driver gives
+/// a key to one action only.
+pub fn panel_key(raw: &[u8], want: &str, default: u32, taken: &[u32]) -> u32 {
     let mut vk = default;
+    let action = NAMES
+        .iter()
+        .position(|n| n.eq_ignore_ascii_case(want))
+        .unwrap_or(PAUSE);
     for line in String::from_utf8_lossy(raw).lines() {
         let Some((name, val)) = line.split('#').next().and_then(|l| l.split_once('=')) else {
             continue;
         };
-        if !name.trim().eq_ignore_ascii_case("PAUSE") {
+        if !name.trim().eq_ignore_ascii_case(want) {
             continue;
         }
         let val = val.trim();
@@ -235,7 +243,7 @@ pub fn pause_key(raw: &[u8], default: u32, taken: &[u32]) -> u32 {
             Some(hex) => u32::from_str_radix(hex, 16).ok(),
             None => val.parse().ok(),
         };
-        if let Some(n) = n.filter(|n| fits(PAUSE, *n)) {
+        if let Some(n) = n.filter(|n| fits(action, *n)) {
             vk = n;
         }
     }
@@ -290,7 +298,7 @@ mod tests {
             b"# Forza-WCCF 2010-11 - which key and which controller control does what. Written by the KEYS panel\n\
 # in seat 1's window, read by the key driver (keyboard.py). Delete this file to get the default keys back.\n\
 START=0x0D\nPRESS=0x58\nSHOOT=0x47\nKEEPER=0x42\nDATA=0x53\nKEYPLAYER=0x44\nCARD=0x49\nCOIN=0x35\nUP=0x26\n\
-DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\n# TEST has no key\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\n\
+DOWN=0x28\nLEFT=0x25\nRIGHT=0x27\n# TEST has no key\nSERVICE=0x71\n# SENSOR2 has no key\n# SENSOR3 has no key\nPAUSE=0x50\nFLIP=0x46\n\
 # controllers (any game controller): B1-B32 its buttons, X- X+ Y- Y+ the stick (left right up down),\n\
 # Z R U V its other axes (+ or -), HAT UP / RIGHT / DOWN / LEFT its d-pad\n\
 PAD SHOOT=B3\nPAD UP=HAT UP\n"
@@ -313,7 +321,8 @@ PAD SHOOT=B3\nPAD UP=HAT UP\n"
         assert!(!is_allowed(0x01) && !is_allowed(0x02) && !is_allowed(0x04));
         let keys = std::array::from_fn(|i| if i == 5 { 0x06 } else { 0 });
         assert!(keys_text(true, &keys, &[0; COUNT]).contains("\nKEYPLAYER=0x06\n"));
-        assert_eq!(pause_key(b"PAUSE=0x05\n", 0x50, &[0x06]), 0x50);
+        assert_eq!(panel_key(b"PAUSE=0x05\n", "PAUSE", 0x50, &[0x06]), 0x50);
+        assert_eq!(panel_key(b"FLIP=0x05\n", "FLIP", 0x46, &[0x06]), 0x05); // FLIP reads the key state: a side button works
         assert!(fits(5, 0x05) && !fits(PAUSE, 0x05) && !fits(PAUSE, 0x06) && fits(PAUSE, 0x50));
     }
 
@@ -330,14 +339,22 @@ PAD SHOOT=B3\nPAD UP=HAT UP\n"
     #[test]
     fn pause_key_from_keys_txt() {
         let taken = &defaults(false)[..PAUSE];
-        assert_eq!(pause_key(b"", 0x50, taken), 0x50);
+        assert_eq!(panel_key(b"", "PAUSE", 0x50, taken), 0x50);
         assert_eq!(
-            pause_key(b"START=0x0D\nPAUSE=0x13 # Pause\n", 0x50, taken),
+            panel_key(b"START=0x0D\nPAUSE=0x13 # Pause\n", "PAUSE", 0x50, taken),
             0x13
         );
-        assert_eq!(pause_key(b"pause = 80\n", 0x13, taken), 0x50);
-        assert_eq!(pause_key(b"PAUSE=0x1B\nPAUSE=junk\n", 0x50, taken), 0x50); // Esc is never a key; junk skipped
-        assert_eq!(pause_key(b"PAUSE=0x58\n", 0x50, taken), 0); // PRESS's X
+        assert_eq!(panel_key(b"pause = 80\n", "PAUSE", 0x13, taken), 0x50);
+        assert_eq!(
+            panel_key(b"PAUSE=0x1B\nPAUSE=junk\n", "PAUSE", 0x50, taken),
+            0x50
+        ); // Esc is never a key; junk skipped
+        assert_eq!(panel_key(b"PAUSE=0x58\n", "PAUSE", 0x50, taken), 0); // PRESS's X
+        // FLIP reads its own line; F by default, none when PAUSE or a cabinet action has it
+        let taken = &defaults(true)[..FLIP];
+        assert_eq!(panel_key(b"PAUSE=0x47\n", "FLIP", 0x46, taken), 0x46);
+        assert_eq!(panel_key(b"FLIP=0x47\n", "FLIP", 0x46, taken), 0x47);
+        assert_eq!(panel_key(b"FLIP=0x50\n", "FLIP", 0x46, taken), 0); // PAUSE's P
         assert_eq!(
             keys_text(false, &defaults(false), &[0x101; COUNT])
                 .matches("PAD ")

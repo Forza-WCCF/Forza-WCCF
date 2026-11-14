@@ -26,6 +26,8 @@ use std::sync::{Arc, mpsc};
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 /// The formation strip's least width, pinned to the right edge (its width at 1440x900).
 pub const BOARD_W: f32 = 580.0;
+/// The least width the 2017-18 divider between the picture and the board drags the board to (panel.txt board_width=).
+pub const BOARD_MIN: f32 = 420.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
 /// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
@@ -105,10 +107,22 @@ pub struct Layout {
 /// the deck row straight under it. The board then takes what the picture left, up to what its own height can use;
 /// the middle takes the rest.
 pub fn layout(sheet: Rect, compact: bool) -> Layout {
+    layout_at(sheet, compact, None)
+}
+
+/// The widest the divider makes the board on `sheet`: what the board's height can use, at least [`BOARD_W`].
+pub fn board_width_max(sheet: Rect) -> f32 {
+    ((sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0).max(BOARD_W)
+}
+
+/// [`layout`] with the board's least width set by the divider (`None`: [`BOARD_W`]), held to [`BOARD_MIN`] and
+/// [`board_width_max`].
+pub fn layout_at(sheet: Rect, compact: bool, board_w: Option<f32>) -> Layout {
+    let least = board_w.map_or(BOARD_W, |w| w.clamp(BOARD_MIN, board_width_max(sheet)));
     let reserve = if compact { 0.0 } else { DECK_MIN };
-    let h = ((sheet.width() - BOARD_W) / 1.6).min(sheet.height() - TABS_H - reserve);
+    let h = ((sheet.width() - least) / 1.6).min(sheet.height() - TABS_H - reserve);
     let board_max = (sheet.height() - BOARD_EXTRA) / BOARD_PER_W + 32.0;
-    let bw = (sheet.width() - h * 1.6).clamp(BOARD_W, board_max.max(BOARD_W));
+    let bw = (sheet.width() - h * 1.6).clamp(least, board_max.max(least));
     let board = Rect::from_min_max(pos2(sheet.right() - bw, sheet.top()), sheet.max);
     let middle = sheet.with_max_x(board.left());
     let tabs = middle.with_min_y(middle.bottom() - TABS_H);
@@ -152,14 +166,17 @@ fn side_deck(both: bool) -> egui::Vec2 {
 /// what the toast line and the page bar under it leave. Right part, one column ([`SIDE_COLUMN`] wide, wider when the
 /// full-height picture leaves more): the deck at its foot, its plates stacked and scaled to the column's width, and
 /// over it (`board`) the room where the card touched on the board window shows. `both`: the deck has the machine
-/// plate (2010-11). Pages open over the left part.
-pub fn popped_layout(sheet: Rect, both: bool) -> Layout {
+/// plate (2010-11). `ppp`: the window's pixels a point, for the pane that room holds. Pages open over the left part.
+pub fn popped_layout(sheet: Rect, both: bool, ppp: f32) -> Layout {
     let d = side_deck(both);
     let pic_h = sheet.height() - TABS_H - SIDE_TOAST;
     let cw = SIDE_COLUMN.max(sheet.width() - pic_h * 1.6);
-    // as wide as the column, never more than 70% of its height (the three 2010-11 plates)
+    // the room over the deck a touched card's pane needs, its 16 points in from the column's edges: the deck leaves it
+    let pane = 2.0 * SIDE_GAP + board::strip_pane(ppp);
+    // as wide as the column, never more than 70% of its height (the three 2010-11 plates), never into the pane's room
     let s = ((cw - 32.0) / d.x)
         .min((sheet.height() * 0.7 - 2.0 * SIDE_UNDER) / d.y)
+        .min((sheet.height() - pane - 2.0 * SIDE_UNDER) / d.y)
         .max(0.0);
     let col = sheet.with_min_x(sheet.right() - cw);
     let deck = col.with_min_y(col.bottom() - d.y * s - 2.0 * SIDE_UNDER);
@@ -277,6 +294,7 @@ pub const ACTIONS: [(&str, Cab); forza::keys::COUNT] = [
     ("keys.sw1", Cab::Plain),
     ("keys.sw2", Cab::Plain),
     ("keys.pause", Cab::Plain),
+    ("keys.flip", Cab::Plain),
 ];
 
 /// The operator's switches (TEST, SERVICE, SW1, SW2): the KEYS page folds them under "Advanced".
@@ -783,6 +801,10 @@ pub struct PanelState {
     /// The card pressed or in hand on the board window last, and when (the frame's time): the game window shows it
     /// for [`TOUCH_SECS`] after.
     pub touched: Option<(Card, f64)>,
+    /// The card shown big (the board's pane, or the touched card) on its back: its number ([`board::flip_side`]).
+    pub turned: Option<u32>,
+    /// FLIP's key was down last frame: a press flips once.
+    pub flip_held: bool,
 }
 
 /// How long the game window keeps showing the card touched on the board window, once the touch ended.
@@ -878,6 +900,8 @@ impl PanelState {
             desk: false,
             popped: false,
             touched: None,
+            turned: None,
+            flip_held: false,
         }
     }
 
@@ -987,6 +1011,8 @@ impl PanelState {
             desk,
             popped,
             touched,
+            turned,
+            flip_held,
         } = self;
         let Catalogue {
             filter,
@@ -1001,7 +1027,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 95] = [
+        let parts: [&dyn std::fmt::Debug; 97] = [
             edition,
             lang,
             page,
@@ -1097,6 +1123,8 @@ impl PanelState {
             desk,
             popped,
             touched,
+            turned,
+            flip_held,
         ];
         for p in parts {
             let _ = write!(h, "{p:?}\u{1f}");
@@ -1150,7 +1178,7 @@ impl PanelState {
             changed: (page == Page::Keys).then_some(4),
             pads: [
                 0x10A, 0x105, 0x101, 0x102, 0x104, 0x103, 0x109, 0, 0x300, 0x302, 0x303, 0x301, 0,
-                0, 0, 0, 0,
+                0, 0, 0, 0, 0,
             ],
             pad_names: vec!["Gamepad 1".to_owned()],
             file: PanelFile {
@@ -1625,6 +1653,23 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
     board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
+/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`: the pitch narrowed
+/// to the board's height as [`board_strip`] lays it out.
+pub fn board_slot_center_1718(
+    sheet: Rect,
+    board_w: Option<f32>,
+    spots: &[Pos2; 11],
+    slot: usize,
+) -> Pos2 {
+    let board = layout_at(sheet, false, board_w).board;
+    let r = board.shrink(16.0);
+    let w = r
+        .width()
+        .min((board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
+    let pitch = board::pitch_rect(pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD), w);
+    board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
+}
+
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
     let lang = st.lang;
     let sheet = ui.max_rect();
@@ -1634,10 +1679,22 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
             .show(ui, |ui| board_window(ui, st, lang, sheet));
         return;
     }
+    // FLIP's key turns the card shown big over, unless it is being typed or bound
+    let held = st.down[forza::keys::FLIP];
+    let flip = held
+        && !st.flip_held
+        && st.capturing.is_none()
+        && st.pad_capturing.is_none()
+        && !ui.ctx().egui_wants_keyboard_input();
+    st.flip_held = held;
     let lay = if st.popped {
-        popped_layout(sheet, st.edition != Edition::E1718)
+        popped_layout(
+            sheet,
+            st.edition != Edition::E1718,
+            ui.ctx().pixels_per_point(),
+        )
     } else {
-        layout(sheet, st.file.compact)
+        layout_at(sheet, st.file.compact, divider_width(st))
     };
     if !st.popped {
         egui::Panel::right("panel-board")
@@ -1649,18 +1706,63 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
                 if st.crash {
                     crash_screen(ui, st, lang);
                 } else {
-                    board_strip(ui, st, lang);
+                    board_strip(ui, st, lang, flip);
                 }
             });
     }
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::WELL))
-        .show(ui, |ui| middle(ui, st, lang, &lay));
+        .show(ui, |ui| middle(ui, st, lang, &lay, flip));
+    if !st.popped && st.edition == Edition::E1718 {
+        divider(ui, st, sheet, lay.board);
+    }
+}
+
+/// The docked board's width from panel.txt (2017-18 only; 2010-11 keeps its layout).
+fn divider_width(st: &PanelState) -> Option<f32> {
+    st.file
+        .board_width
+        .filter(|_| st.edition == Edition::E1718)
+        .map(f32::from)
+}
+
+/// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
+/// picture stay the game's); dragged, it sets the board's width to what the layout draws for it (on a sheet wider
+/// than 16:10 the picture's height stops the board narrowing first), saved to panel.txt when let go.
+fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
+    let strip = Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()));
+    let id = egui::Id::unique("panel-divider");
+    let r = ui.interact(strip, id, Sense::drag());
+    if r.drag_started()
+        && let Some(o) = ui.input(|i| i.pointer.press_origin())
+    {
+        // where in the strip it was grabbed, so the edge does not jump to the pointer
+        ui.data_mut(|d| d.insert_temp(id, board.left() - o.x));
+    }
+    if r.hovered() || r.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ui.painter().vline(
+            board.left() + 2.0,
+            board.y_range(),
+            Stroke::new(3.0, theme::RIM_HI),
+        );
+    }
+    if r.dragged()
+        && let Some(p) = r.interact_pointer_pos()
+    {
+        let grab = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+        let w = (sheet.right() - p.x - grab).clamp(BOARD_MIN, board_width_max(sheet));
+        let drawn = layout_at(sheet, st.file.compact, Some(w)).board.width();
+        st.file.board_width = Some(drawn.round() as u16);
+    }
+    if r.drag_stopped() {
+        st.file_changed = true;
+    }
 }
 
 // ---- the middle: picture, deck, page bar ----
 
-fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
+fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool) {
     let Layout {
         middle: area,
         picture: pic,
@@ -1742,7 +1844,7 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
     page_bar(ui, st, tabs, lang, side);
     // popped out: the card touched on the board window, over the deck in the column
     if side && !st.close_warn {
-        touched_card(ui, st, lay.board.shrink(16.0), lang);
+        touched_card(ui, st, lay.board.shrink(16.0), flip, lang);
     }
     // before the page: Enter and Esc answer the dialog, not the catalogue's search line or the page's close
     if st.import_ask.is_some() {
@@ -1771,15 +1873,24 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout) {
 }
 
 /// The card touched on the board window, its details in `area` (the popped-out column over the deck), until
-/// [`TOUCH_SECS`] after the touch.
-fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, lang: Lang) {
+/// [`TOUCH_SECS`] after the touch or its last flip (`flip`: FLIP's key, else its FRONT | BACK switch or the card).
+fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, flip: bool, lang: Lang) {
     let now = ui.input(|i| i.time);
     st.touched = st.touched.take().filter(|(_, at)| now - at < TOUCH_SECS);
-    if let Some((card, at)) = &st.touched {
-        board::card_view(ui, card, area, lang);
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - at)));
+    let Some((card, at)) = &mut st.touched else {
+        st.turned = None; // the next card opens on its front
+        return;
+    };
+    let back = board::flip_side(&mut st.turned, card.number, flip);
+    let clicked = board::card_view(ui, card, area, back, lang);
+    if clicked {
+        board::flip_side(&mut st.turned, card.number, true);
     }
+    if flip || clicked {
+        *at = now;
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - *at)));
 }
 
 /// The PAUSED page over the game's picture (the game's last frame stays under it): how to resume and the seconds left
@@ -1954,9 +2065,12 @@ fn import_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
 }
 
+/// The gap between the RESET LINEUP question's three buttons.
+const RESET_GAP: f32 = 8.0;
+
 /// RESET LINEUP's question: the kept table as a squad list (the pitch by position, left to right, then the subs), the
-/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; CANCEL (or Esc) leaves
-/// the table as it is.
+/// cards that change place in gold. CONFIRM (or Enter) asks the panel DLL for [`take_reset`]; DON'T ASK AGAIN does too
+/// and turns the question off (`reset_ask=off`); CANCEL (or Esc) leaves the table as it is.
 fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let Some(kept) = st.before_match.as_deref() else {
         st.reset_ask = None;
@@ -2040,30 +2154,33 @@ fn reset_dialog(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     .color(theme::GOLD),
             );
             ui.add_space(6.0);
-            let go = widgets::cabinet(
-                ui,
-                vec2(440.0, 56.0),
-                &tr!(lang, "cat.ask_confirm"),
-                Cab::Go,
-                true,
-            );
-            let cancel = widgets::cabinet(
-                ui,
-                vec2(440.0, 44.0),
-                &tr!(lang, "cat.ask_cancel"),
-                Cab::Plain,
-                false,
-            );
-            (go, cancel)
+            // CONFIRM, DON'T ASK AGAIN and CANCEL side by side
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = RESET_GAP;
+                let size = vec2((440.0 - 2.0 * RESET_GAP) / 3.0, 48.0);
+                let mut b =
+                    |key: &str, kind, lit| widgets::cabinet(ui, size, &tr!(lang, key), kind, lit);
+                (
+                    b("cat.ask_confirm", Cab::Go, true),
+                    b("board.reset_always", Cab::Plain, false),
+                    b("cat.ask_cancel", Cab::Plain, false),
+                )
+            })
+            .inner
         });
-    let (go, cancel) = modal.inner;
+    let (go, always, cancel) = modal.inner;
     let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
     let esc = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if cancel.clicked() || esc {
         st.reset_ask = None;
-    } else if go.clicked() || enter {
+    } else if go.clicked() || always.clicked() || enter {
         st.reset_ask = None;
         st.reset_lineup = true;
+        if always.clicked() {
+            // SETTINGS' "Ask before RESET LINEUP" brings the question back
+            st.file.reset_ask_off = true;
+            st.file_changed = true;
+        }
     }
 }
 
@@ -3262,7 +3379,7 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
     );
 }
 
-fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
     // as wide as the strip, or as its height can use, centred
@@ -3300,6 +3417,8 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         pitch,
         hint_bottom,
         r.bottom(),
+        &mut st.turned,
+        flip,
         lang,
     );
 }
@@ -3441,7 +3560,11 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
         buttons_bottom = buttons_bottom.max(r.rect.bottom());
         if r.clicked() {
-            st.reset_ask = Some(st.desk);
+            if st.file.reset_ask_off {
+                st.reset_lineup = true; // DON'T ASK AGAIN: UNDO covers a mistake
+            } else {
+                st.reset_ask = Some(st.desk);
+            }
         }
         r.on_hover_text(&hint).on_disabled_hover_text(&hint);
         let formations = b.put(at[2], button(&texts[2]));
@@ -4830,8 +4953,8 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
         forza::keys::pad_label(st.pads[i]),
     );
     let r1 = key_cell(ui, &k, ks, cell_w, lang);
-    if i == forza::keys::PAUSE {
-        ui.label(""); // the panel's own key: the key driver reads no controller for it
+    if i >= forza::keys::PAUSE {
+        ui.label(""); // the panel's own keys (PAUSE, FLIP): the key driver reads no controller for them
         if r1.clicked() {
             st.pad_capturing = None;
             st.capturing = (st.capturing != Some(i)).then_some(i);
@@ -5075,6 +5198,20 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .clicked()
             {
                 st.file_changed = true;
+            }
+            if st.edition == Edition::E1718 {
+                let mut ask = !st.file.reset_ask_off;
+                if widgets::toggle_row(
+                    ui,
+                    &mut ask,
+                    &tr!(lang, "settings.reset_ask"),
+                    &tr!(lang, "settings.reset_ask_hint"),
+                )
+                .clicked()
+                {
+                    st.file.reset_ask_off = !ask;
+                    st.file_changed = true;
+                }
             }
             if st.edition == Edition::E1718 {
                 // the key driver reads panel.txt again at once; with 2+ seats here it ignores the choice, and says so
@@ -6005,6 +6142,22 @@ mod tests {
         );
     }
 
+    /// The big card's side: a flip turns it over and back; another card opens on its front.
+    #[test]
+    fn the_big_card_flips_and_another_opens_on_its_front() {
+        let mut t = None;
+        assert!(!board::flip_side(&mut t, 8, false));
+        assert!(board::flip_side(&mut t, 8, true), "the back");
+        assert!(board::flip_side(&mut t, 8, false), "stays on its back");
+        assert!(!board::flip_side(&mut t, 8, true), "the front again");
+        assert!(board::flip_side(&mut t, 8, true));
+        assert!(
+            !board::flip_side(&mut t, 9, false),
+            "another card: its front"
+        );
+        assert_eq!(t, None);
+    }
+
     /// The pane's side belongs to the card shown: another card shows its front again.
     #[test]
     fn the_detail_panes_side_belongs_to_the_card_shown() {
@@ -6129,8 +6282,14 @@ mod tests {
                     pitch.bottom() - 40.0,
                     hint_bottom - 30.0,
                 ] {
-                    let (pane, tier) =
-                        board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y);
+                    let (pane, tier) = board::pane_place(
+                        pitch,
+                        hint_bottom,
+                        col.bottom(),
+                        425.0 + board::FLIP_ROW,
+                        149.0 + board::FLIP_ROW,
+                        card_y,
+                    );
                     let at = format!("{win} card at {card_y}: {pane:?} {tier:?}");
                     assert!(l.board.contains_rect(pane), "{at}");
                     assert!(
@@ -6327,7 +6486,7 @@ mod tests {
         ] {
             let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
             for both in [false, true] {
-                let l = popped_layout(sheet, both);
+                let l = popped_layout(sheet, both, 1.0);
                 let at = format!("{w}x{h} {both}: {l:?}");
                 let col = l.board.union(l.deck);
                 assert!((col.width() + l.middle.width() - w).abs() < 0.01, "{at}");
@@ -6344,14 +6503,38 @@ mod tests {
                 assert!((l.picture.aspect_ratio() - 1.6).abs() < 0.01, "{at}");
                 assert_eq!(l.tabs.right(), l.board.left(), "{at}");
                 assert_eq!(l.board.bottom(), l.deck.top(), "{at}");
-                // room for at least a strip pane over the deck
-                assert!(l.board.height() >= 200.0, "{at}");
+                // room for a strip pane (its FRONT | BACK switch) and its 16-point margins over the deck
+                assert!(
+                    l.board.height() >= 2.0 * SIDE_GAP + board::strip_pane(1.0),
+                    "{at}"
+                );
                 let plates = deck_plates(l.deck, both, l.deck_scale, true);
                 let n = if both { 3 } else { 2 };
                 assert!(plates[..n].iter().all(|r| l.deck.contains_rect(*r)), "{at}");
                 assert!(plates[1].width() <= l.deck.width() - 31.99, "{at}");
                 assert!(plates[0].bottom() < plates[1].top(), "{at}");
                 assert!(l.deck_scale >= 1.0, "{at}");
+            }
+        }
+    }
+
+    /// A short popped-out game window: the touched card's strip pane, its FRONT | BACK switch included, stays in the
+    /// room over the deck, off the deck's buttons.
+    #[test]
+    fn popped_pane_clears_the_deck() {
+        for (w, h) in [(1024.0, 600.0), (1366.0, 720.0)] {
+            for both in [false, true] {
+                let sheet = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
+                let l = popped_layout(sheet, both, 1.0);
+                let area = l.board.shrink(16.0);
+                let (pane, tier, _) = board::card_view_place(area, 1.0);
+                let at = format!(
+                    "{w}x{h} {both}: pane {pane:?} in {area:?}, deck {:?}",
+                    l.deck
+                );
+                assert_eq!(tier, board::Tier::Strip, "{at}");
+                assert!(pane.bottom() <= area.bottom(), "{at}");
+                assert!(pane.bottom() <= l.deck.top(), "{at}");
             }
         }
     }
@@ -6476,6 +6659,11 @@ mod tests {
         both(&mut st, 0.1, vec![press(true)]);
         assert_eq!(st.touched.as_ref().map(|t| t.0.number), Some(card));
         assert!(big(&game_ctx), "the game window shows it");
+        // FLIP's key turns it over there
+        st.down[forza::keys::FLIP] = true;
+        both(&mut st, 0.15, vec![]);
+        st.down[forza::keys::FLIP] = false;
+        assert_eq!(st.turned, Some(card), "FLIP turns the touched card over");
         both(&mut st, 0.2, vec![press(false)]);
         // rested on past the hover delay: still no big card on the board window
         both(&mut st, 3.0, vec![]);
@@ -6483,6 +6671,7 @@ mod tests {
         assert!(st.touched.is_some(), "kept for a while");
         both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
         assert!(st.touched.is_none(), "gone after TOUCH_SECS");
+        assert!(st.turned.is_none(), "the next card opens on its front");
         // a dock forgets the card touched last
         both(&mut st, 10.0, vec![press(true)]);
         assert!(st.touched.is_some());
@@ -6516,6 +6705,138 @@ mod tests {
         assert!(
             st.picture_rect.is_some(),
             "closed: the picture is the game's again"
+        );
+    }
+
+    /// The divider at its least, by default and at its most: the board at least 420 points and inside the sheet, the
+    /// picture 16:10 inside the middle, flush with the board; a narrower board gives a bigger picture.
+    #[test]
+    fn divider_keeps_the_board_and_the_picture_shape() {
+        for (w, h) in [
+            (1440.0, 900.0),
+            (1920.0, 1080.0),
+            (1920.0, 1032.0),
+            (2560.0, 1440.0),
+            (1920.0, 1009.0),
+        ] {
+            let sheet = sheet_of(w, h);
+            let max = board_width_max(sheet);
+            // the least board this sheet draws: 420, or wider where the picture's height stops it first (16:9)
+            let least = (sheet.width() - 1.6 * (sheet.height() - TABS_H - DECK_MIN)).max(BOARD_MIN);
+            let mut last = f32::MAX;
+            for (set, want) in [
+                (Some(BOARD_MIN - 100.0), least), // dragged past the least: held there
+                (Some(BOARD_MIN), least),
+                (None, layout(sheet, false).board.width()),
+                (Some(max), max),
+                (Some(max + 300.0), max),
+            ] {
+                let l = layout_at(sheet, false, set);
+                let at = format!("{w}x{h} {set:?}: {l:?}");
+                assert!(l.board.width() >= BOARD_MIN, "{at}");
+                assert!((l.board.width() - want).abs() < 0.01, "{at}: want {want}");
+                // a width the layout draws comes back the same: what the divider saves is what was shown
+                let again = layout_at(sheet, false, Some(l.board.width())).board.width();
+                assert!(
+                    (again - l.board.width()).abs() < 0.01,
+                    "{at}: drawn again {again}"
+                );
+                assert!(
+                    sheet.contains_rect(l.board) && l.board.right() == sheet.right(),
+                    "{at}"
+                );
+                assert!((l.board.left() - l.middle.right()).abs() < 0.01, "{at}");
+                let p = l.picture;
+                assert!((p.width() / p.height() - 1.6).abs() < 1e-3, "{at}");
+                assert!(l.middle.expand(0.01).contains_rect(p), "{at}");
+                assert!(
+                    p.width() <= last + 0.01,
+                    "{at}: a wider board, a bigger picture"
+                );
+                last = p.width();
+            }
+        }
+        // 1920x1080 (16:9): the picture's height stops the board at 518.4, not 420
+        let l = layout_at(sheet_of(1920.0, 1080.0), false, Some(BOARD_MIN));
+        assert!((l.board.width() - 518.4).abs() < 0.01, "{l:?}");
+        // the owner's numbers: 1440x900 at 420 points, the picture 1020x637.5 (860x537.5 at 580)
+        let l = layout_at(sheet_of(1440.0, 900.0), false, Some(420.0));
+        assert_eq!((l.board.width(), l.picture.width()), (420.0, 1020.0));
+        assert_eq!(
+            layout_at(sheet_of(1440.0, 900.0), false, None),
+            layout(sheet_of(1440.0, 900.0), false)
+        );
+    }
+
+    /// The width the divider was dragged to goes into panel.txt and comes back the same layout.
+    #[test]
+    fn divider_width_round_trips_through_panel_txt() {
+        let sheet = sheet_of(1440.0, 900.0);
+        let file = PanelFile {
+            board_width: Some(470),
+            ..PanelFile::default()
+        };
+        let back = PanelFile::parse(file.text(true).as_bytes());
+        assert_eq!(back.board_width, Some(470));
+        let l = layout_at(sheet, false, back.board_width.map(f32::from));
+        assert!((l.board.width() - 470.0).abs() < 0.01, "{l:?}");
+    }
+
+    /// Dragging the divider on the 2017-18 game window narrows the board as far as the least, and marks panel.txt to
+    /// save only when let go.
+    #[test]
+    fn dragging_the_divider_sets_the_board_width() {
+        for (w, h, least) in [(1440.0, 900.0, BOARD_MIN), (1920.0, 1080.0, 518.4)] {
+            drag_divider(w, h, least);
+        }
+    }
+
+    /// The divider dragged far past the least on a `w` x `h` window (one point a pixel): the board drawn and saved at
+    /// `least`, saved only when let go.
+    fn drag_divider(w: f32, h: f32, least: f32) {
+        let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+        frame(&ctx, &mut st, w, h, 0.0, vec![]);
+        st.file_changed = false;
+        let at = pos2(layout(sheet_of(w, h), false).board.left() + 4.0, 300.0);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let to = pos2(w - 300.0, 300.0); // past the least
+        frame(
+            &ctx,
+            &mut st,
+            w,
+            h,
+            0.1,
+            vec![egui::Event::PointerMoved(at)],
+        );
+        frame(&ctx, &mut st, w, h, 0.2, vec![button(at, true)]);
+        for (i, x) in [at.x + 40.0, at.x + 120.0, to.x].into_iter().enumerate() {
+            let t = 0.3 + 0.1 * i as f64;
+            frame(
+                &ctx,
+                &mut st,
+                w,
+                h,
+                t,
+                vec![egui::Event::PointerMoved(pos2(x, 300.0))],
+            );
+        }
+        assert_eq!(st.file.board_width, Some(least.round() as u16), "{w}x{h}");
+        assert!(!st.file_changed, "not saved while dragging");
+        frame(&ctx, &mut st, w, h, 0.7, vec![button(to, false)]);
+        frame(&ctx, &mut st, w, h, 0.8, vec![]);
+        assert!(st.file_changed, "saved when let go");
+        // the picture takes what the board left (1020 wide at 1440x900)
+        assert!(
+            (st.picture_rect.unwrap().width() - (w - least)).abs() < 0.5,
+            "{w}x{h}: {:?}",
+            st.picture_rect
         );
     }
 
@@ -6835,7 +7156,7 @@ mod tests {
         assert_eq!(import_lineup(&mut st, &old, "998 999", false, 0.0), None);
         assert_eq!(
             st.message.as_ref().unwrap().text,
-            "None of these cards is in this game.\n998 (not in the catalogue), 999 (not in the catalogue)"
+            "None of these cards is in this game.\n998 (not in this game), 999 (not in this game)"
         );
     }
 
@@ -6942,7 +7263,7 @@ mod tests {
             m.text,
             format!(
                 "Test XI: 3 cards on the table.\nThe lineup on db.wccf.it has this key player: {kp}. Set it in the game.\n\
-                 Skipped: OLD · 13 GES 3 (no number in this game), 999 (not in the catalogue)"
+                 Cards not imported: OLD · 13 GES 3 (no number in this game), 999 (not in this game)"
             )
         );
         assert_eq!(st.import_undo, Some((old.clone(), 5.0)));
@@ -7165,7 +7486,7 @@ mod tests {
         assert_eq!(m.tone, Tone::Notice);
         assert_eq!(
             m.text,
-            "Away: 3 cards on the table.\nSkipped: 999 (not in the catalogue)"
+            "Away: 3 cards on the table.\nCards not imported: 999 (not in this game)"
         );
         assert_eq!(undo_import(&mut st, false), Some(old));
         assert_eq!(st.board.cards[0].number, 10);
@@ -7257,7 +7578,10 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[2], st.keys[1], st.capturing), (0x58, 0x43, None));
         assert!(std::mem::take(&mut st.keys_changed));
-        assert_eq!(st.message.as_ref().unwrap().text, "SHOOT = X; PRESS = C");
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "SHOOT is now X; PRESS is now C."
+        );
         // Esc and F10 (must stay free) and Alt+G: refused or cancelled, nothing changes
         st.capturing = Some(0);
         st.vk_down = vec![(0x79, false), (0x47, true)];
@@ -7304,7 +7628,10 @@ mod tests {
         keys_input(&mut st);
         assert_eq!((st.keys[kp], st.capturing), (0x05, None));
         assert!(st.keys_changed);
-        assert_eq!(st.message.as_ref().unwrap().text, "KEY PLAYER = Mouse 4");
+        assert_eq!(
+            st.message.as_ref().unwrap().text,
+            "KEY PLAYER is now Mouse 4."
+        );
         let text = forza::keys::keys_text(true, &st.keys, &st.pads);
         assert!(text.contains("\nKEYPLAYER=0x05\n"));
         #[cfg(windows)]

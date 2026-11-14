@@ -478,11 +478,13 @@ fn board_interaction() {
     h.hover_at(at(2));
     h.run_steps(8); // past the 1 s hover delay at 0.25 s a step
     h.snapshot("board_hover_en");
-    // a click turns the big card over: its back, the position map with the ratings and the stats
+    // a click keeps the big card; its BACK shows the back, the position map with the ratings and the stats
     h.drag_at(at(2));
     h.run_steps(1);
     h.drop_at(at(2));
     h.hover_at(at(2));
+    h.run_steps(3);
+    h.get_by_label("BACK").click();
     h.run_steps(3);
     h.snapshot("board_back_en");
 }
@@ -751,6 +753,9 @@ fn board_links() {
     h.hover_at(egui::pos2(1150.0, 280.0));
     h.run_steps(3);
     h.snapshot("board_links_selected_en");
+    // a press on the pitch off the cards lets the clicked card's big pane go (the selection stays)
+    h.drag_at(egui::pos2(1150.0, 280.0));
+    h.drop_at(egui::pos2(1150.0, 280.0));
     {
         let mut s = st.borrow_mut();
         s.page = panel::Page::Catalogue;
@@ -1061,12 +1066,15 @@ fn board_reset_lineup_hint_and_undo() {
 }
 
 /// A table kept by an earlier run (no match in this one) that differs from the board: RESET LINEUP is lit and asks
-/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone.
+/// first. CONFIRM asks for the reset (the board becomes the kept table, with UNDO); CANCEL leaves the board alone;
+/// DON'T ASK AGAIN resets too and saves `reset_ask=off`: the next RESET LINEUP resets with no question, until the
+/// setting is on again.
 #[test]
 fn board_reset_lineup_asks_first() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for confirm in [true, false] {
+    for choice in ["CONFIRM", "DON'T ASK AGAIN", "CANCEL"] {
+        let reset = choice != "CANCEL";
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         let now = forza::cards::table_after(&[], &st.board);
         // the kept table: the first pitch card and the first sub trade places
@@ -1091,20 +1099,25 @@ fn board_reset_lineup_asks_first() {
         h.run_steps(8);
         assert_eq!(st.borrow().reset_ask, Some(false));
         assert!(!st.borrow().reset_lineup, "nothing replaced before CONFIRM");
-        if confirm {
+        if choice == "CONFIRM" {
             h.snapshot("board_reset_ask_en");
             all.extend_harness(&mut h);
         }
-        h.get_by_label(if confirm { "CONFIRM" } else { "CANCEL" })
-            .click();
+        h.get_by_label(choice).click();
         h.run_steps(4);
         {
             let mut s = st.borrow_mut();
             assert!(s.reset_ask.is_none());
-            assert_eq!(s.reset_lineup, confirm);
+            assert_eq!(s.reset_lineup, reset, "{choice}");
+            assert_eq!(
+                s.file.reset_ask_off,
+                choice == "DON'T ASK AGAIN",
+                "{choice}"
+            );
+            assert_eq!(s.file_changed, choice == "DON'T ASK AGAIN", "{choice}");
             // the panel DLL's step after the frame
             let new = panel::take_reset(&mut s, &now, false);
-            if confirm {
+            if reset {
                 assert_eq!(new.as_ref(), Some(&kept));
                 assert_eq!(shown(&s.board), after);
                 assert_eq!(s.import_undo.as_ref().map(|u| &u.0), Some(&now));
@@ -1115,7 +1128,27 @@ fn board_reset_lineup_asks_first() {
             }
         }
         h.run_steps(4);
-        assert_eq!(h.query_by_label("UNDO").is_some(), confirm);
+        assert_eq!(h.query_by_label("UNDO").is_some(), reset);
+        if choice == "DON'T ASK AGAIN" {
+            // asked no more: the next click resets at once
+            h.get_by_label("RESET LINEUP").click();
+            h.run_steps(4);
+            assert!(st.borrow().reset_ask.is_none(), "no question");
+            assert!(st.borrow().reset_lineup, "reset at once");
+            st.borrow_mut().reset_lineup = false;
+            // SETTINGS' "Ask before RESET LINEUP" on: the question is back
+            st.borrow_mut().page = panel::Page::Settings;
+            h.run_steps(4);
+            h.get_by_label("Ask before RESET LINEUP").click();
+            h.run_steps(4);
+            assert!(!st.borrow().file.reset_ask_off, "the setting is on");
+            st.borrow_mut().page = panel::Page::Game;
+            h.run_steps(4);
+            h.get_by_label("RESET LINEUP").click();
+            h.run_steps(4);
+            assert_eq!(st.borrow().reset_ask, Some(false), "asked again");
+            assert!(!st.borrow().reset_lineup);
+        }
     }
     all.unwrap();
 }
@@ -1365,7 +1398,7 @@ fn settings_1718_clear_bad_endings() {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(3);
-    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.get_by_label("CLEAR AND RESTART").click();
     h.run_steps(2);
     assert!(st.borrow().club_request.is_none(), "armed, not asked");
     h.get_by_label("CLICK AGAIN").click();
@@ -1475,7 +1508,7 @@ fn club_card_switch_and_clear() {
         "refused during a session"
     );
     st.borrow_mut().club.session = "cut".into();
-    h.get_by_label("CLEAR BAD ENDINGS").click();
+    h.get_by_label("CLEAR AND RESTART").click();
     h.run_steps(2);
     h.get_by_label("CLICK AGAIN").click();
     h.run_steps(2);
@@ -1891,6 +1924,118 @@ fn lobby_screens() {
                 all.extend_harness(&mut h);
             }
         }
+    }
+    all.unwrap();
+}
+
+/// The big card on the docked 2017-18 board at its least width (the divider dragged to 420 points): a click on a mat
+/// card shows it big on its front (the click does not turn it over); its FRONT | BACK switch, a click on the big card
+/// and FLIP's key turn it over and back; another card opens on its front. The pane, its card and its switch stay
+/// inside the board's column, clear of the game's picture.
+#[test]
+fn board_card_flips_at_the_least_width() {
+    let _gpu = gpu();
+    let mut all = SnapshotResults::new();
+    for lang in [Lang::En, Lang::It, Lang::Ja] {
+        let size = panel::SIZE;
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.file.board_width = Some(panel::BOARD_MIN as u16);
+        st.hover_delay = None; // no big card by resting: only a click shows one
+        let l = panel::layout_at(sheet, false, Some(panel::BOARD_MIN));
+        assert!(
+            (l.board.width() - panel::BOARD_MIN).abs() < 0.5,
+            "{:?}",
+            l.board
+        );
+        let slots: Vec<usize> = (0..11)
+            .filter(|&s| st.board.slots[s].is_some())
+            .take(2)
+            .collect();
+        let number = |st: &panel::PanelState, s: usize| st.board.number(s).unwrap();
+        let (a, b) = (number(&st, slots[0]), number(&st, slots[1]));
+        let at =
+            |s| panel::board_slot_center_1718(sheet, Some(panel::BOARD_MIN), &st.board.spots, s);
+        let (at_a, at_b) = (at(slots[0]), at(slots[1]));
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        let (front, back) = match lang {
+            Lang::En => ("FRONT", "BACK"),
+            Lang::It => ("FRONTE", "RETRO"),
+            Lang::Ja => ("表面", "裏面"),
+        };
+        let click = |h: &mut Harness, p: egui::Pos2| {
+            h.drag_at(p);
+            h.run_steps(1);
+            h.drop_at(p);
+            h.run_steps(3);
+        };
+        h.run_steps(4);
+        assert!(h.query_by_label(back).is_none(), "nothing big yet");
+        // a mat card clicked: big, on its front
+        click(&mut h, at_a);
+        assert_eq!(st.borrow().turned, None, "a mat card click does not flip");
+        let big = h
+            .ctx
+            .memory(|m| m.area_rect(egui::Id::unique("board-big")))
+            .expect("the card shown big");
+        let (f, k) = (h.get_by_label(front).rect(), h.get_by_label(back).rect());
+        for r in [big, f, k] {
+            assert!(
+                l.board.contains_rect(r),
+                "{lang:?}: {r:?} outside the board {:?}",
+                l.board
+            );
+            assert!(!r.intersects(l.picture), "{lang:?}: {r:?} on the picture");
+        }
+        assert!(
+            big.contains_rect(f.union(k)),
+            "{lang:?}: the switch outside its pane"
+        );
+        // the big card: over the switch, inside the pane
+        let card = egui::pos2(f.center().x, f.top() - 40.0);
+        assert!(
+            big.contains(card) && card.y > big.top() + 20.0,
+            "{lang:?}: {big:?}"
+        );
+        // BACK, then FRONT
+        h.get_by_label(back).click();
+        h.run_steps(3);
+        assert_eq!(st.borrow().turned, Some(a), "BACK shows the back");
+        if lang == Lang::En {
+            h.snapshot("board_flip_420_back_en");
+            all.extend_harness(&mut h);
+        }
+        h.get_by_label(front).click();
+        h.run_steps(3);
+        assert_eq!(st.borrow().turned, None, "FRONT shows the face");
+        // a click on the big card turns it over, and over again
+        click(&mut h, card);
+        assert_eq!(st.borrow().turned, Some(a), "the big card flips");
+        click(&mut h, card);
+        assert_eq!(st.borrow().turned, None);
+        // FLIP's key: one press, one turn
+        for want in [Some(a), None, Some(a)] {
+            st.borrow_mut().down[forza::keys::FLIP] = true;
+            h.run_steps(2);
+            st.borrow_mut().down[forza::keys::FLIP] = false;
+            h.run_steps(2);
+            assert_eq!(st.borrow().turned, want, "FLIP's key");
+        }
+        // not while a controller button is being bound
+        st.borrow_mut().pad_capturing = Some(0);
+        st.borrow_mut().down[forza::keys::FLIP] = true;
+        h.run_steps(2);
+        st.borrow_mut().down[forza::keys::FLIP] = false;
+        st.borrow_mut().pad_capturing = None;
+        h.run_steps(2);
+        assert_eq!(st.borrow().turned, Some(a), "FLIP while a pad is bound");
+        // another card opens on its front
+        click(&mut h, at_b);
+        assert!(h.query_by_label(back).is_some(), "the other card big");
+        assert_eq!(st.borrow().turned, None, "{b} opens on its front");
     }
     all.unwrap();
 }

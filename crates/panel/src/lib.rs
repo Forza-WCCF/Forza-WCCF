@@ -39,6 +39,7 @@
     clippy::string_slice
 )]
 
+mod boot;
 mod cost;
 mod exe_text;
 mod fullscreen;
@@ -204,6 +205,8 @@ const WM_FORZA_FS: u32 = WM_APP + 0x57;
 const WM_FORZA_DOCK: u32 = WM_APP + 0x59;
 /// The projector's window made resizable, done on the window's thread.
 const WM_FORZA_PROJ: u32 = WM_APP + 0x58;
+/// The boot screens are done: the window held hidden shows, on its thread ([`boot`]).
+const WM_FORZA_SHOW: u32 = forza_native::WM_BOOT_SHOW;
 
 /// Milliseconds since the DLL loaded.
 fn ms() -> u32 {
@@ -379,6 +382,7 @@ fn init() {
                 WINDOW.store(h.0 as isize, Relaxed);
                 log(&format!("input from window {:?}", h.0));
             }
+            boot::install(h, PRESENT.load(Relaxed) != 0, false, log);
             retitle(h); // after the subclass: it can block, and a WM_FORZA_FS posted on the first frame must arrive
             break;
         }
@@ -420,6 +424,7 @@ fn projector_window() {
         SetWindowLongPtrW(wnd, GWLP_WNDPROC, proj_wndproc as *const () as usize as _);
     }
     WINDOW.store(wnd.0 as isize, Relaxed);
+    boot::install(wnd, PRESENT.load(Relaxed) != 0, true, log);
     // SAFETY: as above; the message is handled by proj_wndproc on the window's thread
     let _ = unsafe { PostMessageW(Some(wnd), WM_FORZA_PROJ, WPARAM(0), LPARAM(0)) };
     retitle(wnd); // "Projector - Forza-WCCF <edition>"; this is a worker thread
@@ -430,6 +435,11 @@ fn projector_window() {
     // either way (it keeps rendering; the run counts a hidden window by its title, forza::procs::has_window)
     let mut was = None;
     loop {
+        // held hidden through the boot screens: the reveal applies the setting ([`boot::show`])
+        if boot::held() {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
         let shown = forza::kit::projector_shown(&f.settings());
         // hidden whenever the setting is off (the game may show it again); shown again only when it is turned on
         // SAFETY: a window of this process; ShowWindowAsync posts the change to its thread and never waits for it
@@ -509,12 +519,7 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
                     } else {
                         SW_SHOWNOACTIVATE.0 as u32
                     },
-                    rcNormalPosition: RECT {
-                        left: x,
-                        top: y,
-                        right: x + w,
-                        bottom: y + hh,
-                    },
+                    rcNormalPosition: saved_place_fitted(x, y, w, hh),
                     ..Default::default()
                 };
                 let _ = SetWindowPlacement(h, &wp);
@@ -551,6 +556,77 @@ fn board_window(place: Option<[i32; 5]>, title: &str) {
     let _ = BOARD.compare_exchange(h.0 as isize, 0, Relaxed, Relaxed);
     BOARD_UP.store(false, Relaxed);
     log("board window: gone");
+}
+
+/// A saved place `x, y, w, h` cut to the work area `wa` and moved inside it (a panel.txt from a bigger screen, or a
+/// monitor that has gone).
+fn fit_place(x: i32, y: i32, w: i32, h: i32, wa: RECT) -> RECT {
+    let (w, h) = (
+        w.clamp(1, (wa.right - wa.left).max(1)),
+        h.clamp(1, (wa.bottom - wa.top).max(1)),
+    );
+    let x = x.clamp(wa.left, (wa.right - w).max(wa.left));
+    let y = y.clamp(wa.top, (wa.bottom - h).max(wa.top));
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
+}
+
+/// panel.txt's board_rect= (workspace coordinates, as GetWindowPlacement gives them) fitted to the work area of the
+/// monitor nearest to it; a hand-edited file's huge numbers are held to a sane range first.
+fn saved_place_fitted(x: i32, y: i32, w: i32, h: i32) -> RECT {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO,
+        MonitorFromPoint, MonitorFromRect,
+    };
+    let (x, y) = (x.clamp(-100_000, 100_000), y.clamp(-100_000, 100_000));
+    let (w, h) = (w.clamp(1, 16_384), h.clamp(1, 16_384));
+    let info = || MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    let (mut pm, mut mi) = (info(), info());
+    // SAFETY: plain queries with out-parameters we own
+    unsafe {
+        let _ = GetMonitorInfoW(
+            MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY),
+            &mut pm,
+        );
+        let d = (
+            pm.rcWork.left - pm.rcMonitor.left,
+            pm.rcWork.top - pm.rcMonitor.top,
+        );
+        let screen = RECT {
+            left: x + d.0,
+            top: y + d.1,
+            right: x + d.0 + w,
+            bottom: y + d.1 + h,
+        };
+        if !GetMonitorInfoW(MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST), &mut mi).as_bool() {
+            return fit_place(x, y, w, h, screen);
+        }
+        fit_workspace(x, y, w, h, d, mi.rcWork)
+    }
+}
+
+/// A workspace place fitted to a monitor's work area `work` (screen coordinates): workspace = screen less the primary
+/// work area's offset `d` (a taskbar at the top or left of the primary monitor).
+fn fit_workspace(x: i32, y: i32, w: i32, h: i32, d: (i32, i32), work: RECT) -> RECT {
+    fit_place(
+        x,
+        y,
+        w,
+        h,
+        RECT {
+            left: work.left - d.0,
+            top: work.top - d.1,
+            right: work.right - d.0,
+            bottom: work.bottom - d.1,
+        },
+    )
 }
 
 /// The board window's place now (its restored rect, maximized), for panel.txt; not while it is full screen.
@@ -725,11 +801,46 @@ fn local_stamp() -> String {
 
 /// This seat plays a match, for the frame log ([`match_now`] without the card session: asked every half second).
 fn match_playing() -> bool {
+    let (e1718, seat, arcade, armed) = match_state();
+    match_now(e1718, seat, arcade, armed, false)
+}
+
+/// 2017-18: [`armed_after`]'s latch, stepped on every read of the match state.
+static ARMED: AtomicBool = AtomicBool::new(false);
+/// 2017-18: the (seat state, arcade state) pair read last, for the log line on its change.
+static MATCH_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// The edition, the seat and arcade states read now and the latch stepped on them; a change of the pair is logged
+/// (2017-18).
+fn match_state() -> (bool, Option<u32>, Option<u32>, bool) {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
     let seat = if e1718 { pause::seat_state() } else { None };
-    match_now(e1718, seat, pause::arcade_state(e1718), false)
+    let arcade = pause::arcade_state(e1718);
+    let armed = armed_after(ARMED.load(Relaxed), seat, arcade);
+    ARMED.store(armed, Relaxed);
+    let pair = (u64::from(seat.unwrap_or(u32::MAX)) << 32) | u64::from(arcade.unwrap_or(u32::MAX));
+    if e1718 && MATCH_PAIR.swap(pair, Relaxed) != pair {
+        let own = if match_now(e1718, seat, arcade, armed, false) {
+            "yes"
+        } else if seat == Some(pause::SEAT_MATCH) && matches!(arcade, Some(4..=6)) {
+            "no (19 began in another match cycle)"
+        } else {
+            "no"
+        };
+        log(&format!(
+            "match state: seat {seat:?}, arcade {arcade:?} -> own match {own}"
+        ));
+    }
+    (e1718, seat, arcade, armed)
+}
+
+/// 2017-18: the seat entered its match sequence (19) before this match cycle began (the arcade outside 4-6). Seat 19
+/// begins in the Meeting Room's wait, and a seat that enters it during another cycle's match (the projector's CPU
+/// match) waits there for the next cycle: unarmed until the arcade leaves 6. Leaving 19 disarms.
+fn armed_after(armed: bool, seat: Option<u32>, arcade: Option<u32>) -> bool {
+    seat == Some(pause::SEAT_MATCH) && (armed || !matches!(arcade, Some(4..=6)))
 }
 
 /// A finished match's frame times: the panel's log, and a dated line in WCCF_LOGS\frame_times.txt (a run's logs).
@@ -847,36 +958,35 @@ fn in_match() -> bool {
 
 /// [`in_match`] without the log line: the answer and the inputs it came from.
 fn match_check() -> (bool, bool, String) {
-    let e1718 = FILES
-        .get()
-        .is_some_and(|f| f.edition == theme::Edition::E1718);
-    let seat = if e1718 { pause::seat_state() } else { None };
-    let arcade = pause::arcade_state(e1718);
+    let (e1718, seat, arcade, armed) = match_state();
     let card = card_open();
     (
-        match_now(e1718, seat, arcade, card),
-        match_now(e1718, seat, arcade, false),
-        format!("seat state {seat:?}, arcade state {arcade:?}, card session {card}"),
+        match_now(e1718, seat, arcade, armed, card),
+        match_now(e1718, seat, arcade, armed, false),
+        format!("seat state {seat:?}, arcade state {arcade:?}, armed {armed}, card session {card}"),
     )
 }
 
 /// 2017-18: the seat's own sequence state says the match is this seat's (the arcade state is the whole arcade's:
 /// another seat's match sets it too), but the game leaves it at the match value after the match and after a
-/// cancelled matching until the next sequence writes its own, so the arcade state must also be MATCHING_WAIT to
-/// GAME_RESULT_WAIT (3-6), when it can be read; without the seat state, the arcade state MATCHING-GAME_RESULT_WAIT
-/// (4-6) alone. 2010-11: that arcade state. Either: a card session open (2010-11's club card).
-fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) -> bool {
+/// cancelled matching until the next sequence writes its own, so the arcade state must also be MATCHING to
+/// GAME_RESULT_WAIT (4-6), when it can be read: MATCHING_WAIT (3) is still the next match's placement screen, with the
+/// last match's value left on; and the seat must have entered 19 before that cycle began (`armed`, [`armed_after`]):
+/// 19 begins in the Meeting Room, which can wait out another cycle's match. Without the seat state, that arcade state
+/// alone. 2010-11: that arcade state. Either: a card session open (2010-11's club card).
+fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, armed: bool, card: bool) -> bool {
     let playing = match seat {
-        Some(s) if e1718 => s == pause::SEAT_MATCH && arcade.is_none_or(|a| matches!(a, 3..=6)),
+        Some(s) if e1718 => {
+            s == pause::SEAT_MATCH && arcade.is_none_or(|a| matches!(a, 4..=6) && armed)
+        }
         _ => matches!(arcade, Some(4..=6)),
     };
     playing || card
 }
 
-/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. In 2017-18 the card
-/// stays in for the whole club session, so the card-in answer (`.0`) would hold the server's notice off in the club
-/// office and the menus between matches, where it belongs. The banner is 2017-18 only, so 2010-11's card session never
-/// reaches this gate.
+/// [`notice_in`]'s gate out of [`match_check`]: the match alone (`.1`), the card session left out. The banner is
+/// 2017-18 only, which has no club card file, so no session opens there (`card_open` false); 2010-11's card session
+/// never reaches this gate.
 fn notice_waits((_, playing, _): (bool, bool, String)) -> bool {
     playing
 }
@@ -1145,6 +1255,13 @@ unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) 
             projector::frame(h, test_screen(), log);
             return LRESULT(0);
         }
+        WM_FORZA_SHOW => {
+            let on = FILES
+                .get()
+                .is_none_or(|f| forza::kit::projector_shown(&f.settings()));
+            boot::show(h, on, wp.0 == 1, log);
+            return LRESULT(0);
+        }
         WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
             if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
                 toggle_fullscreen(h, &PROJ_FS);
@@ -1207,6 +1324,7 @@ fn unload() {
     if !INIT_DONE.load(Relaxed) {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
+    boot::unload(log); // the factory's slot back before the code it points at goes
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
         // out of full screen first: no handler is left to leave it
@@ -1381,6 +1499,7 @@ unsafe extern "system" fn hook_present(
         return unsafe { orig(dev, src, dst, wnd, dirty) };
     }
     IN_PRESENT.set(true);
+    boot::tick(log); // the window held hidden through the boot screens shows two frames after the start warning
     if PROJECTOR.load(Relaxed) {
         // the projector: nothing drawn; its picture composed into the resized window, else the game's own Present
         let shown = std::panic::catch_unwind(|| {
@@ -1508,6 +1627,8 @@ struct Render {
     links_at: Option<Instant>,
     /// When the match state was last read for RESET LINEUP ([`Render::lineup`]).
     match_at: Option<Instant>,
+    /// A card was in hand at the last [`Render::table_out`]: its drag's end is logged.
+    drag_held: bool,
     links_stamp: Option<Option<std::time::SystemTime>>,
     /// CLUB CARD: when club_view.txt was last looked at, and its time then.
     club_at: Option<Instant>,
@@ -1528,6 +1649,13 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
+    /// The board window's last drawn frame: its size, the keys and modifiers it showed, and when it is due again.
+    board_last: Option<((u32, u32), BoardInput, Instant)>,
+    /// How soon the board's egui asked to be drawn again after its last pass.
+    board_delay: Duration,
+    /// Board window frames drawn and skipped (nothing changed), for the frame cost line.
+    board_drawn: u32,
+    board_skipped: u32,
     /// The window that carries WCCF_TYPING while a page is open (the game's).
     typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
@@ -1659,6 +1787,7 @@ impl Render {
             logs_stamp: stamp(&files.request("savelogs.result")),
             links_at: None,
             match_at: None,
+            drag_held: false,
             links_stamp: None,
             club_at: None,
             club_stamp: None,
@@ -1675,6 +1804,10 @@ impl Render {
             sc_failed: false,
             board_sc: None,
             board_warned: false,
+            board_last: None,
+            board_delay: Duration::ZERO,
+            board_drawn: 0,
+            board_skipped: 0,
             typing: 0,
             game: None,
             max_tex: 2048,
@@ -1730,7 +1863,7 @@ impl Render {
                 {
                     let mut vp = D3DVIEWPORT9::default();
                     let _ = dev.GetViewport(&mut vp);
-                    popped = self.board_frame(dev, bw);
+                    popped = self.board_frame(dev, bw, true); // the only pass: its keys() lets a click go
                     let _ = dev.SetViewport(&vp);
                     let _ = sb.Apply();
                 }
@@ -1759,7 +1892,7 @@ impl Render {
             // popped out: the board in its own window, the game's window the picture, the pages and the buttons; a board
             // window that could not be drawn (minimized, tiny, no swap chain) gives the board back to the game's window
             // for the frame
-            let popped = board.is_some_and(|bw| self.board_frame(dev, bw));
+            let popped = board.is_some_and(|bw| self.board_frame(dev, bw, false));
             POPPED.store(popped, Relaxed);
             self.st.set_popped(popped);
             let drawn = self.compose(dev, &sc, w, h, true);
@@ -1786,6 +1919,9 @@ impl Render {
                 // (WCCFPANEL_FULLSCREEN=0 keeps the game's size: the tests)
                 if std::env::var("WCCFPANEL_FULLSCREEN").is_ok_and(|v| v.starts_with('0')) {
                     log("fullscreen at start: no");
+                } else if boot::held() {
+                    boot::defer_maximize(); // maximizing would show the window
+                    log("fullscreen at start: once the boot screens are done");
                 } else {
                     // a message to the game's window, handled by our window procedure on its thread
                     let _ = PostMessageW(Some(target), WM_FORZA_FS, WPARAM(1), LPARAM(0));
@@ -1862,8 +1998,9 @@ impl Render {
             return None;
         }
         if h == 0 {
-            // one thread at a time: a window docked a moment ago may still be going
-            if !BOARD_UP.swap(true, Relaxed) {
+            // one thread at a time: a window docked a moment ago may still be going; none while the game's window is
+            // held hidden through the boot screens
+            if !boot::held() && !BOARD_UP.swap(true, Relaxed) {
                 let place = self.st.file.board_rect;
                 let title = format!(
                     "{} - Forza-WCCF {}\0",
@@ -1916,14 +2053,18 @@ impl Render {
             return None;
         }
         let sc = sc?;
+        self.board_last = None;
         log(&format!("board window: swap chain {w}x{h}"));
         self.board_sc = Some((sc.clone(), w, h, wnd));
         Some((sc, w, h))
     }
 
     /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
-    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead.
-    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND) -> bool {
+    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead. Unless `always`,
+    /// a frame with no input, the same size and keys, before the board's egui asked for one, keeps the last picture
+    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then; none with
+    /// idle frames off, `WCCFPANEL_IDLE=0`).
+    unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
         unsafe {
@@ -1935,9 +2076,34 @@ impl Render {
             else {
                 return false;
             };
+            let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
+            let input = (
+                modifiers_with(|vk| GetAsyncKeyState(i32::from(vk)) < 0),
+                keys_held(&self.st.keys, ours),
+            );
+            let now = Instant::now();
+            let events = BOARD_EVENTS.lock().is_ok_and(|e| !e.is_empty());
+            if board_unchanged(
+                self.board_last.as_ref(),
+                (w, h),
+                &input,
+                now,
+                always || self.busy || events || BOARD_SIZING.load(Relaxed),
+            ) {
+                self.board_skipped += 1;
+                return true;
+            }
             if self.compose(dev, &sc, w, h, false).is_none() {
                 return false;
             }
+            self.board_drawn += 1;
+            self.board_last = Some((
+                (w, h),
+                input,
+                now + self
+                    .board_delay
+                    .clamp(Duration::from_millis(33), Duration::from_millis(100)),
+            ));
             let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -1963,6 +2129,12 @@ impl Render {
                 self.spent.as_secs_f64() * 1000.0 / f64::from(self.frames),
                 self.worst.as_secs_f64() * 1000.0,
                 self.frames
+            ));
+        }
+        if self.board_drawn + self.board_skipped > 0 {
+            log(&format!(
+                "board window: {} frames drawn, {} skipped (nothing changed)",
+                self.board_drawn, self.board_skipped
             ));
         }
     }
@@ -2362,6 +2534,12 @@ impl Render {
             self.st.desk = false;
             out
         });
+        if let Some(o) = &out {
+            self.board_delay = o
+                .viewport_output
+                .get(&ViewportId::ROOT)
+                .map_or(Duration::ZERO, |v| v.repaint_delay);
+        }
         self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
@@ -2451,14 +2629,26 @@ impl Render {
     /// A move, swap or take-off on the board: the table written whole (and the formation copy beside it); a write
     /// that could not be swapped in is tried again next frame.
     fn table_out(&mut self) {
-        if std::mem::take(&mut self.st.board_changed) {
-            let new = cards::table_after(&self.placed, &self.st.board);
-            for line in take_off_lines(
-                &self.placed,
-                &new,
-                self.st.kept_log.take(),
-                self.st.off_at.take(),
-            ) {
+        let held = self.dragging();
+        let ended = std::mem::replace(&mut self.drag_held, held) && !held;
+        let changed = std::mem::take(&mut self.st.board_changed);
+        let kept = self.st.kept_log.take();
+        let new = changed.then(|| cards::table_after(&self.placed, &self.st.board));
+        if ended {
+            let gone = new.as_ref().is_some_and(|n| n.len() < self.placed.len());
+            let what = match (kept, gone, changed) {
+                (Some(n), ..) => format!("take-off of card {n} refused"),
+                (_, true, _) => "taken off".into(),
+                (_, _, true) => "placed or moved".into(),
+                _ => "no change".into(),
+            };
+            log(&format!(
+                "board: drag ended - {what} (match lock {}, playing {})",
+                self.st.in_match, self.st.match_seen
+            ));
+        }
+        if let Some(new) = new {
+            for line in take_off_lines(&self.placed, &new, kept, self.st.off_at.take()) {
                 log(&line);
             }
             self.placed = new;
@@ -2650,7 +2840,7 @@ impl Render {
             let p = &self.st.file;
             match self.save_panel(f, p) {
                 Ok(()) => log(&format!(
-                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} board_rect={:?}",
+                    "settings: saved play_on={} server={} english={} layout={} hover={} auto_logs={} board={} board_buttons={} pad_background={} reset_ask={} board_rect={:?}",
                     if p.online { "online" } else { "this_pc" },
                     if p.server.is_empty() { "-" } else { &p.server },
                     p.english.as_deref().unwrap_or("-"),
@@ -2660,6 +2850,7 @@ impl Render {
                     if p.board_window { "window" } else { "game" },
                     if p.board_buttons { "on" } else { "off" },
                     if p.pad_background { "on" } else { "off" },
+                    if p.reset_ask_off { "off" } else { "on" },
                     p.board_rect,
                 )),
                 Err(e) => {
@@ -3164,14 +3355,16 @@ impl Render {
         }
     }
 
-    /// 2017-18: the table kept when a match begins (also written to [`KEPT_TABLE`], so the next run offers it) (the seat state read every frame, the full match state once a
+    /// 2017-18: the table kept when a match begins (also written to [`KEPT_TABLE`], so the next run offers it) (this seat's own match read every frame, the card session once a
     /// second), and RESET LINEUP writing it back like a card move.
     fn lineup(&mut self) {
         if self.st.edition != theme::Edition::E1718 {
             return;
         }
-        // the seat state is cheap: read every frame to catch the match edge before that frame's board change
-        let seat = pause::seat_state().map(|s| s == pause::SEAT_MATCH);
+        // the match state is cheap: read every frame to catch the match edge before that frame's board change (and to
+        // step the latch: seat 19 with the arcade outside 4-6 is seen however short)
+        let (e1718, seat, arcade, armed) = match_state();
+        let seat = seat.map(|_| match_now(e1718, seat, arcade, armed, false));
         let polled = if self
             .match_at
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
@@ -3637,7 +3830,7 @@ fn game_title(who: &str, edition: &str) -> String {
     format!("{who} - Forza-WCCF {}", edition.replace('–', "-"))
 }
 
-/// The biggest visible top-level window of this process: the game's.
+/// The biggest visible top-level window of this process (or the one held hidden through the boot screens): the game's.
 fn game_window() -> Option<HWND> {
     unsafe extern "system" fn each(h: HWND, lp: LPARAM) -> BOOL {
         // SAFETY: `lp` is the `best` below, alive for the enumeration
@@ -3648,7 +3841,7 @@ fn game_window() -> Option<HWND> {
         unsafe {
             GetWindowThreadProcessId(h, Some(&mut pid));
             if pid == GetCurrentProcessId()
-                && IsWindowVisible(h).as_bool()
+                && (IsWindowVisible(h).as_bool() || boot::is_held(h))
                 && GetWindow(h, GW_OWNER).is_err()
                 && GetWindowRect(h, &mut r).is_ok()
             {
@@ -3740,6 +3933,10 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match m {
         WM_FORZA_FS => {
             set_maximized(h, wp.0 != 0);
+            return LRESULT(0);
+        }
+        WM_FORZA_SHOW => {
+            boot::show(h, true, wp.0 == 1, log);
             return LRESULT(0);
         }
         WM_ENTERSIZEMOVE => GAME_SIZING.store(true, Relaxed),
@@ -3948,6 +4145,21 @@ fn modifiers() -> Modifiers {
 
 /// The cabinet actions whose key is down now, `ours` (the keys the panel sent down itself) left out: the async state
 /// follows the key whichever window has the focus.
+/// What the board window shows besides egui's own input: the modifiers (Alt: the keycaps) and the keys held down.
+type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
+
+/// The board window's frame may keep its last picture: not `forced`, drawn before at this size with this input, and
+/// not yet due again.
+fn board_unchanged(
+    last: Option<&((u32, u32), BoardInput, Instant)>,
+    size: (u32, u32),
+    input: &BoardInput,
+    now: Instant,
+    forced: bool,
+) -> bool {
+    !forced && last.is_some_and(|(s, i, due)| *s == size && i == input && now < *due)
+}
+
 fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
     panel::keys_down(keys, |vk| {
         if ours.contains(&vk) {
@@ -4120,7 +4332,10 @@ fn take_off_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{NOTICE_MAX, banner_off, cards, read_notice, side_button, take_off_lines};
+    use super::{
+        Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
+        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, take_off_lines,
+    };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
@@ -4169,6 +4384,123 @@ mod tests {
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x1), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONDOWN, x2), None);
         assert_eq!(side_button(false, false, &d, WM_XBUTTONUP, x2), None);
+    }
+
+    /// A taskbar at the top of the primary monitor (48 high): workspace y 0 is screen y 48, so a place fitted to the
+    /// 1920x1200 work area keeps the work area's size (1152) and its workspace top at 0; on a monitor to the left the
+    /// same offset puts its work area at workspace y -48 to 976.
+    #[test]
+    fn a_saved_place_converts_between_workspace_and_screen() {
+        let work = RECT {
+            left: 0,
+            top: 48,
+            right: 1920,
+            bottom: 1200,
+        };
+        let r = fit_workspace(100, 50, 960, 1232, (0, 48), work);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (100, 0, 1060, 1152));
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 1024,
+        };
+        let r = fit_workspace(-1300, -40, 900, 900, (0, 48), left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, -40, -380, 860));
+    }
+
+    /// A hand-edited board_rect= with numbers near i32's limit neither panics nor wraps: the place comes back with
+    /// a positive size.
+    #[test]
+    fn a_corrupt_saved_place_does_not_overflow() {
+        for (x, y, w, h) in [
+            (2_000_000_000, 0, 2_000_000_000, 100),
+            (i32::MAX, i32::MAX, i32::MAX, i32::MAX),
+            (i32::MIN, i32::MIN, 1, 1),
+        ] {
+            let r = saved_place_fitted(x, y, w, h);
+            assert!(
+                r.right > r.left && r.bottom > r.top,
+                "{x},{y} {w}x{h} -> {r:?}"
+            );
+        }
+    }
+
+    /// The board window's frame is skipped only when it was drawn at this size with this input and is not due yet;
+    /// a resize, a key, Alt, a forced pass (input waiting, sizing, the game's window minimized) or the due time draws.
+    #[test]
+    fn the_board_window_skips_only_unchanged_frames() {
+        let t = Instant::now();
+        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
+        let last = ((944, 891), input, t + Duration::from_millis(100));
+        assert!(
+            !board_unchanged(None, (944, 891), &input, t, false),
+            "never drawn"
+        );
+        assert!(board_unchanged(Some(&last), (944, 891), &input, t, false));
+        assert!(
+            !board_unchanged(Some(&last), (944, 890), &input, t, false),
+            "resized"
+        );
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, t, true),
+            "forced"
+        );
+        let due = t + Duration::from_millis(100);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, due, false),
+            "due"
+        );
+        let mut key = input;
+        key.1[0] = true;
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &key, t, false),
+            "a key held"
+        );
+        let alt = (Modifiers::ALT, input.1);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &alt, t, false),
+            "Alt"
+        );
+    }
+
+    /// A saved board_rect= bigger than the screen or off it (Yoshy's 1920x1200 tablet, 2026-11-09) comes back inside the
+    /// work area; one that fits stays as it was.
+    #[test]
+    fn a_saved_board_place_fits_the_work_area() {
+        let wa = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1152, // 1200 less a 48-pixel taskbar
+        };
+        let inside = |r: RECT| {
+            r.left >= wa.left && r.top >= wa.top && r.right <= wa.right && r.bottom <= wa.bottom
+        };
+        for (x, y, w, h) in [
+            (100, 50, 1100, 1500),    // taller than the work area
+            (-400, -300, 3000, 2000), // bigger both ways, above and left of it
+            (2500, 1300, 960, 1000),  // on a monitor that has gone
+            (1500, 900, 960, 1232),   // hanging over the bottom right
+        ] {
+            let r = fit_place(x, y, w, h, wa);
+            assert!(inside(r), "{x},{y} {w}x{h} -> {r:?}");
+            assert!(r.right - r.left == w.min(1920) && r.bottom - r.top == h.min(1152));
+        }
+        let fits = fit_place(200, 40, 960, 1100, wa);
+        assert_eq!(
+            (fits.left, fits.top, fits.right, fits.bottom),
+            (200, 40, 1160, 1140)
+        );
+        // a second monitor to the left: its own coordinates
+        let left = RECT {
+            left: -1280,
+            top: 0,
+            right: 0,
+            bottom: 984,
+        };
+        let r = fit_place(-1300, 10, 960, 1232, left);
+        assert_eq!((r.left, r.top, r.right, r.bottom), (-1280, 0, -320, 984));
     }
 
     /// A notice taken off early says so in the log (the live run of 2026-11-07 saw no line when the server withdrew
@@ -4235,7 +4567,9 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
+    use super::{
+        armed_after, big_enough, clock_text, game_point, game_title, match_now, notice_waits,
+    };
     use egui::{Rect, pos2};
 
     #[test]
@@ -4291,36 +4625,82 @@ mod tests {
     #[test]
     fn import_is_refused_only_in_this_seats_match() {
         assert!(
-            !match_now(true, Some(3), Some(5), false),
+            !match_now(true, Some(3), Some(5), false, false),
             "another seat plays"
         );
-        assert!(match_now(true, Some(19), Some(5), false));
-        assert!(match_now(true, Some(19), Some(3), false));
-        assert!(match_now(true, Some(19), None, false));
-        // the seat flag the game leaves on after a match or a cancelled matching is not a match
-        assert!(!match_now(true, Some(19), Some(1), false), "menus");
-        assert!(!match_now(true, Some(19), Some(7), false), "result screen");
-        assert!(match_now(true, None, Some(5), false));
-        assert!(!match_now(true, None, Some(1), false));
-        assert!(match_now(false, None, Some(4), false));
-        assert!(!match_now(false, None, Some(7), false));
-        assert!(match_now(false, None, None, true));
-        assert!(match_now(true, Some(3), Some(1), true));
+        // seat 19 entered before this cycle began (armed): MATCHING to GAME_RESULT_WAIT is its match
+        assert!(match_now(true, Some(19), Some(4), true, false));
+        assert!(match_now(true, Some(19), Some(6), true, false));
+        assert!(match_now(true, Some(19), None, false, false));
+        // the seat flag the game leaves on after a match or a cancelled matching is not a match: boot, the menus,
+        // CR_DATA_WAIT, the next match's placement screen (MATCHING_WAIT) with the last match's value left on, the result
+        assert!(!match_now(true, Some(19), Some(0), true, false), "boot");
+        assert!(!match_now(true, Some(19), Some(1), true, false), "menus");
+        assert!(
+            !match_now(true, Some(19), Some(2), true, false),
+            "CR_DATA_WAIT"
+        );
+        assert!(
+            !match_now(true, Some(19), Some(3), true, false),
+            "placement"
+        );
+        assert!(
+            !match_now(true, Some(19), Some(7), true, false),
+            "result screen"
+        );
+        assert!(match_now(true, None, Some(5), false, false));
+        assert!(!match_now(true, None, Some(1), false, false));
+        assert!(match_now(false, None, Some(4), false, false));
+        assert!(!match_now(false, None, Some(7), false, false));
+        assert!(match_now(false, None, None, false, true));
+        assert!(match_now(true, Some(3), Some(1), false, true));
+    }
+
+    /// Seat 19 begins in the Meeting Room's wait: a seat that enters it while the arcade plays another cycle's match
+    /// (the projector's CPU match, 0.7.3 play test) is not in a match until its own cycle; leaving 19 resets that.
+    #[test]
+    fn a_seat_that_joins_during_the_arcades_match_waits_unlocked() {
+        // (seat, arcade) polls -> own match
+        let run = [
+            (Some(3), Some(5), false),  // menus while the projector's CPU match runs
+            (Some(19), Some(5), false), // Meeting Room, "Next match in": the play test
+            (Some(19), Some(6), false),
+            (Some(19), Some(7), false), // that cycle ends: armed
+            (Some(19), Some(1), false), // the next cycle's ENTRY
+            (Some(19), Some(3), false), // placement (MATCHING_WAIT)
+            (Some(19), Some(4), true),  // own match
+            (Some(19), Some(5), true),
+            (Some(19), Some(6), true),
+            (Some(19), Some(7), false),
+            (Some(8), Some(5), false), // left the sequence: disarmed
+            (Some(19), Some(5), false),
+            (Some(19), Some(6), false),
+        ];
+        let mut armed = false;
+        for (i, (seat, arcade, want)) in run.into_iter().enumerate() {
+            armed = armed_after(armed, seat, arcade);
+            assert_eq!(
+                match_now(true, seat, arcade, armed, false),
+                want,
+                "poll {i}: seat {seat:?}, arcade {arcade:?}"
+            );
+        }
     }
 
     /// The server's notice waits for this seat's match, not for the card session: the club office and the menus between
-    /// matches keep it on (2017-18 keeps the card in for the whole session), and a match takes it off.
+    /// matches keep it on, and a match takes it off. 2017-18 has no club card file, so a card-in answer is stale input
+    /// there and the gate reads the match alone.
     #[test]
     fn the_notice_waits_for_the_match_not_the_card() {
         // match_check's answers for this seat in an arcade state, the card in or not (its third field is the log line)
         let check = |seat: Option<u32>, arcade: Option<u32>, card: bool| {
             (
-                match_now(true, seat, arcade, card),
-                match_now(true, seat, arcade, false),
+                match_now(true, seat, arcade, true, card),
+                match_now(true, seat, arcade, true, false),
                 String::new(),
             )
         };
-        // the card in, no match (the menus): match_check calls it busy for the club card alone, this gate does not
+        // the card in, no match (the menus): match_check calls it busy for the card session alone, this gate does not
         let office = check(Some(19), Some(1), true);
         assert_eq!((office.0, office.1), (true, false), "the card in, no match");
         assert!(!notice_waits(office), "the notice shows there");
@@ -4330,7 +4710,7 @@ mod tests {
         // another seat's match: the office keeps the notice
         assert!(!notice_waits(check(Some(3), Some(5), false)));
         // a card session is still a match for IMPORT LINEUP, which asks a different question
-        assert!(match_now(true, Some(19), Some(1), true));
+        assert!(match_now(true, Some(19), Some(1), true, true));
     }
 
     /// The game's windows are ANSI: the whole edition survives as ASCII.

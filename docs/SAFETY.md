@@ -31,6 +31,12 @@ Each guard covers the IP-helper calls listed here. It is not a general sandbox.
   not patched) and, the first time a program tries a blocked address,
   `pid=<pid> blocked publisher address <a.b.c.d>:<port> (connect|sendto), later attempts refused unlogged`; later
   attempts at the same address from the same program are refused without a line.
+- `wccfnet.dll` also keeps the 2017–18 client's window hidden through the boot screens (seat 1 and the projector, the
+  client studied only): it points the program's `ShowWindow` import at itself, holds the one first show of the game
+  window and puts the import back at once; every other call passes through, and a check that fails leaves the import
+  alone. The panel shows the window at the start warning picture, and 60 s after the hold the window shows anyway.
+  `wccfnet.log` has `boot hold: ShowWindow import patched` and `boot hold: window ... kept hidden`, or a `refused`
+  line; `boot hold: no reveal from the panel in 60 s` means the fallback showed it. No network call is involved.
 - To confirm a run: the 32-bit module list shows `wccfnet.dll` in the control program and in both clients, and
   `forza_panel.dll` in seat 1 and the projector; `wccfnet.log` has `publisher addresses hooked in: connect=1 sendto=1`
   for each program and no `blocked publisher address` line in a normal run (a line means a program tried to reach the

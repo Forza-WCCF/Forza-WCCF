@@ -2,6 +2,7 @@
 //! CI's build-test runs them with the rest (the drawn screens are in `snapshots`).
 
 use egui::Vec2;
+use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use forza_ui::Lang;
 use forza_ui::theme::{self, Edition};
@@ -16,11 +17,11 @@ fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_
         (
             Edition::E1011,
             "Choose pack…",
-            "Download high-quality pictures",
+            "Download high-quality card pictures",
         ),
         (
             Edition::E1718,
-            "Download high-quality pictures",
+            "Download high-quality card pictures",
             "Choose pack…",
         ),
     ] {
@@ -689,5 +690,79 @@ fn lobby_list_fits_a_short_tab() {
     h.run_steps(6);
     let bottom = h.get_by_label_contains("Server address").rect().bottom();
     assert!(bottom <= 470.0, "the Server address fold ends at {bottom}");
-    assert!(h.get_by_label("HOST VS").rect().top() > h.get_by_label("MILANO CUP").rect().bottom());
+    assert!(
+        h.get_by_label("HOST A VS ROOM").rect().top()
+            > h.get_by_label("MILANO CUP").rect().bottom()
+    );
+}
+
+/// The big card floating over the pitch (the 1440x900 sheet) takes the pointer only on itself and its FRONT | BACK
+/// switch: a click and a drag on a mat card under the rest of the pane reach the mat card.
+#[test]
+fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
+    let size = panel::SIZE;
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    st.file.board_width = None;
+    st.hover_delay = None; // only a click shows a card big
+    let at =
+        |st: &panel::PanelState, s| panel::board_slot_center_1718(sheet, None, &st.board.spots, s);
+    let filled: Vec<usize> = (0..11).filter(|&s| st.board.slots[s].is_some()).collect();
+    // the lowest card: its pane floats over the pitch's top half
+    let a = *filled
+        .iter()
+        .max_by(|&&x, &&y| at(&st, x).y.total_cmp(&at(&st, y).y))
+        .unwrap();
+    let centers: Vec<(usize, egui::Pos2)> = filled.iter().map(|&s| (s, at(&st, s))).collect();
+    let st = std::cell::RefCell::new(st);
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    let area = |h: &Harness, name| h.ctx.memory(|m| m.area_rect(egui::Id::unique(name)));
+    let click = |h: &mut Harness, p: egui::Pos2| {
+        h.drag_at(p);
+        h.run_steps(1);
+        h.drop_at(p);
+        h.run_steps(3);
+    };
+    h.run_steps(4);
+    click(&mut h, centers.iter().find(|c| c.0 == a).unwrap().1);
+    let big = area(&h, "board-big").expect("the card shown big");
+    let live = area(&h, "board-big-card")
+        .unwrap()
+        .union(area(&h, "board-big-switch").unwrap());
+    let (b, at_b) = *centers
+        .iter()
+        .find(|(s, p)| *s != a && big.contains(*p) && !live.expand(4.0).contains(*p))
+        .expect("a mat card under the pane, off its card and switch");
+    // a click on it shows it big instead: the pane leaves its half
+    click(&mut h, at_b);
+    assert_eq!(st.borrow().turned, None, "the big card did not flip");
+    let moved = area(&h, "board-big").expect("the clicked card big");
+    assert!(
+        !moved.contains(at_b),
+        "{b} under {big:?} took no click: {moved:?}"
+    );
+    // a drag from under the pane onto the lowest card swaps them
+    click(&mut h, centers.iter().find(|c| c.0 == a).unwrap().1);
+    assert!(
+        area(&h, "board-big").unwrap().contains(at_b),
+        "the pane over {b} again"
+    );
+    let (na, nb) = (st.borrow().board.number(a), st.borrow().board.number(b));
+    let to = centers.iter().find(|c| c.0 == a).unwrap().1;
+    h.drag_at(at_b);
+    h.run_steps(1);
+    for t in [0.25, 0.5, 0.75, 1.0] {
+        h.hover_at(at_b.lerp(to, t));
+        h.run_steps(1);
+    }
+    h.drop_at(to);
+    h.run_steps(3);
+    let board = &st.borrow().board;
+    assert_eq!(
+        (board.number(a), board.number(b)),
+        (nb, na),
+        "the drag from under the pane swapped them"
+    );
 }
