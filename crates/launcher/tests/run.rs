@@ -1124,6 +1124,13 @@ fn closing_seat_1_ends_the_2017_18_run() {
         "{said}"
     );
     assert!(said.contains("6/6 panels loaded"), "{said}");
+    // the kit's overlay has no catalogue.tsv (an older kit set the folder up before it existed): the start tries to
+    // make one before its first step, as SET UP does; on these stand-ins that build fails, which is only the note
+    let note = said
+        .find("Card catalogue not built")
+        .unwrap_or_else(|| panic!("{said}"));
+    let first = said.find("  1/6 ").unwrap_or_else(|| panic!("{said}"));
+    assert!(note < first, "the build is tried before the first step: {said}");
     assert!(
         std::net::TcpStream::connect(("127.0.0.1", aimedb)).is_ok(),
         "AiMeDB listens"

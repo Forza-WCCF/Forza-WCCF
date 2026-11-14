@@ -97,6 +97,8 @@ struct Shared {
     available: Option<String>, // the tag of a newer release: the notice stays until UPDATE is opened or done
     progress: u32,             // of 1000
     steps: Option<(u32, u32)>, // the run's "N/M" step lines: N of M
+    stage_secs: [f32; 6],      // the seconds a start's steps take on this PC: the bar's pace
+    timed: [f32; 6],           // the start under way's steps, timed as their lines arrive
     began: Option<Instant>,    // the job's start
     stage_at: Option<Instant>, // the last step line
     log: Vec<String>,          // lines for OUTPUT, not shown yet
@@ -123,6 +125,8 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     available: None,
     progress: 0,
     steps: None,
+    stage_secs: forza_ui::widgets::START_SECS,
+    timed: [0.0; 6],
     began: None,
     stage_at: None,
     log: Vec::new(),
@@ -201,6 +205,16 @@ fn stepped(line: &str) {
         let before = s.steps;
         s.steps = Some(s.steps.filter(|&(d, t)| t == m && d >= n).unwrap_or((n, m)));
         if s.steps != before {
+            // a local start's six steps are timed as their lines arrive: the bar of the next start creeps at this pace
+            let took = s.stage_at.map_or(0.0, |a| a.elapsed().as_secs_f32());
+            if m == 6 && took > 0.0 {
+                s.timed[n.saturating_sub(1) as usize] = took;
+                // all six, or nothing: a start that ended early leaves the last measured pace alone
+                if s.timed.iter().all(|t| *t > 0.0) {
+                    s.stage_secs = s.timed;
+                    let _ = launcher::steps::write(&Kit::here(), s.timed);
+                }
+            }
             s.stage_at = Some(Instant::now());
             // a game start (6 steps): name what the player waits for
             if let Some(key) = (m == 6)
@@ -343,6 +357,7 @@ fn start(steps: Vec<Step>) -> bool {
         s.host_guests = None;
         s.began = Some(Instant::now());
         s.stage_at = s.began;
+        s.timed = [0.0; 6];
     }
     poke();
     thread::spawn(move || {
@@ -548,6 +563,12 @@ impl run::Ui for WindowUi {
 
     fn updating_pictures(&self) {
         say(t("launcher.msg_updating_pictures"), 0);
+    }
+
+    /// Step 1 of a start is timed from here: the setup again and the card catalogue before it are not its time, or one
+    /// start after an update would give step 1 most of the next bar's width.
+    fn staged(&self) {
+        shared().stage_at = Some(Instant::now());
     }
 
     fn say(&self, line: &str) {
@@ -813,6 +834,8 @@ impl App {
             |f| f.to_string_lossy().into_owned(),
         );
         RUNNING.store(run::any_on(kit), Ordering::Relaxed);
+        // the bar of a start creeps at the pace this PC's last start took; the estimate until one has timed it
+        shared().stage_secs = launcher::steps::read(kit).unwrap_or(forza_ui::widgets::START_SECS);
         let set_up = set_up(kit);
         if !set_up {
             say(ui_text(text::lang(), "launcher.status_not_set_up", &[]), 0);
@@ -841,6 +864,8 @@ impl App {
             busy: false,
             steps: None,
             clock: (0.0, 0.0),
+            // the bar creeps at this PC's measured pace; the estimate until a start has timed its six steps
+            stage_secs: shared().stage_secs,
             progress: 0.0,
             status: None,
             server_notice: None,
@@ -956,6 +981,7 @@ impl App {
             self.st.clock = s.began.zip(s.stage_at).map_or((0.0, 0.0), |(b, a)| {
                 (a.elapsed().as_secs_f32(), b.elapsed().as_secs_f32())
             });
+            self.st.stage_secs = s.stage_secs;
             self.st.busy = s.busy;
             s.setup_failed = false; // one look's: the next job says its own
             (
