@@ -496,6 +496,36 @@ fn listed_rooms_join_by_id_private_ones_by_code_only() {
     }
 }
 
+/// A server-run arcade (forza-arcade, `CREATE seatless`) plays no game: its host takes no room seat, so the row shows
+/// 0/8 empty and 8/8 with 8 guests on seats 1-8, and a 9th is refused. A player's room still counts its host (above).
+#[test]
+fn a_seatless_host_lists_0_of_8_and_seats_8_guests() {
+    let d = desk(|c| c.vs = None);
+    let a = d.addr();
+    let id = match lobby::create_seatless_arcade(a, &tunnel_id(1), true, "Universal Cup").unwrap() {
+        Created::Room { id, seat: 0, .. } => id,
+        r => panic!("{r:?}"),
+    };
+    let row = || {
+        let l = Lobby::parse(&say(a, "LOBBY 2017-18")).unwrap();
+        let r = l.arcades.into_iter().find(|s| s.id == id).expect("listed");
+        (r.seats, r.max, r.state)
+    };
+    assert_eq!(row(), (0, 8, lobby::State::Open), "empty: 0/8");
+    for n in 1..=8u8 {
+        assert!(
+            matches!(lobby::join_arcade(a, &id, None).unwrap(), Reserved::Ticket { seat, .. } if seat == n),
+            "guest {n}"
+        );
+    }
+    assert_eq!(row(), (8, 8, lobby::State::Full));
+    assert_eq!(
+        lobby::join_arcade(a, &id, None).unwrap(),
+        Reserved::Full,
+        "a 9th"
+    );
+}
+
 /// One address holds at most 2 arcade rooms (and 8 VS rooms: players behind one NAT) at once, and one tunnel id one
 /// room; closing one makes room again.
 #[test]
