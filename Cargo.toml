@@ -118,8 +118,13 @@ codegen-units = 1
 # small programs stayed clean. Same lever as the programs above: keep their code small, and the shape that trips
 # the model goes with it. `lto` cannot be set per package; the workspace keeps thin LTO.
 [profile.release.package.launcher]
+# 2026-11-14: opt-level "z" with one codegen unit was what cleared this program in 0.6.2, yet both 0.7.3 re-cuts came
+# back as Trojan:Win32/Wacatac.B!ml and .C!ml on VirusTotal (35 291 136 bytes each, the local Defender clean on both),
+# while the panel's sixteen codegen units (#250) read clean in the same cuts. Sixteen units reshape the same sources
+# here too: the built file (7bee6ef1, 35 351 040 bytes) is undetected, 1/75 (Trapmine, not Microsoft). Measure a build
+# with a VirusTotal analysis before changing this again (docs/RELEASING.md, "Antivirus verdicts").
 opt-level = "z"
-codegen-units = 1
+codegen-units = 16
 
 [profile.release.package.forza-panel]
 # 2026-11-12: opt-level "z" with one codegen unit above was what cleared this DLL in 0.6.2, yet the 0.7.3 re-cut
