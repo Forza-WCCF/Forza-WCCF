@@ -26,6 +26,21 @@ use windows_sys::Win32::System::Memory::{PAGE_PROTECTION_FLAGS, PAGE_READWRITE, 
 use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 
+/// The 2017-18 client studied (`client_Release.exe`, SHA-256 8b55456f... before setup): its PE header's TimeDateStamp
+/// and SizeOfImage. wccfnet's boot hold and the panel's patches act on this build only.
+pub const CLIENT_1718_STAMP: (u32, u32) = (0x5AAA_3F0A, 0x06C8_E000);
+
+/// The window property between wccfnet.dll and the panel while the 2017-18 client's window is held hidden through
+/// the boot screens. Value 1: wccfnet holds it and its fallback shows the window; value 2: the panel holds it, and the
+/// fallback posts [`WM_BOOT_SHOW`] so the panel shows it (with the projector setting). Whoever removes it shows the
+/// window.
+pub const BOOT_PROP: *const u16 = windows_sys::core::w!("ForzaWCCF.BootHidden");
+/// The value of [`BOOT_PROP`] while the panel holds the window.
+pub const BOOT_PANEL: usize = 2;
+/// The panel's window message that shows the held window on its own thread (WM_APP + 0x5A); wParam 1 = wccfnet's
+/// fallback sent it.
+pub const WM_BOOT_SHOW: u32 = 0x8000 + 0x5A;
+
 /// How an import is named in the table: most by name, the games' winsock calls by ordinal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum By<'a> {
