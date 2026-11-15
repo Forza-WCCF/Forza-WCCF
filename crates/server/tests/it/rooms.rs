@@ -782,3 +782,44 @@ fn no_arcade_rooms_on_2010_11() {
     assert!(say(d.addr(), &format!("CREATE shop {}", tunnel_id(1))).starts_with("ERR"));
     assert!(say(d.addr(), "JOIN K7QMZDRX").starts_with("ERR"));
 }
+
+/// `OCCUPANCY` (the deploy's loopback admin ask) counts private rooms the lobby never lists; a room made from this
+/// machine (the hourly cup's host) counts its guests, not its host seat. Players' rooms from other addresses:
+/// `arcade_room.rs` `seated_counts_private_rooms_and_skips_only_this_machine_s_host_seat` (here every room is
+/// loopback's).
+#[test]
+fn occupancy_counts_every_room_from_loopback_only() {
+    let d = desk(|_| {});
+    let a = d.addr();
+    assert_eq!(
+        say(a, "OCCUPANCY"),
+        "OCCUPANCY players=0 desk=0 arcade=0 vs=0 cup=0"
+    );
+    let (_, code, _) = arcade_room(a, &tunnel_id(1), false);
+    assert_eq!(
+        say(a, "OCCUPANCY"),
+        "OCCUPANCY players=0 desk=0 arcade=0 vs=0 cup=0",
+        "the host seat"
+    );
+    assert!(say(a, &format!("JOIN {code}")).starts_with("TICKET "));
+    let l = lobby::fetch(a, "2017-18").unwrap();
+    assert!(
+        l.arcades.iter().all(|r| !r.room),
+        "the private room is not listed"
+    );
+    assert_eq!(
+        say(a, "OCCUPANCY"),
+        "OCCUPANCY players=1 desk=0 arcade=0 vs=0 cup=1"
+    );
+    room(a, false);
+    assert_eq!(
+        say(a, "OCCUPANCY"),
+        "OCCUPANCY players=2 desk=0 arcade=0 vs=1 cup=1"
+    );
+    let t = desk(|c| c.tunnel = true);
+    assert_eq!(
+        say(t.addr(), "OCCUPANCY"),
+        "ERR admin",
+        "behind a tunnel loopback is guests"
+    );
+}

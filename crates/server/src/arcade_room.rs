@@ -369,6 +369,20 @@ impl ArcadeRooms {
             })
             .collect()
     }
+
+    /// Seats taken in every room, public or private: (players in rooms whose creator's address is not `own`, guests
+    /// in rooms it is). A room made from `own` (this machine: the hourly cup's `forza-arcade host --lobby 127.0.0.1`)
+    /// has a program on its host seat, so only its guests are players. Never by the room's name, which any host
+    /// chooses.
+    pub fn seated(&self, own: impl Fn(&str) -> bool) -> (usize, usize) {
+        self.rooms.iter().fold((0, 0), |(rooms, cup), r| {
+            if own(&r.by) {
+                (rooms, cup + r.seats.len().saturating_sub(1))
+            } else {
+                (rooms + r.seats.len(), cup)
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -651,5 +665,37 @@ mod tests {
             json.contains("\"seats\":2") && json.contains("\"max\":8"),
             "{json}"
         );
+    }
+
+    /// `OCCUPANCY` counts every room's seats, private ones included; the cup's host seat is known by the creator's
+    /// address, so a player's room under the cup's name still counts in full.
+    #[test]
+    fn seated_counts_private_rooms_and_skips_only_this_machine_s_host_seat() {
+        let own = |by: &str| by == "127.0.0.1";
+        assert_eq!(ArcadeRooms::default().seated(own), (0, 0), "empty desk");
+        let (mut r, now, _) = room(false);
+        let end = now + Duration::from_secs(60);
+        r.join("K7QMZDRX", None, "tg".into(), end);
+        assert!(r.listed().is_empty());
+        assert_eq!(r.seated(own), (2, 0), "a private room's host and guest");
+        let cup = |r: &mut ArcadeRooms, code: &str, by: &str| {
+            r.create(
+                format!("c{code}"),
+                code.into(),
+                &key(3),
+                by,
+                None,
+                true,
+                "Universal Cup every hour".into(),
+                format!("t{code}"),
+                end,
+            );
+        };
+        cup(&mut r, "CUPCUPCU", "127.0.0.1");
+        assert_eq!(r.seated(own), (2, 0), "the cup's host seat is no player");
+        r.join("CUPCUPCU", None, "tc".into(), end);
+        assert_eq!(r.seated(own), (2, 1), "a cup guest is");
+        cup(&mut r, "SPOOFSPO", "10.0.0.9");
+        assert_eq!(r.seated(own), (3, 1), "a player's room named as the cup");
     }
 }
