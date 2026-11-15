@@ -6,6 +6,7 @@
 //! then `PING` -> `PONG`. `RELEASE t` -> `OK` | `GONE` drops a lobby reservation. `REPORT ...` (older Launchers' problem
 //! reports) -> `NO ...`: logs are not collected, players save them and send them themselves. `CLUB PUT|GET|DONE ...`:
 //! a 2017-18 arcade guest's club to the host's store and back ([`forza::online::club`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
+//! `OCCUPANCY` (admin, loopback only) -> `OCCUPANCY players=N ...`: every room's players, private ones too.
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
@@ -41,10 +42,13 @@ const MAX_OPEN: usize = 512;
 /// desk behind a 2017-18 arcade tunnel ([`DeskConfig::tunnel`]): there every guest arrives as 127.0.0.1, and the
 /// tunnel holds each guest to a few streams itself (`vslink::arcade`), so one address is many players.
 fn per_address(tunnel: bool, ip: &str) -> bool {
-    !(tunnel
-        && ip
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|a| a.is_loopback()))
+    !(tunnel && loopback(ip))
+}
+
+/// Whether `ip` (an address as the desk keeps it, without the port) is this machine.
+fn loopback(ip: &str) -> bool {
+    ip.parse::<std::net::IpAddr>()
+        .is_ok_and(|a| a.is_loopback())
 }
 
 #[derive(Clone, Debug)]
@@ -644,6 +648,9 @@ fn session(
             return out.write_all(b"ERR rooms are on the lobby\n");
         }
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
+        // admin, from this machine only, and never behind a tunnel (there loopback is the guests)
+        ["OCCUPANCY"] if !sh.cfg.tunnel && loopback(ip) => return occupancy(sh, &mut out),
+        ["OCCUPANCY"] => return out.write_all(b"ERR admin\n"),
         ["RESERVE" | "CREATE" | "JOIN", ..] if sh.slow(ip, Instant::now()) => {
             return out.write_all(b"ERR slow\n");
         }
@@ -941,6 +948,32 @@ fn used(sh: &Shared, st: &State) -> Vec<u8> {
                 || game.contains_key(&u32::from(*s))
         })
         .collect()
+}
+
+/// `OCCUPANCY` (loopback admin, the ovh1 deploy's `apply-idle`): who is on this desk, in one line,
+/// `OCCUPANCY players=N desk=D arcade=A vs=V cup=C`, N the sum. desk: the lobby row's seats (leases, reservations,
+/// game-server cards); arcade: every arcade room's seats, public or private, but those of rooms made from this
+/// machine; vs: VS room seats; cup: the guests of rooms made from this machine (the hourly cup's host program sits
+/// on their seat 1). Unlike `LOBBY` it is never cached and lists private rooms.
+fn occupancy(sh: &Shared, out: &mut TcpStream) -> io::Result<()> {
+    let line = {
+        let mut st = lock(&sh.state);
+        expire(sh, &mut st, Instant::now());
+        let desk = used(sh, &st)
+            .len()
+            .max(sh.cfg.sessions.as_ref().map_or(0, |s| s.cards()));
+        let vs: usize = st
+            .rooms
+            .iter()
+            .map(|r| r.seats.iter().flatten().count())
+            .sum();
+        let (arcade, cup) = st.arcades.seated(loopback);
+        format!(
+            "OCCUPANCY players={} desk={desk} arcade={arcade} vs={vs} cup={cup}\n",
+            desk + arcade + vs + cup
+        )
+    };
+    out.write_all(line.as_bytes())
 }
 
 /// `LOBBY edition`: this desk's arcade as the one JSON line, then the hang-up. The answer holds no address, card
