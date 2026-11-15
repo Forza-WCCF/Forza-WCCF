@@ -58,9 +58,10 @@ enum Task {
         /// `text`: the scrub, the script-host check and the installer docs' word check; no build (docs-only changes)
         #[arg(value_parser = ["quick", "ci", "text"])]
         mode: Option<String>,
-        /// What `quick` diffs against (its merge-base with HEAD, plus the working tree)
-        #[arg(long, default_value = QUICK_BASE)]
-        base: String,
+        /// What `quick` diffs against (its merge-base with HEAD, plus the working tree; default `main`). `ci`: the
+        /// 2010-11 hooks only when a 2010-11 path changed since it; without it (the weekly run) or with `--release`, always
+        #[arg(long)]
+        base: Option<String>,
         /// Build the kits and run the tests in the `fast` profile (the default for `quick` without CI); the full check and `ci` use release and `ci`
         #[arg(long, conflicts_with = "release")]
         fast: bool,
@@ -536,8 +537,8 @@ fn hook_feature(e1011: bool) -> &'static str {
 }
 /// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
-/// winmm.dll) only when a change touches one of these; the full check, `check ci` (main, schedule, releases),
-/// `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
+/// winmm.dll) only when a change touches one of these, and so does `check ci --base` ([`ci_builds_1011`]); the full
+/// check, `check ci` without `--base` or with `--release` (the weekly run, releases), `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
 /// code), and so do the toolchain and the locked crates. Package-less 2010-11 files (README, deploy scripts) are only
 /// staged or linted, by `check ci` and the lint job alike.
 const PATHS_1011: &[&str] = &[
@@ -555,6 +556,12 @@ const PATHS_1011: &[&str] = &[
     "rust-toolchain.toml",
     ".cargo/",
 ];
+
+/// Whether `check ci` builds the 2010-11 hooks: always for `--release` (what players get) or when the changes are
+/// unknown (`None`: no `--base`, as in the weekly run, or no merge base with it), else when [`touches_1011`].
+fn ci_builds_1011(release: bool, files: Option<&str>) -> bool {
+    release || files.is_none_or(touches_1011)
+}
 
 /// A changed file (one per line, git's spelling) is in [`PATHS_1011`].
 fn touches_1011(files: &str) -> bool {
@@ -669,12 +676,31 @@ fn run(task: Task, root: &Path) -> Result<()> {
                 in_ci() || wrapped,
             ));
             match mode.as_deref() {
-                Some("quick") => return quick(&root, &stage_root, &kit, &kit_1718, &base),
+                Some("quick") => {
+                    let base = base.as_deref().unwrap_or(QUICK_BASE);
+                    return quick(&root, &stage_root, &kit, &kit_1718, base);
+                }
                 Some("text") => return check_text(&root),
                 _ => {}
             }
-            build_all(&root, &kit, &kit_1718, true)
-                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, &test_args))
+            // the full check always builds the 2010-11 hooks; `ci` only for a 2010-11 change since `--base`
+            let files = match base.as_deref() {
+                Some(b) if ci => changed_files(&root, b)?,
+                _ => None,
+            };
+            let e1011 = !ci || ci_builds_1011(release, files.as_deref());
+            if ci {
+                println!(
+                    "ci: 2010-11 hooks {}",
+                    if e1011 {
+                        "in (no --base, --release or a 2010-11 path changed)"
+                    } else {
+                        "skipped (no 2010-11 path changed since --base)"
+                    }
+                );
+            }
+            build_all(&root, &kit, &kit_1718, e1011)
+                .and_then(|()| check(&root, &stage_root, &kit, &kit_1718, ci, e1011, &test_args))
         }
         Task::Test { package, test_args } => {
             // the profile `quick` picks, so a per-commit run reuses the gate's build tree instead of compiling a `fast` one
@@ -1452,7 +1478,7 @@ fn verify(root: &Path, base: &str) -> i32 {
     } else {
         let quick = Task::Check {
             mode: Some("quick".into()),
-            base: base.to_owned(),
+            base: Some(base.to_owned()),
             fast: false,
             release: false,
             test_args: vec![],
@@ -2073,13 +2099,18 @@ fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
 }
 
 /// The staged kits must hold the built programs and the test programs.
-fn ensure_built(kit: &Path, kit_1718: &Path) -> Result<()> {
-    for p in PROGRAMS.iter().chain(&[
-        "source/build/fakegame.exe",
-        "source/build/fakegame_iphlp.exe",
-        "source/build/test_dhcphook.exe",
-        "source/build/crashme.exe",
-    ]) {
+/// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (build_all removes it without).
+fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    for p in PROGRAMS
+        .iter()
+        .filter(|p| e1011 || **p != "programs/wccfk.dll")
+        .chain(&[
+            "source/build/fakegame.exe",
+            "source/build/fakegame_iphlp.exe",
+            "source/build/test_dhcphook.exe",
+            "source/build/crashme.exe",
+        ])
+    {
         ensure!(
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
@@ -2130,7 +2161,7 @@ fn cargo_step(what: &str, mut c: Command, failed: &mut Vec<String>) {
 }
 
 /// The workspace's format and lint (the toolchain from rust-toolchain.toml, read in the root).
-fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
+fn fmt_clippy(root: &Path, e1011: bool, failed: &mut Vec<String>) {
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     cargo_step("workspace: cargo fmt", fmt, failed);
@@ -2146,7 +2177,7 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
     ]);
     cargo_step("workspace: cargo clippy", clippy, failed);
     // the 32-bit crates, which are empty on x86_64: as `build` builds them, the hook once per edition
-    for (i, (feature, _, _)) in HOOKS.iter().enumerate() {
+    for (i, (feature, _, _)) in hooks(e1011).enumerate() {
         let mut clippy = rust("clippy", root);
         clippy.args([
             "--locked",
@@ -2166,19 +2197,20 @@ fn fmt_clippy(root: &Path, failed: &mut Vec<String>) {
     }
 }
 
-/// `ci`: the GPU snapshot tests are skipped.
+/// `ci`: the GPU snapshot tests are skipped. `e1011`: the 2010-11 hooks were built and are linted and tested.
 fn check(
     root: &Path,
     stage_root: &Path,
     kit: &Path,
     kit_1718: &Path,
     ci: bool,
+    e1011: bool,
     test_args: &[String],
 ) -> Result<()> {
     // one check at a time on this PC: the tests use fixed local ports (the relay on 20941, the seat desk on 20932-20936),
     // and two checks at once (two worktrees) failed each other's relay checks
     let _lock = check_lock()?;
-    ensure_built(kit, kit_1718)?;
+    ensure_built(kit, kit_1718, e1011)?;
     stage(root, kit, MAP, KEEP)?;
     let mut ck = Checks {
         kit: kit.to_owned(),
@@ -2186,11 +2218,11 @@ fn check(
         failed: vec![],
         unstarted: false,
     };
-    windows_tests(&mut ck, kit, kit_1718, true)?;
+    windows_tests(&mut ck, kit, kit_1718, e1011)?;
     launcher_imports(&mut ck, kit_1718);
 
     // the Rust workspace, xtask included: format, lint, tests
-    fmt_clippy(root, &mut ck.failed);
+    fmt_clippy(root, e1011, &mut ck.failed);
     // the 64-bit workspace, then the 32-bit crates (the panel; FPR_Emu's table file and frame; the hook's tests run on
     // x86_64 too)
     let native: Vec<&str> = [
@@ -2199,7 +2231,7 @@ fn check(
         "-p",
         "forza-hook",
         "--features",
-        HOOKS[0].0,
+        hook_feature(e1011),
     ]
     .into_iter()
     .chain(NATIVE_CRATES.iter().copied())
@@ -4166,6 +4198,16 @@ mod tests {
         assert_eq!(hooks(false).count(), 2);
         assert!(hooks(false).all(|(f, _, _)| f.contains("e1718")));
         assert_eq!(hooks(true).count(), HOOKS.len());
+    }
+
+    #[test]
+    fn check_ci_skips_the_2010_11_hooks_only_for_a_known_2017_18_change() {
+        let only_1718 = Some("crates/launcher/src/lib.rs\n");
+        assert!(!ci_builds_1011(false, only_1718));
+        assert!(ci_builds_1011(false, Some("native/hook/src/lib.rs\n")));
+        // no --base (the weekly run) or no merge base: everything; --release: what players get
+        assert!(ci_builds_1011(false, None));
+        assert!(ci_builds_1011(true, only_1718));
     }
 
     #[test]
