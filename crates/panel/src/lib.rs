@@ -1228,11 +1228,27 @@ fn log_fullscreen(h: HWND, on: bool) {
     ));
 }
 
+/// The projector window's close messages, for its log: a bundle then tells a close (the X or Alt+F4: SC_CLOSE first; the
+/// Launcher's stop: WM_CLOSE alone) from the game ending by itself.
+fn proj_close_note(m: u32, wp: WPARAM) -> Option<&'static str> {
+    match m {
+        WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_CLOSE => {
+            Some("projector: window close asked (its X or Alt+F4)")
+        }
+        WM_CLOSE => Some("projector: window closing (WM_CLOSE)"),
+        WM_DESTROY => Some("projector: window destroyed"),
+        _ => None,
+    }
+}
+
 /// The projector's window procedure: its frame (once), F11 and a double-click for borderless full screen, Esc to leave;
 /// everything else is the game's.
 unsafe extern "system" fn proj_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     // the window's own thread only
     thread_local! { static LAST_CLICK: Cell<(u32, i32, i32)> = const { Cell::new((0, 0, 0)) }; }
+    if let Some(note) = proj_close_note(m, wp) {
+        log(note); // the message still goes on to the game
+    }
     match m {
         WM_FORZA_PROJ => {
             projector::frame(h, test_screen(), log);
@@ -4327,9 +4343,9 @@ fn take_off_lines(
 #[cfg(test)]
 mod tests {
     use super::{
-        Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
-        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, table_count,
-        take_off_lines,
+        Duration, Instant, Modifiers, NOTICE_MAX, RECT, WPARAM, banner_off, board_unchanged, cards,
+        fit_place, fit_workspace, proj_close_note, read_notice, saved_place_fitted, side_button,
+        table_count, take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -4341,6 +4357,25 @@ mod tests {
     fn a_table_count_says_how_many_cards_the_board_does_not_show() {
         assert_eq!(table_count(16), "16 card(s)");
         assert_eq!(table_count(20), "20 card(s), 4 not on the board");
+    }
+
+    /// The projector's close messages each get their log line; others none.
+    #[test]
+    fn projector_close_is_logged() {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SC_CLOSE, SC_MINIMIZE, WM_CLOSE, WM_DESTROY, WM_SYSCOMMAND,
+        };
+        let note = |m, w: u32| proj_close_note(m, WPARAM(w as usize));
+        assert!(
+            note(WM_SYSCOMMAND, SC_CLOSE)
+                .unwrap()
+                .contains("X or Alt+F4")
+        );
+        assert!(note(WM_SYSCOMMAND, SC_CLOSE | 2).is_some()); // the low 4 bits are the system's
+        assert!(note(WM_CLOSE, 0).unwrap().contains("WM_CLOSE"));
+        assert!(note(WM_DESTROY, 0).is_some());
+        assert_eq!(note(WM_SYSCOMMAND, SC_MINIMIZE), None);
+        assert_eq!(note(WM_LBUTTONDOWN, 0), None);
     }
 
     /// The side buttons: KEYS' VK_XBUTTON1/2 while a cell waits (also mid-drag, MK_LBUTTON set), the board window's
