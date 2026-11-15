@@ -1229,7 +1229,8 @@ fn log_fullscreen(h: HWND, on: bool) {
 }
 
 /// The projector window's close messages, for its log: a bundle then tells a close (the X or Alt+F4: SC_CLOSE first; the
-/// Launcher's stop: WM_CLOSE alone) from the game ending by itself.
+/// Launcher's stop: WM_CLOSE alone) from the game ending by itself. A hidden projector logs nothing: the Launcher's stop
+/// posts WM_CLOSE only to visible windows (`job::post_close`) and then ends the job.
 fn proj_close_note(m: u32, wp: WPARAM) -> Option<&'static str> {
     match m {
         WM_SYSCOMMAND if (wp.0 as u32 & 0xFFF0) == SC_CLOSE => {
