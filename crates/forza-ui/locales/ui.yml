@@ -793,7 +793,7 @@ launcher.run_no_projector_1011: {en: "no projector here (each PC runs its own ca
 launcher.run_projector_off: {en: "no projector: Projector and CPU championship off", it: "nessun proiettore: Proiettore e campionato CPU disattivati", ja: "プロジェクターなし：プロジェクターとCPU選手権がオフ"}
 launcher.run_projector_hidden: {en: "projector, its window hidden (Projector off)", it: "proiettore, finestra nascosta (Proiettore disattivato)", ja: "プロジェクター、ウィンドウ非表示 (プロジェクター オフ)"}
 launcher.run_no_projector_1718: {en: "no projector here (the server's first PC shows it)", it: "nessun proiettore qui (lo mostra il primo PC del server)", ja: "ここにはプロジェクターはありません (サーバーの最初のPCが表示します)"}
-launcher.run_money_by_game: {en: "projector: money display loaded by the game", it: "proiettore: visualizzazione dei soldi caricata dal gioco", ja: "プロジェクター: 金額表示をゲームが読み込みました"}
+launcher.run_money_by_game: {en: "projector: the game starts the money display itself - data\\logs\\forza_panel_projector.log says if it is on", it: "proiettore: il gioco avvia da solo la visualizzazione dei soldi - data\\logs\\forza_panel_projector.log indica se è attiva", ja: "プロジェクター: 金額表示はゲームが起動します - オンかどうかは data\\logs\\forza_panel_projector.log を確認してください"}
 launcher.run_money_on: {en: "projector: money display on", it: "proiettore: visualizzazione dei soldi attiva", ja: "プロジェクター: 金額表示 オン"}
 launcher.run_money_off: {en: "projector: money display not loaded (%{why})", it: "proiettore: visualizzazione dei soldi non caricata (%{why})", ja: "プロジェクター: 金額表示を読み込めませんでした (%{why})"}
 launcher.run_no_process: {en: "its process was not found", it: "il suo processo non è stato trovato", ja: "そのプロセスが見つかりませんでした"}
