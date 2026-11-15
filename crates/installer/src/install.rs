@@ -805,15 +805,136 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// A zip whose every file holds its own name as bytes.
     fn kit_zip(dir: &Path, name: &str, files: &[&str]) -> PathBuf {
         let path = dir.join(name);
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         for n in files {
             zip.start_file(*n, zip::write::SimpleFileOptions::default())
                 .unwrap();
+            zip.write_all(n.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
         path
+    }
+
+    /// Every file under `dir` with its bytes, by path relative to `dir`.
+    fn tree(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    out.insert(p.strip_prefix(dir).unwrap().into(), fs::read(&p).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// Both editions side by side, each with its game files and the player's save; the 2017-18 root returned.
+    fn two_editions(root: &Path) -> PathBuf {
+        for (id, save) in [("SBWG", "2010-11 save"), ("SDDY", "2017-18 save")] {
+            let (ed, game) = version_paths(root, id).unwrap();
+            fs::create_dir_all(game.join("local")).unwrap();
+            fs::write(game.join("client_Release.exe"), id).unwrap();
+            fs::write(game.join(format!("local/{id}_Table.dat")), id).unwrap();
+            fs::create_dir_all(ed.join("data/save")).unwrap();
+            fs::write(ed.join("data/save/club.bin"), save).unwrap();
+        }
+        version_paths(root, "SDDY").unwrap().0
+    }
+
+    /// The package goes over the 2017-18 install: its top folder stripped, the player's data\ and the 2010-11 tree
+    /// untouched (#302).
+    #[test]
+    fn unpack_kit_keeps_data_and_the_other_edition() {
+        let root = std::env::temp_dir().join(format!("unpack-kit-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let other = version_paths(&root, "SBWG").unwrap().0;
+        let before = tree(&other);
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &[
+                "Forza-WCCF-2017-18/Launcher.exe",
+                "Forza-WCCF-2017-18/bin/x.dll",
+                "Forza-WCCF-2017-18/data/save/club.bin",
+            ],
+        );
+        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        assert_eq!(
+            fs::read(dest.join("Launcher.exe")).unwrap(),
+            b"Forza-WCCF-2017-18/Launcher.exe"
+        );
+        assert!(dest.join("bin/x.dll").is_file() && !dest.join("Forza-WCCF-2017-18").exists());
+        assert_eq!(
+            fs::read(dest.join("data/save/club.bin")).unwrap(),
+            b"2017-18 save"
+        );
+        assert_eq!(tree(&other), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unpack_kit_refuses_a_path_out_of_the_folder() {
+        let root = std::env::temp_dir().join(format!("unpack-unsafe-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("in");
+        fs::create_dir_all(&dest).unwrap();
+        let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll", "../x"]);
+        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        assert_eq!(e.downcast_ref::<E>(), Some(&E::KitUnsafePath));
+        assert!(!root.join("x").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Updating the 2017-18 install from a package (reuse + setup) in a folder with a space and non-ASCII letters: the
+    /// 2010-11 tree and both saves stay byte-identical.  Setup fails here (no control_Release.exe), after the unpack:
+    /// what that leaves is the baseline for #276 (the package's files stay written, nothing is rolled back).
+    #[test]
+    fn an_update_leaves_the_other_edition_identical() {
+        let root = std::env::temp_dir()
+            .join(format!("update-coexist-test-{}", std::process::id()))
+            .join("Forza WCCF àé 日本");
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let other = version_paths(&root, "SBWG").unwrap().0;
+        let before = tree(&other);
+        let kit = kit_zip(
+            root.parent().unwrap(),
+            "k.zip",
+            &["Launcher.exe", "bin/x.dll", "data/save/club.bin"],
+        );
+        let plan = Plan {
+            dest: root.clone(),
+            iso: None,
+            key: None,
+            game_id: Some("SDDY"),
+            verify: false,
+            setup: true,
+            english: false,
+            shortcuts: false,
+            kit: Some(kit),
+            latest: false,
+        };
+        let e = run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err();
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::Script { .. })),
+            "{e:#}"
+        );
+        assert_eq!(tree(&other), before);
+        assert_eq!(
+            fs::read(dest.join("data/save/club.bin")).unwrap(),
+            b"2017-18 save"
+        );
+        // #276 baseline: the failed setup leaves the package's files in place
+        assert!(dest.join("Launcher.exe").is_file() && dest.join("bin/x.dll").is_file());
+        fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
 
     #[test]
