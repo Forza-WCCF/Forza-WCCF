@@ -487,6 +487,45 @@ fn a_click_in_the_catalogue_keeps_the_search_line_focused_and_still() {
     }
 }
 
+/// On the catalogue page the FORMATIONS dialog's name line keeps the keys after a click opens it: typed letters land
+/// in the name, not in the search line drawn under it (the dialog is drawn first, so its last request must win).
+#[test]
+fn catalogue_formations_name_line_keeps_the_keys() {
+    let st = std::cell::RefCell::new(formations_state(Lang::En, false));
+    {
+        let mut st = st.borrow_mut();
+        st.page = panel::Page::Catalogue;
+        st.message = None;
+        let f = st.formations.as_mut().expect("the dialog open");
+        f.naming = Some((2, String::new()));
+    }
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Name for slot 3")
+        .type_text("Cup XI");
+    h.run_steps(4);
+    let s = st.borrow();
+    assert_eq!(
+        s.formations
+            .as_ref()
+            .and_then(|f| f.naming.as_ref())
+            .map(|n| n.1.as_str()),
+        Some("Cup XI"),
+        "the letters land in the name line"
+    );
+    assert_eq!(
+        s.catalogue.filter.search, "ital",
+        "the search line under the dialog keeps its own text"
+    );
+    assert!(
+        h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Name for slot 3")
+            .is_focused(),
+        "the name line keeps the keys"
+    );
+}
+
 /// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
 #[test]
 fn formations_load_refused_in_match_and_save_works() {
