@@ -196,22 +196,9 @@ jobs:
           vt() { curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@"; }
           out=virustotal.md
           printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
-          # One poll of the file object, done when Microsoft has a verdict and the engine count stopped moving: one
-          # poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute. Sets a, ms, bad, mst, engines.
-          poll() {
-            prev=-1; ms=; a=
-            for _ in $(seq 1 45); do
-              sleep 20
-              a=$(vt "$api/files/$sha")
-              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
-              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
-              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
-              prev=$n
-            done
-            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
-            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
-            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
-          }
+          # Every file is looked up and uploaded first, then one poll loop asks about all of them: VirusTotal analyses
+          # them side by side instead of one file after another (about 5 minutes each, the wait this job spends).
+          names=(); shas=(); resp=(); prev=(); settled=()
           fail=0
           for f in dist/*.zip dist/*.exe; do
             [ -e "$f" ] || continue
@@ -227,9 +214,44 @@ jobs:
               fi
               echo "uploaded $name"
             fi
-            # poll the file object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
-            # queued (the 0.6.0 run died there)
-            poll
+            names+=("$name"); shas+=("$sha"); resp+=(""); prev+=(-1); settled+=(0)
+          done
+          # One poll of file $1's object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
+          # queued (the 0.6.0 run died there). It is settled once Microsoft has a verdict and the engine count stopped
+          # moving.
+          sample() {
+            local i=$1 a n ms
+            a=$(vt "$api/files/${shas[i]}")
+            n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
+            ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+            resp[i]=$a
+            if [ -n "$ms" ] && [ "$n" = "${prev[i]}" ]; then settled[i]=1; fi
+            prev[i]=$n
+          }
+          # A sample every 20 s, one file after another: 3 requests a minute, where the free API allows 4. 45 samples per
+          # file, about 15 minutes of analysis, and the loop ends as soon as every file is settled.
+          for _ in $(seq 1 45); do
+            pending=0
+            for i in "${!shas[@]}"; do
+              if [ "${settled[i]}" = 1 ]; then continue; fi
+              pending=1
+              sleep 20
+              sample "$i"
+            done
+            if [ "$pending" = 0 ]; then break; fi
+          done
+          # The verdict fields of file $1's last answer: a, ms (Microsoft's category), mst (its category and result),
+          # bad (engines flagging it), engines (the other engines, named).
+          verdict() {
+            a=${resp[$1]}
+            ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
+            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
+            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
+          }
+          for i in "${!shas[@]}"; do
+            name=${names[i]}; sha=${shas[i]}
+            verdict "$i"
             if [ -z "$ms" ]; then echo "::error::$name: VirusTotal gave no Microsoft result"; echo "$a" | head -c 400; fail=1; continue; fi
             # A Microsoft hit is one engine's opinion of these bytes at this moment, and it moves: 0.6.0's FPR_Emu.exe
             # was flagged at 02:12 and undetected at 03:47 with the same sha256, Launcher.exe and forza_panel.dll
@@ -239,7 +261,14 @@ jobs:
             if [ "$ms" = malicious ] || [ "$ms" = suspicious ]; then
               echo "::warning::$name: Microsoft said $mst; asking VirusTotal for a fresh analysis"
               vt -X POST "$api/files/$sha/analyse" >/dev/null || true
-              poll
+              # the fresh analysis, polled on its own: it is the fail path, so the files beside it get no poll
+              prev[i]=-1; settled[i]=0
+              for _ in $(seq 1 45); do
+                sleep 20
+                sample "$i"
+                if [ "${settled[i]}" = 1 ]; then break; fi
+              done
+              verdict "$i"
               if [ -n "$mst" ]; then echo "::warning::$name: the fresh analysis says $mst"; fi
             fi
             printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$mst" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
