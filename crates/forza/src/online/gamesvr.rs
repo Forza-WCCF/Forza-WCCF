@@ -954,6 +954,13 @@ impl Store {
             "INSERT OR REPLACE INTO requests VALUES (?1, ?2, 277, ?3, ?4)",
             params![aime, coach, &req[..8572], now()],
         )?;
+        // the client offers a contract renewal only below 5 unfinished plays (#267): a finished play clears the count
+        if kind == 2 {
+            tx.execute(
+                "DELETE FROM injustice WHERE aime_id = ?1 AND coach_id = ?2",
+                params![aime, coach],
+            )?;
+        }
         tx.commit()?;
         Ok(true)
     }
@@ -3404,6 +3411,60 @@ mod tests {
         let log: Log = Arc::new(|_: &str| {});
         let (_, body, why) = answer(cmd, p, store, None, &[], None, &log).unwrap();
         (body, why)
+    }
+
+    /// A new club for Aime id 5 in `store`: [aime, coach, card].
+    fn new_club(store: &Mutex<Store>) -> [u32; 3] {
+        let b = ask_store(store, 279, &fixture(279, [5, 0, 0])).0;
+        [5, u32_at(&b, 8), u32_at(&b, 12)]
+    }
+
+    /// Sends a 289 INJUSTICE_COUNT with `delta` for the club `ids` and returns the count it answers.
+    fn injustice(store: &Mutex<Store>, ids: [u32; 3], delta: u32) -> u32 {
+        let mut r = fixture(289, ids);
+        put(&mut r, 16, delta);
+        let (b, why) = ask_store(store, 289, &r);
+        assert_eq!(why, None);
+        u32_at(&b, 8)
+    }
+
+    /// #267: the client offers a contract renewal only below 5 unfinished plays, so an accepted end-of-play save
+    /// clears the club's count; five crashed plays no longer block renewals forever.
+    #[test]
+    fn an_end_of_play_save_clears_the_injustice_count() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let ids = new_club(&store);
+        for n in 1..=5 {
+            assert_eq!(injustice(&store, ids, 1), n);
+        }
+        assert_eq!(u32_at(&ask_store(&store, 277, &fixture(277, ids)).0, 4), 0);
+        assert_eq!(injustice(&store, ids, 0), 0);
+    }
+
+    /// Unfinished plays with no accepted save keep counting.
+    #[test]
+    fn unfinished_plays_keep_the_injustice_count() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let ids = new_club(&store);
+        for _ in 0..5 {
+            injustice(&store, ids, 1);
+        }
+        assert_eq!(injustice(&store, ids, 0), 5);
+    }
+
+    /// A save clears its own club's count only, not another club of the same Aime id.
+    #[test]
+    fn a_save_clears_only_its_own_clubs_injustice_count() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let (a, b) = (new_club(&store), new_club(&store));
+        assert_ne!(a[1], b[1], "two clubs");
+        for _ in 0..5 {
+            injustice(&store, a, 1);
+            injustice(&store, b, 1);
+        }
+        assert_eq!(u32_at(&ask_store(&store, 277, &fixture(277, a)).0, 4), 0);
+        assert_eq!(injustice(&store, a, 0), 0);
+        assert_eq!(injustice(&store, b, 0), 5);
     }
 
     /// A play's start (289 +1) and end (277 with its report) as the log says them; other 289s say nothing.
