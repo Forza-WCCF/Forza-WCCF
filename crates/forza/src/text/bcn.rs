@@ -79,6 +79,10 @@ pub fn decode_dds(dds: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
         return Err("image too large".into());
     }
     let data = &dds[128..];
+    // every format read here takes at least a byte a pixel: a damaged size must not size the allocation
+    if wu * hu > data.len() {
+        return Err("truncated pixel data".into());
+    }
     let mut px = vec![0u8; wu * hu * 4];
     if pff & 0x4 != 0 && fourcc == b"DXT5" {
         let (bw, bh) = (wu.div_ceil(4), hu.div_ceil(4));
@@ -237,6 +241,11 @@ mod tests {
         let (w, h, px) = decode_dds(&dds(3, 5, b"DXT5", &enc)).unwrap();
         assert_eq!((w, h), (3, 5));
         assert_eq!(px, img);
+    }
+
+    #[test]
+    fn a_huge_size_with_no_data_is_refused_before_allocating() {
+        assert!(decode_dds(&dds(16384, 16384, b"DXT5", &[])).is_err());
     }
 
     #[test]
