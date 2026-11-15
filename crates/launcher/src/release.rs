@@ -5,8 +5,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use semver::Version;
-
 /// Where UPDATE looks for releases, answered in the shape of GitHub's releases API (`releases?per_page=30`).
 /// WCCF_UPDATE_URL points it elsewhere (a `.invalid/` address means no target at all).
 pub const UPDATE_URL: &str = "https://api.github.com/repos/Forza-WCCF/Forza-WCCF/";
@@ -34,32 +32,8 @@ pub fn invalid(url: &str) -> bool {
 
 pub use forza::curl::{curl, system32};
 
-/// A version number: v0.3.0 or kit-0.3.0 -> 0.3.0; 8.2 -> 8.2.0; 0.4.0-rc.1 keeps its pre-release part.  Anything else
-/// (a build of a commit: kit-1208d80) -> None.
-pub fn parse(tag: &str) -> Option<Version> {
-    let rest = tag
-        .strip_prefix("kit-")
-        .or_else(|| tag.strip_prefix('v'))
-        .unwrap_or(tag);
-    let (number, tail) = rest.find(['-', '+']).map_or((rest, ""), |i| rest.split_at(i));
-    let mut parts: Vec<&str> = number.split('.').collect();
-    if parts.len() > 3
-        || parts
-            .iter()
-            .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
-    {
-        return None;
-    }
-    while parts.len() < 3 {
-        parts.push("0");
-    }
-    Version::parse(&format!("{}{tail}", parts.join("."))).ok()
-}
-
-/// A test build: a tag with a pre-release part (v0.4.0-rc.1).  GitHub's own prerelease flag does not count.
-pub fn is_test(tag: &str) -> bool {
-    parse(tag).is_some_and(|v| !v.pre.is_empty())
-}
+/// The tag rules the installer shares (`forza::release`).
+pub use forza::release::{is_test, parse};
 
 /// The release `tag` is newer than the version that is here.  A test build, or a version of unknown shape, is never
 /// newer.

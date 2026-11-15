@@ -26,6 +26,8 @@ emath.workspace = true
 # `dds` and `jpeg`: the pictures made from the game (DXT1) and from the high-quality pack (forza::cards::pictures)
 image = { version = "0.25.10", default-features = false, features = ["png", "dds", "jpeg"], optional = true }
 zip.workspace = true
+# release tags (forza::release): their version, test builds by the pre-release part
+semver.workspace = true
 getrandom = "0.3.4"
 tempfile = "3.27.0"
 # setup (2010-11): whether seat 1's hard link is already the game's file

@@ -65,7 +65,6 @@ csv = "1.4.0"
 object.workspace = true
 sha2.workspace = true
 fs4.workspace = true
-semver.workspace = true
 self-replace.workspace = true
 
 [dev-dependencies]

@@ -30,13 +30,19 @@ fn https(a: &Value) -> Option<String> {
     u.starts_with("https://").then(|| u.to_owned())
 }
 
-/// The newest non-draft release (pre-releases included) that has `<prefix>*.zip` and its checksum.
+/// The newest non-draft release by version that has `<prefix>*.zip` and its checksum.  A test build (a tag with a
+/// pre-release part, `forza::release::is_test`) is skipped, as the Launcher's UPDATE skips it; GitHub's own prerelease
+/// flag does not count.  A tag that is no version is skipped too.
 pub fn pick(json: &str, prefix: &str) -> Result<Package> {
     let list: Vec<Value> = serde_json::from_str(json).map_err(|e| E::Download {
         detail: format!("not a list of releases ({e})"),
     })?;
-    let mut best: Option<(&str, Package)> = None;
+    let mut best: Option<(forza::release::Version, Package)> = None;
     for r in list.iter().filter(|r| r["draft"].as_bool() != Some(true)) {
+        let tag = r["tag_name"].as_str().unwrap_or("");
+        let Some(v) = forza::release::parse(tag).filter(|_| !forza::release::is_test(tag)) else {
+            continue;
+        };
         let assets = r["assets"].as_array().map_or(&[][..], |a| a);
         let name = |a: &Value| a["name"].as_str().unwrap_or("").to_owned();
         let Some(zip) = assets.iter().find(|a| {
@@ -60,8 +66,7 @@ pub fn pick(json: &str, prefix: &str) -> Result<Package> {
             continue;
         };
         let Some(sum_url) = https(sum) else { continue };
-        let at = r["published_at"].as_str().unwrap_or("");
-        if best.as_ref().is_none_or(|(b, _)| at > *b) {
+        if best.as_ref().is_none_or(|(b, _)| v > *b) {
             let version = zip_name
                 .strip_prefix(prefix)
                 .and_then(|v| v.strip_suffix(".zip"))
@@ -69,7 +74,7 @@ pub fn pick(json: &str, prefix: &str) -> Result<Package> {
                 .to_owned();
             let zip_size = zip["size"].as_u64().unwrap_or(0);
             best = Some((
-                at,
+                v,
                 Package {
                     version,
                     zip_name,
@@ -280,6 +285,29 @@ mod tests {
             Some(&E::NoPackage)
         );
         assert!(pick("{}", PREFIX_1718).is_err());
+    }
+
+    /// A test build (a tag with a pre-release part, `v0.4.0-rc.1`) is never a new install's package, however recent;
+    /// the newest by version wins, not the last published (#281).
+    #[test]
+    fn a_test_build_is_never_picked() {
+        let r = |tag: &str, at: &str, v: &str| {
+            let z = format!("Forza-WCCF-2017-18-{v}.zip");
+            rel(tag, false, true, at, &[&z, &format!("{z}.sha256")])
+        };
+        let json = list(&[
+            r("v0.3.1", "2026-10-10T00:00:00Z", "0.3.1"),
+            r("v0.4.0-rc.1", "2026-11-01T00:00:00Z", "0.4.0-rc.1"),
+            r("v0.3.0", "2026-10-20T00:00:00Z", "0.3.0"), // an older version published later (a re-upload)
+        ]);
+        assert_eq!(pick(&json, PREFIX_1718).unwrap().version, "0.3.1");
+        let only_test = list(&[r("v0.4.0-rc.1", "2026-11-01T00:00:00Z", "0.4.0-rc.1")]);
+        assert_eq!(
+            pick(&only_test, PREFIX_1718)
+                .unwrap_err()
+                .downcast_ref::<E>(),
+            Some(&E::NoPackage)
+        );
     }
 
     #[test]
