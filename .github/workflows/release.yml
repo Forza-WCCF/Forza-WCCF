@@ -93,6 +93,9 @@ jobs:
     env:
       # empty on a tag push: cargo xtask then takes the tag; set, it wins over git (xtask/src/main.rs version())
       FORZA_VERSION: ${{ inputs.version }}
+      # the toolset this PC builds clean with, not the image's newest (14.51, flagged with Microsoft's Wacatac.C!ml on
+      # the products): cc reads it through find-msvc-tools and so does rustc's linker lookup, for x64 and i686 alike
+      VCToolsVersion: 14.44.35207
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
