@@ -45,7 +45,8 @@ builds on plain Linux (`cargo build --release -p forza-server`).
    cargo xtask check          # fmt, clippy, tests, the guard and hook test programs, the run tests, the publisher-name grep
    cargo xtask check quick    # only the crates changed since the base branch (`fast` profile; rebuilds a stale kit;
                               # no GPU snapshot tests, which the dev-profile command in "Faster builds" runs)
-   cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release)
+   cargo xtask check ci       # what CI runs: check without the GPU snapshot tests, ci profile (--release: release;
+                              # --base <ref>: the 2010-11 hooks only when a 2010-11 path changed since it)
    cargo xtask test -p forza  # the tests of one crate, built as `check quick` builds them (same target, profile and
                               # rustflags): a per-commit run reuses that build tree instead of making a second one;
                               # a staged kit older than the sources only prints a warning (`cargo xtask build`)
@@ -66,10 +67,10 @@ builds on plain Linux (`cargo build --release -p forza-server`).
 
    - `cargo xtask build` and `cargo xtask check quick` use the `fast` profile when `CI` is unset: release code without
      LTO, and the tests share its dependencies (`--release` forces release; `--fast` forces `fast`, also under CI,
-     and for the full `check`). For local test kits only. CI's `check ci` builds the `ci` profile (the same without
-     incremental, so its cache holds no incremental data); the weekly run, the full `check` and
-     `cargo xtask package` build `release`. `check quick` rebuilds the staged kit first when a source is newer than
-     the last build, so the launcher and panel tests never run against a stale DLL.
+     and for the full `check`). For local test kits only. CI's `check ci` builds the `ci` profile (opt-level 1, not
+     incremental, so its cache holds no incremental data; the release profile's per-package settings stay); the
+     weekly run, the full `check` and `cargo xtask package` build `release`. `check quick` rebuilds the staged kit
+     first when a source is newer than the last build, so the launcher and panel tests never run against a stale DLL.
    - [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`): `check` runs the tests with it when
      it is installed, one process per test on all cores. Arguments after `--` go to it, e.g.
      `cargo xtask check ci -- --partition count:1/2`.

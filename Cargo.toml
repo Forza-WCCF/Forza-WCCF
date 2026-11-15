@@ -158,12 +158,17 @@ inherits = "release"
 lto = false
 incremental = true
 
-# `cargo xtask check ci` (CI's pull requests and pushes to main): release code without LTO, not incremental, and the
-# tests in the same profile, so each dependency compiles once. The weekly run (`check ci --release`) and
-# `cargo xtask package` build release, what players get.
+# `cargo xtask check ci` (CI's pull requests and pushes to main) and `check quick` with sccache: built for test speed,
+# not size, with the tests in the same profile, so each dependency compiles once. Not incremental: sccache caches only
+# that. The per-package overrides of [profile.release] (the programs, Launcher, panel, installer, dmath.dll at "z") are
+# inherited, so the programs CI scans with Defender keep their shape and dmath.dll its build (det-math ALL c4ca5aec in
+# both). The weekly run (`check ci --release`) and `cargo xtask package` build release, what players get.
 [profile.ci]
 inherits = "release"
 lto = false
+opt-level = 1
+codegen-units = 16
+incremental = false
 
 # FreeType 2.13.3 for the pictures with writing (vendor/freetype-sys/Cargo.toml says why)
 [patch.crates-io]
