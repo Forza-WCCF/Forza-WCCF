@@ -4464,7 +4464,7 @@ mod tests {
         );
     }
 
-    /// A saved board_rect= bigger than the screen or off it (Yoshy's 1920x1200 tablet, 2026-11-09) comes back inside the
+    /// A saved board_rect= bigger than the screen or off it (a 1920x1200 tablet, 2026-11-09) comes back inside the
     /// work area; one that fits stays as it was.
     #[test]
     fn a_saved_board_place_fits_the_work_area() {
