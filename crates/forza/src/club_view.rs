@@ -72,7 +72,7 @@ impl ClubView {
             ..ClubView::default()
         };
         for line in text.split('\n') {
-            let line = line.trim_suffix('\r');
+            let line = line.strip_suffix('\r').unwrap_or(line);
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }

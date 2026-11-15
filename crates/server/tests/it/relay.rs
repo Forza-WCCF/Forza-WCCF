@@ -274,7 +274,16 @@ fn the_test_stall_drops_game_packets_for_its_time() {
 #[test]
 fn two_relays_on_port_0_run_side_by_side() {
     use std::io::BufRead;
-    use std::process::{Command, Stdio};
+    use std::process::{Child, Command, Stdio};
+    // kills the relay on drop, including when an assert below fails (1.100's `mem::DropGuard`; the release toolchain is
+    // 1.99.0)
+    struct Kill(Child);
+    impl Drop for Kill {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
     let start = || {
         let mut c = Command::new(server_exe())
             .args(["relay", "30"])
@@ -295,13 +304,7 @@ fn two_relays_on_port_0_run_side_by_side() {
                     .ok()
             })
             .expect("a \"listening on UDP <port>\" line");
-        (
-            core::mem::DropGuard::new(c, |mut c| {
-                let _ = c.kill();
-                let _ = c.wait();
-            }),
-            port,
-        )
+        (Kill(c), port)
     };
     let ((_a, pa), (_b, pb)) = (start(), start());
     assert_ne!(pa, pb);
