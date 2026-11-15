@@ -4124,7 +4124,10 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .hint_text(tr!(lang, "cat.search_hint"))
                         .font(theme::body(16.0))
                         .desired_width(f32::INFINITY)
-                        .margin(vec2(12.0, 8.0)),
+                        .margin(vec2(12.0, 8.0))
+                        // one height with and without the keys: egui rounds the room for the 1.5 pt focus outline
+                        // up and for the 1 pt idle one not, so the idle field was a point taller (issue #265)
+                        .min_size(vec2(0.0, 40.0)),
                 )
                 .accessible_name(tr!(lang, "cat.search_hint"))
             },
@@ -4593,8 +4596,8 @@ fn combo(
     });
 }
 
-/// The focused card's detail: its picture at whole pixels in a slot that is the same for both sides
-/// ([`sizing::detail_picture`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
+/// The focused card's detail: its picture in a slot that is the same for both sides (the album art's
+/// [`sizing::whole_fit`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
 /// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
 /// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
 /// clicked: the card view asked for).
@@ -4653,8 +4656,10 @@ fn stats_pane(
             let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
             let top = ui.cursor().top();
             let room = vec2(w, (bottom - top - rest - 16.0).max(1.0));
-            let (slot_size, size) = sizing::detail_picture(pic, room, ppp);
-            let (slot, resp) = ui.allocate_exact_size(vec2(w, slot_size.y), Sense::click());
+            // both sides draw in the whole slot, whatever their pixels: each side sized by its own picture changed
+            // the picture's size on every turn (issue #265)
+            let size = sizing::whole_fit(sizing::ALBUM, room, ppp);
+            let (slot, resp) = ui.allocate_exact_size(vec2(w, size.y), Sense::click());
             ui.ctx()
                 .data_mut(|d| d.insert_temp(picture_rect_id(), slot));
             let open = resp

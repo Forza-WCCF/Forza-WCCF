@@ -1112,3 +1112,188 @@ fn popout_windows_are_drawn_one_to_one() {
         assert_eq!(panel::scale(w, h, 96.0), 1.0, "game {w}x{h}");
     }
 }
+
+/// Writes a card's two sides of different pixel sizes and shapes (the pack's 180x254 scan front, the album's
+/// 256x357 back), as an install has them.
+fn two_sizes(dir: &std::path::Path, no: u32) {
+    for (w, h, name) in [
+        (180, 254, format!("{no}_f.jpg")),
+        (256, 357, format!("{no}_b.jpg")),
+    ] {
+        image::RgbaImage::from_fn(w, h, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 90, 255])
+        })
+        .save_with_format(dir.join(name), image::ImageFormat::Png)
+        .expect("a picture written");
+    }
+}
+
+/// The card picture drawn in `within` on the last frame (a textured mesh over a quarter of its width): its texture and rect.
+fn picture_drawn(h: &Harness<'_>, within: egui::Rect) -> Option<(egui::TextureId, egui::Rect)> {
+    h.output().shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => {
+            let b = m.calc_bounds();
+            (within.expand(1.0).contains_rect(b) && b.width() > within.width() / 4.0)
+                .then_some((m.texture_id, b))
+        }
+        _ => None,
+    })
+}
+
+/// Runs frames (the pictures load on other threads) until `ready` holds, at most about a second.
+fn run_until(h: &mut Harness<'_>, mut ready: impl FnMut(&Harness<'_>) -> bool) -> bool {
+    for _ in 0..40 {
+        h.run_steps(1);
+        if ready(h) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    false
+}
+
+/// FRONT and BACK in the catalogue's detail pane draw their pictures in the same rect even when the two sides have
+/// different pixel sizes and shapes: each side sized or letterboxed by its own picture moved the picture's edges on
+/// every turn (issue #265).
+#[test]
+fn both_sides_in_the_catalogue_pane_draw_in_one_rect() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let ci = 7;
+    two_sizes(dir.path(), forza_ui::sample::cards()[ci].number);
+    for (size, ppp) in [(Vec2::new(1920.0, 1080.0), 1.25), (panel::SIZE, 1.0)] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.message = None;
+        st.catalogue.filter = Default::default();
+        st.catalogue.focus = Some(ci);
+        let path = dir.path().to_owned();
+        let mut h = harness(size, ppp, Edition::E1718, |ui| {
+            forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+            panel::show(ui, &mut st)
+        });
+        let shown = |h: &Harness<'_>, back| {
+            panel::catalogue_picture_shown(&h.ctx) == Some((back, true))
+                && panel::catalogue_other_side_ready(&h.ctx) == Some(true)
+        };
+        assert!(
+            run_until(&mut h, |h| shown(h, false)),
+            "{size:?} {ppp}: the front shown"
+        );
+        let slot = panel::catalogue_picture_rect(&h.ctx).expect("the picture slot");
+        let front = picture_drawn(&h, slot).expect("the front's picture drawn");
+        let at = h.get_by_label("BACK").rect().center();
+        h.hover_at(at);
+        h.run_steps(1);
+        h.drag_at(at);
+        h.run_steps(1);
+        release_at(&h, at);
+        h.run_steps(1);
+        assert!(
+            shown(&h, true),
+            "{size:?} {ppp}: the back shown on the click's frame"
+        );
+        let back = picture_drawn(&h, slot).expect("the back's picture drawn");
+        assert_ne!(
+            back.0, front.0,
+            "{size:?} {ppp}: the front's picture still drawn"
+        );
+        assert_eq!(
+            back.1, front.1,
+            "{size:?} {ppp}: the back drawn in another rect than the front"
+        );
+    }
+}
+
+/// The big card on the board ([`forza_ui::board::card_view`], its large pane: the album art at its own pixels) draws
+/// both sides in the same rect when they have different pixel sizes and shapes (issue #265).
+#[test]
+fn both_sides_of_the_big_board_card_draw_in_one_rect() {
+    let card = forza_ui::sample::cards()[7].clone();
+    let dir = tempfile::tempdir().expect("a temp folder");
+    two_sizes(dir.path(), card.number);
+    let back = std::cell::Cell::new(false);
+    let path = dir.path().to_owned();
+    let area = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), Vec2::new(600.0, 800.0));
+    let mut h = harness(Vec2::new(800.0, 900.0), 1.0, Edition::E1718, |ui| {
+        forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+        forza_ui::board::card_view(ui, &card, area, back.get(), Lang::En);
+    });
+    let at = |h: &Harness<'_>| {
+        h.ctx
+            .memory(|m| m.area_rect(egui::Id::unique("board-big-card")))
+    };
+    assert!(
+        run_until(&mut h, |h| at(h)
+            .and_then(|r| picture_drawn(h, r))
+            .is_some()),
+        "the front's picture drawn big"
+    );
+    let r = at(&h).expect("the card shown big");
+    assert!(r.width() >= 256.0, "the large pane, not the strip: {r:?}");
+    let front = picture_drawn(&h, r).expect("the front's picture");
+    back.set(true);
+    assert!(
+        run_until(&mut h, |h| picture_drawn(h, r)
+            .is_some_and(|b| b.0 != front.0)),
+        "the back's picture drawn big"
+    );
+    assert_eq!(at(&h), Some(r), "the big card moved");
+    assert_eq!(
+        picture_drawn(&h, r).map(|b| b.1),
+        Some(front.1),
+        "the back drawn in another rect than the front"
+    );
+}
+
+/// The catalogue page keeps its place when the search line gives up the keys (a list, the FORMATIONS dialog or the
+/// import question opens): the idle field was a point taller than the focused one and moved everything under it
+/// (issue #265).
+#[test]
+fn the_catalogue_keeps_its_place_when_the_search_line_gives_up_the_keys() {
+    for (size, ppp, lang) in [
+        (Vec2::new(1920.0, 1080.0), 1.25, Lang::En),
+        (panel::SIZE, 1.0, Lang::En),
+        (panel::SIZE, 1.0, Lang::Ja),
+    ] {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.message = None;
+        st.catalogue.filter = Default::default();
+        st.catalogue.focus = Some(7);
+        let st = std::cell::RefCell::new(st);
+        let mut h = harness(size, ppp, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(6);
+        let search = |h: &Harness<'_>| {
+            let n = h.get_by_role(egui::accesskit::Role::TextInput);
+            (n.is_focused(), n.rect())
+        };
+        let slot = |h: &Harness<'_>| panel::catalogue_picture_rect(&h.ctx);
+        let (focused, line) = search(&h);
+        assert!(
+            focused,
+            "{size:?} {ppp} {lang:?}: the search line has the keys"
+        );
+        let pane = slot(&h);
+        st.borrow_mut().import_help = true; // the import question
+        h.run_steps(3);
+        assert!(
+            h.get_all_by_role(egui::accesskit::Role::TextInput)
+                .all(|n| !n.is_focused()),
+            "{size:?} {ppp} {lang:?}: the search line gave up the keys"
+        );
+        let idle = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .map(|n| n.rect())
+            .find(|r| (r.top() - line.top()).abs() < 4.0)
+            .expect("the search line");
+        assert_eq!(
+            idle, line,
+            "{size:?} {ppp} {lang:?}: the search line changed size"
+        );
+        assert_eq!(
+            slot(&h),
+            pane,
+            "{size:?} {ppp} {lang:?}: the pane under it moved"
+        );
+    }
+}
