@@ -444,6 +444,41 @@ fn popout_board_foot_buttons_apart() {
     }
 }
 
+/// A click away from the catalogue's search line (BACK in the detail pane) moves nothing and leaves the keys with the
+/// search line: every rect is the same before the click, while it is pressed, on the click's frame and after it.
+/// The field drew unfocused on the click's frame, a point taller, and shook everything under it (issue #265).
+#[test]
+fn a_click_in_the_catalogue_keeps_the_search_line_focused_and_still() {
+    for (size, ppp) in [(Vec2::new(1920.0, 1080.0), 1.25), (panel::SIZE, 1.0)] {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
+        st.message = None; // the sample's note line is no part of the claim
+        st.catalogue.filter = Default::default();
+        st.catalogue.focus = Some(7);
+        let mut h = harness(size, ppp, Edition::E1718, |ui| panel::show(ui, &mut st));
+        h.run_steps(6);
+        let focused =
+            |h: &Harness<'_>| h.get_by_role(egui::accesskit::Role::TextInput).is_focused();
+        let at = h.get_by_label("BACK").rect().center();
+        h.hover_at(at);
+        h.run_steps(1);
+        assert!(focused(&h), "{size:?} {ppp}: the search line has the keys");
+        let before = catalogue_rects(&h);
+        h.drag_at(at); // pressed
+        h.run_steps(1);
+        assert_eq!(catalogue_rects(&h), before, "{size:?} {ppp}: pressed");
+        release_at(&h, at); // the click
+        for frame in 0..4 {
+            h.run_steps(1);
+            assert_eq!(
+                catalogue_rects(&h),
+                before,
+                "{size:?} {ppp}: frame {frame} after the click moved a rect"
+            );
+            assert!(focused(&h), "{size:?} {ppp}: frame {frame}: the keys left");
+        }
+    }
+}
+
 /// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
 #[test]
 fn formations_load_refused_in_match_and_save_works() {
@@ -872,6 +907,17 @@ fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
     );
 }
 
+/// The mouse button let go at `at`, alone: `Harness::drop_at` also takes the pointer away, an event kittest gives a
+/// frame of its own, so the step after it shows the frame after the click's, never the click's.
+fn release_at(h: &Harness<'_>, at: egui::Pos2) {
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+}
+
 /// Every widget's rect and the detail pane's (its picture slot too), by role and label: what a click must not move.
 fn catalogue_rects(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
     use egui_kittest::kittest::NodeT as _;
@@ -970,7 +1016,7 @@ fn catalogue_back_keeps_still() {
             before,
             "{size:?} {ppp}: BACK pressed moved a rect"
         );
-        h.drop_at(at); // released: the click
+        release_at(&h, at); // the click
         let clicked = std::time::Instant::now();
         let mut shown_after = None;
         for frame in 0..20 {

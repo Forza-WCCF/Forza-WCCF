@@ -4098,6 +4098,18 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let e1718 = st.edition == Edition::E1718;
     // the search line, IMPORT LINEUP and FORMATIONS at its right end
     let row = vec2(ui.available_width(), 36.0);
+    // the FORMATIONS dialog's name line keeps the keys
+    let keep = !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() && !st.import_help;
+    // a click elsewhere (FRONT | BACK, a chip, a card) leaves the keys with the search line: egui drops a field's
+    // focus as it draws it, and for that one frame the thinner idle outline made the field a point taller and
+    // moved everything under it (issue #265)
+    let surrender = ui.ctx().options_mut(|o| {
+        let was = o.input_options.surrender_focus_on;
+        if keep {
+            o.input_options.surrender_focus_on = egui::SurrenderFocusOn::Never;
+        }
+        was
+    });
     let search = ui
         .allocate_ui_with_layout(
             row,
@@ -4118,16 +4130,15 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             },
         )
         .inner;
+    ui.ctx()
+        .options_mut(|o| o.input_options.surrender_focus_on = surrender);
     if form {
         st.formations_open = true;
         st.formations_desk = false;
     }
-    // the FORMATIONS dialog's name line keeps the keys
-    if !search.has_focus()
-        && !egui::Popup::is_any_open(ui.ctx())
-        && st.formations.is_none()
-        && !st.import_help
-    {
+    if !keep {
+        search.surrender_focus();
+    } else if !search.has_focus() {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
