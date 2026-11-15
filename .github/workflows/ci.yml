@@ -67,7 +67,7 @@ jobs:
             echo ui=true >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files=$(git diff --name-only "$BASE" HEAD)
+          files=$(git diff --no-renames --name-only "$BASE" HEAD)
           # this file counts as code: a change to it must run the jobs it changes
           if printf '%s\n' "$files" | grep -qvE '^(docs/|[^/]+\.md$|\.github/)' ||
              printf '%s\n' "$files" | grep -qxF '.github/workflows/ci.yml'; then
