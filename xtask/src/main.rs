@@ -765,20 +765,30 @@ fn remap_config(root: &Path) -> Vec<String> {
 fn build_dir(root: &Path) -> Option<PathBuf> {
     static ONCE: OnceLock<Option<PathBuf>> = OnceLock::new();
     ONCE.get_or_init(|| {
-        let out = Command::new("cargo")
+        let dir = Command::new("cargo")
             .args(["metadata", "--format-version", "1", "--no-deps"])
             .current_dir(root)
             .output()
-            .ok()?;
-        let meta: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-        let dir = PathBuf::from(meta["build_directory"].as_str()?);
-        let (dir_said, target_said) = (
-            norm_path(&dir.display().to_string()),
-            norm_path(&target_dir(root).display().to_string()),
-        );
-        (dir_said != target_said).then_some(dir)
+            .ok()
+            .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).ok())
+            .and_then(|meta| meta["build_directory"].as_str().map(PathBuf::from));
+        let Some(dir) = dir else {
+            // the local bytes then differ from a runner's, with a `build-dir` path in them
+            eprintln!(
+                "warning: cargo metadata gave no build_directory; a build-dir outside target\\ is not remapped"
+            );
+            return None;
+        };
+        outside_target(dir, &target_dir(root))
     })
     .clone()
+}
+
+/// `dir` when it is not the target folder, compared the way paths are spelled on Windows (either separator, any
+/// case): a runner, whose build folder is `target\`, gets no extra flag and keeps its crate hashes.
+fn outside_target(dir: PathBuf, target: &Path) -> Option<PathBuf> {
+    (norm_path(&dir.display().to_string()) != norm_path(&target.display().to_string()))
+        .then_some(dir)
 }
 
 /// [`remap_config`] with the shared folder (`CARGO_TARGET_DIR`) and the build folder given.
@@ -4237,15 +4247,16 @@ mod tests {
 
     #[test]
     fn a_build_dir_outside_the_target_folder_is_remapped() {
-        // the spelling cargo metadata prints: `/` after the drive, `\` for the hash it adds
-        let build = Path::new(r"C:/forza-build\e8\969756f5df38da");
+        // the spelling cargo metadata prints here (2026-11-15) and the shipped Launcher holds: `/` up to the folder
+        // the hash goes in, `\` before the hash
+        let build = Path::new(r"C:/forza-build/e8\969756f5df38da");
         let flags = remap_flags(None, Some(build), Path::new(r"E:\wccf"));
         let remap = |from: &str| {
             flags
                 .iter()
                 .any(|f| f.contains(&format!("--remap-path-prefix={from}=")))
         };
-        assert!(remap(r"C:/forza-build\e8\969756f5df38da"), "{flags:?}");
+        assert!(remap(r"C:/forza-build/e8\969756f5df38da"), "{flags:?}");
         // a `build-dir` the user config spells with `\`
         #[cfg(windows)]
         assert!(remap("C:/forza-build/e8/969756f5df38da"), "{flags:?}");
@@ -4261,6 +4272,21 @@ mod tests {
             !runner.iter().any(|f| f.contains("forza-build")),
             "{runner:?}"
         );
+    }
+
+    #[test]
+    fn only_a_build_dir_other_than_the_target_folder_counts() {
+        let target = Path::new(r"D:\a\Forza-WCCF\Forza-WCCF\target");
+        // a runner: cargo reports the target folder itself, in either spelling or case
+        for same in [
+            r"D:\a\Forza-WCCF\Forza-WCCF\target",
+            "D:/a/Forza-WCCF/Forza-WCCF/target/",
+            r"d:\a\forza-wccf\forza-wccf\TARGET",
+        ] {
+            assert_eq!(outside_target(PathBuf::from(same), target), None, "{same}");
+        }
+        let build = PathBuf::from(r"C:/forza-build/e8\969756f5df38da");
+        assert_eq!(outside_target(build.clone(), target), Some(build));
     }
 
     #[test]
