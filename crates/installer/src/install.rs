@@ -280,7 +280,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
 fn probe_links(dest: &Path) -> Result<()> {
     let (a, b) = (dest.join(".probe-a"), dest.join(".probe-b"));
     let _ = (fs::remove_file(&a), fs::remove_file(&b));
-    fs::write(&a, b"x")?;
+    fs::write(&a, b"x").map_err(write_err(dest))?;
     let linked = fs::hard_link(&a, &b);
     let _ = (fs::remove_file(&a), fs::remove_file(&b));
     Ok(linked.map_err(|_| E::NotNtfsDrive)?)
@@ -350,10 +350,22 @@ fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
     Ok(out)
 }
 
+/// A failed write as the player reads it: a full drive is the free-space message, anything else names the path (not
+/// bare OS text, #301).
+fn write_err(path: &Path) -> impl FnOnce(std::io::Error) -> E + '_ {
+    move |e| match e.kind() {
+        std::io::ErrorKind::StorageFull => E::NoSpace,
+        _ => E::CannotWrite {
+            path: shown(path),
+            detail: e.to_string(),
+        },
+    }
+}
+
 /// `partial` made, `fill` run on it, and the tree taken with it when `fill` fails: a Cancel, a full disk or a read
 /// error leaves no half game folder behind.
 fn partial_tree(partial: &Path, fill: impl FnOnce() -> Result<()>) -> Result<()> {
-    fs::create_dir_all(partial)?;
+    fs::create_dir_all(partial).map_err(write_err(partial))?;
     let done = fill();
     if done.is_err() {
         let _ = fs::remove_dir_all(partial);
@@ -378,7 +390,7 @@ fn extract(
         dest.join(format!("{GAME_DIR}.partial")),
     );
     if partial.exists() {
-        fs::remove_dir_all(&partial)?;
+        fs::remove_dir_all(&partial).map_err(write_err(&partial))?;
     }
     partial_tree(&partial, || {
         emit(Event::Log(format!(
@@ -390,13 +402,10 @@ fn extract(
             check(cancel)?;
             let path = partial.join(&it.rel);
             if it.dir {
-                fs::create_dir_all(&path)?;
+                fs::create_dir_all(&path).map_err(write_err(&path))?;
                 continue;
             }
-            let mut out = File::create(&path).map_err(|e| E::CannotWrite {
-                path: shown(&path),
-                detail: e.to_string(),
-            })?;
+            let mut out = File::create(&path).map_err(write_err(&path))?;
             let file = ntfs.file(vol, it.rec)?;
             if let Some(d) = file.data(vol, "") {
                 let item = d?;
@@ -407,7 +416,8 @@ fn extract(
                     if n == 0 {
                         break;
                     }
-                    out.write_all(buf.get(..n).unwrap_or_default())?;
+                    out.write_all(buf.get(..n).unwrap_or_default())
+                        .map_err(write_err(&path))?;
                     done += n as u64;
                     emit(Event::Progress(done, total));
                 }
@@ -419,7 +429,7 @@ fn extract(
         );
         check(cancel)?;
         ensure!(!game.exists(), E::GameFolderExists);
-        fs::rename(&partial, &game)?;
+        fs::rename(&partial, &game).map_err(write_err(&game))?;
         Ok(())
     })
 }
@@ -450,19 +460,14 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
         }
         let out = dest.join(rel);
         if f.is_dir() {
-            fs::create_dir_all(&out)?;
+            fs::create_dir_all(&out).map_err(write_err(&out))?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(write_err(parent))?;
         }
-        done += std::io::copy(
-            &mut f,
-            &mut File::create(&out).map_err(|e| E::CannotWrite {
-                path: shown(&out),
-                detail: e.to_string(),
-            })?,
-        )?;
+        let mut file = File::create(&out).map_err(write_err(&out))?;
+        done += std::io::copy(&mut f, &mut file).map_err(write_err(&out))?;
         emit(Event::Progress(done, total));
     }
     Ok(())
@@ -911,6 +916,38 @@ mod tests {
             assert!(!p.exists() || fs::read(&p).unwrap() == b"player", "{p:?}");
         }
         assert!(!dest.join("DATA/keys.txt").exists() && !dest.join("data/keys.txt").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A folder the package cannot write (here a file stands where its folder goes) names the path in the player's
+    /// language, not bare OS text; a full drive is the free-space message (#301).
+    #[test]
+    fn a_write_error_names_the_path_in_three_languages() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-write-err-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("2017-2018");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("scripts"), b"a file, not a folder").unwrap();
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &["Launcher.exe", "bin/x.dll", "scripts/setup.py"],
+        );
+        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        let path = shown(&dest.join("scripts"));
+        let texts: Vec<String> = forza_ui::Lang::ALL
+            .into_iter()
+            .map(|l| crate::err::localize(&e, l))
+            .collect();
+        for t in &texts {
+            assert!(t.contains(&path), "{t}");
+        }
+        assert!(texts.iter().skip(1).all(|t| *t != texts[0]), "{texts:?}");
+        assert_eq!(
+            write_err(&dest)(std::io::ErrorKind::StorageFull.into()),
+            E::NoSpace
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
