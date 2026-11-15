@@ -454,7 +454,7 @@ jobs:
           echo "::error::a CI job failed or was cancelled"
           exit 1
 
-  # The 10 GB of Actions caches are shared by the whole repository: a Cargo.lock, toolchain or profile change writes a
+  # The 10 GB of Actions caches are shared by the whole repository: a Cargo.lock or toolchain change writes a
   # new key of about 2 GB in a family (rust-windows, rust-windows-snapshots, rust-lint), and the older member stays
   # until GitHub evicts it. Once the jobs that save caches have run, keep the newest entry per family and delete the
   # rest. Not in ci-ok's needs: housekeeping never reddens a pull request.
@@ -476,8 +476,8 @@ jobs:
       - name: the newest cache of each key family is kept
         run: |
           gh cache list -R "$GITHUB_REPOSITORY" --ref refs/heads/main --limit 100 --json id,key,createdAt > caches.json
-          # a key is its family plus a last hash part: v0-rust-windows-Windows_NT-x64-385e369d-34c5d243
-          jq -r 'sort_by(.createdAt) | reverse | group_by(.key | sub("-[^-]+$"; "")) | .[]
+          # a key is its family plus two hash parts (toolchain/env, lockfile): v0-rust-windows-Windows_NT-x64-385e369d-34c5d243
+          jq -r 'sort_by(.createdAt) | reverse | group_by(.key | sub("-[^-]+-[^-]+$"; "")) | .[]
                  | (.[0] | "keep   \(.key)"), (.[1:][] | "delete \(.id) \(.key)")' caches.json > plan.txt
           cat plan.txt
-          awk '$1 == "delete" { print $2 }' plan.txt | while read -r id; do gh cache delete "$id" -R "$GITHUB_REPOSITORY"; done
+          awk '$1 == "delete" { print $2 }' plan.txt | while read -r id; do gh cache delete "$id" -R "$GITHUB_REPOSITORY" || echo "::warning::cache $id not deleted (already gone?)"; done
