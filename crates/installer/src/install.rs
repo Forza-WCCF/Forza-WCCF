@@ -440,7 +440,12 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
         let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
             continue;
         };
-        if rel.as_os_str().is_empty() || (keep_data && rel.starts_with("data")) {
+        // data\ is the player's in any capitals: Windows folder names ignore case (the Launcher's UPDATE skips it alike)
+        let player_data = rel
+            .components()
+            .next()
+            .is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("data"));
+        if rel.as_os_str().is_empty() || (keep_data && player_data) {
             continue;
         }
         let out = dest.join(rel);
@@ -877,6 +882,35 @@ mod tests {
             b"2017-18 save"
         );
         assert_eq!(tree(&other), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A package entry under `Data/` (other capitals) is the player's data\ too: kept, never written (#280).
+    #[test]
+    fn a_data_folder_in_other_capitals_is_kept() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-data-case-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("2017-2018");
+        fs::create_dir_all(dest.join("data/save")).unwrap();
+        fs::write(dest.join("data/save/club.bin"), b"player").unwrap();
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &[
+                "Launcher.exe",
+                "bin/x.dll",
+                "Data/save/club.bin",
+                "DATA/keys.txt",
+            ],
+        );
+        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        // one folder on Windows, two elsewhere: either way no package byte lands in it
+        for p in ["data/save/club.bin", "Data/save/club.bin"] {
+            let p = dest.join(p);
+            assert!(!p.exists() || fs::read(&p).unwrap() == b"player", "{p:?}");
+        }
+        assert!(!dest.join("DATA/keys.txt").exists() && !dest.join("data/keys.txt").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
