@@ -756,7 +756,8 @@ mod tests {
         r.join("K7QMZDRX", None, "tg".into(), end);
         assert!(r.listed().is_empty());
         assert_eq!(r.seated(own), (2, 0), "a private room's host and guest");
-        let cup = |r: &mut ArcadeRooms, code: &str, by: &str| {
+        // the real cup (forza-arcade) is seatless; a player's spoof under its name is not
+        let cup = |r: &mut ArcadeRooms, code: &str, by: &str, seatless: bool| {
             r.create(
                 format!("c{code}"),
                 code.into(),
@@ -767,13 +768,14 @@ mod tests {
                 "Universal Cup every hour".into(),
                 format!("t{code}"),
                 end,
+                seatless,
             );
         };
-        cup(&mut r, "CUPCUPCU", "127.0.0.1");
+        cup(&mut r, "CUPCUPCU", "127.0.0.1", true);
         assert_eq!(r.seated(own), (2, 0), "the cup's host seat is no player");
         r.join("CUPCUPCU", None, "tc".into(), end);
         assert_eq!(r.seated(own), (2, 1), "a cup guest is");
-        cup(&mut r, "SPOOFSPO", "10.0.0.9");
+        cup(&mut r, "SPOOFSPO", "10.0.0.9", false);
         assert_eq!(r.seated(own), (3, 1), "a player's room named as the cup");
     }
 }
