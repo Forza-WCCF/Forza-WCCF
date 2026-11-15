@@ -902,6 +902,15 @@ pub fn seats_here() -> usize {
     win::seats_here()
 }
 
+/// run_keys.txt's first line; `e1718`: the 2017-18 run (the only one that passes `panel_path`).
+fn header(e1718: bool) -> &'static str {
+    if e1718 {
+        "WCCF 2017-18 seat 1 - keyboard and controller (both count only while a game window is in front)"
+    } else {
+        "WCCF 2010-11 seat 1 - keyboard and controller (both count only while a game window is in front)"
+    }
+}
+
 /// Starts the driver thread: it reads `keys_path` (missing = the defaults, read again when it changes), polls the
 /// keyboard and controllers every 10 ms while a game window is in front, and sets the switches on `shared`. Dropping the
 /// handle stops it and lets go of every button. `panel_path` (2017-18 only; None: never) is data\panel.txt, read again
@@ -933,9 +942,7 @@ pub fn spawn(
         let (bindings, notes) = load(&keys_path);
         let mut driver = Driver::new(bindings, shared.clone(), since(t0));
         let (mut kstamp, mut next_keys_check) = (file_stamp(&keys_path), 0.0);
-        log(
-            "WCCF 2010-11 seat 1 - keyboard and controller (both count only while a game window is in front)",
-        );
+        log(header(panel_path.is_some()));
         for (i, act) in ACTIONS.iter().enumerate() {
             let b = &driver.bindings;
             let pad = if b.pads[i] != 0 {
@@ -1356,6 +1363,12 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn header_names_the_edition() {
+        assert!(header(true).starts_with("WCCF 2017-18 "));
+        assert!(header(false).starts_with("WCCF 2010-11 "));
+    }
 
     #[test]
     fn start_puts_in_a_coin_only_when_asked() {
