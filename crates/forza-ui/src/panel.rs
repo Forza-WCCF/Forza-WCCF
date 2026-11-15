@@ -1732,9 +1732,9 @@ fn divider_strip(board: Rect) -> Rect {
     Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()))
 }
 
-/// The grip drawn on the divider: three 4-point dashes 4 points apart, 2 points thick, in a rect centred on the strip.
+/// The grip drawn on the divider: five 6-point dashes 6 points apart, 2 points thick, in a rect centred on the strip.
 fn grip_rect(strip: Rect) -> Rect {
-    Rect::from_center_size(strip.center(), vec2(6.0, 10.0))
+    Rect::from_center_size(strip.center(), vec2(6.0, 26.0))
 }
 
 /// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
@@ -1759,16 +1759,15 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
             Stroke::new(3.0, theme::RIM_HI),
         );
     }
-    // the grip: three short dashes down the middle of the strip, so the divider reads as one at rest too
+    // the grip: short dashes down the middle of the strip, bright enough that the divider reads as one at rest too
+    // (the panel crate does not apply egui's cursor to the game's window yet: the resize cursor above stays egui's)
     let grip = grip_rect(strip);
-    let colour = if lit { theme::TEXT_DIM } else { theme::RIM_HI };
+    let colour = if lit { theme::TEXT } else { theme::TEXT_DIM };
     let p = ui.painter();
-    for dy in [-4.0, 0.0, 4.0] {
+    for i in 0..5 {
+        let y = grip.top() + 1.0 + 6.0 * i as f32;
         p.line_segment(
-            [
-                pos2(grip.center().x - 2.0, grip.center().y + dy),
-                pos2(grip.center().x + 2.0, grip.center().y + dy),
-            ],
+            [pos2(grip.left(), y), pos2(grip.right(), y)],
             Stroke::new(2.0, colour),
         );
     }
