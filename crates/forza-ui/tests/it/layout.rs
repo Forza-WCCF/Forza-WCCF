@@ -339,6 +339,46 @@ fn board_hint_clear_of_the_buttons() {
     }
 }
 
+/// The board's row of buttons (POP OUT, RESET LINEUP, FORMATIONS) on the docked board at the divider's least width:
+/// no two buttons overlap or crowd each other and all stay inside the board's 16-point margin, in English, Italian
+/// and Japanese (the Italian labels are the longest). Laid out only: no GPU.
+#[test]
+fn board_foot_buttons_apart_at_the_least_width() {
+    for (w, h) in [(1440.0, 900.0), (1920.0, 1080.0)] {
+        let size = Vec2::new(w, h);
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let board = panel::layout_at(sheet, false, Some(panel::BOARD_MIN)).board;
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            st.file.board_width = Some(panel::BOARD_MIN as u16);
+            let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            hs.run_steps(8);
+            let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let r = ["board.pop_out", "board.reset", "form.open"].map(at);
+            let case = format!("{w}x{h} {} board {board:?}: {r:?}", lang.code());
+            // right to left: POP OUT, RESET LINEUP, FORMATIONS, each the row's 6 points from the next (a label too
+            // long for the row at the least text size pushes its button into the gap and over its neighbour)
+            assert!(
+                r[1].right() <= r[0].left() - 6.0 + 0.5,
+                "{case}: RESET into POP OUT's gap"
+            );
+            assert!(
+                r[2].right() <= r[1].left() - 6.0 + 0.5,
+                "{case}: FORMATIONS into RESET's gap"
+            );
+            assert!(
+                r[2].left() >= board.left() + 16.0 - 0.5,
+                "{case}: past the board's left margin"
+            );
+            assert!(
+                r[0].right() <= board.right() - 16.0 + 0.5,
+                "{case}: past the board's right margin"
+            );
+        }
+    }
+}
+
 /// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
 #[test]
 fn formations_load_refused_in_match_and_save_works() {

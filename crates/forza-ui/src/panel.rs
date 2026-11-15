@@ -26,8 +26,9 @@ use std::sync::{Arc, mpsc};
 pub const SIZE: egui::Vec2 = egui::vec2(1440.0, 900.0);
 /// The formation strip's least width, pinned to the right edge (its width at 1440x900).
 pub const BOARD_W: f32 = 580.0;
-/// The least width the 2017-18 divider between the picture and the board drags the board to (panel.txt board_width=).
-pub const BOARD_MIN: f32 = 420.0;
+/// The least width the 2017-18 divider between the picture and the board drags the board to (panel.txt board_width=):
+/// the Italian foot buttons need 424 at the least text size, [`FOOT_TEXT_MIN`], before one pushes into its neighbour.
+pub const BOARD_MIN: f32 = 430.0;
 /// Space above the pitch inside the strip (no title row any more).
 const BOARD_HEAD: f32 = 0.0;
 /// The least size, in points, of a hint or a bar label (the theme's Small is 12; hints on a TV-sized seat need more).
@@ -6753,7 +6754,7 @@ mod tests {
         );
     }
 
-    /// The divider at its least, by default and at its most: the board at least 420 points and inside the sheet, the
+    /// The divider at its least, by default and at its most: the board at least BOARD_MIN points and inside the sheet, the
     /// picture 16:10 inside the middle, flush with the board; a narrower board gives a bigger picture.
     #[test]
     fn divider_keeps_the_board_and_the_picture_shape() {
@@ -6766,7 +6767,7 @@ mod tests {
         ] {
             let sheet = sheet_of(w, h);
             let max = board_width_max(sheet);
-            // the least board this sheet draws: 420, or wider where the picture's height stops it first (16:9)
+            // the least board this sheet draws: BOARD_MIN, or wider where the picture's height stops it first (16:9)
             let least = (sheet.width() - 1.6 * (sheet.height() - TABS_H - DECK_MIN)).max(BOARD_MIN);
             let mut last = f32::MAX;
             for (set, want) in [
@@ -6801,12 +6802,12 @@ mod tests {
                 last = p.width();
             }
         }
-        // 1920x1080 (16:9): the picture's height stops the board at 518.4, not 420
+        // 1920x1080 (16:9): the picture's height stops the board at 518.4, not BOARD_MIN
         let l = layout_at(sheet_of(1920.0, 1080.0), false, Some(BOARD_MIN));
         assert!((l.board.width() - 518.4).abs() < 0.01, "{l:?}");
-        // the owner's numbers: 1440x900 at 420 points, the picture 1020x637.5 (860x537.5 at 580)
-        let l = layout_at(sheet_of(1440.0, 900.0), false, Some(420.0));
-        assert_eq!((l.board.width(), l.picture.width()), (420.0, 1020.0));
+        // 1440x900 at 430 points: the picture 1010x631.25 (860x537.5 at 580)
+        let l = layout_at(sheet_of(1440.0, 900.0), false, Some(430.0));
+        assert_eq!((l.board.width(), l.picture.width()), (430.0, 1010.0));
         assert_eq!(
             layout_at(sheet_of(1440.0, 900.0), false, None),
             layout(sheet_of(1440.0, 900.0), false)
