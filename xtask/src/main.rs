@@ -26,6 +26,7 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use xshell::{Shell, cmd};
@@ -755,11 +756,43 @@ fn rust_shipped(root: &Path) -> Command {
 /// The `--config` arguments of `rust_shipped`. The tests in the kits' profile pass them too: other target rustflags give
 /// every crate another hash, and the test build would compile the whole workspace a second time after the kits.
 fn remap_config(root: &Path) -> Vec<String> {
-    remap_flags(shared_dir().as_deref(), root)
+    remap_flags(shared_dir().as_deref(), build_dir(root).as_deref(), root)
 }
 
-/// [`remap_config`] with the shared folder (`CARGO_TARGET_DIR`) given.
-fn remap_flags(shared: Option<&Path>, root: &Path) -> Vec<String> {
+/// Cargo's `build-dir` (`cargo metadata`'s `build_directory`), when the PC sets one outside `target\`: this one builds
+/// into `C:/forza-build/{workspace-path-hash}`, and the build scripts' `OUT_DIR` under it reaches the shipped programs.
+/// `None` when it is the target folder itself, as on the runners (the remap above covers that one already).
+fn build_dir(root: &Path) -> Option<PathBuf> {
+    static ONCE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let dir = Command::new("cargo")
+            .args(["metadata", "--format-version", "1", "--no-deps"])
+            .current_dir(root)
+            .output()
+            .ok()
+            .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).ok())
+            .and_then(|meta| meta["build_directory"].as_str().map(PathBuf::from));
+        let Some(dir) = dir else {
+            // the local bytes then differ from a runner's, with a `build-dir` path in them
+            eprintln!(
+                "warning: cargo metadata gave no build_directory; a build-dir outside target\\ is not remapped"
+            );
+            return None;
+        };
+        outside_target(dir, &target_dir(root))
+    })
+    .clone()
+}
+
+/// `dir` when it is not the target folder, compared the way paths are spelled on Windows (either separator, any
+/// case): a runner, whose build folder is `target\`, gets no extra flag and keeps its crate hashes.
+fn outside_target(dir: PathBuf, target: &Path) -> Option<PathBuf> {
+    (norm_path(&dir.display().to_string()) != norm_path(&target.display().to_string()))
+        .then_some(dir)
+}
+
+/// [`remap_config`] with the shared folder (`CARGO_TARGET_DIR`) and the build folder given.
+fn remap_flags(shared: Option<&Path>, build: Option<&Path>, root: &Path) -> Vec<String> {
     let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
     let cargo = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
@@ -774,9 +807,21 @@ fn remap_flags(shared: Option<&Path>, root: &Path) -> Vec<String> {
     let in_both_separators = dir_spellings(&local.0)
         .into_iter()
         .map(|from| (Some(from), local.1.clone()));
+    // a `build-dir` is mapped to where `target\` is, so a program built on a PC that sets one spells the same paths as
+    // a runner's, and the folder of this PC appears nowhere in it
+    let target_as = Path::new("forza-wccf").join("target");
+    let in_build_dir: Vec<(Option<PathBuf>, PathBuf)> = build
+        .into_iter()
+        .flat_map(|dir| {
+            dir_spellings(dir)
+                .into_iter()
+                .map(|from| (Some(from), target_as.clone()))
+        })
+        .collect();
     let flags: Vec<String> = [(home, PathBuf::from("~")), (cargo, PathBuf::from("cargo"))]
         .into_iter()
         .chain(in_both_separators)
+        .chain(in_build_dir)
         .filter_map(|(from, to)| {
             Some(format!(
                 "'--remap-path-prefix={}={}'",
@@ -4217,7 +4262,11 @@ mod tests {
 
     #[test]
     fn a_shared_folder_is_remapped_in_both_separators() {
-        let flags = remap_flags(Some(Path::new(r"E:\cargo-target")), Path::new(r"E:\wccf"));
+        let flags = remap_flags(
+            Some(Path::new(r"E:\cargo-target")),
+            None,
+            Path::new(r"E:\wccf"),
+        );
         let remap = |from: &str| {
             flags
                 .iter()
@@ -4227,6 +4276,50 @@ mod tests {
         // cargo keeps the raw variable's `/` in OUT_DIR
         #[cfg(windows)]
         assert!(remap("E:/cargo-target"), "{flags:?}");
+    }
+
+    #[test]
+    fn a_build_dir_outside_the_target_folder_is_remapped() {
+        // the spelling cargo metadata prints here (2026-11-15) and the shipped Launcher holds: `/` up to the folder
+        // the hash goes in, `\` before the hash
+        let build = Path::new(r"C:/forza-build/e8\969756f5df38da");
+        let flags = remap_flags(None, Some(build), Path::new(r"E:\wccf"));
+        let remap = |from: &str| {
+            flags
+                .iter()
+                .any(|f| f.contains(&format!("--remap-path-prefix={from}=")))
+        };
+        assert!(remap(r"C:/forza-build/e8\969756f5df38da"), "{flags:?}");
+        // a `build-dir` the user config spells with `\`
+        #[cfg(windows)]
+        assert!(remap("C:/forza-build/e8/969756f5df38da"), "{flags:?}");
+        // where the runner's `target\` is, so a local program spells what a runner's spells
+        let to = Path::new("forza-wccf").join("target").display().to_string();
+        assert!(
+            flags.iter().any(|f| f.contains(&format!("={to}'"))),
+            "{flags:?}"
+        );
+        // the runners set no `build-dir`: nothing is added there
+        let runner = remap_flags(None, None, Path::new(r"E:\wccf"));
+        assert!(
+            !runner.iter().any(|f| f.contains("forza-build")),
+            "{runner:?}"
+        );
+    }
+
+    #[test]
+    fn only_a_build_dir_other_than_the_target_folder_counts() {
+        let target = Path::new(r"D:\a\Forza-WCCF\Forza-WCCF\target");
+        // a runner: cargo reports the target folder itself, in either spelling or case
+        for same in [
+            r"D:\a\Forza-WCCF\Forza-WCCF\target",
+            "D:/a/Forza-WCCF/Forza-WCCF/target/",
+            r"d:\a\forza-wccf\forza-wccf\TARGET",
+        ] {
+            assert_eq!(outside_target(PathBuf::from(same), target), None, "{same}");
+        }
+        let build = PathBuf::from(r"C:/forza-build/e8\969756f5df38da");
+        assert_eq!(outside_target(build.clone(), target), Some(build));
     }
 
     #[test]

@@ -116,9 +116,82 @@ jobs:
           rustc -vV
           for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
       - name: Packages
+        run: cargo xtask package 2017-18
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-kit
+          path: dist/
+          # job merge takes it in a minute: no reason to keep the half for a candidate's 14 days
+          retention-days: 1
+          if-no-files-found: error
+
+  # The installer is a second x64 build (`-p wccf-installer` has another feature set, so it compiles its dependencies
+  # again, 3.4 minutes in run A): beside the kit it leaves the run's critical path instead of following it, about 3
+  # minutes off every run. Job merge puts the two halves back into the one `dist`.
+  installer:
+    name: installer
+    needs: candidate
+    # a dispatch only, as the kit's job: a tag push takes the candidate's files in job candidate, or stops there
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      # empty on a tag push: cargo xtask then takes the tag; set, it wins over git (xtask/src/main.rs version())
+      FORZA_VERSION: ${{ inputs.version }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the tags and the history to them: cargo xtask takes the version from `git describe`
+          fetch-depth: 0
+          persist-credentials: false
+      # only the pinned toolchain, as in ci.yml
+      - run: |
+          rustup show
+          a=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vx "$a" | xargs -r -n1 rustup toolchain uninstall
+      - name: Version
         run: |
-          cargo xtask package 2017-18
-          cargo xtask package installer
+          git describe --tags --long --match 'v[0-9]*.[0-9]*.[0-9]*' || echo "no tag: a 0.0.0-dev build"
+          if [ -n "$FORZA_VERSION" ]; then echo "release candidate: FORZA_VERSION=$FORZA_VERSION"; fi
+      - name: Build environment (what changed, when a file differs from the last release for no source reason)
+        run: |
+          echo "image: $ImageOS $ImageVersion"
+          rustc -vV
+          for d in "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/* "/c/Program Files (x86)/Windows Kits/10/Lib"/*; do echo "$d"; done
+      - name: Packages
+        run: cargo xtask package installer
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-installer
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # The kit and the installer are built side by side; this job makes the one `dist` artifact the later jobs and the
+  # candidate rule read, with the same file names and the same SHA256SUMS.txt a single job made.
+  merge:
+    name: merge
+    needs: [build, installer]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.installer.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      FORZA_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-kit
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-installer
+          path: dist
+      - name: SHA256SUMS.txt
+        run: |
           # a candidate's files carry its version, a tag's files the tag's (`git describe` found the tag itself)
           V=$(printf '%s' "$FORZA_VERSION" | tr -d '[:space:]')
           if [ -z "$V" ] && [ "$GITHUB_REF_TYPE" = tag ]; then V=${GITHUB_REF_NAME#v}; fi
@@ -144,9 +217,9 @@ jobs:
   # differ from the last published release and says why. Informational: a source change is a good reason.
   reproducibility:
     name: reproducibility
-    needs: build
+    needs: merge
     # explicit: a skipped candidate job (a dispatch) would skip this job too
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.merge.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     continue-on-error: true
@@ -175,9 +248,9 @@ jobs:
   # false alarms are common). The results table goes to the job summary and the release notes.
   virustotal:
     name: virustotal
-    needs: [candidate, build]
+    needs: [candidate, merge]
     # a fresh verdict also on a candidate's files: VirusTotal knows them, so no upload, only the polls
-    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.candidate.result == 'success') }}
+    if: ${{ !cancelled() && (needs.merge.result == 'success' || needs.candidate.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -192,26 +265,28 @@ jobs:
           set -euo pipefail
           [ -n "$VT_API_KEY" ] || { echo "::error::the VT_API_KEY secret is missing"; exit 1; }
           api=https://www.virustotal.com/api/v3
-          # no -f: a 404 is normal here (a file just uploaded, or one the API does not know yet) and the poll decides
-          vt() { curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@"; }
+          # no -f: a 404 is normal here (a file just uploaded, or one the API does not know yet) and the poll decides.
+          # Every request waits 20 s first: 3 a minute on a key that allows 4, lookups and uploads included (dist has
+          # three files). A 429 (QuotaExceededError) waits a minute and asks again instead of failing the file.
+          vt() {
+            local r _
+            for _ in 1 2 3 4 5; do
+              sleep 20
+              r=$(curl -sS --retry 3 --retry-all-errors -H "x-apikey: $VT_API_KEY" "$@") || return
+              if [ "$(jq -r '(.error.code)? // empty' <<<"$r" 2>/dev/null)" != QuotaExceededError ]; then break; fi
+              echo "VirusTotal quota hit (429); waiting a minute" >&2
+              sleep 60
+            done
+            printf '%s' "$r"
+          }
+          # the step's clock: the polls end in time to print their own verdict before the 45-minute job timeout
+          start=$(date +%s)
+          elapsed() { echo $(($(date +%s) - start)); }
           out=virustotal.md
           printf '| File | Microsoft | Engines flagging | Report |\n|---|---|---|---|\n' > "$out"
-          # One poll of the file object, done when Microsoft has a verdict and the engine count stopped moving: one
-          # poll every 20 s, up to 15 minutes, as the free API allows 4 requests a minute. Sets a, ms, bad, mst, engines.
-          poll() {
-            prev=-1; ms=; a=
-            for _ in $(seq 1 45); do
-              sleep 20
-              a=$(vt "$api/files/$sha")
-              n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
-              ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
-              if [ -n "$ms" ] && [ "$n" = "$prev" ]; then break; fi
-              prev=$n
-            done
-            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
-            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
-            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
-          }
+          # Every file is looked up and uploaded first, then one poll loop asks about all of them: VirusTotal analyses
+          # them side by side instead of one file after another (about 5 minutes each, the wait this job spends).
+          names=(); shas=(); resp=(); prev=(); settled=()
           fail=0
           for f in dist/*.zip dist/*.exe; do
             [ -e "$f" ] || continue
@@ -227,9 +302,43 @@ jobs:
               fi
               echo "uploaded $name"
             fi
-            # poll the file object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
-            # queued (the 0.6.0 run died there)
-            poll
+            names+=("$name"); shas+=("$sha"); resp+=(""); prev+=(-1); settled+=(0)
+          done
+          # One poll of file $1's object, not /analyses/<id>: that id comes from the upload and 404s while the scan is
+          # queued (the 0.6.0 run died there). It is settled once Microsoft has a verdict and the engine count stopped
+          # moving.
+          sample() {
+            local i=$1 a n ms
+            a=$(vt "$api/files/${shas[i]}")
+            n=$(jq -r '.data.attributes.last_analysis_stats | (.undetected + .malicious + .suspicious + .timeout) // 0' <<<"$a" 2>/dev/null || echo 0)
+            ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+            resp[i]=$a
+            if [ -n "$ms" ] && [ "$n" = "${prev[i]}" ]; then settled[i]=1; fi
+            prev[i]=$n
+          }
+          # One sample per pending file each round, 20 s apart (vt's pace). The loop ends once every file is settled or
+          # 25 minutes into the step, so a slow queue ends with "no Microsoft result" and leaves time for a rescan.
+          while [ "$(elapsed)" -lt 1500 ]; do
+            pending=0
+            for i in "${!shas[@]}"; do
+              if [ "${settled[i]}" = 1 ]; then continue; fi
+              pending=1
+              sample "$i"
+            done
+            if [ "$pending" = 0 ]; then break; fi
+          done
+          # The verdict fields of file $1's last answer: a, ms (Microsoft's category), mst (its category and result),
+          # bad (engines flagging it), engines (the other engines, named).
+          verdict() {
+            a=${resp[$1]}
+            ms=$(jq -r '.data.attributes.last_analysis_results.Microsoft.category // empty' <<<"$a" 2>/dev/null || true)
+            mst=$(jq -r '.data.attributes.last_analysis_results.Microsoft | .category + (if .result then " (" + .result + ")" else "" end)' <<<"$a" 2>/dev/null || true)
+            bad=$(jq -r '.data.attributes.last_analysis_stats.malicious + .data.attributes.last_analysis_stats.suspicious' <<<"$a" 2>/dev/null || echo 0)
+            engines=$(jq -r '[.data.attributes.last_analysis_results[] | select(.engine_name != "Microsoft") | select(.category == "malicious" or .category == "suspicious") | .engine_name + ": " + (.result // "?")] | join(", ")' <<<"$a" 2>/dev/null || true)
+          }
+          for i in "${!shas[@]}"; do
+            name=${names[i]}; sha=${shas[i]}
+            verdict "$i"
             if [ -z "$ms" ]; then echo "::error::$name: VirusTotal gave no Microsoft result"; echo "$a" | head -c 400; fail=1; continue; fi
             # A Microsoft hit is one engine's opinion of these bytes at this moment, and it moves: 0.6.0's FPR_Emu.exe
             # was flagged at 02:12 and undetected at 03:47 with the same sha256, Launcher.exe and forza_panel.dll
@@ -239,7 +348,15 @@ jobs:
             if [ "$ms" = malicious ] || [ "$ms" = suspicious ]; then
               echo "::warning::$name: Microsoft said $mst; asking VirusTotal for a fresh analysis"
               vt -X POST "$api/files/$sha/analyse" >/dev/null || true
-              poll
+              # the fresh analysis, polled on its own: it is the fail path, so the files beside it get no poll
+              # 15 minutes, cut at 40 minutes into the step (the job's 45 minus downloads and 429 waits)
+              prev[i]=-1; settled[i]=0
+              until_s=$(( $(elapsed) + 900 )); [ "$until_s" -le 2400 ] || until_s=2400
+              while [ "$(elapsed)" -lt "$until_s" ]; do
+                sample "$i"
+                if [ "${settled[i]}" = 1 ]; then break; fi
+              done
+              verdict "$i"
               if [ -n "$mst" ]; then echo "::warning::$name: the fresh analysis says $mst"; fi
             fi
             printf '| %s | %s | %s %s | [report](https://www.virustotal.com/gui/file/%s) |\n' "$name" "$mst" "$bad" "${engines:+($engines)}" "$sha" >> "$out"
@@ -260,7 +377,7 @@ jobs:
 
   publish:
     name: publish
-    needs: [candidate, build, virustotal]
+    needs: [candidate, merge, virustotal]
     # a tag push only: a dispatch never publishes, also when it runs on a tag. virustotal passed on the candidate's
     # files, the ones job candidate found and verified on this commit (explicit: build is skipped then)
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.virustotal.result == 'success' }}
