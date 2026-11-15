@@ -7,9 +7,8 @@ Rust. It started from `WCCF-Kit-1011` `main` (`b40b84a`, Kit 6) and took in `WCC
 release rules and the stability gate, [SAFETY.md](SAFETY.md) the rules for running the original programs, and
 [CONTRIBUTING.md](../CONTRIBUTING.md) the rules for a change.
 
-Status, 2026-10-27: version 0.4.1, alpha (GitHub pre-releases, 2017–18 first). Both editions' ZIPs build without Python
-and update in-app. Next up: the 2017–18 shared arcade (M2), so players can play friendlies in one arcade over a LAN or the
-internet. Release 1 (1.0.0) waits on the live gates below.
+Status, 2026-11-15: version 0.7.3, alpha (GitHub pre-releases, 2017–18 first). Open work is in the GitHub issues;
+Release 1 (1.0.0) waits on the live gates in #314.
 
 ## Done
 
