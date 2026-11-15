@@ -132,10 +132,12 @@ as clean because an earlier scan did. What helps:
   rebuild, and never change bytes just to change a hash (two byte-patched copies of a flagged file stayed flagged);
 - `FPR_Emu.exe` is frozen: `editions/2017-18/fpr_emu.sha256` holds the sha256, tag and commit of the last release's
   file, and `cargo xtask package 2017-18` ships that file (downloaded from the release ZIP, checked against the hash)
-  while `native/programs` and `native/common` (and the icon they embed) are unchanged since the
-  commit. A change there, or an offline build, builds fresh and says why. After a release that changed `FPR_Emu.exe`,
-  put its new hash, tag and commit in the file. The reproducibility jobs see the frozen file, so they no longer test
-  that `FPR_Emu.exe` builds the same twice;
+  while `native/programs` and `native/common` (and the icon they embed) are unchanged since the commit. A change there
+  builds fresh and says why. A `pin` as the fourth field keeps the release's file anyway: the package ships it and the
+  log lists the sources that changed, which is what holds the file while the antivirus verdict is unfixed. An offline
+  build ships a fresh build and says why. After a release that changed `FPR_Emu.exe`, put its new hash, tag and commit
+  in the file. The reproducibility jobs see the frozen file, so they no longer test that `FPR_Emu.exe` builds the same
+  twice;
 - a program whose sources did not change keeps its bytes; do not rebuild it for a release, and do not change a
   program's bytes hoping the verdict clears: it is one engine's opinion of those bytes, measured to stay put;
 - the per-file scan of the candidate's bytes is the gate, and one clean scan never clears a file for good: the
