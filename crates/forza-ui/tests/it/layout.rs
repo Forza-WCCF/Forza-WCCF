@@ -475,6 +475,14 @@ fn a_click_in_the_catalogue_keeps_the_search_line_focused_and_still() {
                 "{size:?} {ppp}: frame {frame} after the click moved a rect"
             );
             assert!(focused(&h), "{size:?} {ppp}: frame {frame}: the keys left");
+            if frame == 0 {
+                // the click's own frame lights the side it turned to, its highlight and the accesskit state alike
+                assert_eq!(
+                    h.get_by_label("BACK").accesskit_node().toggled(),
+                    Some(egui::accesskit::Toggled::True),
+                    "{size:?} {ppp}: the click's frame still lights the other side"
+                );
+            }
         }
     }
 }
