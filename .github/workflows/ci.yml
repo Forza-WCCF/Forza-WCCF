@@ -39,7 +39,10 @@ jobs:
   # candidate build is release.yml's, and the merge gate is the run that ready_for_review starts); ci-ok runs and fails
   # there, so a skipped pass never satisfies the ruleset. Other pull requests, drafts included, run as before.
   #
-  # Docs-only changes (root *.md, docs/**) skip build-test and deny; lint (with `check text`) always runs.
+  # Changes that no Rust build reads (root *.md, docs/**, and .github/** other than this file) skip build-test, deny
+  # and snapshots, on pull requests and on pushes to main (diffed against the push's `before`); lint (with `check
+  # text`, shellcheck and actionlint) and zizmor always run. Main's run is a post-merge monitor: internal branches are
+  # checked on the dev box before the merge, so a red main is fixed forward. The weekly run and dispatch run everything.
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.draft != true
@@ -55,21 +58,26 @@ jobs:
           persist-credentials: false
       - id: d
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          # a pull request's base, or main's tip before the push; neither on the weekly run and dispatch
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ -z "$BASE" ]; then
+          # no base, or one this clone does not have (a first push, a rewritten branch): everything
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo code=true >> "$GITHUB_OUTPUT"
             echo ui=true >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files=$(git diff --name-only "$BASE" HEAD)
-          if printf '%s\n' "$files" | grep -qvE '^(docs/|[^/]+\.md$)'; then
+          files=$(git diff --no-renames --name-only "$BASE" HEAD)
+          # this file counts as code: a change to it must run the jobs it changes
+          if printf '%s\n' "$files" | grep -qvE '^(docs/|[^/]+\.md$|\.github/)' ||
+             printf '%s\n' "$files" | grep -qxF '.github/workflows/ci.yml'; then
             echo code=true >> "$GITHUB_OUTPUT"
           else
             echo code=false >> "$GITHUB_OUTPUT"
           fi
-          # the snapshots job (informational) runs when the UI crate changed, on main, on schedule and on dispatch
-          if printf '%s\n' "$files" | grep -qE '^crates/forza-ui/'; then
+          # the snapshots job (informational) runs when the UI crate or the locked crates changed (a main push then
+          # also saves the job's cache, keyed on Cargo.lock), on schedule and on dispatch
+          if printf '%s\n' "$files" | grep -qE '^(crates/forza-ui/|Cargo\.lock$)'; then
             echo ui=true >> "$GITHUB_OUTPUT"
           else
             echo ui=false >> "$GITHUB_OUTPUT"
@@ -345,7 +353,7 @@ jobs:
   snapshots:
     name: snapshots (informational)
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.ui == 'true'
+    if: needs.changes.outputs.ui == 'true'
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
     continue-on-error: true
@@ -424,7 +432,7 @@ jobs:
           inputs: .
           collect: all
 
-  # One check to require in the ruleset: fails when any job failed or was cancelled; skipped jobs (docs-only changes) pass.
+  # One check to read (the release skill, the ruleset): fails when any job failed or was cancelled; skipped jobs pass.
   ci-ok:
     name: ci-ok
     # Runs on the draft release PR too, and fails there: GitHub reads a skipped check as a pass, and on the candidate sha
