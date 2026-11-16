@@ -1895,10 +1895,11 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool
             note_line(ui, &mut st.message)
         });
     }
-    if !compact {
-        cabinet_deck(ui, st, deck, lang, deck_scale, side);
-    } else {
+    if compact {
         st.latched = None; // no deck: no button left to let it go
+    } else if st.page == Page::Game || !above.contains_rect(deck) {
+        // an open page covers the docked deck: its keys read the raw pointer, so a click on the page would send them
+        cabinet_deck(ui, st, deck, lang, deck_scale, side);
     }
     page_bar(ui, st, tabs, lang, side);
     // popped out: the card touched on the board window, over the deck in the column

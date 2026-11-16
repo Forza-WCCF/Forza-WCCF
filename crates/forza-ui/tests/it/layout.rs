@@ -569,6 +569,65 @@ fn cabinet_shapes_click() {
     }
 }
 
+/// A click on an open page where a cabinet key sits under it sends no key to the game (#348): the deck was drawn and
+/// live under every page (`cabinet_deck(ui, st, deck, lang, deck_scale, side);`, no page check) and its keys read the
+/// raw pointer, so the page could not take the press from them.
+#[test]
+fn a_page_over_the_deck_sends_no_key() {
+    use std::cell::RefCell;
+    for ed in [Edition::E1011, Edition::E1718] {
+        let keys: Vec<(String, egui::Rect)> = {
+            let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+            let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+                panel::show(ui, &mut st.borrow_mut())
+            });
+            h.run_steps(3);
+            let keys = [
+                "cab.central",
+                "cab.counter",
+                "cab.press",
+                "cab.data",
+                "cab.key_player",
+                "cab.start",
+                "cab.shoot",
+                "cab.keeper",
+            ]
+            .into_iter()
+            .filter_map(|k| {
+                let l = forza_ui::text(Lang::En, k, &[]);
+                let r = h.query_all_by_label(&l).next().map(|n| n.rect());
+                r.map(|r| (l, r))
+            })
+            .collect();
+            keys
+        };
+        assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
+        for page in [panel::Page::Keys, panel::Page::Settings] {
+            for (label, r) in &keys {
+                // a fresh panel per click: a click on SETTINGS' layout choice would take the deck away
+                let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, page));
+                let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+                    panel::show(ui, &mut st.borrow_mut())
+                });
+                h.run_steps(3);
+                let at = r.center();
+                h.hover_at(at);
+                h.run_steps(1);
+                h.drag_at(at);
+                h.run_steps(1);
+                h.drop_at(at);
+                h.run_steps(2);
+                assert_eq!(
+                    st.borrow().pressed,
+                    None,
+                    "{ed:?} {}: {label} sent under the page",
+                    page.tag()
+                );
+            }
+        }
+    }
+}
+
 /// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer; H
 /// hosts a VS room, Enter in it is READY.
 #[test]
