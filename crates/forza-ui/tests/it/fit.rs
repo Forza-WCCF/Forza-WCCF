@@ -11,10 +11,9 @@ use super::snapshots::harness;
 
 /// Every screen the audit checks run over, at its default window size and at the smallest window it is laid out for, in
 /// English, Italian and Japanese: panel pages, Launcher scenarios, installer pages (and its confirm dialog) and the
-/// lobby. `check` gets the screen's name, its size, its edition, the labels an open page draws over (see
-/// [`under_page`]) and how to draw it.
+/// lobby. `check` gets the screen's name, its size, its edition and how to draw it.
 #[allow(clippy::type_complexity)] // a screen's drawer, as `harness` takes it
-fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(&mut Ui))) {
+fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) {
     for lang in Lang::ALL {
         let l = lang.code();
         for ed in [Edition::E1011, Edition::E1718] {
@@ -23,12 +22,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(
                 // the panel fits its sheet to the window: a 1280x800 window lays out the same points as 1440x900
                 let mut show = |ui: &mut Ui| panel::show(ui, &mut st);
                 let name = format!("panel {} {ed:?} {l}", page.tag());
-                let under = if page == panel::Page::Game {
-                    vec![]
-                } else {
-                    under_page(lang)
-                };
-                check(&name, panel::SIZE, ed, &under, &mut show);
+                check(&name, panel::SIZE, ed, &mut show);
             }
         }
         use launcher::Scenario::*;
@@ -42,7 +36,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(
                         launcher::show(ui, &mut st);
                     };
                     let name = format!("launcher {s:?} {ed:?} {l}");
-                    check(&name, size, ed, &[], &mut show);
+                    check(&name, size, ed, &mut show);
                 }
             }
         }
@@ -53,7 +47,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(
                     installer::show(ui, &mut st);
                 };
                 let name = format!("installer {} {l}", page.tag());
-                check(&name, size, Edition::E1011, &[], &mut show);
+                check(&name, size, Edition::E1011, &mut show);
             }
         }
         let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
@@ -63,7 +57,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(
                 installer::show(ui, &mut st);
             };
             let name = format!("installer confirm {l}");
-            check(&name, size, Edition::E1011, &[], &mut show);
+            check(&name, size, Edition::E1011, &mut show);
         }
         for s in lobby::Scenario::ALL {
             let mut v = lobby::LobbyView::sample(s);
@@ -72,7 +66,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &[String], &mut dyn FnMut(
                     lobby::show(ui, &mut v, lang);
                 };
                 let name = format!("lobby {} {l}", s.tag());
-                check(&name, size, Edition::E1718, &[], &mut show);
+                check(&name, size, Edition::E1718, &mut show);
             }
         }
     }
@@ -108,49 +102,12 @@ fn clickable(role: Role) -> bool {
     )
 }
 
-/// The game screen's chrome an open panel page is drawn over: the cabinet deck's buttons and the page bar's
-/// (`panel::Layout::pages`). The page's sheet hides them, yet their buttons stay live, so a click meant for the page
-/// also sends the deck's key: the audit's one real find (HANDOFF.md #299 has the issue text). Out of this audit until
-/// the deck and the bar are off while a page is open.
-fn under_page(lang: Lang) -> Vec<String> {
-    [
-        // the deck: the machine's keys, the play keys, the tactic pad (panel::CABS)
-        "cab.central",
-        "cab.counter",
-        "cab.l_side",
-        "cab.r_side",
-        "cab.press",
-        "cab.data",
-        "cab.key_player",
-        "cab.start",
-        "cab.shoot",
-        "cab.keeper",
-        "cab.card",
-        "cab.coin",
-        // the page bar
-        "panel.add_card",
-        "panel.keys",
-        "panel.settings",
-        "panel.club_card",
-        "pause.button",
-    ]
-    .into_iter()
-    .map(|key| forza_ui::text(lang, key, &[]))
-    .collect()
-}
-
 /// The clickable widgets of one screen that sit on each other, as "screen: role label {rect} on role label {rect}".
 /// Two of them on the page's own layer may not share space (a button drawn over its neighbour takes the clicks meant
 /// for it), in any language. A dialog's buttons are in a layer of their own and the widgets under it are clipped or
-/// covered, so this reads the page's window: what a player sees and can click. `under` holds the labels the screen's
-/// open page is drawn over, which [the panel keeps live](under_page).
-fn overlaps(
-    name: &str,
-    size: Vec2,
-    ed: Edition,
-    under: &[String],
-    show: impl FnMut(&mut Ui),
-) -> Vec<String> {
+/// covered, so this reads the page's window: what a player sees and can click. An open panel page takes the cabinet
+/// deck away and stays clear of the page bar (#348), so the widgets under a page are in this check too.
+fn overlaps(name: &str, size: Vec2, ed: Edition, show: impl FnMut(&mut Ui)) -> Vec<String> {
     use egui_kittest::kittest::NodeT as _;
     let mut h = harness(size, 1.0, ed, show);
     h.run_steps(8);
@@ -162,14 +119,8 @@ fn overlaps(
         .filter_map(|n| {
             let a = n.accesskit_node();
             let label = a.label();
-            // a disabled widget takes no click (a cream PLAY under a setup run), nor one a page is drawn over
+            // a disabled widget takes no click (a cream PLAY under a setup run)
             if a.is_hidden() || a.is_disabled() || !clickable(a.role()) {
-                return None;
-            }
-            if label
-                .as_deref()
-                .is_some_and(|l| under.iter().any(|u| u == l))
-            {
                 return None;
             }
             let b = a.bounding_box()?;
@@ -215,7 +166,7 @@ fn shared(a: egui::Rect, b: egui::Rect) -> Option<egui::Rect> {
 #[test]
 fn every_screen_fits() {
     let mut over = vec![];
-    screens(|name, size, ed, _, show| {
+    screens(|name, size, ed, show| {
         over.extend(overflows(name, size, ed, show));
     });
     assert!(
@@ -230,8 +181,8 @@ fn every_screen_fits() {
 #[test]
 fn no_two_clickables_overlap() {
     let mut over = vec![];
-    screens(|name, size, ed, under, show| {
-        over.extend(overlaps(name, size, ed, under, show));
+    screens(|name, size, ed, show| {
+        over.extend(overlaps(name, size, ed, show));
     });
     assert!(
         over.is_empty(),
