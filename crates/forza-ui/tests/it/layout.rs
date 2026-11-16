@@ -569,6 +569,34 @@ fn cabinet_shapes_click() {
     }
 }
 
+/// The cabinet deck's key buttons on the game page and their rects, as `ed` draws them: the keys a page or a dialog
+/// must not get a press through.
+fn deck_keys(ed: Edition) -> Vec<(String, egui::Rect)> {
+    use std::cell::RefCell;
+    let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+    let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    [
+        "cab.central",
+        "cab.counter",
+        "cab.press",
+        "cab.data",
+        "cab.key_player",
+        "cab.start",
+        "cab.shoot",
+        "cab.keeper",
+    ]
+    .into_iter()
+    .filter_map(|k| {
+        let l = forza_ui::text(Lang::En, k, &[]);
+        let r = h.query_all_by_label(&l).next().map(|n| n.rect())?;
+        Some((l, r))
+    })
+    .collect()
+}
+
 /// A click on an open page where a cabinet key sits under it sends no key to the game (#348): the deck was drawn and
 /// live under every page (`cabinet_deck(ui, st, deck, lang, deck_scale, side);`, no page check) and its keys read the
 /// raw pointer, so the page could not take the press from them.
@@ -576,30 +604,7 @@ fn cabinet_shapes_click() {
 fn a_page_over_the_deck_sends_no_key() {
     use std::cell::RefCell;
     for ed in [Edition::E1011, Edition::E1718] {
-        let keys: Vec<(String, egui::Rect)> = {
-            let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
-            let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
-                panel::show(ui, &mut st.borrow_mut())
-            });
-            h.run_steps(3);
-            [
-                "cab.central",
-                "cab.counter",
-                "cab.press",
-                "cab.data",
-                "cab.key_player",
-                "cab.start",
-                "cab.shoot",
-                "cab.keeper",
-            ]
-            .into_iter()
-            .filter_map(|k| {
-                let l = forza_ui::text(Lang::En, k, &[]);
-                let r = h.query_all_by_label(&l).next().map(|n| n.rect());
-                r.map(|r| (l, r))
-            })
-            .collect()
-        };
+        let keys = deck_keys(ed);
         assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
         for page in [panel::Page::Keys, panel::Page::Settings] {
             for (label, r) in &keys {
@@ -623,6 +628,53 @@ fn a_page_over_the_deck_sends_no_key() {
                     page.tag()
                 );
             }
+        }
+    }
+}
+
+/// A latched KEY PLAYER (a right-click keeps its key down in the game) goes up when a page takes the docked deck away:
+/// the button that lets the latch go is gone with the deck (#349).
+#[test]
+fn a_page_releases_the_latched_key() {
+    use std::cell::RefCell;
+    for ed in [Edition::E1011, Edition::E1718] {
+        let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+        let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(3);
+        let label = forza_ui::text(Lang::En, "cab.key_player", &[]);
+        let at = h
+            .query_all_by_label(&label)
+            .next()
+            .unwrap_or_else(|| panic!("{ed:?}: the deck's {label}"))
+            .rect()
+            .center();
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(1);
+        }
+        assert_eq!(
+            st.borrow().latched,
+            Some("KEYPLAYER"),
+            "{ed:?}: the right-click did not latch the key"
+        );
+        for page in [panel::Page::Keys, panel::Page::Settings] {
+            st.borrow_mut().latched = Some("KEYPLAYER");
+            st.borrow_mut().page = page;
+            h.run_steps(2);
+            assert_eq!(
+                st.borrow().latched,
+                None,
+                "{ed:?} {}: the key stayed latched with the deck gone",
+                page.tag()
+            );
         }
     }
 }
