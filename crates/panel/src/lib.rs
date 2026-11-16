@@ -4088,9 +4088,10 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     };
     let pic = (*PICTURE.lock().ok()?)?;
     let p = pos2(f32::from(lp.0 as i16), f32::from((lp.0 >> 16) as i16));
-    let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
+    let down = game_press(m);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
-    // a press on the divider's handle is egui's (it drags the divider), though half the handle lies on the picture
+    // the left press on the divider's handle is egui's (it drags the divider), though half the handle lies on the
+    // picture; right and middle presses there stay the game's
     if handle_press(m)
         && DIVIDER_HANDLE
             .lock()
@@ -4133,6 +4134,20 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
         )],
     );
     Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
+}
+
+/// Whether `m` is a press (a double click's second press too): one on the picture holds its button for the game, so
+/// the matching release goes to the game wherever it lands.
+fn game_press(m: u32) -> bool {
+    matches!(
+        m,
+        WM_LBUTTONDOWN
+            | WM_RBUTTONDOWN
+            | WM_MBUTTONDOWN
+            | WM_LBUTTONDBLCLK
+            | WM_RBUTTONDBLCLK
+            | WM_MBUTTONDBLCLK
+    )
 }
 
 /// Whether `m` on the divider's handle is egui's: the primary button's press or double click (only it drags the
@@ -4312,11 +4327,12 @@ fn input(board: bool, m: u32, wp: WPARAM, lp: LPARAM) -> bool {
             push(board, vec![Event::PointerMoved(pos)]);
             return true; // off the game's picture (to_game): not the game's
         }
-        WM_LBUTTONDOWN => (button(PointerButton::Primary, true), false),
+        // a double click's second press is a press for egui too: its release is egui's, so the game must not see it
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => (button(PointerButton::Primary, true), false),
         WM_LBUTTONUP => (button(PointerButton::Primary, false), false),
-        WM_RBUTTONDOWN => (button(PointerButton::Secondary, true), false),
+        WM_RBUTTONDOWN | WM_RBUTTONDBLCLK => (button(PointerButton::Secondary, true), false),
         WM_RBUTTONUP => (button(PointerButton::Secondary, false), false),
-        WM_MBUTTONDOWN => (button(PointerButton::Middle, true), false),
+        WM_MBUTTONDOWN | WM_MBUTTONDBLCLK => (button(PointerButton::Middle, true), false),
         WM_MBUTTONUP => (button(PointerButton::Middle, false), false),
         WM_MOUSEWHEEL => (
             vec![Event::MouseWheel {
@@ -4416,14 +4432,16 @@ fn take_off_lines(
 #[cfg(test)]
 mod tests {
     use super::{
-        BOARD_ANIMATION, Duration, Instant, Modifiers, NOTICE_MAX, RECT, WPARAM, banner_off,
-        board_unchanged, board_wake, cards, fit_place, fit_workspace, handle_press, proj_close_note,
+        BOARD_ANIMATION, BOARD_EVENTS, Duration, Event, HELD, Instant, LPARAM, Modifiers,
+        NOTICE_MAX, PointerButton, RECT, Relaxed, WPARAM, banner_off, board_unchanged, board_wake,
+        cards, fit_place, fit_workspace, game_press, handle_press, input, of, proj_close_note,
         read_notice, saved_place_fitted, side_button, table_count, take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
-        WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE,
-        WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
+        WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN,
+        WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
+        WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
 
     /// The table read says how many rows the board does not show: a hand-edited table may hold up to 20.
@@ -4683,6 +4701,41 @@ mod tests {
         ] {
             assert!(!handle_press(m), "{m:#x}");
         }
+    }
+
+    /// A double click's second press is egui's like the first (its release is egui's too: the game never gets half the
+    /// pair), and on the game's picture it holds the button for the game like a plain press (its release follows).
+    #[test]
+    fn a_double_click_stays_in_one_place() {
+        let at = LPARAM((20 << 16) | 10);
+        for (dbl, up, button) in [
+            (WM_LBUTTONDBLCLK, WM_LBUTTONUP, PointerButton::Primary),
+            (WM_RBUTTONDBLCLK, WM_RBUTTONUP, PointerButton::Secondary),
+            (WM_MBUTTONDBLCLK, WM_MBUTTONUP, PointerButton::Middle),
+        ] {
+            assert!(game_press(dbl), "{dbl:#x}");
+            assert!(!game_press(up), "{up:#x}");
+            assert!(
+                input(true, dbl, WPARAM(0), at),
+                "{dbl:#x}: the game must not see it"
+            );
+            assert!(input(true, up, WPARAM(0), at), "{up:#x}");
+            let pressed: Vec<bool> = std::mem::take(&mut *BOARD_EVENTS.lock().unwrap())
+                .into_iter()
+                .filter_map(|e| match e {
+                    Event::PointerButton {
+                        button: b, pressed, ..
+                    } if b == button => Some(pressed),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                pressed,
+                [true, false],
+                "{dbl:#x}: egui gets the press and its release"
+            );
+        }
+        assert_eq!(of(&HELD, true).load(Relaxed), 0, "no button left held");
     }
 
     /// A saved board_rect= bigger than the screen or off it (a 1920x1200 tablet, 2026-11-09) comes back inside the
