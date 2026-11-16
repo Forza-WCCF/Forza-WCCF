@@ -1651,8 +1651,9 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
-    /// The board window's last drawn frame: its size and the keys and modifiers it showed (`None`: draw the next).
-    board_last: Option<((u32, u32), BoardInput)>,
+    /// The board window's last drawn frame: its size, the keys and modifiers it showed and when it was Presented
+    /// (`None`: draw the next).
+    board_last: Option<BoardFrame>,
     /// Board window frames drawn (each one Present) and skipped (nothing changed), for the frame cost line; the drawn
     /// count and the time at the last line, for its Presents a second.
     board_drawn: u32,
@@ -2102,6 +2103,7 @@ impl Render {
                 self.board_last.as_ref(),
                 (w, h),
                 &input,
+                now,
                 always || self.busy || events || BOARD_SIZING.load(Relaxed),
                 || {
                     // the look paint_board's pass will be asked with
@@ -2111,7 +2113,7 @@ impl Render {
                         modifiers: input.0,
                         state: self.st.fingerprint(),
                     };
-                    self.board_idle.wants(now, events, look)
+                    board_wake(&self.board_idle, now, events, look)
                 },
             );
             self.split.mark(cost::Part::Check);
@@ -2124,7 +2126,6 @@ impl Render {
                 return false;
             }
             self.board_drawn += 1;
-            self.board_last = Some(((w, h), input));
             let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -2133,6 +2134,8 @@ impl Render {
                 0,
             );
             self.split.mark(cost::Part::Present);
+            // a failed Present is retried next frame, not kept until the next change
+            self.board_last = shown.is_ok().then_some(((w, h), input, now));
             if let Err(e) = shown
                 && !std::mem::replace(&mut self.board_warned, true)
             {
@@ -4088,7 +4091,7 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
     // a press on the divider's handle is egui's (it drags the divider), though half the handle lies on the picture
-    if down
+    if handle_press(m)
         && DIVIDER_HANDLE
             .lock()
             .ok()
@@ -4130,6 +4133,12 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
         )],
     );
     Some(LPARAM(((gy as u16 as isize) << 16) | gx as u16 as isize))
+}
+
+/// Whether `m` on the divider's handle is egui's: the primary button's press or double click (only it drags the
+/// divider); right and middle presses there stay the game's on its picture half.
+fn handle_press(m: u32) -> bool {
+    matches!(m, WM_LBUTTONDOWN | WM_LBUTTONDBLCLK)
 }
 
 /// A mouse side button's message (`WM_XBUTTON*`): `Some(vk)` = handled here, with KEYS' key for a press (`vk`, while
@@ -4186,16 +4195,52 @@ fn modifiers() -> Modifiers {
 /// What the board window shows besides egui's own input: the modifiers (Alt: the keycaps) and the keys held down.
 type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
 
+/// A board window frame that was Presented: its size, its input and when.
+type BoardFrame = ((u32, u32), BoardInput, Instant);
+
+/// The board window's fastest redraw for an egui animation alone (a card's hover): ~30 a second, not one per game frame.
+const BOARD_ANIMATION: Duration = Duration::from_millis(33);
+
+/// Why the board's idle gate wants a pass, read only: `Repaint` when egui asked for one and nothing else changed.
+fn board_wake(
+    idle: &forza_ui::idle::Idle,
+    now: Instant,
+    events: bool,
+    look: forza_ui::idle::Look,
+) -> Option<forza_ui::idle::Wake> {
+    use forza_ui::idle::Wake;
+    if !idle.wants(now, events, look) {
+        None
+    } else if events {
+        Some(Wake::Input)
+    } else if idle.changed(look) {
+        Some(Wake::State)
+    } else {
+        Some(Wake::Repaint)
+    }
+}
+
 /// The board window's frame may keep its last picture: not `forced`, drawn before at this size with this input, and
-/// its idle gate `wants` no pass (asked last: it hashes the panel state).
+/// its idle gate wants no pass, or only egui's repaint within [`BOARD_ANIMATION`] of the last Present (`wake` is
+/// asked last: it hashes the panel state).
 fn board_unchanged(
-    last: Option<&((u32, u32), BoardInput)>,
+    last: Option<&BoardFrame>,
     size: (u32, u32),
     input: &BoardInput,
+    now: Instant,
     forced: bool,
-    wants: impl FnOnce() -> bool,
+    wake: impl FnOnce() -> Option<forza_ui::idle::Wake>,
 ) -> bool {
-    !forced && last.is_some_and(|(s, i)| *s == size && i == input) && !wants()
+    let Some((s, i, at)) = last.filter(|_| !forced) else {
+        return false;
+    };
+    *s == size
+        && i == input
+        && match wake() {
+            None => true,
+            Some(forza_ui::idle::Wake::Repaint) => now < *at + BOARD_ANIMATION,
+            Some(_) => false,
+        }
 }
 
 fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
@@ -4371,13 +4416,14 @@ fn take_off_lines(
 #[cfg(test)]
 mod tests {
     use super::{
-        Duration, Instant, Modifiers, NOTICE_MAX, RECT, WPARAM, banner_off, board_unchanged, cards,
-        fit_place, fit_workspace, proj_close_note, read_notice, saved_place_fitted, side_button,
-        table_count, take_off_lines,
+        BOARD_ANIMATION, Duration, Instant, Modifiers, NOTICE_MAX, RECT, WPARAM, banner_off,
+        board_unchanged, board_wake, cards, fit_place, fit_workspace, handle_press, proj_close_note,
+        read_notice, saved_place_fitted, side_button, table_count, take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
-        WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
+        WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE,
+        WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
 
     /// The table read says how many rows the board does not show: a hand-edited table may hold up to 20.
@@ -4511,51 +4557,132 @@ mod tests {
             "the drawn frame's pass"
         );
         let input = (Modifiers::default(), [false; forza::keys::COUNT]);
-        let last = ((944, 891), input);
+        let last = ((944, 891), input, t);
         let later = t + Duration::from_secs(5);
-        let wants = |look| idle.wants(later, false, look);
+        let wants = |look| board_wake(&idle, later, false, look);
         assert!(
-            board_unchanged(Some(&last), (944, 891), &input, false, || wants(look)),
+            board_unchanged(Some(&last), (944, 891), &input, later, false, || wants(
+                look
+            )),
             "idle 5 s later: no compose, no Present"
         );
         assert!(
-            !board_unchanged(None, (944, 891), &input, false, || wants(look)),
+            !board_unchanged(None, (944, 891), &input, later, false, || wants(look)),
             "never drawn, or not drawable since"
         );
         assert!(
-            !board_unchanged(Some(&last), (944, 890), &input, false, || wants(look)),
+            !board_unchanged(Some(&last), (944, 890), &input, later, false, || wants(
+                look
+            )),
             "resized"
         );
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, true, || wants(look)),
+            !board_unchanged(Some(&last), (944, 891), &input, later, true, || wants(look)),
             "forced"
         );
         let mut key = input;
         key.1[0] = true;
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &key, false, || wants(look)),
+            !board_unchanged(Some(&last), (944, 891), &key, later, false, || wants(look)),
             "a key held"
         );
         let alt = (Modifiers::ALT, input.1);
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &alt, false, || wants(look)),
+            !board_unchanged(Some(&last), (944, 891), &alt, later, false, || wants(look)),
             "Alt"
         );
         let changed = forza_ui::idle::Look { state: 2, ..look };
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, false, || wants(changed)),
+            !board_unchanged(Some(&last), (944, 891), &input, later, false, || wants(
+                changed
+            )),
             "the panel state changed"
         );
-        let waiting = || idle.wants(later, true, look);
+        let waiting = || board_wake(&idle, later, true, look);
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, false, waiting),
+            !board_unchanged(Some(&last), (944, 891), &input, later, false, waiting),
             "input waiting"
         );
         ctx.request_repaint();
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, false, || wants(look)),
+            !board_unchanged(Some(&last), (944, 891), &input, later, false, || wants(
+                look
+            )),
             "egui asked for a repaint"
         );
+    }
+
+    /// An egui animation alone (a card's hover) redraws the board window at most every 33 ms, not every game frame;
+    /// a state change, input or a forced frame still draws at once.
+    #[test]
+    fn the_board_window_caps_animation_redraws() {
+        use forza_ui::idle::Wake;
+        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
+        let t = Instant::now();
+        let last = ((944, 891), input, t);
+        let soon = t + Duration::from_millis(10);
+        let repaint = || Some(Wake::Repaint);
+        assert!(
+            board_unchanged(Some(&last), (944, 891), &input, soon, false, repaint),
+            "an animation 10 ms after the last Present waits"
+        );
+        assert!(
+            !board_unchanged(
+                Some(&last),
+                (944, 891),
+                &input,
+                t + BOARD_ANIMATION,
+                false,
+                repaint
+            ),
+            "an animation 33 ms after it draws"
+        );
+        for wake in [Wake::State, Wake::Window, Wake::Input] {
+            assert!(
+                !board_unchanged(Some(&last), (944, 891), &input, soon, false, || Some(wake)),
+                "{wake:?} draws at once"
+            );
+        }
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, soon, true, repaint),
+            "forced draws at once"
+        );
+        // the gate's reason: a repaint request alone is Repaint, a new state is State
+        let ctx = egui::Context::default();
+        let mut idle = forza_ui::idle::Idle::new(&ctx);
+        let look = forza_ui::idle::Look {
+            size: [944, 891],
+            ppp: 1.0,
+            modifiers: Modifiers::default(),
+            state: 1,
+        };
+        assert!(idle.pass(t, false, look).is_some());
+        ctx.request_repaint();
+        let now = Instant::now();
+        assert_eq!(board_wake(&idle, now, false, look), Some(Wake::Repaint));
+        let changed = forza_ui::idle::Look { state: 2, ..look };
+        assert_eq!(board_wake(&idle, now, false, changed), Some(Wake::State));
+        assert_eq!(board_wake(&idle, now, true, look), Some(Wake::Input));
+    }
+
+    /// On the divider's handle only the left button's press and double click are egui's (they drag the divider);
+    /// right and middle presses are left to the game.
+    #[test]
+    fn the_handle_takes_only_the_left_button() {
+        assert!(handle_press(WM_LBUTTONDOWN));
+        assert!(
+            handle_press(WM_LBUTTONDBLCLK),
+            "a double click's second press"
+        );
+        for m in [
+            WM_RBUTTONDOWN,
+            WM_MBUTTONDOWN,
+            WM_RBUTTONDBLCLK,
+            WM_LBUTTONUP,
+            WM_MOUSEMOVE,
+        ] {
+            assert!(!handle_press(m), "{m:#x}");
+        }
     }
 
     /// A saved board_rect= bigger than the screen or off it (a 1920x1200 tablet, 2026-11-09) comes back inside the

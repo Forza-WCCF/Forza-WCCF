@@ -98,6 +98,11 @@ impl Idle {
         events || self.seen != Some(look) || self.due.load(Ordering::Acquire) <= now
     }
 
+    /// Whether `look` differs from what the last pass saw (state, size, scale or modifiers), read only.
+    pub fn changed(&self, look: Look) -> bool {
+        self.seen != Some(look)
+    }
+
     /// The next frame runs a pass whatever it sees (a device reset dropped what the painter held).
     pub fn forget(&mut self) {
         self.seen = None;
