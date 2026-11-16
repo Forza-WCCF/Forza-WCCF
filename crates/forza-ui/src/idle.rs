@@ -354,10 +354,19 @@ mod tests {
         let mut p = Panel::new(Page::Game);
         p.settle();
         let later = Duration::from_secs(60);
-        p.ctx.request_repaint_after(later);
+        // The gate's record of the request, where egui's repaint callback puts it. The test used to ask egui for it
+        // (`request_repaint_after`), which passed it on only while egui's own repaint delay was longer (egui 0.37
+        // `context.rs`: `if delay < viewport.repaint.repaint_delay`), and a widget still fading leaves a zero-delay
+        // request behind that swallows the 60 s one; that depended on the panel's animations, one CI run in 60.
+        let at = p.idle.epoch.elapsed().as_micros() as u64 + later.as_micros() as u64;
+        p.idle.due.store(at, Ordering::Release);
         p.st.ping_ms += 40;
         assert!(p.frame(vec![]), "the ping meter");
-        p.settle();
+        assert_ne!(
+            p.idle.due.load(Ordering::Acquire),
+            u64::MAX,
+            "kept for its own pass, not thrown away by this one"
+        );
         assert!(
             p.frame_later(later + Duration::from_secs(1), vec![]),
             "due: the pass still runs"
