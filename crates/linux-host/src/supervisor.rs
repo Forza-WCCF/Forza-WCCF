@@ -1064,11 +1064,7 @@ fn cups(root: &Path, binary: &Path) -> io::Result<()> {
             at: 0,
             rest: Vec::new(),
         };
-        let mut paired: Option<i64> = None;
-        let (mut slots, mut in_cup, mut done) = (cups::Slots::default(), false, 0);
-        // the restart is due after the run's last cup, or after a cup whose rounds ran so long (or short) that the next
-        // one would miss its time; when control's log says nothing, half an hour after the plan's end
-        let mut due = false;
+        let mut watch = cups::Watch::new(&run);
         let why = loop {
             if stopped() {
                 break "stop asked";
@@ -1078,41 +1074,11 @@ fn cups(root: &Path, binary: &Path) -> io::Result<()> {
             }
             let now = local_now();
             for l in tail.lines() {
-                if cups::pairs_a_seat(&l) {
-                    paired = Some(now);
-                }
-                // a cup is over at its final's matching (one pair), or the friendly after it should a final escape that
-                let ended = match slots.feed(&l) {
-                    Some(cups::Slot::CupRound(n)) if !in_cup && n > 1 => {
-                        in_cup = true;
-                        say(&format!(
-                            "cup {} of the run: first round's matching",
-                            done + 1
-                        ));
-                        None
-                    }
-                    Some(cups::Slot::CupRound(1)) if in_cup => Some(now + cups::FINAL_SECS),
-                    Some(cups::Slot::Friendly) if in_cup => Some(now - cups::MATCHING_SECS),
-                    _ => None,
-                };
-                if let Some(ended) = ended {
-                    in_cup = false;
-                    done += 1;
-                    let keep = cups::next_on_time(&run, done, ended, cups::OVH1);
-                    say(&format!(
-                        "cup {done} of the run over (its last slot ends about {}); {}",
-                        cups::clock(ended),
-                        if keep {
-                            "the next one stays on time"
-                        } else {
-                            "restart due"
-                        }
-                    ));
-                    due |= !keep;
+                if let Some(m) = watch.line(&l, now) {
+                    say(&m);
                 }
             }
-            due |= now >= run.ends() + 1800;
-            if due && paired.is_none_or(|t| now - t >= cups::MATCH_SECS) {
+            if watch.clear(now) {
                 break "the run's cups are over and no seat is in a match";
             }
             thread::sleep(Duration::from_secs(2));

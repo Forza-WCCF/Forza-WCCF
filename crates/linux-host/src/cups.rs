@@ -220,6 +220,79 @@ impl Slots {
     }
 }
 
+/// A cup's rounds: three group rounds of four pairs, the semi-final, the final (ovh1's game.log, 2026-11-09).
+pub const ROUNDS: u32 = 5;
+
+/// The restart gate of one control run, fed control's log: due after the run's last cup (or one whose next cup would
+/// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired so far
+/// is still in a match ([`MATCH_SECS`]).
+pub struct Watch<'a> {
+    run: &'a Run,
+    slots: Slots,
+    /// The current cup's rounds so far; 0 outside a cup.
+    rounds: u32,
+    done: usize,
+    paired: Option<i64>,
+    due: bool,
+}
+
+impl<'a> Watch<'a> {
+    pub fn new(run: &'a Run) -> Self {
+        Self {
+            run,
+            slots: Slots::default(),
+            rounds: 0,
+            done: 0,
+            paired: None,
+            due: false,
+        }
+    }
+
+    /// One line of control's log, read at `now`; a line to report.
+    pub fn line(&mut self, l: &str, now: i64) -> Option<String> {
+        if pairs_a_seat(l) {
+            self.paired = Some(now);
+        }
+        // a cup is over at its final's matching (one pair, or its last round whatever the table shows), or at the
+        // friendly after it should a final escape both: that friendly's seats then hold the restart a match more (#338)
+        let ended = match self.slots.feed(l)? {
+            Slot::CupRound(n) if self.rounds == 0 && n > 1 => {
+                self.rounds = 1;
+                return Some(format!(
+                    "cup {} of the run: first round's matching",
+                    self.done + 1
+                ));
+            }
+            Slot::CupRound(n) if self.rounds > 0 => {
+                self.rounds += 1;
+                (n == 1 || self.rounds == ROUNDS).then_some(now + FINAL_SECS)?
+            }
+            Slot::Friendly if self.rounds > 0 => now - MATCHING_SECS,
+            _ => return None,
+        };
+        self.rounds = 0;
+        self.done += 1;
+        let keep = next_on_time(self.run, self.done, ended, OVH1);
+        self.due |= !keep;
+        Some(format!(
+            "cup {} of the run over (its last slot ends about {}); {}",
+            self.done,
+            clock(ended),
+            if keep {
+                "the next one stays on time"
+            } else {
+                "restart due"
+            }
+        ))
+    }
+
+    /// Whether the control may stop now.
+    pub fn clear(&mut self, now: i64) -> bool {
+        self.due |= now >= self.run.ends() + 1800;
+        self.due && self.paired.is_none_or(|t| now - t >= MATCH_SECS)
+    }
+}
+
 /// A control log line (game.log, Wine's `+debugstr`) that pairs a player's seat for a match: `CPU170 Away -> sate1 Home`,
 /// `send match info : (...)Home -> sate3 Away`. The projector's `-> sate=0(sock=1)` is not one.
 pub fn pairs_a_seat(line: &str) -> bool {
@@ -395,6 +468,68 @@ mod tests {
             assert_eq!(next.cups[0].target, target(at(h + 1, 0)), "{h}:00 cup");
         }
         assert_eq!(plan(at(4, 40), OVH1).cups[0].target, at(5, 1));
+    }
+
+    /// Control's log of a cup with a seat in every round and in the friendly after the final, as (time, lines): the
+    /// final's table with `final_pairs` pairs, or lost (`None`).
+    fn cup_log(c: &Cup, final_pairs: Option<usize>) -> Vec<(i64, Vec<String>)> {
+        let fin = c.ends - FINAL_SECS;
+        let slot = |pairs: usize| {
+            let mut v = vec![
+                line("ClientManage::sendMatchingInfo() : friendly_match_tbl "),
+                line("CPU170 Away -> sate1 Home"),
+                line("ClientManage::sendMatchingInfo() : match_tbl "),
+            ];
+            v.extend((0..pairs).map(|k| line(&format!("[{k}]=(346,357,-187006887), "))));
+            v.push(line("\\n"));
+            v
+        };
+        let mut log: Vec<_> = [(4, 4), (3, 4), (2, 4), (1, 2)]
+            .map(|(back, pairs)| (fin - back * OVH1.slot, slot(pairs)))
+            .into();
+        log.extend(final_pairs.map(|p| (fin, slot(p))));
+        log.push((fin + FINAL_SECS + MATCHING_SECS, slot(0)));
+        log
+    }
+
+    /// When [`Watch`] lets the control stop, read second by second.
+    fn restart(run: &Run, log: &[(i64, Vec<String>)]) -> i64 {
+        let mut w = Watch::new(run);
+        (log[0].0..)
+            .find(|&t| {
+                for (_, lines) in log.iter().filter(|(at, _)| *at == t) {
+                    for l in lines {
+                        w.line(l, t);
+                    }
+                }
+                w.clear(t)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_final_logged_with_two_pairs_restarts_like_a_one_pair_final() {
+        for h in 0..24 {
+            let r = plan(at(h, 0) - 20 * 60, OVH1);
+            let c = &r.cups[0];
+            let fin = c.ends - FINAL_SECS;
+            let recognised = restart(&r, &cup_log(c, Some(1)));
+            assert_eq!(recognised, fin + MATCH_SECS, "{h}:00 cup");
+            // was held from the friendly after it: fin + 505 + 460, 29 s before the last start for 06:00
+            assert_eq!(restart(&r, &cup_log(c, Some(2))), recognised, "{h}:00 cup");
+            assert_eq!(
+                plan(recognised, OVH1).cups[0].target,
+                target(at(h + 1, 0)),
+                "{h}:00 cup"
+            );
+            // a final lost from the log: the friendly after it ends the cup, and its seat's match is not cut
+            let friendly = fin + FINAL_SECS + MATCHING_SECS;
+            assert_eq!(
+                restart(&r, &cup_log(c, None)),
+                friendly + MATCH_SECS,
+                "{h}:00 cup"
+            );
+        }
     }
 
     #[test]
