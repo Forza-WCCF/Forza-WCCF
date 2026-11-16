@@ -801,46 +801,34 @@ fn local_stamp() -> String {
 
 /// This seat plays a match, for the frame log ([`match_now`] without the card session: asked every half second).
 fn match_playing() -> bool {
-    let (e1718, seat, arcade, armed) = match_state();
-    match_now(e1718, seat, arcade, armed, false)
+    let (e1718, seat, arcade) = match_state();
+    match_now(e1718, seat, arcade, false)
 }
 
-/// 2017-18: [`armed_after`]'s latch, stepped on every read of the match state.
-static ARMED: AtomicBool = AtomicBool::new(false);
 /// 2017-18: the (seat state, arcade state) pair read last, for the log line on its change.
 static MATCH_PAIR: AtomicU64 = AtomicU64::new(u64::MAX);
 
-/// The edition, the seat and arcade states read now and the latch stepped on them; a change of the pair is logged
+/// The edition and the seat and arcade states read now; a change of the pair is logged with the answer and why
 /// (2017-18).
-fn match_state() -> (bool, Option<u32>, Option<u32>, bool) {
+fn match_state() -> (bool, Option<u32>, Option<u32>) {
     let e1718 = FILES
         .get()
         .is_some_and(|f| f.edition == theme::Edition::E1718);
     let seat = if e1718 { pause::seat_state() } else { None };
     let arcade = pause::arcade_state(e1718);
-    let armed = armed_after(ARMED.load(Relaxed), seat, arcade);
-    ARMED.store(armed, Relaxed);
     let pair = (u64::from(seat.unwrap_or(u32::MAX)) << 32) | u64::from(arcade.unwrap_or(u32::MAX));
     if e1718 && MATCH_PAIR.swap(pair, Relaxed) != pair {
-        let own = if match_now(e1718, seat, arcade, armed, false) {
-            "yes"
-        } else if seat == Some(pause::SEAT_MATCH) && matches!(arcade, Some(4..=6)) {
-            "no (19 began in another match cycle)"
-        } else {
-            "no"
+        let own = match (match_now(e1718, seat, arcade, false), seat) {
+            (true, Some(_)) => "yes (seat in match loading or the match)",
+            (true, None) => "yes (no seat state: the arcade plays a match)",
+            (false, Some(19)) => "no (19 is before the match)",
+            (false, _) => "no",
         };
         log(&format!(
             "match state: seat {seat:?}, arcade {arcade:?} -> own match {own}"
         ));
     }
-    (e1718, seat, arcade, armed)
-}
-
-/// 2017-18: the seat entered its match sequence (19) before this match cycle began (the arcade outside 4-6). Seat 19
-/// begins in the Meeting Room's wait, and a seat that enters it during another cycle's match (the projector's CPU
-/// match) waits there for the next cycle: unarmed until the arcade leaves 6. Leaving 19 disarms.
-fn armed_after(armed: bool, seat: Option<u32>, arcade: Option<u32>) -> bool {
-    seat == Some(pause::SEAT_MATCH) && (armed || !matches!(arcade, Some(4..=6)))
+    (e1718, seat, arcade)
 }
 
 /// A finished match's frame times: the panel's log, and a dated line in WCCF_LOGS\frame_times.txt (a run's logs).
@@ -958,27 +946,22 @@ fn in_match() -> bool {
 
 /// [`in_match`] without the log line: the answer and the inputs it came from.
 fn match_check() -> (bool, bool, String) {
-    let (e1718, seat, arcade, armed) = match_state();
+    let (e1718, seat, arcade) = match_state();
     let card = card_open();
     (
-        match_now(e1718, seat, arcade, armed, card),
-        match_now(e1718, seat, arcade, armed, false),
-        format!("seat state {seat:?}, arcade state {arcade:?}, armed {armed}, card session {card}"),
+        match_now(e1718, seat, arcade, card),
+        match_now(e1718, seat, arcade, false),
+        format!("seat state {seat:?}, arcade state {arcade:?}, card session {card}"),
     )
 }
 
-/// 2017-18: the seat's own sequence state says the match is this seat's (the arcade state is the whole arcade's:
-/// another seat's match sets it too), but the game leaves it at the match value after the match and after a
-/// cancelled matching until the next sequence writes its own, so the arcade state must also be MATCHING to
-/// GAME_RESULT_WAIT (4-6), when it can be read: MATCHING_WAIT (3) is still the next match's placement screen, with the
-/// last match's value left on; and the seat must have entered 19 before that cycle began (`armed`, [`armed_after`]):
-/// 19 begins in the Meeting Room, which can wait out another cycle's match. Without the seat state, that arcade state
-/// alone. 2010-11: that arcade state. Either: a card session open (2010-11's club card).
-fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, armed: bool, card: bool) -> bool {
+/// 2017-18: the seat's own sequence state is in match loading or the match ([`pause::SEAT_MATCH`]). The arcade state
+/// is left out: it is the whole arcade's (another seat's or the projector's match sets it), and this seat's match runs
+/// across its cycles (23 seen with every arcade state 1-7). Without the seat state, the arcade state MATCHING to
+/// GAME_RESULT_WAIT (4-6). 2010-11: that arcade state. Either: a card session open (2010-11's club card).
+fn match_now(e1718: bool, seat: Option<u32>, arcade: Option<u32>, card: bool) -> bool {
     let playing = match seat {
-        Some(s) if e1718 => {
-            s == pause::SEAT_MATCH && arcade.is_none_or(|a| matches!(a, 4..=6) && armed)
-        }
+        Some(s) if e1718 => pause::SEAT_MATCH.contains(&s),
         _ => matches!(arcade, Some(4..=6)),
     };
     playing || card
@@ -3361,10 +3344,9 @@ impl Render {
         if self.st.edition != theme::Edition::E1718 {
             return;
         }
-        // the match state is cheap: read every frame to catch the match edge before that frame's board change (and to
-        // step the latch: seat 19 with the arcade outside 4-6 is seen however short)
-        let (e1718, seat, arcade, armed) = match_state();
-        let seat = seat.map(|_| match_now(e1718, seat, arcade, armed, false));
+        // the match state is cheap: read every frame to catch the match edge before that frame's board change
+        let (e1718, seat, arcade) = match_state();
+        let seat = seat.map(|_| match_now(e1718, seat, arcade, false));
         let polled = if self
             .match_at
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
@@ -4567,9 +4549,7 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{
-        armed_after, big_enough, clock_text, game_point, game_title, match_now, notice_waits,
-    };
+    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
     use egui::{Rect, pos2};
 
     #[test]
@@ -4625,62 +4605,75 @@ mod tests {
     #[test]
     fn import_is_refused_only_in_this_seats_match() {
         assert!(
-            !match_now(true, Some(3), Some(5), false, false),
+            !match_now(true, Some(3), Some(5), false),
             "another seat plays"
         );
-        // seat 19 entered before this cycle began (armed): MATCHING to GAME_RESULT_WAIT is its match
-        assert!(match_now(true, Some(19), Some(4), true, false));
-        assert!(match_now(true, Some(19), Some(6), true, false));
-        assert!(match_now(true, Some(19), None, false, false));
-        // the seat flag the game leaves on after a match or a cancelled matching is not a match: boot, the menus,
-        // CR_DATA_WAIT, the next match's placement screen (MATCHING_WAIT) with the last match's value left on, the result
-        assert!(!match_now(true, Some(19), Some(0), true, false), "boot");
-        assert!(!match_now(true, Some(19), Some(1), true, false), "menus");
-        assert!(
-            !match_now(true, Some(19), Some(2), true, false),
-            "CR_DATA_WAIT"
-        );
-        assert!(
-            !match_now(true, Some(19), Some(3), true, false),
-            "placement"
-        );
-        assert!(
-            !match_now(true, Some(19), Some(7), true, false),
-            "result screen"
-        );
-        assert!(match_now(true, None, Some(5), false, false));
-        assert!(!match_now(true, None, Some(1), false, false));
-        assert!(match_now(false, None, Some(4), false, false));
-        assert!(!match_now(false, None, Some(7), false, false));
-        assert!(match_now(false, None, None, false, true));
-        assert!(match_now(true, Some(3), Some(1), false, true));
+        // match loading (22, 21) and the match (23) are this seat's match, whatever the arcade's cycle
+        for a in [None, Some(1), Some(3), Some(4), Some(5), Some(6), Some(7)] {
+            for s in [21, 22, 23] {
+                assert!(match_now(true, Some(s), a, false), "seat {s}, arcade {a:?}");
+            }
+        }
+        // before the match (19, the Meeting Room's wait, also during another cycle's match) and the result (26) are not
+        for a in [None, Some(1), Some(3), Some(4), Some(5), Some(6), Some(7)] {
+            for s in [17, 18, 19, 26, 27] {
+                assert!(
+                    !match_now(true, Some(s), a, false),
+                    "seat {s}, arcade {a:?}"
+                );
+            }
+        }
+        assert!(match_now(true, None, Some(5), false));
+        assert!(!match_now(true, None, Some(1), false));
+        assert!(match_now(false, None, Some(4), false));
+        assert!(!match_now(false, None, Some(7), false));
+        assert!(match_now(false, None, None, true));
+        assert!(match_now(true, Some(3), Some(1), true));
     }
 
-    /// Seat 19 begins in the Meeting Room's wait: a seat that enters it while the arcade plays another cycle's match
-    /// (the projector's CPU match, 0.7.3 play test) is not in a match until its own cycle; leaving 19 resets that.
+    /// Issue #343: two solo CPU matches in a guarded run (seat 1, projector on) and a player's 0.7.3 match, replayed as
+    /// the panel read them. The board locks from match loading to the result screen and nowhere else: not in the
+    /// Meeting Room's wait while the arcade plays (19 with 5, the projector's CPU match), not at the result.
     #[test]
-    fn a_seat_that_joins_during_the_arcades_match_waits_unlocked() {
+    fn the_board_locks_from_match_loading_to_the_result() {
         // (seat, arcade) polls -> own match
         let run = [
-            (Some(3), Some(5), false),  // menus while the projector's CPU match runs
-            (Some(19), Some(5), false), // Meeting Room, "Next match in": the play test
-            (Some(19), Some(6), false),
-            (Some(19), Some(7), false), // that cycle ends: armed
-            (Some(19), Some(1), false), // the next cycle's ENTRY
-            (Some(19), Some(3), false), // placement (MATCHING_WAIT)
-            (Some(19), Some(4), true),  // own match
-            (Some(19), Some(5), true),
-            (Some(19), Some(6), true),
-            (Some(19), Some(7), false),
-            (Some(8), Some(5), false), // left the sequence: disarmed
+            (Some(3), Some(5), false), // menus while the projector's CPU match runs
+            (Some(18), Some(5), false),
+            (Some(19), Some(5), false), // before the match: 0.7.3 logged "19 began in another match cycle" here
+            (Some(22), Some(5), true),  // match loading
+            (Some(21), Some(5), true),
+            (Some(22), Some(5), true),
+            (Some(23), Some(5), true),  // the match, about 4 min
+            (Some(26), Some(5), false), // the result screen
+            (Some(26), Some(6), false),
+            (Some(27), Some(7), false),
+            (Some(3), Some(5), false),
+            // the second match: 23 outlasts the arcade's GAME
             (Some(19), Some(5), false),
+            (Some(22), Some(5), true),
+            (Some(21), Some(5), true),
+            (Some(23), Some(5), true),
+            (Some(23), Some(6), true),
+            (Some(23), Some(7), true),
+            (Some(26), Some(7), false),
+            (Some(26), Some(1), false),
+            (Some(19), Some(1), false), // the next match's wait in the next cycle
+            // the player's sixth match: loading in GAME_RESULT, the match through the next cycle's ENTRY to GAME
             (Some(19), Some(6), false),
+            (Some(19), Some(7), false),
+            (Some(22), Some(7), true),
+            (Some(21), Some(7), true),
+            (Some(23), Some(7), true),
+            (Some(23), Some(1), true),
+            (Some(23), Some(3), true),
+            (Some(23), Some(4), true),
+            (Some(23), Some(5), true),
+            (Some(26), Some(5), false),
         ];
-        let mut armed = false;
         for (i, (seat, arcade, want)) in run.into_iter().enumerate() {
-            armed = armed_after(armed, seat, arcade);
             assert_eq!(
-                match_now(true, seat, arcade, armed, false),
+                match_now(true, seat, arcade, false),
                 want,
                 "poll {i}: seat {seat:?}, arcade {arcade:?}"
             );
@@ -4695,8 +4688,8 @@ mod tests {
         // match_check's answers for this seat in an arcade state, the card in or not (its third field is the log line)
         let check = |seat: Option<u32>, arcade: Option<u32>, card: bool| {
             (
-                match_now(true, seat, arcade, true, card),
-                match_now(true, seat, arcade, true, false),
+                match_now(true, seat, arcade, card),
+                match_now(true, seat, arcade, false),
                 String::new(),
             )
         };
@@ -4705,12 +4698,12 @@ mod tests {
         assert_eq!((office.0, office.1), (true, false), "the card in, no match");
         assert!(!notice_waits(office), "the notice shows there");
         // a match on this seat: off, the card in or not
-        assert!(notice_waits(check(Some(19), Some(4), true)));
-        assert!(notice_waits(check(Some(19), Some(4), false)));
+        assert!(notice_waits(check(Some(23), Some(5), true)));
+        assert!(notice_waits(check(Some(23), Some(5), false)));
         // another seat's match: the office keeps the notice
         assert!(!notice_waits(check(Some(3), Some(5), false)));
         // a card session is still a match for IMPORT LINEUP, which asks a different question
-        assert!(match_now(true, Some(19), Some(1), true, true));
+        assert!(match_now(true, Some(19), Some(1), true));
     }
 
     /// The game's windows are ANSI: the whole edition survives as ASCII.
