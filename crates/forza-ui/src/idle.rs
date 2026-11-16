@@ -91,6 +91,13 @@ impl Idle {
         why
     }
 
+    /// Whether [`Idle::pass`] would run a pass now, read only: the request stays and `look` is not kept. For a caller
+    /// whose frame costs more than the pass (the board window's Present), asked before it starts the frame.
+    pub fn wants(&self, now: Instant, events: bool, look: Look) -> bool {
+        let now = now.saturating_duration_since(self.epoch).as_micros() as u64;
+        events || self.seen != Some(look) || self.due.load(Ordering::Acquire) <= now
+    }
+
     /// The next frame runs a pass whatever it sees (a device reset dropped what the painter held).
     pub fn forget(&mut self) {
         self.seen = None;
@@ -346,6 +353,61 @@ mod tests {
         assert!(!p.frame(vec![]));
         assert!(p.frame_later(Duration::from_secs_f64(panel::DEAL_SECS + 0.5), vec![]));
         assert!(p.st.deal.is_none(), "closed at its deadline");
+    }
+
+    /// [`Idle::wants`] says no on a settled panel and leaves the gate as it was (seconds later: the panel crate's
+    /// `the_board_window_skips_only_unchanged_frames`).
+    #[test]
+    fn wants_nothing_while_nothing_changed() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        let look = p.look([W as u32, H as u32]);
+        assert!(!p.idle.wants(Instant::now(), false, look));
+        assert!(!p.frame(vec![]), "asking took nothing");
+    }
+
+    #[test]
+    fn wants_a_pass_for_input() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        let look = p.look([W as u32, H as u32]);
+        assert!(p.idle.wants(Instant::now(), true, look));
+    }
+
+    #[test]
+    fn wants_a_pass_for_a_state_change_and_keeps_it() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        p.st.ping_ms += 40;
+        let look = p.look([W as u32, H as u32]);
+        assert!(p.idle.wants(Instant::now(), false, look));
+        assert_eq!(p.idle.pass(Instant::now(), false, look), Some(Wake::State));
+    }
+
+    #[test]
+    fn wants_a_pass_for_a_window_change() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        assert!(p.idle.wants(Instant::now(), false, p.look([1280, 800])));
+        p.mods = egui::Modifiers::ALT;
+        assert!(
+            p.idle
+                .wants(Instant::now(), false, p.look([W as u32, H as u32]))
+        );
+    }
+
+    #[test]
+    fn wants_a_pass_for_a_repaint_and_leaves_the_request() {
+        let mut p = Panel::new(Page::Game);
+        p.settle();
+        p.ctx.request_repaint();
+        let look = p.look([W as u32, H as u32]);
+        assert!(p.idle.wants(Instant::now(), false, look));
+        assert!(p.idle.wants(Instant::now(), false, look), "asked twice");
+        assert_eq!(
+            p.idle.pass(Instant::now(), false, look),
+            Some(Wake::Repaint)
+        );
     }
 
     /// A request for later survives a pass that runs for another reason: the gate puts it back.

@@ -1354,7 +1354,7 @@ fn unload() {
         }
     }
     if let Ok(mut r) = RENDER.lock()
-        && let Some(r) = r.take()
+        && let Some(mut r) = r.take()
     {
         r.cost(true);
     }
@@ -1651,13 +1651,13 @@ struct Render {
     /// The board window's swap chain (the pop-out board), and whether its failure was logged.
     board_sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
     board_warned: bool,
-    /// The board window's last drawn frame: its size, the keys and modifiers it showed, and when it is due again.
-    board_last: Option<((u32, u32), BoardInput, Instant)>,
-    /// How soon the board's egui asked to be drawn again after its last pass.
-    board_delay: Duration,
-    /// Board window frames drawn and skipped (nothing changed), for the frame cost line.
+    /// The board window's last drawn frame: its size and the keys and modifiers it showed (`None`: draw the next).
+    board_last: Option<((u32, u32), BoardInput)>,
+    /// Board window frames drawn (each one Present) and skipped (nothing changed), for the frame cost line; the drawn
+    /// count and the time at the last line, for its Presents a second.
     board_drawn: u32,
     board_skipped: u32,
+    board_logged: (u32, Instant),
     /// The window that carries WCCF_TYPING while a page is open (the game's).
     typing: isize,
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
@@ -1816,9 +1816,9 @@ impl Render {
             board_sc: None,
             board_warned: false,
             board_last: None,
-            board_delay: Duration::ZERO,
             board_drawn: 0,
             board_skipped: 0,
+            board_logged: (0, Instant::now()),
             typing: 0,
             game: None,
             max_tex: 2048,
@@ -2071,20 +2071,22 @@ impl Render {
     }
 
     /// The board in the board window, at its client size on its own swap chain; `false` when nothing was drawn there
-    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead. Unless `always`,
-    /// a frame with no input, the same size and keys, before the board's egui asked for one, keeps the last picture
-    /// (at most 30 a second while it animates, 10 while idle: what the game's window changes shows by then; none with
-    /// idle frames off, `WCCFPANEL_IDLE=0`).
+    /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead, and the board
+    /// window draws again once it can. Unless `always`, a frame with no input, the same size and keys, and nothing the
+    /// board's idle gate wants (state, scale, a repaint egui asked for) keeps the last picture: no pass, no Present,
+    /// which blocks the game's render thread (#269; never skipped with idle frames off, `WCCFPANEL_IDLE=0`).
     unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
         unsafe {
             if !drawable(wnd) || GetClientRect(wnd, &mut cr).is_err() {
+                self.board_last = None;
                 return false;
             }
             let Some((sc, w, h)) =
                 self.board_swap_chain(dev, wnd, cr.right as u32, cr.bottom as u32)
             else {
+                self.board_last = None;
                 return false;
             };
             let ours = [self.key.map_or(0, |(vk, _)| vk), self.latch];
@@ -2094,27 +2096,35 @@ impl Render {
             );
             let now = Instant::now();
             let events = BOARD_EVENTS.lock().is_ok_and(|e| !e.is_empty());
-            if board_unchanged(
+            // the keys as paint_board's pass sees them (the game window's pass sets the same this frame)
+            self.st.down = input.1;
+            let unchanged = board_unchanged(
                 self.board_last.as_ref(),
                 (w, h),
                 &input,
-                now,
                 always || self.busy || events || BOARD_SIZING.load(Relaxed),
-            ) {
+                || {
+                    // the look paint_board's pass will be asked with
+                    let look = forza_ui::idle::Look {
+                        size: [w, h],
+                        ppp: panel::board_scale(w as f32, h as f32, screen_dpi() as f32),
+                        modifiers: input.0,
+                        state: self.st.fingerprint(),
+                    };
+                    self.board_idle.wants(now, events, look)
+                },
+            );
+            self.split.mark(cost::Part::Check);
+            if unchanged {
                 self.board_skipped += 1;
                 return true;
             }
             if self.compose(dev, &sc, w, h, false).is_none() {
+                self.board_last = None;
                 return false;
             }
             self.board_drawn += 1;
-            self.board_last = Some((
-                (w, h),
-                input,
-                now + self
-                    .board_delay
-                    .clamp(Duration::from_millis(33), Duration::from_millis(100)),
-            ));
+            self.board_last = Some(((w, h), input));
             let shown = sc.Present(
                 std::ptr::null(),
                 std::ptr::null(),
@@ -2132,7 +2142,7 @@ impl Render {
         }
     }
 
-    fn cost(&self, last: bool) {
+    fn cost(&mut self, last: bool) {
         if self.frames > 0 {
             log(&format!(
                 "frame cost{}: {:.2} ms average, {:.2} ms worst, over {} frames",
@@ -2143,10 +2153,14 @@ impl Render {
             ));
         }
         if self.board_drawn + self.board_skipped > 0 {
+            let (drawn, at) = self.board_logged;
+            let rate = f64::from(self.board_drawn.wrapping_sub(drawn))
+                / at.elapsed().as_secs_f64().max(0.001);
             log(&format!(
-                "board window: {} frames drawn, {} skipped (nothing changed)",
-                self.board_drawn, self.board_skipped
+                "board window: {} frames drawn, {} skipped (nothing changed), {:.1} presents/s since the last line",
+                self.board_drawn, self.board_skipped, rate
             ));
+            self.board_logged = (self.board_drawn, Instant::now());
         }
     }
 
@@ -2549,12 +2563,6 @@ impl Render {
             self.st.desk = false;
             out
         });
-        if let Some(o) = &out {
-            self.board_delay = o
-                .viewport_output
-                .get(&ViewportId::ROOT)
-                .map_or(Duration::ZERO, |v| v.repaint_delay);
-        }
         self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
@@ -4179,15 +4187,15 @@ fn modifiers() -> Modifiers {
 type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
 
 /// The board window's frame may keep its last picture: not `forced`, drawn before at this size with this input, and
-/// not yet due again.
+/// its idle gate `wants` no pass (asked last: it hashes the panel state).
 fn board_unchanged(
-    last: Option<&((u32, u32), BoardInput, Instant)>,
+    last: Option<&((u32, u32), BoardInput)>,
     size: (u32, u32),
     input: &BoardInput,
-    now: Instant,
     forced: bool,
+    wants: impl FnOnce() -> bool,
 ) -> bool {
-    !forced && last.is_some_and(|(s, i, due)| *s == size && i == input && now < *due)
+    !forced && last.is_some_and(|(s, i)| *s == size && i == input) && !wants()
 }
 
 fn keys_held(keys: &[u32; forza::keys::COUNT], ours: [u32; 2]) -> [bool; forza::keys::COUNT] {
@@ -4483,41 +4491,70 @@ mod tests {
         }
     }
 
-    /// The board window's frame is skipped only when it was drawn at this size with this input and is not due yet;
-    /// a resize, a key, Alt, a forced pass (input waiting, sizing, the game's window minimized) or the due time draws.
+    /// The board window's frame is skipped only when it was drawn at this size with this input and its idle gate wants
+    /// nothing, however long it waits (#269: a 100 ms timer drew and Presented ~10 a second); a resize, a key, Alt, a
+    /// forced pass (input waiting, sizing, the game's window minimized), a state change or a repaint egui asked for
+    /// draws, and so does a window that could not be drawn (`board_last` reset).
     #[test]
     fn the_board_window_skips_only_unchanged_frames() {
+        let ctx = egui::Context::default();
+        let mut idle = forza_ui::idle::Idle::new(&ctx);
         let t = Instant::now();
-        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
-        let last = ((944, 891), input, t + Duration::from_millis(100));
+        let look = forza_ui::idle::Look {
+            size: [944, 891],
+            ppp: 1.0,
+            modifiers: Modifiers::default(),
+            state: 1,
+        };
         assert!(
-            !board_unchanged(None, (944, 891), &input, t, false),
-            "never drawn"
+            idle.pass(t, false, look).is_some(),
+            "the drawn frame's pass"
         );
-        assert!(board_unchanged(Some(&last), (944, 891), &input, t, false));
+        let input = (Modifiers::default(), [false; forza::keys::COUNT]);
+        let last = ((944, 891), input);
+        let later = t + Duration::from_secs(5);
+        let wants = |look| idle.wants(later, false, look);
         assert!(
-            !board_unchanged(Some(&last), (944, 890), &input, t, false),
+            board_unchanged(Some(&last), (944, 891), &input, false, || wants(look)),
+            "idle 5 s later: no compose, no Present"
+        );
+        assert!(
+            !board_unchanged(None, (944, 891), &input, false, || wants(look)),
+            "never drawn, or not drawable since"
+        );
+        assert!(
+            !board_unchanged(Some(&last), (944, 890), &input, false, || wants(look)),
             "resized"
         );
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, t, true),
+            !board_unchanged(Some(&last), (944, 891), &input, true, || wants(look)),
             "forced"
-        );
-        let due = t + Duration::from_millis(100);
-        assert!(
-            !board_unchanged(Some(&last), (944, 891), &input, due, false),
-            "due"
         );
         let mut key = input;
         key.1[0] = true;
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &key, t, false),
+            !board_unchanged(Some(&last), (944, 891), &key, false, || wants(look)),
             "a key held"
         );
         let alt = (Modifiers::ALT, input.1);
         assert!(
-            !board_unchanged(Some(&last), (944, 891), &alt, t, false),
+            !board_unchanged(Some(&last), (944, 891), &alt, false, || wants(look)),
             "Alt"
+        );
+        let changed = forza_ui::idle::Look { state: 2, ..look };
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, false, || wants(changed)),
+            "the panel state changed"
+        );
+        let waiting = || idle.wants(later, true, look);
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, false, waiting),
+            "input waiting"
+        );
+        ctx.request_repaint();
+        assert!(
+            !board_unchanged(Some(&last), (944, 891), &input, false, || wants(look)),
+            "egui asked for a repaint"
         );
     }
 
