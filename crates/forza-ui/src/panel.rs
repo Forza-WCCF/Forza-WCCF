@@ -1716,6 +1716,8 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         .show(ui, |ui| middle(ui, st, lang, &lay, flip));
     if !st.popped && st.edition == Edition::E1718 {
         divider(ui, st, sheet, lay.board);
+    } else {
+        ui.data_mut(|d| d.remove::<Rect>(handle_id()));
     }
 }
 
@@ -1732,9 +1734,25 @@ fn divider_strip(board: Rect) -> Rect {
     Rect::from_min_max(board.left_top(), pos2(board.left() + 8.0, board.bottom()))
 }
 
-/// The grip drawn on the divider: five 6-point dashes 6 points apart, 2 points thick, in a rect centred on the strip.
-fn grip_rect(strip: Rect) -> Rect {
-    Rect::from_center_size(strip.center(), vec2(6.0, 26.0))
+/// The vertical centre of the docked board's row of buttons on this frame, put there by [`board_foot`].
+fn foot_y_id() -> egui::Id {
+    egui::Id::unique("panel-foot-y")
+}
+
+fn handle_id() -> egui::Id {
+    egui::Id::unique("panel-divider-handle")
+}
+
+/// The divider's handle: a ◀▶ pair across the board's left edge on its row of buttons, half over the picture (its
+/// presses are ours, not the game's: `crates/panel` reads [`divider_handle`]); 24 points wide, inside the row's
+/// 16-point margins on the board's side, so it meets no button.
+fn handle_rect(board: Rect, row_y: f32) -> Rect {
+    Rect::from_center_size(pos2(board.left(), row_y), vec2(24.0, 22.0))
+}
+
+/// The divider's handle as drawn on the last frame (points); `None` when no divider shows (popped out, 2010-11).
+pub fn divider_handle(ctx: &egui::Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp(handle_id()))
 }
 
 /// The divider between the picture and the docked board: a strip on the board's side of its left edge (clicks on the
@@ -1743,7 +1761,20 @@ fn grip_rect(strip: Rect) -> Rect {
 fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
     let strip = divider_strip(board);
     let id = egui::Id::unique("panel-divider");
-    let r = ui.interact(strip, id, Sense::drag());
+    // the handle on the buttons' row drags it too; no row drawn (the crash screen): no handle
+    let handle = ui
+        .data_mut(|d| d.remove_temp::<f32>(foot_y_id()))
+        .map(|y| handle_rect(board, y));
+    ui.data_mut(|d| match handle {
+        Some(h) => {
+            d.insert_temp(handle_id(), h);
+        }
+        None => d.remove::<Rect>(handle_id()),
+    });
+    let mut r = ui.interact(strip, id, Sense::drag());
+    if let Some(h) = handle {
+        r |= ui.interact(h, id.with("handle"), Sense::drag());
+    }
     if r.drag_started()
         && let Some(o) = ui.input(|i| i.pointer.press_origin())
     {
@@ -1759,17 +1790,21 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
             Stroke::new(3.0, theme::RIM_HI),
         );
     }
-    // the grip: short dashes down the middle of the strip, bright enough that the divider reads as one at rest too
-    // (the panel crate does not apply egui's cursor to the game's window yet: the resize cursor above stays egui's)
-    let grip = grip_rect(strip);
-    let colour = if lit { theme::TEXT } else { theme::TEXT_DIM };
-    let p = ui.painter();
-    for i in 0..5 {
-        let y = grip.top() + 1.0 + 6.0 * i as f32;
-        p.line_segment(
-            [pos2(grip.left(), y), pos2(grip.right(), y)],
-            Stroke::new(2.0, colour),
-        );
+    // the handle, always drawn: the divider reads as one at rest too (the panel crate does not apply egui's cursor
+    // to the game's window yet: the resize cursor above stays egui's). Shapes, not glyphs: the fonts may lack them.
+    if let Some(h) = handle {
+        let p = ui.painter();
+        p.rect_filled(h, 4.0, if lit { theme::RIM_HI } else { theme::RAISED_HI });
+        p.rect_stroke(h, 4.0, Stroke::new(1.0, theme::RIM_HI), StrokeKind::Inside);
+        let (c, colour) = (h.center(), if lit { theme::TEXT } else { theme::TEXT_DIM });
+        for side in [-1.0, 1.0] {
+            let (base, tip) = (c.x + 2.0 * side, c.x + 9.0 * side);
+            p.add(egui::Shape::convex_polygon(
+                vec![pos2(tip, c.y), pos2(base, c.y - 5.0), pos2(base, c.y + 5.0)],
+                colour,
+                Stroke::NONE,
+            ));
+        }
     }
     if r.dragged()
         && let Some(p) = r.interact_pointer_pos()
@@ -3564,6 +3599,8 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
     let btn = at[0];
     // the buttons' drawn bottom: the theme's 32-point buttons overflow their 22-point rects
     let pop = b.put(btn, button(&texts[0]));
+    // the divider's handle sits on this row (the divider draws after the board, this frame)
+    b.data_mut(|d| d.insert_temp(foot_y_id(), pop.rect.center().y));
     let mut buttons_bottom = pop.rect.bottom();
     if pop.clicked() {
         st.file.board_window = !st.file.board_window;
@@ -6832,19 +6869,33 @@ mod tests {
     #[test]
     fn dragging_the_divider_sets_the_board_width() {
         for (w, h, least) in [(1440.0, 900.0, BOARD_MIN), (1920.0, 1080.0, 518.4)] {
-            drag_divider(w, h, least);
+            drag_divider(w, h, least, false);
         }
     }
 
-    /// The divider dragged far past the least on a `w` x `h` window (one point a pixel): the board drawn and saved at
-    /// `least`, saved only when let go.
-    fn drag_divider(w: f32, h: f32, least: f32) {
+    /// A drag that starts on the divider's handle, on its half over the picture, resizes the board like one on the
+    /// divider's strip.
+    #[test]
+    fn dragging_the_divider_handle_sets_the_board_width() {
+        for (w, h, least) in [(1440.0, 900.0, BOARD_MIN), (1920.0, 1080.0, 518.4)] {
+            drag_divider(w, h, least, true);
+        }
+    }
+
+    /// The divider dragged far past the least on a `w` x `h` window (one point a pixel), from its strip or from its
+    /// handle's left half (`on_handle`): the board drawn and saved at `least`, saved only when let go.
+    fn drag_divider(w: f32, h: f32, least: f32, on_handle: bool) {
         let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
         let ctx = egui::Context::default();
         theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
         frame(&ctx, &mut st, w, h, 0.0, vec![]);
         st.file_changed = false;
-        let at = pos2(layout(sheet_of(w, h), false).board.left() + 4.0, 300.0);
+        let at = if on_handle {
+            let handle = divider_handle(&ctx).expect("the handle drawn");
+            pos2(handle.left() + 4.0, handle.center().y)
+        } else {
+            pos2(layout(sheet_of(w, h), false).board.left() + 4.0, 300.0)
+        };
         let button = |pos, pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -6885,10 +6936,10 @@ mod tests {
         );
     }
 
-    /// The grip drawn on the divider is centred on the strip that drags it and sits inside it, at every window size
-    /// and board width.
+    /// The divider's handle is drawn centred on the board's left edge, across the picture and the board, at every
+    /// window size and board width from the least up; gone when the board pops out.
     #[test]
-    fn the_divider_grip_is_centred_on_the_divider() {
+    fn the_divider_handle_is_centred_on_the_divider() {
         for (w, h) in [
             (1440.0, 900.0),
             (1920.0, 1080.0),
@@ -6896,16 +6947,31 @@ mod tests {
             (2560.0, 1440.0),
         ] {
             let sheet = sheet_of(w, h);
-            for set in [None, Some(BOARD_MIN), Some(board_width_max(sheet))] {
-                let l = layout_at(sheet, false, set);
-                let strip = divider_strip(l.board);
-                let grip = grip_rect(strip);
-                let at = format!("{w}x{h} {set:?}: strip {strip:?} grip {grip:?}");
-                assert!(strip.contains_rect(grip), "{at}");
-                assert!((grip.center() - strip.center()).length() < 1e-3, "{at}");
-                assert_eq!(strip.left(), l.board.left(), "{at}: on the board's edge");
-                assert!(sheet.contains_rect(strip), "{at}");
-                assert!(l.board.contains_rect(strip), "{at}");
+            for set in [
+                Some(BOARD_MIN),
+                Some(BOARD_MIN + 50.0),
+                None,
+                Some(board_width_max(sheet)),
+            ] {
+                let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
+                st.file.board_width = set.map(|w| w as u16);
+                let ctx = egui::Context::default();
+                theme::install(&ctx, Edition::E1718, &theme::font_dir()).unwrap();
+                frame(&ctx, &mut st, w, h, 0.0, vec![]);
+                frame(&ctx, &mut st, w, h, 0.1, vec![]);
+                // what panel.txt holds (whole points) is what the panel draws: 581.14 at most on 1440x900 draws 581
+                let board = layout_at(sheet, false, st.file.board_width.map(f32::from)).board;
+                let handle = divider_handle(&ctx);
+                let at = format!("{w}x{h} {set:?}: board {board:?} handle {handle:?}");
+                let handle = handle.expect(&at);
+                assert!((handle.center().x - board.left()).abs() < 1e-3, "{at}");
+                assert!(handle.left() < board.left() - 8.0, "{at}: over the picture");
+                assert!(handle.right() > board.left() + 8.0, "{at}: over the board");
+                assert!(sheet.contains_rect(handle), "{at}");
+                assert!(handle.top() > sheet.center().y, "{at}: on the board's foot");
+                st.popped = true;
+                frame(&ctx, &mut st, w, h, 0.2, vec![]);
+                assert_eq!(divider_handle(&ctx), None, "{at}: popped out");
             }
         }
     }

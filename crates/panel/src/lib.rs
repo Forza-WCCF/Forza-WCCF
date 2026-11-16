@@ -153,6 +153,8 @@ static CATALOGUE: OnceLock<Arc<[Card]>> = OnceLock::new();
 static AFFINITY: OnceLock<Option<Arc<cards::links::Affinity>>> = OnceLock::new();
 /// The game's picture on the window (pixels) while no page covers it: clicks there are the game's.
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
+/// The docked board divider's handle on the window (pixels): half of it lies on the picture, but its presses are ours.
+static DIVIDER_HANDLE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
 /// The side buttons whose press the panel swallowed (bit per XBUTTON number): their release is swallowed too, the
@@ -2417,6 +2419,10 @@ impl Render {
                 .picture_rect
                 .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
         }
+        if let Ok(mut h) = DIVIDER_HANDLE.lock() {
+            *h = panel::divider_handle(&self.ctx)
+                .map(|r| egui::Rect::from_min_max(r.min * ppp, r.max * ppp));
+        }
         self.add();
         self.import();
         self.keys_out();
@@ -4004,6 +4010,9 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         if let Ok(mut p) = PICTURE.lock() {
             *p = None;
         }
+        if let Ok(mut h) = DIVIDER_HANDLE.lock() {
+            *h = None;
+        }
         if let Ok(mut e) = EVENTS.lock() {
             e.clear();
         }
@@ -4070,6 +4079,16 @@ fn to_game(h: HWND, m: u32, lp: LPARAM) -> Option<LPARAM> {
     let p = pos2(f32::from(lp.0 as i16), f32::from((lp.0 >> 16) as i16));
     let down = matches!(m, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
     let up = matches!(m, WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP);
+    // a press on the divider's handle is egui's (it drags the divider), though half the handle lies on the picture
+    if down
+        && DIVIDER_HANDLE
+            .lock()
+            .ok()
+            .and_then(|h| *h)
+            .is_some_and(|h| h.contains(p))
+    {
+        return None;
+    }
     let held = GAME_DOWN.load(Relaxed);
     // a press made on the picture: its moves and its release stay the game's, wherever they are
     let drag = if up {

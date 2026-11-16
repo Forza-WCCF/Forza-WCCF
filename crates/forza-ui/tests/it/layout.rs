@@ -341,17 +341,22 @@ fn board_hint_clear_of_the_buttons() {
 
 /// The board's row of buttons (POP OUT, RESET LINEUP, FORMATIONS) on the docked board at the divider's least width:
 /// no two buttons overlap or crowd each other and all stay inside the board's 16-point margin, in English, Italian
-/// and Japanese (the Italian labels are the longest). Laid out only: no GPU.
+/// and Japanese (the Italian labels are the longest). The divider's ◀▶ handle sits on that row, on the board's edge,
+/// and meets none of the three buttons; also at the 1920-wide window's default board. Laid out only: no GPU.
 #[test]
 fn board_foot_buttons_apart_at_the_least_width() {
-    for (w, h) in [(1440.0, 900.0), (1920.0, 1080.0)] {
+    for (w, h, set) in [
+        (1440.0, 900.0, Some(panel::BOARD_MIN)),
+        (1920.0, 1080.0, Some(panel::BOARD_MIN)),
+        (1920.0, 1080.0, None),
+    ] {
         let size = Vec2::new(w, h);
         let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
-        let board = panel::layout_at(sheet, false, Some(panel::BOARD_MIN)).board;
+        let board = panel::layout_at(sheet, false, set).board;
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
-            st.file.board_width = Some(panel::BOARD_MIN as u16);
+            st.file.board_width = set.map(|w| w as u16);
             let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
             hs.run_steps(8);
             let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
@@ -375,6 +380,19 @@ fn board_foot_buttons_apart_at_the_least_width() {
                 r[0].right() <= board.right() - 16.0 + 0.5,
                 "{case}: past the board's right margin"
             );
+            let handle = panel::divider_handle(&hs.ctx).expect("the divider's handle");
+            let case = format!("{case} handle {handle:?}");
+            assert!(
+                (handle.center().x - board.left()).abs() < 0.5,
+                "{case}: off the board's edge"
+            );
+            for b in r {
+                assert!(!b.intersects(handle), "{case}: on a button");
+                assert!(
+                    b.y_range().contains(handle.center().y),
+                    "{case}: off the buttons' row"
+                );
+            }
         }
     }
 }
