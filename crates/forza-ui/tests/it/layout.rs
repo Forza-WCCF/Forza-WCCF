@@ -679,6 +679,59 @@ fn a_page_releases_the_latched_key() {
     }
 }
 
+/// A click on a dialog's backdrop over a cabinet key sends no key (#349): the deck read the raw pointer, which a dialog
+/// never takes, so CLOSE, IMPORT's question and help and FORMATIONS took every one of its keys as the game's.
+#[test]
+fn a_dialog_over_the_deck_sends_no_key() {
+    use forza::cards::formations;
+    use std::cell::RefCell;
+    type Open = fn(&mut panel::PanelState);
+    let modals: [(&str, Open); 4] = [
+        ("the close warning", |st| st.close_warn = true),
+        ("IMPORT's question", |st| {
+            st.import_ask = Some(panel::ImportAsk {
+                text: String::new(),
+                cards: 11,
+                skipped: 0,
+            })
+        }),
+        ("IMPORT's help", |st| st.import_help = true),
+        ("FORMATIONS", |st| {
+            st.formations = Some(panel::Formations {
+                slots: vec![None; formations::SLOTS],
+                naming: None,
+            })
+        }),
+    ];
+    for ed in [Edition::E1011, Edition::E1718] {
+        let keys = deck_keys(ed);
+        assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
+        for (name, open) in modals {
+            // the deck's first two keys, CENTRAL and COUNTER
+            for (label, r) in keys.iter().take(2) {
+                let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+                open(&mut st.borrow_mut());
+                let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+                    panel::show(ui, &mut st.borrow_mut())
+                });
+                h.run_steps(3);
+                let at = r.center();
+                h.hover_at(at);
+                h.run_steps(1);
+                h.drag_at(at);
+                h.run_steps(1);
+                h.drop_at(at);
+                h.run_steps(2);
+                assert_eq!(
+                    st.borrow().pressed,
+                    None,
+                    "{ed:?} under {name}: {label} sent"
+                );
+            }
+        }
+    }
+}
+
 /// 2017-18 SETTINGS at 1440x900 is taller than its sheet: it scrolls, so its last toggles, scrolled to, sit inside the
 /// sheet and clear of the page bar in every language (#348: Ask before RESET LINEUP ran over the bar's SETTINGS).
 #[test]

@@ -1895,9 +1895,9 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool
             note_line(ui, &mut st.message)
         });
     }
-    // an open page covers the docked deck, whose keys read the raw pointer: no deck under it, and no button left to let
-    // a latched key go, so the key goes up
-    if compact || (st.page != Page::Game && above.contains_rect(deck)) {
+    // the deck's keys read the raw pointer, which a page and a dialog's backdrop never take: no deck under either, and
+    // no button left to let a latched key go, so the key goes up
+    if compact || st.close_warn || dialog || (st.page != Page::Game && above.contains_rect(deck)) {
         st.latched = None;
     } else {
         cabinet_deck(ui, st, deck, lang, deck_scale, side);
