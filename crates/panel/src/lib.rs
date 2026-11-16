@@ -2075,7 +2075,8 @@ impl Render {
     /// (minimized, tiny, no swap chain yet): the caller draws the board in the game's window instead, and the board
     /// window draws again once it can. Unless `always`, a frame with no input, the same size and keys, and nothing the
     /// board's idle gate wants (state, scale, a repaint egui asked for) keeps the last picture: no pass, no Present,
-    /// which blocks the game's render thread (#269; never skipped with idle frames off, `WCCFPANEL_IDLE=0`).
+    /// which blocks the game's render thread (#269; never skipped with idle frames off, `WCCFPANEL_IDLE=0`). A repaint
+    /// egui asked for alone is also kept within [`BOARD_ANIMATION`] of the last Present.
     unsafe fn board_frame(&mut self, dev: &IDirect3DDevice9, wnd: HWND, always: bool) -> bool {
         let mut cr = RECT::default();
         // SAFETY: plain window queries, then device calls on the game's render thread
@@ -4213,7 +4214,8 @@ type BoardInput = (Modifiers, [bool; forza::keys::COUNT]);
 /// A board window frame that was Presented: its size, its input and when.
 type BoardFrame = ((u32, u32), BoardInput, Instant);
 
-/// The board window's fastest redraw for an egui animation alone (a card's hover): ~30 a second, not one per game frame.
+/// The board window's fastest redraw for an egui animation alone (a card's hover): ~30 a second. At the game's own 30
+/// frames a second (the Launcher's frame cap, 33.3 ms) this caps nothing; it only holds an uncapped game to 30.
 const BOARD_ANIMATION: Duration = Duration::from_millis(33);
 
 /// Why the board's idle gate wants a pass, read only: `Repaint` when egui asked for one and nothing else changed.
@@ -4227,6 +4229,8 @@ fn board_wake(
     if !idle.wants(now, events, look) {
         None
     } else if events {
+        // not reached from board_frame (its events force the frame before `wake` is asked); kept so the answer stays
+        // right for any caller
         Some(Wake::Input)
     } else if idle.changed(look) {
         Some(Wake::State)
