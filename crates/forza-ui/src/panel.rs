@@ -5122,6 +5122,16 @@ fn when_text(lang: Lang, (t, age): &When) -> String {
 }
 
 fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    // taller than its sheet (2017-18 at 1440x900), the page scrolls instead of running over the page bar (#348)
+    let room = (ui.available_height() - NOTE_LINE - ui.spacing().item_spacing.y).max(120.0);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .auto_shrink([false, true])
+        .show(ui, |ui| settings_columns(ui, st, lang));
+    note_line(ui, &mut st.message);
+}
+
+fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
     let now = ui.input(|i| i.time);
     let s = st.status.clone();
@@ -5490,7 +5500,6 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             });
         }
     });
-    note_line(ui, &mut st.message);
 }
 
 // ---- CLUB CARD ----

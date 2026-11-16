@@ -582,7 +582,7 @@ fn a_page_over_the_deck_sends_no_key() {
                 panel::show(ui, &mut st.borrow_mut())
             });
             h.run_steps(3);
-            let keys = [
+            [
                 "cab.central",
                 "cab.counter",
                 "cab.press",
@@ -598,8 +598,7 @@ fn a_page_over_the_deck_sends_no_key() {
                 let r = h.query_all_by_label(&l).next().map(|n| n.rect());
                 r.map(|r| (l, r))
             })
-            .collect();
-            keys
+            .collect()
         };
         assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
         for page in [panel::Page::Keys, panel::Page::Settings] {
@@ -624,6 +623,38 @@ fn a_page_over_the_deck_sends_no_key() {
                     page.tag()
                 );
             }
+        }
+    }
+}
+
+/// 2017-18 SETTINGS at 1440x900 is taller than its sheet: it scrolls, so its last toggles, scrolled to, sit inside the
+/// sheet and clear of the page bar in every language (#348: Ask before RESET LINEUP ran over the bar's SETTINGS).
+#[test]
+fn settings_fit_their_sheet_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Settings,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        let settings = forza_ui::text(lang, "panel.settings", &[]);
+        let bar = h.get_by_role_and_label(Role::Button, &settings).rect();
+        for key in ["settings.reset_ask", "settings.pad_bg"] {
+            let label = forza_ui::text(lang, key, &[]);
+            h.get_by_label(&label).scroll_to_me();
+            h.run_steps(4);
+            let r = h.get_by_label(&label).rect();
+            // the sheet ends 12 points above the bar's row, the bar's buttons at or under it
+            assert!(
+                r.top() >= 0.0 && r.bottom() <= bar.top() - 12.0,
+                "{} {key}: {r:?} not clear of the page bar's {bar:?}",
+                lang.code()
+            );
         }
     }
 }

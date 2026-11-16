@@ -211,6 +211,9 @@ fn board_reset_lineup_asks_first() {
             // SETTINGS' "Ask before RESET LINEUP" on: the question is back
             st.borrow_mut().page = panel::Page::Settings;
             h.run_steps(4);
+            // at the foot of the page: SETTINGS scrolls at this size (#348)
+            h.get_by_label("Ask before RESET LINEUP").scroll_to_me();
+            h.run_steps(2);
             h.get_by_label("Ask before RESET LINEUP").click();
             h.run_steps(4);
             assert!(!st.borrow().file.reset_ask_off, "the setting is on");
