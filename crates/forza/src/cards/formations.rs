@@ -205,6 +205,50 @@ mod tests {
         }
     }
 
+    /// A bench with gaps keeps its boxes through a save and a load; a full bench hid the loss before.
+    #[test]
+    fn a_slot_file_keeps_the_bench_boxes_of_a_bench_with_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut old: Vec<Placed> = (0..11)
+            .map(|i| Placed {
+                slot: i + 1,
+                no: 100 + i as u32,
+                x: -0.8 + 0.16 * i as f32,
+                y: 0.5,
+            })
+            .collect();
+        old.push(Placed {
+            slot: 12,
+            no: 300,
+            x: BENCH_X,
+            y: BENCH_Y[1],
+        });
+        old.push(Placed {
+            slot: 13,
+            no: 301,
+            x: BENCH_X,
+            y: BENCH_Y[4],
+        });
+        let c = cat(&old);
+        write(
+            dir.path(),
+            0,
+            &text(&old, Edition::E1718, "Gaps", "FC ROMA"),
+        )
+        .unwrap();
+        let s = read(dir.path(), Edition::E1718)[0].clone().unwrap();
+        assert!(
+            s.text.contains("S 300 # box 2") && s.text.contains("S 301 # box 5"),
+            "{}",
+            s.text
+        );
+        let imp = lineup::table(&lineup::parse(&s.text, Edition::E1718).unwrap(), &c).unwrap();
+        for p in old.iter().filter(|p| p.on_bench()) {
+            let q = imp.placed.iter().find(|q| q.no == p.no).unwrap();
+            assert_eq!((q.x, q.y), (BENCH_X, p.y), "card {} in its box", p.no);
+        }
+    }
+
     #[test]
     fn copy_text_parses_to_the_same_lineup() {
         let old = sixteen();

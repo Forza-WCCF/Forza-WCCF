@@ -7477,9 +7477,10 @@ mod tests {
         // an empty slot loads nothing
         assert_eq!(load_formation(&mut st, &old, 0, false, 1.0), None);
         let new = load_formation(&mut st, &old, 1, false, 2.0).unwrap();
+        // the bench box the file names (card 32 sits on band 3), not the first free box
         assert_eq!(
             new.iter().map(|p| (p.no, p.x, p.y)).collect::<Vec<_>>(),
-            [(101, 0.0, 0.8), (210, 0.2, -0.3), (32, BENCH_X, -0.68)]
+            [(101, 0.0, 0.8), (210, 0.2, -0.3), (32, BENCH_X, 0.0)]
         );
         assert!(st.formations.is_none());
         let m = st.message.as_ref().unwrap();
