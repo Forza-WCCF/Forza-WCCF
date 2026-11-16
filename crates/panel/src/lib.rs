@@ -1682,6 +1682,15 @@ struct Render {
 // which also release them, are called on that thread too
 unsafe impl Send for Render {}
 
+/// A table's read count for a log line, and how many of its rows the board's 16 slots do not show.
+fn table_count(n: usize) -> String {
+    if n > cards::MAX_CARDS {
+        format!("{n} card(s), {} not on the board", n - cards::MAX_CARDS)
+    } else {
+        format!("{n} card(s)")
+    }
+}
+
 impl Render {
     fn new() -> Render {
         let ctx = egui::Context::default();
@@ -1707,9 +1716,9 @@ impl Render {
         let mut table = TableFile::in_dir(EXE_DIR.get().map_or(Path::new(""), PathBuf::as_path));
         let placed = table.read().unwrap_or_default();
         log(&format!(
-            "board: table {} - {} card(s)",
+            "board: table {} - {}",
             table.table.display(),
-            placed.len()
+            table_count(placed.len())
         ));
         let lang = files.lang();
         let cards = CATALOGUE.get().cloned().unwrap_or_else(|| Arc::new([]));
@@ -2583,7 +2592,10 @@ impl Render {
             && self.table.changed()
             && let Some(placed) = self.table.read()
         {
-            log(&format!("board: table read - {} card(s)", placed.len()));
+            log(&format!(
+                "board: table read - {}",
+                table_count(placed.len())
+            ));
             self.st.board = cards::board(&placed, catalogue());
             self.placed = placed;
         }
@@ -4334,12 +4346,20 @@ fn take_off_lines(
 mod tests {
     use super::{
         Duration, Instant, Modifiers, NOTICE_MAX, RECT, banner_off, board_unchanged, cards,
-        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, take_off_lines,
+        fit_place, fit_workspace, read_notice, saved_place_fitted, side_button, table_count,
+        take_off_lines,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
         WM_LBUTTONDOWN, WM_XBUTTONDBLCLK, WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
+
+    /// The table read says how many rows the board does not show: a hand-edited table may hold up to 20.
+    #[test]
+    fn a_table_count_says_how_many_cards_the_board_does_not_show() {
+        assert_eq!(table_count(16), "16 card(s)");
+        assert_eq!(table_count(20), "20 card(s), 4 not on the board");
+    }
 
     /// The side buttons: KEYS' VK_XBUTTON1/2 while a cell waits (also mid-drag, MK_LBUTTON set), the board window's
     /// always (no back/forward), the game's otherwise; other messages are not touched.
