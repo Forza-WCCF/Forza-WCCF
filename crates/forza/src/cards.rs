@@ -247,10 +247,20 @@ impl TableFile {
     }
 
     fn write_state(&self, cards: &[Placed]) -> io::Result<()> {
-        let mirror = fs::read(&self.state).is_ok_and(|b| mirror_of(&String::from_utf8_lossy(&b)));
+        let mirror = self.read_mirror()?;
         let tmp = with_suffix(&self.state, ".board");
         fs::write(&tmp, state_text(cards, mirror))?;
         swap_in(&tmp, &self.state, 20, 2)
+    }
+
+    /// The state file's mirror choice: a file that is not there is off; one that cannot be read for a moment (a sharing
+    /// violation) is an error, so the write waits for it rather than saving "mirror": false over it.
+    fn read_mirror(&self) -> io::Result<bool> {
+        match fs::read(&self.state) {
+            Ok(b) => Ok(mirror_of(&String::from_utf8_lossy(&b))),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -760,10 +770,18 @@ mod tests {
         let mut seventeen = before.clone();
         seventeen.push(p(17, 300, BENCH_X, BENCH_Y[4]));
         let board = self::board(&seventeen, &[]);
-        assert_eq!(board.slots[15], Some(16), "the last card sits in the free box");
+        assert_eq!(
+            board.slots[15],
+            Some(16),
+            "the last card sits in the free box"
+        );
         let t = table_after(&before, &board);
         assert_eq!(t.len(), 16, "no free slot: the card is not added");
-        assert_eq!(t.iter().filter(|c| c.slot == 1).count(), 1, "no slot reused");
+        assert_eq!(
+            t.iter().filter(|c| c.slot == 1).count(),
+            1,
+            "no slot reused"
+        );
     }
 
     /// `write_panel_state_locked`: the mirror choice as the old file had it, a pitch card's x unmirrored, a bench
@@ -821,7 +839,10 @@ mod tests {
         let mut f = TableFile::in_dir(d.path());
         let one = [p(1, 101, 0.5, 0.5)];
         let two = [p(1, 102, 0.5, 0.5)];
-        assert!(f.write_retry(&one).is_none(), "a write that goes in is no line");
+        assert!(
+            f.write_retry(&one).is_none(),
+            "a write that goes in is no line"
+        );
         assert_eq!(fs::read_to_string(&f.table).unwrap(), table_text(&one));
         fs::remove_file(&f.table).unwrap();
         fs::create_dir(&f.table).unwrap();
@@ -836,6 +857,25 @@ mod tests {
             table_text(&two),
             "the skipped retry wrote nothing"
         );
+    }
+
+    /// A state file that cannot be read for a moment (a sharing violation, a folder where it was) is not written over
+    /// with "mirror": false from the session's first write: the copy waits, and is tried again once the file reads.
+    #[test]
+    fn a_state_file_that_cannot_be_read_is_not_written_over() {
+        let d = tempfile::tempdir().unwrap();
+        let mut f = TableFile::in_dir(d.path());
+        let t = [p(1, 101, 0.5, 0.5)];
+        fs::create_dir(&f.state).unwrap();
+        assert!(f.write(&t).is_err(), "the copy waits for the file to read");
+        assert!(!f.pending && f.copy_owed && f.state.is_dir());
+        fs::remove_dir(&f.state).unwrap();
+        fs::write(&f.state, "{\"placed\": [], \"mirror\": true}").unwrap();
+        f.retry_copy(&t);
+        assert!(!f.copy_owed);
+        assert_eq!(fs::read_to_string(&f.state).unwrap(), state_text(&t, true));
+        fs::remove_file(&f.state).unwrap();
+        assert!(!f.read_mirror().unwrap(), "a missing file is off");
     }
 
     /// A failed formation copy leaves only the copy owed: the table is swapped in (not pending, edits seen), and
