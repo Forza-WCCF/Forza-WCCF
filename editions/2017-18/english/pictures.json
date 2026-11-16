@@ -30,12 +30,12 @@
    "labels": [
     {"box": [0, 2, 96, 13], "en": "Next match in"},
     {"box": [0, 20, 96, 31], "en": "Please wait"}]},
-  {"id": "title_management", "where": "the section title Management", "sha256": "54C157883D7BF3C656F54956E20A562DA6EC1E25453D8E29B561FB0349BDF2CF", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_1.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 511, 63]],
+  {"id": "title_management", "where": "the section title Team Management, right half (both halves draw the whole title centred on the screen; the game shows each half's slice)", "sha256": "54C157883D7BF3C656F54956E20A562DA6EC1E25453D8E29B561FB0349BDF2CF", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_1.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 511, 63]], "erase": [[0, 0, 12, 63]],
    "labels": [
-    {"box": [8, 6, 404, 58], "en": "MANAGEMENT"}]},
-  {"id": "title_team", "where": "the section title Team", "sha256": "A0543681041A01F87E772A6F621D6E60ACF19A38F779B97B3862FC10D956D8C5", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_2.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "right"}, "clear": [[0, 0, 255, 63]],
+    {"box": [-121, 6, 359, 58], "en": "TEAM MANAGEMENT"}]},
+  {"id": "title_team", "where": "the section title Team Management, left half (both halves draw the whole title centred on the screen; the game shows each half's slice)", "sha256": "A0543681041A01F87E772A6F621D6E60ACF19A38F779B97B3862FC10D956D8C5", "files": ["data/sb_data/management/MNG_TitleLogoManagement/Title_tex_2.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 255, 63]],
    "labels": [
-    {"box": [6, 6, 178, 58], "en": "TEAM"}]},
+    {"box": [49, 6, 529, 58], "en": "TEAM MANAGEMENT"}]},
   {"id": "scm_parameta_max_a", "where": "the six big stat words round the hexagon", "sha256": "E63721B99D82529B57DB9AF156A53B8736A78608CE3AE6510AE40EE0E3139EC1", "files": ["data/sb_data/client_common/SCM_Parameter/SCM_Parameta_max.dds"], "style": {"core": "auto", "halo": [223, 198, 57, 255], "halo_px": 1, "blur": 2.5, "squeeze": 0.7, "size": 16}, "clear": [[0, 0, 127, 127]],
    "labels": [
     {"box": [63, 9, 122, 34], "en": "OFFENCE"},

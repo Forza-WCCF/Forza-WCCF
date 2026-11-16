@@ -681,6 +681,10 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
             refh,
         )?;
     }
+    // a strip another picture already shows (a title over two textures): cleared after drawing, so it shows once
+    for a in r["erase"].as_array().into_iter().flatten() {
+        clear(im, boxv(a), &Value::Null)?;
+    }
     if r.get("reflect").is_some_and(|v| truthy(Some(v))) {
         reflect(im, &r["reflect"])?;
     }
@@ -1575,6 +1579,67 @@ mod tests {
             }
         }
         assert!(done > 0, "no original picture in {}", dir.display());
+    }
+
+    /// Titles as the game shows them (quads from the original scenes, 960 px screen): one phrase centred on 480
+    /// with one word space. CLUB HOUSE is two textures whose slices overlap at x 360.5-374 (`Title_tex_2` cols
+    /// 1-182 at 191 + x, `Title_tex_1` cols 0-406 at 360.5 + x), so each half draws the whole phrase and
+    /// `Title_tex_1` erases the strip `Title_tex_2` already shows.
+    #[test]
+    fn titles_are_one_phrase_centred_on_the_screen() {
+        let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
+        let font = Font {
+            lib: freetype::Library::init().unwrap(),
+            data: std::rc::Rc::new(fs::read(font_file()).unwrap()),
+        };
+        let refh = font.line(100, "Hgjy").unwrap().height().unwrap();
+        // (id, texture width, first and last column shown, screen x of column 0 doubled)
+        type Slice = (&'static str, usize, usize, usize, i64);
+        let titles: [&[Slice]; 2] = [
+            &[
+                ("title_team", 256, 1, 182, 382),
+                ("title_management", 512, 0, 406, 721),
+            ],
+            &[("title_licence_entry", 512, 0, 510, 449)],
+        ];
+        for it in [false, true] {
+            let rs = recipes(&sheets, it).unwrap();
+            for title in titles {
+                let mut on = std::collections::BTreeSet::new();
+                for &(id, w, a, b, x2) in title {
+                    let r = rs.iter().find(|r| r["id"] == id).unwrap();
+                    let mut im = Img {
+                        w,
+                        h: 64,
+                        px: vec![0; w * 64 * 4],
+                    };
+                    redraw(&mut im, r, &font, refh).unwrap();
+                    // the words, not their halo (at most alpha 190)
+                    on.extend(
+                        (a..=b)
+                            .filter(|&x| (0..64).any(|y| im.get(x, y)[3] > 200))
+                            .map(|x| x2 + 2 * x as i64),
+                    );
+                }
+                let (lo, hi) = (*on.first().unwrap(), *on.last().unwrap());
+                let what = format!("{} it={it}", title[0].0);
+                assert!(
+                    (lo + hi - 1920).abs() <= 8,
+                    "{what}: centre {}",
+                    (lo + hi) as f64 / 4.0
+                );
+                let v: Vec<i64> = on.into_iter().collect();
+                let gaps: Vec<i64> = v
+                    .windows(2)
+                    .map(|p| (p[1] - p[0]) / 2 - 1)
+                    .filter(|&g| g >= 8)
+                    .collect();
+                assert!(
+                    gaps.len() == 1 && gaps[0] <= 20,
+                    "{what}: word gaps {gaps:?}"
+                );
+            }
+        }
     }
 
     #[test]
