@@ -2627,7 +2627,7 @@ impl Render {
     }
 
     /// A move, swap or take-off on the board: the table written whole (and the formation copy beside it); a write
-    /// that could not be swapped in is tried again next frame.
+    /// that could not be swapped in is tried again once a second, and its failure is logged once.
     fn table_out(&mut self) {
         let held = self.dragging();
         let ended = std::mem::replace(&mut self.drag_held, held) && !held;
@@ -2676,7 +2676,7 @@ impl Render {
     }
 
     fn table_write(&mut self) {
-        if let Err(e) = self.table.write(&self.placed) {
+        if let Some(e) = self.table.write_retry(&self.placed) {
             log(&format!("board: table write pending ({e})"));
         }
     }

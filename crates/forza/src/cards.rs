@@ -146,6 +146,10 @@ pub struct TableFile {
     /// The table is swapped in but the formation copy failed: only the copy is tried again (`retry_copy`).
     pub copy_owed: bool,
     copy_try: Option<std::time::Instant>,
+    /// When a failed write was last tried: the retry comes at most once a second, as the copy's does.
+    write_try: Option<std::time::Instant>,
+    /// The owed write's failure was logged: one line per failed streak, not one per frame.
+    write_logged: bool,
 }
 
 impl TableFile {
@@ -158,6 +162,8 @@ impl TableFile {
             pending: false,
             copy_owed: false,
             copy_try: None,
+            write_try: None,
+            write_logged: false,
         }
     }
 
@@ -198,11 +204,30 @@ impl TableFile {
         swap_in(&tmp, &self.table, 4, 1)?;
         self.stamp = Some(when);
         self.pending = false;
+        self.write_logged = false;
         // the copy is owed until it is written: the two files disagree meanwhile
         self.copy_owed = true;
         self.write_state(cards)?;
         self.copy_owed = false;
         Ok(())
+    }
+
+    /// The table written, the way the board does it: a failed write is retried at most once a second (as the copy is),
+    /// and its error is returned only for the first failure of a streak, so the log gets one line.
+    pub fn write_retry(&mut self, cards: &[Placed]) -> Option<io::Error> {
+        let now = std::time::Instant::now();
+        if self.pending
+            && self
+                .write_try
+                .is_some_and(|t| now.duration_since(t) < Duration::from_secs(1))
+        {
+            return None;
+        }
+        self.write_try = Some(now);
+        match self.write(cards) {
+            Ok(()) => None,
+            Err(e) => (!std::mem::replace(&mut self.write_logged, true)).then_some(e),
+        }
     }
 
     /// The formation copy still owed: written again, at most once a second.
@@ -754,6 +779,31 @@ mod tests {
         );
         assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
         assert_eq!(f.read().unwrap(), cards);
+    }
+
+    /// A write that keeps failing is retried at most once a second and logged once per streak: a folder where the
+    /// table goes can never be swapped in.
+    #[test]
+    fn a_failing_write_is_retried_once_a_second_and_logged_once() {
+        let d = tempfile::tempdir().unwrap();
+        let mut f = TableFile::in_dir(d.path());
+        let one = [p(1, 101, 0.5, 0.5)];
+        let two = [p(1, 102, 0.5, 0.5)];
+        assert!(f.write_retry(&one).is_none(), "a write that goes in is no line");
+        assert_eq!(fs::read_to_string(&f.table).unwrap(), table_text(&one));
+        fs::remove_file(&f.table).unwrap();
+        fs::create_dir(&f.table).unwrap();
+        assert!(f.write_retry(&two).is_some(), "the first failure is logged");
+        assert!(f.pending);
+        assert!(
+            f.write_retry(&one).is_none(),
+            "a retry within the second is skipped"
+        );
+        assert_eq!(
+            fs::read_to_string(with_suffix(&f.table, ".board")).unwrap(),
+            table_text(&two),
+            "the skipped retry wrote nothing"
+        );
     }
 
     /// A failed formation copy leaves only the copy owed: the table is swapped in (not pending, edits seen), and
