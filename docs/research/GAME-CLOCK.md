@@ -93,13 +93,13 @@ Effects of a stopped seat with everything else running: #2/#3 and #4/#5 fire (fi
 |---|---|---|---|
 | Arcade state in the control | K10 `dword_7D30C0`; K17 `dword_AB8A60` | 0 boot/sync, 1 ENTRY, 2 CR_DATA_WAIT, 3 MATCHING_WAIT, 4 MATCHING, 5 GAME, 6 GAME_RESULT_WAIT, 7 GAME_RESULT | V |
 | The same state in the seat (from `CONTROL_STATE` byte 0) | C10 `*(dword_113700C)+12` (object sub_407870); C17 `*(dword_6D9EB08)+12` (object sub_4100B0) | as above | V |
-| Seat main state | C10 `*(dword_1137060)` (1 = START UP); C17 `*(dword_6D9EBCC)`: each sequence's start writes its own id (1-27); 19 = the match (sub_61AB80; its update sub_61B5D0 sends `REQ_MATCH` and `GO TO GAME`, the match sequence sub_87FF60 writes none, so 19 holds until the next sequence), 14 = ClientError (sub_40DD50) | other values open | V |
+| Seat main state | C10 `*(dword_1137060)` (1 = START UP); C17 `*(dword_6D9EBCC)`: each sequence's start writes its own id (1-27); 19 = before the match (the Meeting Room's wait; sub_61AB80, its update sub_61B5D0 sends `REQ_MATCH` and `GO TO GAME`), 22 and 21 = match loading (22, 21, 22), 23 = the match (about 4 min; it holds through any arcade state, 1-7), 26 = the result screen, then 27 or the next match's 17, 18, 19 (runtime, guarded run and a player's logs, 2026-11-16; the writers of 21-27 are not mapped), 14 = ClientError (sub_40DD50) | other values open | V |
 | Match engine messages | M10 sub_563170: `SYNC READY`, `GO TO GAME`, `ENTER H-TIME`, `END MATCH GAME`; client → control `REQ_MATCH` (C17 sub_4BC150) | start, half-time, end | V |
 | Frames to the engine | C10/C17 `TO MATCH` writers (C10 sub_4E3060, sub_4E9F40) | present while a match runs | V names, A per-frame |
 
 For the panel and the hook: read the seat's copy of the arcade state (one dword). Menus = 0–3 and 7; match = 4–6.
 That state is the whole arcade's: in a shared arcade another seat's match sets it while this seat sits out (live
-test, 2026-10-28). The per-seat flag in 2017–18 is the seat main state 19 (above); IMPORT LINEUP uses it. [V]
+test, 2026-10-28). The per-seat flag in 2017–18 is the seat main state 21-23 (above); the board lock and IMPORT LINEUP use it. [V]
 
 ## 4. Recommended mechanism
 
