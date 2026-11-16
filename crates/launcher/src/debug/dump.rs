@@ -20,8 +20,8 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
 };
 
-/// Handles, unloaded modules, indirectly referenced memory, process/thread data, thread info.
-const DUMP_LEAN: MINIDUMP_TYPE = 0x1164;
+/// Handles, unloaded modules, indirectly referenced memory, process/thread data, thread info, full memory info.
+const DUMP_LEAN: MINIDUMP_TYPE = 0x1164 | 0x800;
 /// The lean one plus the data segments (the globals).
 const DUMP_FULL: MINIDUMP_TYPE = DUMP_LEAN | 0x1;
 const DUMPS_KEEP: usize = 5;

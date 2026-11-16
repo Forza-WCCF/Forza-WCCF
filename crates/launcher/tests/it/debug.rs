@@ -158,9 +158,28 @@ fn a_crash_leaves_a_lean_and_a_full_snapshot() {
         .iter()
         .map(|n| fs::metadata(dumps.join(n)).unwrap().len())
         .collect();
+    println!("lean {} KB, full {} KB", sizes[1] / 1024, sizes[0] / 1024);
     assert!(
         sizes[0] > sizes[1],
         "the full one holds more than the lean one: {sizes:?}"
+    );
+    assert!(sizes[1] < 2 * 1024 * 1024, "the lean one stays small: {sizes:?}");
+    // The lean one lists every memory region (stream 16, MemoryInfoListStream), so a crash report tells a freed page
+    // from a reserved one.  Its directory follows the 32-byte header.
+    let lean = fs::read(dumps.join(&names[1])).unwrap();
+    let dir = u32::from_le_bytes(lean[12..16].try_into().unwrap()) as usize;
+    let streams: Vec<u32> = (0..u32::from_le_bytes(lean[8..12].try_into().unwrap()))
+        .map(|i| {
+            u32::from_le_bytes(
+                lean[dir + i as usize * 12..dir + i as usize * 12 + 4]
+                    .try_into()
+                    .unwrap(),
+            )
+        })
+        .collect();
+    assert!(
+        streams.contains(&16),
+        "the lean one has the memory info list: {streams:?}"
     );
     assert_eq!(code, 1, "the debugger ends with an error (the program crashed)");
     assert!(
