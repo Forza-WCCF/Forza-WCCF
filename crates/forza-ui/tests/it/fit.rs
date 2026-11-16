@@ -257,3 +257,82 @@ fn a_button_on_another_is_caught() {
         assert!(shared(a, b).is_none(), "{a:?} on {b:?}");
     }
 }
+
+/// The text painted exactly as `text`: its laid-out rect (what `widgets::fit` measures) and whether it was cut with "…".
+fn painted(h: &egui_kittest::Harness<'_>, text: &str) -> (egui::Rect, bool) {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => {
+                Some((t.galley.rect.translate(t.pos.to_vec2()), t.galley.elided))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{text:?} is not painted"))
+}
+
+/// #286: text painted in a fixed room shrinks, then is cut with "…", and never runs past its room, in every language:
+/// a club and its manager from the game on the club card (300 points), a wallet club beside its NOT PLAYABLE (a
+/// 170-point button), the crash screen's title (its column, 440 at most) and the free space right of the installer's
+/// bar (112). The old plain `p.text(..)` calls drew the long manager and free-space lines at full width, past their
+/// rooms, and the old `widgets::fit` left a long club name wider than its room at the 70 % floor.
+#[test]
+fn fixed_rooms_fit_long_text() {
+    let ja = "櫻庭和志".repeat(12);
+    let names = [
+        "H. SAKURABA DI SAN GIOVANNI DELLA VALLE DEL FIUME AZZURRO E DEI MONTI LONTANI",
+        ja.as_str(),
+    ];
+    for lang in Lang::ALL {
+        for name in names {
+            let raw = format!(
+                "state|ok\nhead|CLUB\nrow|CLUB|{name}  (founded 2026-09-02)|w\n\
+                 row|MANAGER|{name}  (born 1980-04-01)|w\nwallet|n.bin|{name}|W1|transferred\n"
+            );
+            let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::ClubCard);
+            st.club = forza::club_view::ClubView::parse(raw.as_bytes());
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+                panel::show(ui, &mut st)
+            });
+            h.run_steps(8);
+            let manager = forza_ui::text(lang, "club.manager", &[("name", name)]);
+            let (r, cut) = painted(&h, &manager);
+            assert!(r.width() <= 300.0 && cut, "{manager:?}: {r:?}, cut {cut}");
+            let (r, cut) = painted(&h, name);
+            assert!(r.width() <= 300.0 && cut, "club {name:?}: {r:?}, cut {cut}");
+            let not = forza_ui::text(lang, "club.transferred", &[]);
+            let (b, _) = painted(&h, &not);
+            assert!(b.width() <= 170.0, "{not:?}: {b:?}");
+            // the wallet keeps 39 characters of a club's name, beside the NOT PLAYABLE button
+            let club: String = name.chars().take(39).collect();
+            let (r, _) = painted(&h, &club);
+            assert!(r.right() < b.left(), "wallet {club:?}: {r:?} on {b:?}");
+        }
+        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
+        st.crash = true;
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(8);
+        let title = forza_ui::text(lang, "panel.crash_title", &[]);
+        let (r, _) = painted(&h, &title);
+        assert!(r.width() <= 440.0, "{title:?}: {r:?}");
+
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Where);
+        let sp = st.space.as_mut().expect("the sample has a drive");
+        sp.free = u64::MAX;
+        sp.total = u64::MAX;
+        let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(8);
+        let free = forza_ui::text(
+            lang,
+            "installer.free_of",
+            &[("free", "18446744073.7"), ("drive", "C:")],
+        );
+        let (r, _) = painted(&h, &free);
+        assert!(r.width() <= 112.0, "{free:?}: {r:?}");
+    }
+}

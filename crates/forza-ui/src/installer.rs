@@ -712,16 +712,24 @@ fn where_(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Act
                 0,
                 theme::AMBER,
             );
-            p.text(
-                r.right_center(),
-                Align2::RIGHT_CENTER,
-                tr!(
+            // the 120 points right of the bar, less an 8-point gap
+            let g = widgets::fit_elided(
+                p,
+                &tr!(
                     lang,
                     "installer.free_of",
                     free = gb(sp.free),
                     drive = sp.drive
                 ),
                 theme::display(16.0),
+                theme::TEXT,
+                112.0,
+            );
+            p.galley(
+                Align2::RIGHT_CENTER
+                    .anchor_size(r.right_center(), g.size())
+                    .min,
+                g,
                 theme::TEXT,
             );
         });
