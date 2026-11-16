@@ -3590,12 +3590,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
         .collect();
     // still too long at the least text size (a board narrower than its window allows): each button takes its share of
     // the row and its label wraps, rather than one button pushed onto the next (#285)
-    let need = widths.iter().sum::<f32>() + gaps;
-    let squeeze = if need > row.width() {
-        ((row.width() - gaps) / (need - gaps)).max(0.0)
-    } else {
-        1.0
-    };
+    let squeeze = foot_squeeze(&widths, gaps, pad, row.width());
     let mut at = Vec::with_capacity(texts.len());
     let mut right = row.right();
     for w in widths {
@@ -6186,9 +6181,38 @@ pub fn widget_sheet(ui: &mut Ui, ws: &mut WidgetSheet) {
         });
 }
 
+/// The share of its width each foot button keeps in a row `room` wide (`widths` include `pad`): 1 when they fit, else
+/// the row less its `gaps` split in proportion; never under `pad` for any button (a row narrower than that is past
+/// every design size: the buttons then run past its left edge, never down to nothing).
+fn foot_squeeze(widths: &[f32], gaps: f32, pad: f32, room: f32) -> f32 {
+    let need = widths.iter().sum::<f32>() + gaps;
+    if need <= room {
+        return 1.0;
+    }
+    let least = widths.iter().copied().fold(f32::INFINITY, f32::min);
+    ((room - gaps) / (need - gaps)).max(pad / least)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The foot buttons keep their width when they fit, share the row when not, and never shrink to nothing (#285
+    /// review: a row narrower than its gaps gave 0).
+    #[test]
+    fn foot_squeeze_never_reaches_zero() {
+        let widths = [120.0, 90.0, 60.0];
+        assert_eq!(foot_squeeze(&widths, 12.0, 20.0, 400.0), 1.0);
+        let half = foot_squeeze(&widths, 12.0, 20.0, 12.0 + 135.0);
+        assert!((half - 0.5).abs() < 1e-6, "{half}");
+        for room in [-50.0, 0.0, 1.0, 12.0, 30.0, 100.0] {
+            let s = foot_squeeze(&widths, 12.0, 20.0, room);
+            assert!(
+                s > 0.0 && widths.iter().all(|w| w * s >= 20.0 - 1e-3),
+                "{room}: {s}"
+            );
+        }
+    }
     use crate::board::Aptitude;
     use forza::cards::BENCH_X;
 
