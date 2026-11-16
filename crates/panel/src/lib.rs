@@ -4678,6 +4678,14 @@ mod tests {
                 "poll {i}: seat {seat:?}, arcade {arcade:?}"
             );
         }
+        // The range's edges are the states the logs saw, not a mapped range (`GAME-CLOCK.md`: the writers of 21-27 are
+        // not mapped), so 20, 24 and 25 are pinned out: a later state move fails here.
+        for seat in [20, 24, 25] {
+            assert!(
+                !match_now(true, Some(seat), Some(5), false),
+                "seat {seat} is not the match"
+            );
+        }
     }
 
     /// The server's notice waits for this seat's match, not for the card session: the club office and the menus between
