@@ -108,9 +108,9 @@
   {"id": "licence_title_c", "where": "the licence card's title: manager licence issued (the rank letters stay)", "sha256": "CD5C881F41147345E596C849EA3355C29E15AE2CB37D732AFE74777F96C38762", "files": ["data/sb_data/management/MNG_LicenseCardSIML/Manager_LicenseTitle.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 374, 63]],
    "labels": [
     {"box": [4, 4, 366, 50], "en": "LICENCE ISSUED"}]},
-  {"id": "title_licence_entry", "where": "club making title: manager licence registration", "sha256": "13A72B60CB519750D651430700FDC8B7A3DDB1ADB72B6A6A26921CE324D7D82C", "files": ["data/sb_data/club_make/CL_TitleLogoLicenseEntry/Title_Tex.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 511, 63]],
+  {"id": "title_licence_entry", "where": "club making title: manager licence registration", "sha256": "13A72B60CB519750D651430700FDC8B7A3DDB1ADB72B6A6A26921CE324D7D82C", "files": ["data/sb_data/club_make/CL_TitleLogoLicenseEntry/Title_Tex.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3}, "clear": [[0, 0, 511, 63]],
    "labels": [
-    {"box": [4, 6, 500, 58], "en": "LICENCE REGISTRATION"}]},
+    {"box": [4, 6, 507, 58], "en": "LICENCE REGISTRATION"}]},
   {"id": "title_manager_contract", "where": "club making title: manager contract", "sha256": "4E17A22F4391B923E39DA28A48D4ADEE0A2DDC49A6E4C46E99139C545C27EAEF", "files": ["data/sb_data/club_make/CL_TitleLogoManagerContract/Title_tex_Manager_Contract.dds"], "style": {"core": "auto", "halo": [226, 188, 60, 190], "halo_px": 2, "blur": 3, "align": "left"}, "clear": [[0, 0, 255, 63]],
    "labels": [
     {"box": [6, 6, 248, 58], "en": "MANAGER CONTRACT"}]},
