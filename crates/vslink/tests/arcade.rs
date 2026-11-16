@@ -275,13 +275,51 @@ fn control_rtt(p: &Pair) -> Duration {
     t.elapsed()
 }
 
+/// One datagram through the tunnel and the relay's echo of it: sent again until one comes. A datagram has no retry
+/// of its own, and the join side drops one that arrives before its link is up (`arcade.rs`: "no link: dropped, as a
+/// lost datagram"), which is the window right after [`Pair::join`] returns: a lost datagram here failed the test.
+fn echo_asked(s: &UdpSocket, msg: [u8; 2], port: SocketAddr, socket: usize) -> Duration {
+    let stale = [msg[0], msg[1] ^ 1];
+    let t = Instant::now();
+    let mut b = [0u8; 64];
+    loop {
+        s.send_to(&msg, port).unwrap();
+        match s.recv_from(&mut b) {
+            Ok((n, src)) => {
+                assert_eq!(src, port, "socket {socket}");
+                if b[..n] == stale {
+                    continue; // the round before's echo, a retry late: not this round's
+                }
+                assert_eq!(&b[..n], &msg[..], "socket {socket}");
+                return t.elapsed();
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                assert!(
+                    t.elapsed() < Duration::from_secs(15),
+                    "socket {socket}: no echo of {msg:?}"
+                );
+            }
+            Err(e) => panic!("socket {socket}: {e}"),
+        }
+    }
+}
+
 /// Two local sockets to the relay port: each gets only its own echo; the relay saw two sources. The second round's
 /// worst round trip.
 fn datagram_rtt(p: &Pair) -> Duration {
     let socks: Vec<UdpSocket> = (0..2)
         .map(|_| {
             let s = UdpSocket::bind("127.0.0.1:0").unwrap();
-            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            // short, so `echo_asked` asks again soon after a lost datagram; the 150 ms knob's 150 ms trip still fits
+            s.set_read_timeout(Some(Duration::from_millis(300)))
+                .unwrap();
             s
         })
         .collect();
@@ -289,17 +327,9 @@ fn datagram_rtt(p: &Pair) -> Duration {
     for round in 0..2 {
         for (i, s) in socks.iter().enumerate() {
             let msg = [b'a' + i as u8, round];
-            let t = Instant::now();
-            s.send_to(&msg, at(p.join_ports.relay)).unwrap();
-            let mut b = [0u8; 64];
-            let (n, src) = s.recv_from(&mut b).expect("the relay's echo");
-            assert_eq!(
-                (&b[..n], src),
-                (&msg[..], at(p.join_ports.relay)),
-                "socket {i}"
-            );
+            let took = echo_asked(s, msg, at(p.join_ports.relay), i);
             if round == 1 {
-                worst = worst.max(t.elapsed());
+                worst = worst.max(took);
             }
         }
     }
