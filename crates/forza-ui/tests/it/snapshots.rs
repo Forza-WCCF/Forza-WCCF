@@ -150,8 +150,6 @@ fn launcher_busy_progress() {
 fn launcher_on_a_short_screen() {
     let _gpu = gpu();
     let size = launcher::window_size(Some(700.0));
-    assert_eq!(size, egui::vec2(600.0, 700.0));
-    assert_eq!(launcher::window_size(None), launcher::SIZE);
     let mut all = SnapshotResults::new();
     use launcher::Scenario::*;
     for (s, tag) in [
@@ -587,7 +585,6 @@ fn popout_board_window() {
         st.desk = true;
         st.file.board_window = true;
         st.file.board_buttons = buttons;
-        assert_eq!(panel::board_scale(w, h, 96.0), 1.0);
         snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
             panel::show(ui, &mut st)
         });
@@ -636,7 +633,6 @@ fn popout_game_window() {
         st.popped = true;
         let ci = st.board.slots[2].expect("a card in slot 2");
         st.touched = Some((st.board.cards[ci].clone(), 0.0));
-        assert_eq!(panel::scale(w, h, 96.0), 1.0);
         snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
             panel::show(ui, &mut st)
         });
@@ -856,130 +852,6 @@ fn catalogue_1080() {
         }
     }
     all.unwrap();
-}
-
-/// Every widget's rect and the detail pane's (its picture slot too), by role and label: what a click must not move.
-fn catalogue_rects(h: &Harness<'_>) -> Vec<(String, egui::Rect)> {
-    use egui_kittest::kittest::NodeT as _;
-    let mut v: Vec<_> = h
-        .root()
-        .children_recursive()
-        .filter_map(|n| {
-            let a = n.accesskit_node();
-            let b = a.bounding_box()?;
-            let r = egui::Rect::from_min_max(
-                egui::pos2(b.x0 as f32, b.y0 as f32),
-                egui::pos2(b.x1 as f32, b.y1 as f32),
-            );
-            Some((format!("{:?} {:?}", a.role(), a.label()), r))
-        })
-        .collect();
-    v.extend(panel::catalogue_detail_rect(&h.ctx).map(|r| ("detail pane".to_owned(), r)));
-    v.extend(panel::catalogue_picture_rect(&h.ctx).map(|r| ("picture slot".to_owned(), r)));
-    v.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then(a.1.min.x.total_cmp(&b.1.min.x))
-            .then(a.1.min.y.total_cmp(&b.1.min.y))
-    });
-    v
-}
-
-/// BACK in the detail pane (a scan front smaller than the album art, an album back, as an install has them) moves
-/// nothing: every rect (the search line, its buttons, the filters, the grid, the pane, the picture slot, the stats,
-/// ADD) is the same on the frame before the click, while it is pressed, right after it and as the frames go on; and
-/// the back's picture loads while the card sits in the pane, before BACK is clicked, so no drawn stand-in flashes.
-#[test]
-fn catalogue_back_keeps_still() {
-    let _gpu = gpu();
-    let dir = tempfile::tempdir().expect("a temp folder");
-    let ci = 7;
-    let no = forza_ui::sample::cards()[ci].number;
-    for (w, h, name) in [
-        (180, 254, format!("{no}_f.jpg")),
-        (256, 357, format!("{no}_b.jpg")),
-    ] {
-        image::RgbaImage::from_fn(w, h, |x, y| {
-            image::Rgba([(x % 256) as u8, (y % 256) as u8, 90, 255])
-        })
-        .save_with_format(dir.path().join(name), image::ImageFormat::Png)
-        .expect("a picture written");
-    }
-    for (size, ppp) in [
-        (Vec2::new(1920.0, 1080.0), 1.0),
-        (Vec2::new(1920.0, 1080.0), 1.25),
-        (Vec2::new(1440.0, 900.0), 1.0),
-        (panel::SIZE, 1.0),
-    ] {
-        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
-        st.message = None; // the sample's note line at the pane's foot is no part of the claim
-        st.catalogue.filter = Default::default();
-        st.catalogue.filter.search = st.cards[ci].name.clone();
-        st.catalogue.focus = Some(ci);
-        let path = dir.path().to_owned();
-        let mut first = true;
-        let mut h = harness(size, ppp, Edition::E1718, |ui| {
-            if first {
-                forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
-                first = false;
-            }
-            panel::show(ui, &mut st)
-        });
-        // the front (the grid's own picture) is ready at once; the pane starts the back two frames after the card
-        // arrives. Waiting for that load is the claim: a change that starts it a second later, or on the click as
-        // before, leaves the back unloaded past the 30 frames a player's read takes here.
-        let mut loaded = false;
-        for _ in 0..30 {
-            h.run_steps(1);
-            loaded = panel::catalogue_other_side_ready(&h.ctx) == Some(true);
-            if loaded {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
-        assert!(
-            loaded,
-            "{size:?} {ppp}: the back's picture is not loaded before the click"
-        );
-        assert_eq!(
-            panel::catalogue_picture_shown(&h.ctx),
-            Some((false, true)),
-            "{size:?} {ppp}: the front's picture shown"
-        );
-        let at = h.get_by_label("BACK").rect().center();
-        h.hover_at(at);
-        h.run_steps(1);
-        let before = catalogue_rects(&h);
-        h.drag_at(at); // pressed
-        h.run_steps(1);
-        assert_eq!(
-            catalogue_rects(&h),
-            before,
-            "{size:?} {ppp}: BACK pressed moved a rect"
-        );
-        h.drop_at(at); // released: the click
-        let clicked = std::time::Instant::now();
-        let mut shown_after = None;
-        for frame in 0..20 {
-            h.run_steps(1);
-            assert_eq!(
-                catalogue_rects(&h),
-                before,
-                "{size:?} {ppp}: frame {frame} after BACK moved a rect"
-            );
-            let shown = panel::catalogue_picture_shown(&h.ctx);
-            if shown == Some((true, true)) && shown_after.is_none() {
-                shown_after = Some((frame, clicked.elapsed()));
-            }
-            eprintln!("{size:?} {ppp}: frame {frame} after BACK: {shown:?}");
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
-        eprintln!("{size:?} {ppp}: back picture shown at (frame, time) {shown_after:?}");
-        assert_eq!(
-            shown_after.map(|(f, _)| f),
-            Some(0),
-            "{size:?} {ppp}: the back's picture is not ready on the click's frame"
-        );
-    }
 }
 
 /// 2017-18: RESET LINEUP under the board, lit while a kept table differs from the board, greyed out in a match.

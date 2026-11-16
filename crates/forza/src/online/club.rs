@@ -1088,9 +1088,12 @@ pub struct Progress {
     gone_once: bool,
 }
 
-/// A copy-back error that says the host's server is gone while its PC answers: refused or reset (Windows errors).
+/// A copy-back error that says the host's server is gone while its PC answers: refused or reset (Windows' 10061 and
+/// 10054, Linux's 111 and 104: [`ask`] keeps the OS error's text, which is the only place the code shows).
 fn server_gone(e: &str) -> bool {
-    e.contains("(os error 10061)") || e.contains("(os error 10054)")
+    ["10061", "10054", "111", "104"]
+        .iter()
+        .any(|code| e.contains(&format!("(os error {code})")))
 }
 
 /// The guest's card for an arcade.

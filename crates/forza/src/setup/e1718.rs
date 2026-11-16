@@ -783,6 +783,10 @@ mod tests {
         (kit, game, spec, [client, control, engine])
     }
 
+    #[cfg_attr(
+        not(windows),
+        ignore = "setup makes seat1's folder links as Windows junctions"
+    )]
     #[test]
     fn setup_makes_the_runtime_twice_and_undo_restores_it() {
         let top = tempfile::tempdir().unwrap();
@@ -939,6 +943,10 @@ mod tests {
     /// A runtime a setup before det-math made (the engine untouched, no dmath.dll, a record without both or a setup
     /// version) is stale; a refused setup leaves it as it was; setup again makes it current, and a current one is not
     /// stale. New kit files unzipped over a current runtime make it stale the same way.
+    #[cfg_attr(
+        not(windows),
+        ignore = "setup makes seat1's folder links as Windows junctions"
+    )]
     #[test]
     fn an_older_setup_is_stale_until_setup_runs_again() {
         let top = tempfile::tempdir().unwrap();
