@@ -682,7 +682,8 @@ CREATE TABLE IF NOT EXISTS gt_points (
 -- the Grand Trophy promotion issued at a card-in of `week` from the card's record of week - 1: one per week and
 -- card, to the club `coach_id` that carded in, which moved up to `class`; `rank` and `record` are the closed week's
 -- at the grant, so a re-issue sends the same result; `created` is the club's (coaches.created), the one club field an
--- import keeps (online::club gives it new ids)
+-- import keeps (online::club gives it new ids), unique per card (new_created; shortcut: two clubs a store made in
+-- one second before that keep a shared key, fix them by hand if one ever shows)
 CREATE TABLE IF NOT EXISTS gt_promotions (
     week     INTEGER NOT NULL,
     aime_id  INTEGER NOT NULL,
@@ -770,6 +771,18 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// A new club's `created` for `aime`: now, or one past the newest `created` of the card's clubs and Grand Trophy
+/// grants when that is later, so no two clubs of one card share it (it keys the Grand Trophy floor across an import,
+/// [`Store::promote`]). A clock set back gets the same treatment.
+fn new_created(db: &Connection, aime: u32) -> rusqlite::Result<i64> {
+    db.query_row(
+        "SELECT max(?2, coalesce((SELECT max(created) + 1 FROM coaches WHERE aime_id = ?1), 0),
+                    coalesce((SELECT max(created) + 1 FROM gt_promotions WHERE aime_id = ?1), 0))",
+        params![aime, now()],
+        |r| r.get(0),
+    )
+}
+
 /// Next id from counter `name` (1, 2, ...), inside the caller's transaction.
 pub(super) fn next_id(db: &Connection, name: &str) -> rusqlite::Result<u32> {
     db.query_row(
@@ -844,8 +857,8 @@ impl Store {
         }
         let (coach, card) = (next_id(&tx, "coach")?, next_id(&tx, "card")?);
         tx.execute(
-            "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (?1, ?2, ?3, ?4, ?4)",
-            params![aime, coach, card, now()],
+            "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![aime, coach, card, new_created(&tx, aime)?, now()],
         )?;
         tx.commit()?;
         Ok(Some((coach, card)))
@@ -899,8 +912,8 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, titles, created, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, 100, 0, ?6, ?7, ?7)",
-            params![aime, coach, card, n1, n2, SKIP_TITLES, now()],
+             VALUES (?1, ?2, ?3, ?4, ?5, 100, 0, ?6, ?7, ?8)",
+            params![aime, coach, card, n1, n2, SKIP_TITLES, new_created(&tx, aime)?, now()],
         )?;
         tx.execute(
             "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4, x'')",
@@ -1005,9 +1018,9 @@ impl Store {
     /// granted club gets the stored result again at each card-in of the week while its stored 277 is still one class
     /// below (a lost 276, or a session that ended before the info scene applied it). A club imported again (a guest's
     /// next join, online::club) has a new coachId and the granted one is gone: the row moves to it when it is the same
-    /// club (same `created`), never to another club of the card. The club's latest grant of an earlier week is the
-    /// floor of its saved class: a save that fell back below it is promoted from the granted class, or gets that
-    /// grant's result again when this week brings no promotion.
+    /// club (same `created`, which [`new_created`] keeps unique per card), never to another club of the card. The
+    /// club's latest grant of an earlier week is the floor of its saved class: a save that fell back below it is
+    /// promoted from the granted class, or gets that grant's result again when this week brings no promotion.
     fn promote(
         &self,
         week: u16,
@@ -2919,11 +2932,12 @@ mod tests {
                 .unwrap();
             let c = st.club(aime).unwrap();
             let link = st.import_public(&c, aime, 1, "t", &|_| false).unwrap();
-            (link.coaches[0].1, link.cards[0].1)
+            let ids = link.coaches.iter().zip(&link.cards);
+            ids.map(|(c, k)| (c.1, k.1)).collect::<Vec<_>>()
         };
 
         let old = demoted(5);
-        let k = rejoin(5);
+        let k = rejoin(5)[0];
         assert_ne!(k, old);
         record(week - 1, 5, 1_300);
         assert_eq!(
@@ -2955,6 +2969,28 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rows, 0, "a re-sent grant spends nothing this week");
+
+        // a second club of the card made in the same second as the granted one: after a re-import (both old coaches
+        // gone) the floor stays with the granted club, never the other (#334)
+        let first = demoted(7);
+        let b = ask(279, &fixture(279, [7, 0, 0]));
+        let second = (u32_at(&b, 8), u32_at(&b, 12));
+        let mut r = fixture(277, [7, second.0, second.1]);
+        r[GT_CLASS_277] = 0;
+        ask(277, &r);
+        record(week - 1, 7, 500);
+        let ks = rejoin(7);
+        assert!(!ks.contains(&first) && !ks.contains(&second));
+        assert_eq!(
+            result(7, ks[1]),
+            (0, 0),
+            "the other club: no floor, no result"
+        );
+        assert_eq!(
+            result(7, ks[0]),
+            (3, 1),
+            "the granted club: its grant (rank 3)"
+        );
     }
 
     /// A server with VS sends the promotion thresholds as GAME_CTRL raisePoint; an arcade's stand-in sends none.
