@@ -3578,23 +3578,41 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             (12.0 * room / text).clamp(FOOT_TEXT_MIN, 12.0)
         }
     };
+    let widths: Vec<f32> = texts
+        .iter()
+        .map(|t| {
+            b.painter()
+                .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
+                .size()
+                .x
+                + pad
+        })
+        .collect();
+    // still too long at the least text size (a board narrower than its window allows): each button takes its share of
+    // the row and its label wraps, rather than one button pushed onto the next (#285)
+    let need = widths.iter().sum::<f32>() + gaps;
+    let squeeze = if need > row.width() {
+        ((row.width() - gaps) / (need - gaps)).max(0.0)
+    } else {
+        1.0
+    };
     let mut at = Vec::with_capacity(texts.len());
     let mut right = row.right();
-    for t in &texts {
-        let w = b
-            .painter()
-            .layout_no_wrap(t.clone(), theme::bold(fs), theme::TEXT)
-            .size()
-            .x
-            + pad;
-        let r = Rect::from_min_size(pos2((right - w).max(row.left()), row.top()), vec2(w, 22.0));
+    for w in widths {
+        let w = w * squeeze;
+        let r = Rect::from_min_size(pos2(right - w, row.top()), vec2(w, 22.0));
         right = r.left() - 6.0;
         at.push(r);
     }
     let left = at.last().map_or(row.left(), |r| r.left());
     let button = |text: &str| {
-        egui::Button::new(egui::RichText::new(text).font(theme::bold(fs)))
-            .wrap_mode(egui::TextWrapMode::Extend)
+        egui::Button::new(egui::RichText::new(text).font(theme::bold(fs))).wrap_mode(
+            if squeeze < 1.0 {
+                egui::TextWrapMode::Wrap
+            } else {
+                egui::TextWrapMode::Extend
+            },
+        )
     };
     let btn = at[0];
     // the buttons' drawn bottom: the theme's 32-point buttons overflow their 22-point rects

@@ -397,6 +397,53 @@ fn board_foot_buttons_apart_at_the_least_width() {
     }
 }
 
+/// The pop-out board's foot (#285): DOCK THE BOARD, RESET LINEUP and SAVED LINEUPS keep their 6-point gaps inside the
+/// board, in English, Italian and Japanese: at the window's least sheet (900 points on its short side, the cabinet
+/// buttons under a board just taller than wide: the narrowest board, about 500), at the default window, and on a sheet
+/// narrower than any window gets, where the labels do not fit at the least text size and wrap instead. The old row
+/// pinned the last button to the row's edge there (`pos2((right - w).max(row.left()), row.top())`), on its neighbour.
+#[test]
+fn popout_board_foot_buttons_apart() {
+    for (w, h, buttons) in [
+        (900.0, 901.0, true),
+        (960.0, 1232.0, false),
+        (380.0, 900.0, false),
+    ] {
+        let size = Vec2::new(w, h);
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let (room, _) = panel::desk_parts(sheet, buttons, false);
+        let (board, _) = panel::desk_board_rect(room);
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.desk = true;
+            st.file.board_window = true;
+            st.file.board_buttons = buttons;
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            hs.run_steps(8);
+            let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let r = ["board.dock", "board.reset", "form.open"].map(at);
+            let case = format!("{w}x{h} {} board {board:?}: {r:?}", lang.code());
+            assert!(
+                r[1].right() <= r[0].left() - 6.0 + 0.5,
+                "{case}: RESET into DOCK's gap"
+            );
+            assert!(
+                r[2].right() <= r[1].left() - 6.0 + 0.5,
+                "{case}: FORMATIONS into RESET's gap"
+            );
+            assert!(
+                r[2].left() >= board.left() + 16.0 - 0.5,
+                "{case}: past the board's left margin"
+            );
+            assert!(
+                r[0].right() <= board.right() - 16.0 + 0.5,
+                "{case}: past the board's right margin"
+            );
+        }
+    }
+}
+
 /// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
 #[test]
 fn formations_load_refused_in_match_and_save_works() {
