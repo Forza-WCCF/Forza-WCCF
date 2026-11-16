@@ -43,12 +43,25 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
         Some(Value::Array(a)) => a,
         _ => return fail("english\\pictures.json has no pictures list"),
     };
+    for r in &out {
+        check_recipe(r)
+            .map_err(|e| super::Failed(format!("english\\pictures.json: {}: {e}", r["id"])))?;
+    }
     let p = sheets.join("italian").join("pictures.json");
     let itw = if it && p.is_file() {
         read(p)?
     } else {
         json!({})
     };
+    // a misspelt id would leave its picture in English with no word said
+    if let Some(id) = itw
+        .as_object()
+        .into_iter()
+        .flat_map(Map::keys)
+        .find(|id| !out.iter().any(|r| r["id"].as_str() == Some(id.as_str())))
+    {
+        return fail(format!("italian\\pictures.json: {id} is no recipe's id"));
+    }
     for r in &mut out {
         let id = r["id"].as_str().unwrap_or("").to_owned();
         let words = itw
@@ -78,6 +91,105 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
         }
     }
     Ok(out)
+}
+
+const RECIPE_KEYS: [&str; 8] = [
+    "id", "where", "sha256", "files", "labels", "style", "clear", "reflect",
+];
+/// A label's own keys; a style key may sit on a label too (it wins there).
+const LABEL_KEYS: [&str; 5] = ["en", "box", "clear", "at", "len"];
+const STYLE_KEYS: [&str; 9] = [
+    "core",
+    "halo",
+    "halo_px",
+    "blur",
+    "fill",
+    "align",
+    "squeeze",
+    "size",
+    "halo_alpha",
+];
+const STYLE_NUMBERS: [&str; 5] = ["halo_px", "blur", "squeeze", "size", "halo_alpha"];
+const REFLECT_KEYS: [&str; 3] = ["src", "dst_y", "alpha"];
+
+/// A recipe as the drawing reads it, or why not: the drawing reads a missing value as 0, so a misspelt key or a
+/// box that is not four whole numbers would draw at (0,0,0,0) instead of stopping.
+fn check_recipe(r: &Value) -> Result<(), String> {
+    fn keys(v: &Value, allowed: &[&str], at: &str) -> Result<(), String> {
+        let o = v
+            .as_object()
+            .ok_or_else(|| format!("{at} is not an object"))?;
+        match o.keys().find(|k| !allowed.contains(&k.as_str())) {
+            Some(k) => Err(format!("{at} has an unknown key {k:?}")),
+            None => Ok(()),
+        }
+    }
+    fn styled(st: &Value, at: &str) -> Result<(), String> {
+        if let Some(k) = STYLE_NUMBERS
+            .iter()
+            .find(|k| st.get(**k).is_some_and(|v| !v.is_number()))
+        {
+            return Err(format!("{at}: {k} is not a number"));
+        }
+        match st.get("align") {
+            Some(a) if !matches!(a.as_str(), Some("left" | "right" | "center")) => {
+                Err(format!("{at}: align {a} is not left, right or center"))
+            }
+            _ => Ok(()),
+        }
+    }
+    let is_box = |v: &Value| {
+        v.as_array()
+            .is_some_and(|a| a.len() == 4 && a.iter().all(|n| n.as_i64().is_some()))
+    };
+    keys(r, &RECIPE_KEYS, "the recipe")?;
+    if r["id"].as_str().is_none() || r["sha256"].as_str().is_none() {
+        return Err("no id or sha256".into());
+    }
+    let files = r["files"]
+        .as_array()
+        .filter(|a| !a.is_empty())
+        .ok_or("no files")?;
+    let Some(files) = files.iter().map(Value::as_str).collect::<Option<Vec<_>>>() else {
+        return Err("a file that is not a name".into());
+    };
+    let scene = files.iter().any(|f| f.ends_with(".sbscene"));
+    let picture = files.iter().any(|f| !f.ends_with(".sbscene"));
+    if let Some(st) = r.get("style") {
+        keys(st, &STYLE_KEYS, "its style")?;
+        styled(st, "its style")?;
+    }
+    if r.get("clear").is_some() && !r["clear"].as_array().is_some_and(|a| a.iter().all(is_box)) {
+        return Err("clear is not a list of boxes".into());
+    }
+    if let Some(rf) = r.get("reflect") {
+        keys(rf, &REFLECT_KEYS, "its reflect")?;
+        let alpha = rf["alpha"].as_array();
+        if !is_box(&rf["src"])
+            || rf["dst_y"].as_i64().is_none()
+            || !alpha.is_some_and(|a| a.len() == 2 && a.iter().all(Value::is_number))
+        {
+            return Err("reflect needs a src box, a dst_y and two alphas".into());
+        }
+    }
+    // no labels is fine: a recipe may only clear (licence_caution_notes_end)
+    let labels = r["labels"].as_array().ok_or("labels is not a list")?;
+    let label_keys: Vec<&str> = LABEL_KEYS.iter().chain(&STYLE_KEYS).copied().collect();
+    for (n, lab) in labels.iter().enumerate() {
+        let at = format!("label {n}");
+        keys(lab, &label_keys, &at)?;
+        styled(lab, &at)?;
+        if lab.get("en").is_some_and(|v| !v.is_string()) {
+            return Err(format!("{at}: en is not words"));
+        }
+        if scene && (lab["at"].as_u64().is_none() || lab["len"].as_u64().is_none()) {
+            return Err(format!("{at} needs at and len (a scene's text)"));
+        }
+        if picture && (!is_box(&lab["box"]) || lab.get("clear").is_some_and(|c| !is_box(c))) {
+            return Err(format!("{at} needs a box of four whole numbers"));
+        }
+    }
+    Ok(())
 }
 
 /// None = every picture, else the names (lower case); "none" = the empty set (`WCCF_PICTURES`, as the script).
@@ -121,6 +233,10 @@ impl Img {
     fn set(&mut self, x: usize, y: usize, p: [u8; 4]) {
         let i = (y * self.w + x) * 4;
         self.px[i..i + 4].copy_from_slice(&p);
+    }
+    /// The box (inclusive) lies inside the picture: the pixels it names can be read.
+    fn holds(&self, (x0, y0, x1, y1): (i64, i64, i64, i64)) -> bool {
+        0 <= x0 && x0 <= x1 && x1 < self.w as i64 && 0 <= y0 && y0 <= y1 && y1 < self.h as i64
     }
     /// Pillow's `paste(colour, (x0, y0, x1, y1))`, clipped to the picture.
     fn fill(&mut self, (x0, y0, x1, y1): (i64, i64, i64, i64), p: [u8; 4]) {
@@ -200,10 +316,13 @@ fn pyround(v: f64) -> i64 {
     v.round_ties_even() as i64
 }
 
-fn clear(im: &mut Img, a: (i64, i64, i64, i64), fill: &Value) {
+fn clear(im: &mut Img, a: (i64, i64, i64, i64), fill: &Value) -> R<()> {
     let (x0, y0, x1, y1) = a;
     match fill.as_str() {
         Some(f @ ("rows" | "cols")) => {
+            if !im.holds(a) {
+                return fail(format!("the {f} area {a:?} is outside the picture"));
+            }
             let src = im.clone();
             let (w, h) = (im.w as i64, im.h as i64);
             for x in x0..=x1 {
@@ -238,6 +357,7 @@ fn clear(im: &mut Img, a: (i64, i64, i64, i64), fill: &Value) {
             im.fill((x0, y0, x1 + 1, y1 + 1), p);
         }
     }
+    Ok(())
 }
 
 /// The font, sized as Pillow's `ImageFont.truetype(path, size)`.
@@ -492,10 +612,13 @@ fn draw(
 }
 
 /// The mirror image under a line of writing, as the original has it: src flipped to dst_y, fading a0 -> a1.
-fn reflect(im: &mut Img, rf: &Value) {
+fn reflect(im: &mut Img, rf: &Value) -> R<()> {
     let (x0, y0, x1, y1) = boxv(&rf["src"]);
     let (a0, a1) = (num(&rf["alpha"][0]), num(&rf["alpha"][1]));
     let dst_y = rf["dst_y"].as_i64().unwrap_or(0);
+    if !im.holds((x0, y0, x1, y1)) || !im.holds((x0, dst_y, x1, dst_y + y1 - y0)) {
+        return fail("the reflection is outside the picture");
+    }
     let (mw, h) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
     let mut m = Vec::with_capacity(mw * h * 4);
     for r in 0..h {
@@ -517,6 +640,7 @@ fn reflect(im: &mut Img, rf: &Value) {
         x0 as u32,
         dst_y as u32,
     );
+    Ok(())
 }
 
 /// Every label of a recipe cleared first, then drawn (a neighbour's halo is never cleared away).
@@ -525,7 +649,7 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
     let style = r["style"].as_object().cloned().unwrap_or_default();
     let fill = |st: &Map<String, Value>| st.get("fill").cloned().unwrap_or_else(|| "clear".into());
     for a in r["clear"].as_array().into_iter().flatten() {
-        clear(im, boxv(a), &fill(&style));
+        clear(im, boxv(a), &fill(&style))?;
     }
     let labels = r["labels"].as_array().cloned().unwrap_or_default();
     let merged = |lab: &Value| {
@@ -538,7 +662,7 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
     for lab in &labels {
         let st = merged(lab);
         let area = lab.get("clear").unwrap_or(&lab["box"]);
-        clear(im, boxv(area), &fill(&st));
+        clear(im, boxv(area), &fill(&st))?;
     }
     for lab in &labels {
         let st = merged(lab);
@@ -558,7 +682,7 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
         )?;
     }
     if r.get("reflect").is_some_and(|v| truthy(Some(v))) {
-        reflect(im, &r["reflect"]);
+        reflect(im, &r["reflect"])?;
     }
     Ok(())
 }
@@ -583,7 +707,7 @@ fn remake(
         h: h as usize,
         px,
     };
-    redraw(&mut im, r, font, refh)?;
+    redraw(&mut im, r, font, refh).map_err(|e| super::Failed(format!("{p}: {}", e.0)))?;
     encode(data, &im)
 }
 
@@ -1271,6 +1395,124 @@ mod tests {
                 &mut d,
                 &json!({"id": "t", "labels": [{"at": 0, "len": 6, "text": "Wins"}]}),
                 &mut vec![]
+            )
+            .is_err()
+        );
+    }
+
+    /// A recipe with a misspelt or unknown key, or a box that is not four whole numbers, stops the load: the
+    /// drawing reads a missing value as 0 and would draw at (0,0,0,0) on the player's PC.
+    #[test]
+    fn a_misspelt_recipe_key_stops_the_load() {
+        let t = tempfile::tempdir().unwrap();
+        for d in ["english", "italian"] {
+            fs::create_dir_all(t.path().join(d)).unwrap();
+        }
+        let load = |pic: Value, it: Value| {
+            fs::write(
+                t.path().join("english/pictures.json"),
+                json!({"pictures": [pic]}).to_string(),
+            )
+            .unwrap();
+            fs::write(t.path().join("italian/pictures.json"), it.to_string()).unwrap();
+            recipes(t.path(), true).map(drop).map_err(|e| e.0)
+        };
+        let good = json!({"id": "p", "where": "w", "sha256": "AB", "files": ["ui/p.dds"],
+            "style": {"core": "auto", "halo": [0, 0, 0, 200], "halo_px": 1, "align": "left"},
+            "clear": [[0, 0, 9, 9]], "reflect": {"src": [0, 0, 9, 4], "dst_y": 5, "alpha": [0.25, 0.03]},
+            "labels": [{"box": [1, 1, 8, 8], "en": "OK", "clear": [0, 0, 9, 9], "size": 6}]});
+        load(good.clone(), json!({"p": ["Sì"]})).unwrap();
+        let scene = json!({"id": "s", "sha256": "CD", "files": ["ui/s.sbscene"],
+            "labels": [{"at": 4, "len": 6, "en": "Wins"}]});
+        load(scene.clone(), json!({})).unwrap();
+        let clear_only = json!({"id": "c", "sha256": "EF", "files": ["ui/c.dds"],
+            "style": {"fill": "rows"}, "clear": [[0, 1, 2, 3]], "labels": []});
+        load(clear_only, json!({})).unwrap();
+        let bad = |parent: &str, k: &str, v: Value| {
+            let mut r = good.clone();
+            r.pointer_mut(parent).unwrap()[k] = v;
+            r
+        };
+        let mut misspelt = good.clone();
+        let b = misspelt["labels"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("box")
+            .unwrap();
+        misspelt["labels"][0]["bx"] = b;
+        for (r, why) in [
+            (misspelt, "bx"),
+            (bad("/style", "halo_pz", 1.into()), "halo_pz"),
+            (bad("", "refelct", json!({})), "refelct"),
+            (bad("/reflect", "dst_x", 5.into()), "dst_x"),
+            (bad("/labels/0", "box", json!([1, 1, 8])), "box"),
+            (bad("/labels/0", "clear", json!([0, 0, "9", 9])), "box"),
+            (bad("/style", "align", "centre".into()), "align"),
+            (bad("/labels/0", "size", "6".into()), "size"),
+            (bad("/reflect", "dst_y", Value::Null), "reflect"),
+        ] {
+            let e = load(r, json!({})).unwrap_err();
+            assert!(e.contains(why) && e.contains("pictures.json: \"p\""), "{e}");
+        }
+        let mut no_len = scene.clone();
+        no_len["labels"][0].as_object_mut().unwrap().remove("len");
+        assert!(load(no_len, json!({})).unwrap_err().contains("at and len"));
+        let e = load(good, json!({"q": ["Sì"]})).unwrap_err();
+        assert!(e.contains("q is no recipe's id"), "{e}");
+    }
+
+    /// Every shipped recipe is well formed in both languages, and each letter drawn into a picture has a glyph in
+    /// the font (a missing one draws glyph 0, a box, with no warning).
+    #[test]
+    fn shipped_recipes_are_well_formed_and_every_letter_has_a_glyph() {
+        let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
+        let lib = freetype::Library::init().unwrap();
+        let face = lib
+            .new_memory_face(std::rc::Rc::new(fs::read(font_file()).unwrap()), 0)
+            .unwrap();
+        let mut n = 0;
+        for it in [false, true] {
+            // recipes() runs check_recipe before it adds each label's "text"
+            for r in recipes(&sheets, it).unwrap() {
+                for lab in r["labels"].as_array().unwrap() {
+                    if lab.get("at").is_some() {
+                        continue; // a scene's text: bytes, not drawn by us
+                    }
+                    for ch in lab["text"].as_str().unwrap().chars() {
+                        assert!(
+                            face.get_char_index(ch as usize).is_some(),
+                            "{}: {ch:?} has no glyph in {FONT}",
+                            r["id"]
+                        );
+                        n += 1;
+                    }
+                }
+            }
+        }
+        assert!(n > 0);
+    }
+
+    /// An area to blend rows or columns over, or a reflection, outside the picture is an error, not a panic.
+    #[test]
+    fn areas_outside_the_picture_are_errors() {
+        let mut im = Img {
+            w: 4,
+            h: 4,
+            px: vec![255; 64],
+        };
+        clear(&mut im, (0, 1, 3, 2), &"rows".into()).unwrap();
+        clear(&mut im, (0, 0, 9, 9), &"clear".into()).unwrap(); // a plain fill is clipped
+        assert!(clear(&mut im, (0, 1, 4, 2), &"rows".into()).is_err());
+        assert!(clear(&mut im, (-1, 1, 3, 2), &"cols".into()).is_err());
+        reflect(
+            &mut im,
+            &json!({"src": [0, 0, 3, 1], "dst_y": 2, "alpha": [1, 0]}),
+        )
+        .unwrap();
+        assert!(
+            reflect(
+                &mut im,
+                &json!({"src": [0, 0, 3, 1], "dst_y": 3, "alpha": [1, 0]})
             )
             .is_err()
         );
