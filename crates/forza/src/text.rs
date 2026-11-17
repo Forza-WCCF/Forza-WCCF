@@ -1561,11 +1561,15 @@ fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> io::Result<()> {
     Ok(())
 }
 
+/// The game's `string_list.bin` is the pinned original (or absent): one file hashed (about 1 MB).
+pub(crate) fn text_is_original(ed: Edition, game: &Path) -> bool {
+    let (rel, want) = spec(ed).originals[0];
+    !fs::read(game.join(rel)).is_ok_and(|d| sha(&d) != want)
+}
+
 impl Ctx {
-    /// The game's `string_list.bin` is the pinned original (or absent).
     fn text_is_original(&self) -> bool {
-        let rel = self.spec.originals[0].0;
-        !fs::read(self.at(rel)).is_ok_and(|d| Some(sha(&d)) != self.original_hash(rel))
+        text_is_original(self.ed, &self.game)
     }
 
     /// Copy this folder's backup beside the game, the manifest last: a copy cut short is not used. Entries

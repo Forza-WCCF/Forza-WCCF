@@ -126,14 +126,23 @@ impl Kit {
     }
 
     /// English is on: the game text's list of the original files it backed up is not empty (kit_common.english_on).
+    /// A list that is there but damaged says nothing: the game's text decides (on unless original), so switched
+    /// text does not read as Japanese and original text still gets the switch that sets the list aside.
     pub fn english_on(&self) -> bool {
-        fs::read_to_string(self.data().join("english_backup").join("manifest.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .is_some_and(|v| {
+        let Ok(t) = fs::read_to_string(self.data().join("english_backup").join("manifest.json"))
+        else {
+            return false;
+        };
+        match serde_json::from_str::<serde_json::Value>(&t) {
+            Ok(v) => {
                 v.as_object().is_some_and(|o| !o.is_empty())
                     || v.as_array().is_some_and(|a| !a.is_empty())
-            })
+            }
+            // only a damaged list hashes the game's file (the panel's status asks every 1-2 s)
+            Err(_) => self.settings()["game"]
+                .as_str()
+                .is_some_and(|g| !crate::text::text_is_original(self.edition(), Path::new(g))),
+        }
     }
 
     /// The game text was switched: the backup holds a manifest (the file the undo of setup refuses on), valid or not.
@@ -333,6 +342,35 @@ mod tests {
             kit.text_changed(),
             "the undo of setup refuses on the file, valid or not"
         );
-        assert!(!kit.english_on());
+        assert!(!kit.english_on(), "no game folder known: not switched");
+    }
+
+    #[test]
+    fn a_damaged_backup_list_does_not_read_as_the_original_japanese() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        let backup = dir.path().join("data").join("english_backup");
+        fs::create_dir_all(&backup).unwrap();
+        assert_eq!(kit.game_language(), "", "no list: the original Japanese");
+        fs::write(backup.join("manifest.json"), "{}").unwrap();
+        assert_eq!(kit.game_language(), "", "an empty list backs nothing up");
+        fs::write(backup.join("manifest.json"), r#"{"a.bin": {}}"#).unwrap();
+        fs::write(backup.join("language.txt"), "it").unwrap();
+        assert_eq!(kit.game_language(), "it");
+        // a damaged list: the game's string_list.bin decides
+        let game = dir.path().join("game");
+        let bin = game.join("data").join("string").join("string_list.bin");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        let settings = serde_json::json!({ "game": game });
+        fs::write(kit.settings_file(), settings.to_string()).unwrap();
+        for damaged in ["{", ""] {
+            fs::write(backup.join("manifest.json"), damaged).unwrap();
+            fs::write(&bin, b"switched text").unwrap();
+            assert_eq!(kit.game_language(), "it", "{damaged:?}: switched text");
+            // original (absent counts as original): "" makes the Launcher write english=on (main.rs `lang !=
+            // kit.game_language()`), and the start's switch sets the damaged list aside
+            fs::remove_file(&bin).unwrap();
+            assert_eq!(kit.game_language(), "", "{damaged:?}: original text");
+        }
     }
 }
