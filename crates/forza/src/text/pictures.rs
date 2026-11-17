@@ -93,8 +93,8 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
     Ok(out)
 }
 
-const RECIPE_KEYS: [&str; 8] = [
-    "id", "where", "sha256", "files", "labels", "style", "clear", "reflect",
+const RECIPE_KEYS: [&str; 9] = [
+    "id", "where", "sha256", "files", "labels", "style", "clear", "erase", "reflect",
 ];
 /// A label's own keys; a style key may sit on a label too (it wins there).
 const LABEL_KEYS: [&str; 5] = ["en", "box", "clear", "at", "len"];
@@ -161,6 +161,9 @@ fn check_recipe(r: &Value) -> Result<(), String> {
     }
     if r.get("clear").is_some() && !r["clear"].as_array().is_some_and(|a| a.iter().all(is_box)) {
         return Err("clear is not a list of boxes".into());
+    }
+    if r.get("erase").is_some() && !r["erase"].as_array().is_some_and(|a| a.iter().all(is_box)) {
+        return Err("erase is not a list of boxes".into());
     }
     if let Some(rf) = r.get("reflect") {
         keys(rf, &REFLECT_KEYS, "its reflect")?;
