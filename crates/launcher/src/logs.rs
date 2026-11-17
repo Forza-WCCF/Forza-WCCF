@@ -50,11 +50,17 @@ pub const RESTART: &str = "--- the cabinet restarted; the lines above are the se
 /// This session's log at `path`, made when it is not there: a log that is there is appended to, so a cabinet restart
 /// keeps the session before it (the logs a player then saves with SAVE LOGS), set off by [`RESTART`].
 pub fn session_log(path: &Path) -> io::Result<File> {
-    let mut f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = open_log(path)?;
     if f.metadata()?.len() > 0 {
         writeln!(f, "\n{RESTART}")?;
     }
     Ok(f)
+}
+
+/// `path` opened to add this session's lines to, with no [`RESTART`] line: a log opened again inside one session (a text
+/// switch done twice, a start that skipped rotation) did not see the cabinet restart.
+pub fn open_log(path: &Path) -> io::Result<File> {
+    fs::OpenOptions::new().create(true).append(true).open(path)
 }
 
 /// `text` from after the last [`RESTART`] line: the session that is running (all of it when there is none).

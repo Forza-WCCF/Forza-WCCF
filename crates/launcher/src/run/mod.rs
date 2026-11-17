@@ -956,7 +956,9 @@ fn lan_name(arcade: String) -> String {
 
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
-    let file = Mutex::new(logs::session_log(&path).ok());
+    // a stand-in's log is opened again inside one session (a text switch twice): no RESTART line, which only the
+    // run's own log writes, when a session starts (logs::session_log)
+    let file = Mutex::new(logs::open_log(&path).ok());
     Arc::new(move |msg| {
         if let Some(f) = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
             let now = logs::clock(logs::local(std::time::SystemTime::now()));
