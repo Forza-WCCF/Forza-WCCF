@@ -693,9 +693,15 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
             refh,
         )?;
     }
-    // a strip another picture already shows (a title over two textures): cleared after drawing, so it shows once
+    // a strip another picture already shows (a title over two textures): made transparent after drawing, so it
+    // shows once. Its colour stays: the game filters across the seam, and black there draws a grey line (#331).
     for a in r["erase"].as_array().into_iter().flatten() {
-        clear(im, boxv(a), &Value::Null)?;
+        let (x0, y0, x1, y1) = boxv(a);
+        for y in y0.max(0)..=y1.min(im.h as i64 - 1) {
+            for x in x0.max(0)..=x1.min(im.w as i64 - 1) {
+                im.px[(y as usize * im.w + x as usize) * 4 + 3] = 0;
+            }
+        }
     }
     if r.get("reflect").is_some_and(|v| truthy(Some(v))) {
         reflect(im, &r["reflect"])?;
@@ -1652,6 +1658,47 @@ mod tests {
                 assert!(
                     gaps.len() == 1 && gaps[0] <= 20,
                     "{what}: word gaps {gaps:?}"
+                );
+            }
+        }
+    }
+
+    /// The seam of a title over two textures: the erased strip turns transparent but keeps the colour drawn
+    /// there, so the game's filtering across the seam blends the same colour and draws no grey line.
+    #[test]
+    fn erase_keeps_the_colour_under_the_seam() {
+        let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
+        let font = Font {
+            lib: freetype::Library::init().unwrap(),
+            data: std::rc::Rc::new(fs::read(font_file()).unwrap()),
+        };
+        let refh = font.line(100, "Hgjy").unwrap().height().unwrap();
+        for it in [false, true] {
+            let rs = recipes(&sheets, it).unwrap();
+            let r = rs.iter().find(|r| r["id"] == "title_management").unwrap();
+            let mut plain = r.clone();
+            plain.as_object_mut().unwrap().remove("erase");
+            let blank = || Img {
+                w: 512,
+                h: 64,
+                px: vec![0; 512 * 64 * 4],
+            };
+            let (mut im, mut want) = (blank(), blank());
+            redraw(&mut im, r, &font, refh).unwrap();
+            redraw(&mut want, &plain, &font, refh).unwrap();
+            let (x0, y0, x1, y1) = boxv(&r["erase"][0]);
+            let strip = move || {
+                (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| (x as usize, y as usize)))
+            };
+            assert!(
+                strip().any(|(x, y)| want.get(x, y)[3] > 0),
+                "it={it}: nothing drawn under the seam"
+            );
+            for (x, y) in strip() {
+                let (p, q) = (im.get(x, y), want.get(x, y));
+                assert!(
+                    p[3] == 0 && p[..3] == q[..3],
+                    "it={it} ({x}, {y}): {p:?}, drawn {q:?}"
                 );
             }
         }
