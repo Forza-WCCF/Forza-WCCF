@@ -80,7 +80,7 @@ launcher.msg_available: {en: "Version %{tag} is available. See UPDATE.", it: "È
 launcher.msg_asking: {en: "Looking for updates…", it: "Ricerca degli aggiornamenti…", ja: "更新を確認しています…"}
 launcher.msg_pick: {en: "Pick a version, then UPDATE.", it: "Scegli una versione, poi AGGIORNA.", ja: "バージョンを選んで「アップデート」を押してください。"}
 launcher.msg_none_listed: {en: "No update found.", it: "Nessun aggiornamento trovato.", ja: "更新は見つかりませんでした。"}
-launcher.msg_no_answer: {en: "Update server not reachable: %{error}", it: "Server aggiornamenti non raggiungibile: %{error}", ja: "更新サーバーに接続できません: %{error}"}
+launcher.msg_no_answer: {en: "Update server not reachable: %{error}", it: "Server aggiornamenti non raggiungibile: %{error}", ja: "更新サーバーに接続できません：%{error}"}
 launcher.msg_confirm_release: {en: "Install %{tag}? Your cards and settings are kept.", it: "Installare %{tag}? Carte e impostazioni restano.", ja: "%{tag} をインストールしますか？カードと設定は残ります。"}
 launcher.msg_confirm_test: {en: "Install test build %{tag}? Your cards and settings are kept.", it: "Installare la versione di prova %{tag}? Carte e impostazioni restano.", ja: "テスト版 %{tag} をインストールしますか？カードと設定は残ります。"}
 launcher.msg_downloading: {en: "Downloading %{tag}…", it: "Download di %{tag}…", ja: "%{tag} をダウンロードしています…"}
@@ -88,7 +88,7 @@ launcher.msg_unzipping: {en: "Unzipping…", it: "Estrazione…", ja: "展開し
 launcher.msg_copying: {en: "Copying %{tag}…", it: "Copia di %{tag}…", ja: "%{tag} をコピーしています…"}
 launcher.msg_updated: {en: "Updated to %{tag}.", it: "Aggiornato a %{tag}.", ja: "%{tag} に更新しました。"}
 launcher.msg_close_game: {en: "Close the game first: %{name} is running.", it: "Chiudi prima il gioco: %{name} è in esecuzione.", ja: "先にゲームを閉じてください：%{name} が実行中です。"}
-launcher.msg_download_failed: {en: "The download failed: %{error}", it: "Download non riuscito: %{error}", ja: "ダウンロードに失敗しました: %{error}"}
+launcher.msg_download_failed: {en: "The download failed: %{error}", it: "Download non riuscito: %{error}", ja: "ダウンロードに失敗しました：%{error}"}
 launcher.msg_unzip_failed: {en: "Could not unzip the download.", it: "Impossibile estrarre il download.", ja: "ダウンロードしたファイルを展開できませんでした。"}
 launcher.msg_unverified: {en: "The download could not be verified. Nothing was changed.", it: "Impossibile verificare il download. Non è stato modificato nulla.", ja: "ダウンロードを検証できませんでした。何も変更されていません。"}
 launcher.msg_launcher_differs: {en: "Launcher.exe is version %{own} but the other files are %{files}. Reinstall %{files} with UPDATE.", it: "Launcher.exe è la versione %{own}, gli altri file la %{files}. Reinstalla la %{files} da AGGIORNAMENTO.", ja: "Launcher.exe はバージョン %{own}、ほかのファイルは %{files} です。「アップデート」で %{files} をインストールし直してください。"}
@@ -196,7 +196,7 @@ installer.not_shortcuts: {en: "No desktop shortcuts", it: "Nessun collegamento s
 installer.no_package: {en: "Without the package the game will not start. Install anyway?", it: "Senza il pacchetto il gioco non si avvia. Installare comunque?", ja: "パッケージがないとゲームは起動しません。このままインストールしますか？"}
 installer.continue: {en: "INSTALL ANYWAY", it: "INSTALLA COMUNQUE", ja: "このままインストール"}
 installer.smartscreen: {en: "Windows may warn about an unknown app. Press More info, then Run anyway.", it: "Windows può avvisare di un'app sconosciuta. Premi Ulteriori informazioni, poi Esegui comunque.", ja: "Windows が不明なアプリと警告することがあります。「詳細情報」→「実行」を選んでください。"}
-installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "ランチャーを起動"}
+installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "Launcher を起動"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
@@ -292,7 +292,7 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 
 # ---- formation board ----
 board.hint: {en: "Drag cards onto the table. Drop one on a card to swap them; drag it off to remove it.", it: "Trascina le carte sul tavolo. Su una carta si scambiano; fuori dal tavolo si tolgono.", ja: "カードをテーブルへドラッグ。重ねると入れ替わり、外へドラッグすると外れます。"}
-board.kept: {en: "You cannot remove cards during a match.", it: "Durante una partita le carte non si possono togliere.", ja: "試合中はカードをテーブルから外せません"}
+board.kept: {en: "You cannot remove cards during a match.", it: "Durante una partita le carte non si possono togliere.", ja: "試合中はカードをテーブルから外せません。"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
 board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}
 board.reset: {en: "RESET LINEUP", it: "RIPRISTINA", ja: "試合前に戻す"}
@@ -494,7 +494,7 @@ settings.msg_board_docked: {en: "The formation board is back with the game.", it
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "フォーメーションのウィンドウにもボタン"}
 settings.board_buttons_hint: {en: "The popped-out formation board window also shows the cabinet buttons.", it: "La finestra della formazione in pop-out mostra anche i pulsanti del cabinato.", ja: "ポップアウトしたフォーメーションのウィンドウにも筐体のボタンを表示します。"}
 settings.reset_ask: {en: "Ask before RESET LINEUP", it: "Chiedi prima di RIPRISTINA", ja: "「試合前に戻す」の前に確認"}
-settings.reset_ask_hint: {en: "RESET LINEUP shows the lineup it goes back to and waits for CONFIRM. When this is off, it resets at once and UNDO brings the lineup back.", it: "RIPRISTINA mostra la formazione a cui torna e attende CONFERMA. Se è disattivato, ripristina subito e il pulsante ANNULLA sotto il campo riporta la formazione.", ja: "「試合前に戻す」は戻す編成を表示し、確定を待ちます。オフにするとすぐに戻し、元に戻すで編成を戻せます。"}
+settings.reset_ask_hint: {en: "RESET LINEUP shows the lineup it goes back to and waits for CONFIRM. When this is off, it resets at once and UNDO brings the lineup back.", it: "RIPRISTINA mostra la formazione a cui torna e attende CONFERMA. Se è disattivato, ripristina subito e il pulsante ANNULLA sotto il campo riporta la formazione.", ja: "「試合前に戻す」は戻り先の編成を表示し、「確定」の操作を待ちます。オフにすると即座に適用され、「元に戻す」で前の状態に戻せます。"}
 settings.projector_hint: {en: "Shows the big screen with live matches or a demo match in its own window. If it does not appear now, it appears the next time you play.", it: "Mostra il maxischermo con le partite dal vivo o una partita dimostrativa in una finestra a parte. Se non compare subito, compare la prossima volta che giochi.", ja: "ライブの試合またはデモ試合を映す大型スクリーンを専用のウィンドウで表示します。すぐに表示されない場合は、次回のプレイから表示されます。"}
 settings.pad_bg: {en: "Controller in the background", it: "Controller in secondo piano", ja: "バックグラウンドでもコントローラー"}
 settings.pad_bg_hint: {en: "The controller keeps working while another window is in front. The keyboard stops working then.", it: "Il controller funziona anche con un'altra finestra davanti. In quel caso la tastiera smette di funzionare.", ja: "ほかのウィンドウが前面にあってもコントローラーは動きます。そのときキーボードは動きません。"}
@@ -861,7 +861,7 @@ launcher.run_test_delay: {en: "test delay: %{ms} ms added to the arcade tunnel's
 launcher.run_tunnel_failed: {en: "the arcade tunnel did not start (%{error}) - see data\\logs\\shop_tunnel.txt", it: "il tunnel della sala non è partito (%{error}) - vedi data\\logs\\shop_tunnel.txt", ja: "ゲームセンタートンネルが起動しませんでした (%{error}) - data\\logs\\shop_tunnel.txt を確認してください"}
 launcher.run_arcade_room: {en: "arcade room: %{code} on %{server} - players elsewhere type this code in ONLINE (or run Launcher.exe remote %{id})", it: "stanza della sala: %{code} su %{server} - i giocatori altrove digitano questo codice in ONLINE (oppure eseguono Launcher.exe remote %{id})", ja: "ゲームセンターのルーム: %{server} の %{code} - 離れた場所のプレイヤーは「オンライン」にこのコードを入力します (または Launcher.exe remote %{id} を実行)"}
 launcher.run_arcade_no_room: {en: "arcade room: none (%{why}). Players elsewhere run: Launcher.exe remote %{id}", it: "stanza della sala: nessuna (%{why}). I giocatori altrove eseguono: Launcher.exe remote %{id}", ja: "ゲームセンターのルーム: なし (%{why})。離れた場所のプレイヤーは Launcher.exe remote %{id} を実行します"}
-launcher.run_arcade_id_file: {en: "(the id is also in data\\shop_id.txt; no port needs opening on this PC)", it: "(l'id è anche in data\\shop_id.txt; su questo PC non serve aprire nessuna porta)", ja: "(IDは data\\shop_id.txt にもあります。このPCで開けるポートはありません)"}
+launcher.run_arcade_id_file: {en: "(the id is also in data\\shop_id.txt; no port needs opening on this PC)", it: "(l'id è anche in data\\shop_id.txt; su questo PC non serve aprire nessuna porta)", ja: "（IDは data\\shop_id.txt にもあります。このPCでポートを開ける必要はありません）"}
 launcher.run_tunnel_ports: {en: "arcade tunnel up on ports %{control} / %{desk} / %{relay} (this PC holds the usual ones; data\\logs\\shop_tunnel.txt)", it: "tunnel della sala attivo sulle porte %{control} / %{desk} / %{relay} (questo PC tiene quelle abituali; data\\logs\\shop_tunnel.txt)", ja: "ゲームセンタートンネルがポート %{control} / %{desk} / %{relay} で起動 (通常のポートはこのPCが使用中です。data\\logs\\shop_tunnel.txt)"}
 launcher.run_tunnel_up: {en: "arcade tunnel up (data\\logs\\shop_tunnel.txt)", it: "tunnel della sala attivo (data\\logs\\shop_tunnel.txt)", ja: "ゲームセンタートンネルが起動 (data\\logs\\shop_tunnel.txt)"}
 launcher.run_no_tunnel: {en: "no arcade tunnel", it: "nessun tunnel della sala", ja: "ゲームセンタートンネルなし"}
@@ -1002,7 +1002,7 @@ text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", 
 text.lang_en: {en: "English", it: "inglese", ja: "英語"}
 text.lang_it: {en: "Italian", it: "italiano", ja: "イタリア語"}
 text.already_original: {en: "Already the original Japanese.", it: "È già il giapponese originale.", ja: "すでにオリジナルの日本語です。"}
-text.restored: {en: "original Japanese restored (%{files} files, %{pictures} pictures).", it: "giapponese originale ripristinato (%{files} file, %{pictures} immagini).", ja: "オリジナルの日本語に戻しました(ファイル %{files} 個、画像 %{pictures} 枚)。"}
+text.restored: {en: "original Japanese restored (%{files} files, %{pictures} pictures).", it: "giapponese originale ripristinato (%{files} file, %{pictures} immagini).", ja: "オリジナルの日本語に戻しました（ファイル %{files} 個、画像 %{pictures} 枚）。"}
 text.building: {en: "Building from your game files...", it: "Creazione dai file del tuo gioco...", ja: "ゲームのファイルから作成しています..."}
 text.check_only: {en: "Check only, nothing changed. Turning the text on would replace %{files} files, back up %{fresh} of them first, and redraw %{pictures} pictures.", it: "Solo controllo, nulla è cambiato. Attivando il testo verrebbero sostituiti %{files} file (prima ne vengono salvati in backup %{fresh}) e ridisegnate %{pictures} immagini.", ja: "確認のみで、変更はありません。テキストをオンにすると、ファイル %{files} 個を置き換え（うち %{fresh} 個は先にバックアップ）、画像 %{pictures} 枚を描き直します。"}
 text.replaced: {en: "%{files} files and %{pictures} pictures replaced. Originals are in data\\english_backup.", it: "%{files} file e %{pictures} immagini sostituiti. Gli originali sono in data\\english_backup.", ja: "ファイル %{files} 個と画像 %{pictures} 枚を置き換えました。元のファイルは data\\english_backup にあります。"}
