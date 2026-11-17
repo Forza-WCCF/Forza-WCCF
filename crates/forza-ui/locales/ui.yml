@@ -72,7 +72,7 @@ launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲ
 launcher.msg_bad_address: {en: "Invalid address. Example: 192.168.1.20.", it: "Indirizzo non valido. Esempio: 192.168.1.20.", ja: "アドレスが正しくありません。例：192.168.1.20"}
 launcher.msg_start_failed: {en: "Could not start. See DETAILS.", it: "Avvio non riuscito. Vedi DETTAGLI.", ja: "起動できませんでした。「詳細」を確認してください。"}
 launcher.msg_browse_title: {en: "Pick the game folder", it: "Scegli la cartella del gioco", ja: "ゲームフォルダーを選択"}
-launcher.msg_undo_confirm: {en: "Undo the setup? The original game programs come back, and your club card and saves are kept.", it: "Annullare la configurazione? Tornano i programmi originali del gioco; la tessera club e i salvataggi restano.", ja: "設定を元に戻しますか？元のゲームのプログラムに戻ります。クラブカードとセーブデータは残ります。"}
+launcher.msg_undo_confirm: {en: "Undo the setup? The original game programs come back, and your club card and saves are kept.", it: "Annullare la configurazione? Tornano i programmi originali del gioco; la carta club e i salvataggi restano.", ja: "設定を元に戻しますか？元のゲームのプログラムに戻ります。クラブカードとセーブデータは残ります。"}
 launcher.msg_no_folder: {en: "Pick the game folder first.", it: "Scegli prima la cartella del gioco.", ja: "先にゲームフォルダーを選択。"}
 launcher.msg_not_known: {en: "unknown", it: "sconosciuta", ja: "不明"}
 launcher.update_available: {en: "%{tag} available", it: "%{tag} disponibile", ja: "%{tag} を入手できます"}
@@ -284,7 +284,7 @@ panel.ping: {en: "%{ms} ms", it: "%{ms} ms", ja: "%{ms} ms"}
 panel.add_card: {en: "CARDS", it: "CARTE", ja: "カード"}
 panel.keys: {en: "KEYS", it: "TASTI", ja: "キー設定"}
 panel.settings: {en: "SETTINGS", it: "IMPOSTAZIONI", ja: "設定"}
-panel.club_card: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
+panel.club_card: {en: "CLUB CARD", it: "CARTA CLUB", ja: "クラブカード"}
 panel.close: {en: "CLOSE (Esc)", it: "CHIUDI (Esc)", ja: "閉じる (Esc)"}
 panel.msg_added: {en: "Added to the table: Lucà Ferrè.", it: "Aggiunta al tavolo: Lucà Ferrè.", ja: "テーブルに追加しました：Lucà Ferrè"}
 panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja: "15:04 にクラブを保存しました。"}
@@ -446,7 +446,7 @@ keys.defaults: {en: "Reset keys", it: "Ripristina tasti", ja: "キーを初期�
 # ---- settings ----
 settings.now: {en: "NOW", it: "ADESSO", ja: "現在"}
 settings.server: {en: "Server", it: "Server", ja: "サーバー"}
-settings.session: {en: "Club card session", it: "Sessione tessera club", ja: "クラブカードのセッション"}
+settings.session: {en: "Club card session", it: "Sessione della carta club", ja: "クラブカードのセッション"}
 settings.bad_endings: {en: "Bad endings", it: "Chiusure anomale", ja: "異常終了"}
 settings.last_saved: {en: "Last saved", it: "Ultimo salvataggio", ja: "最終保存"}
 settings.backup: {en: "Latest backup", it: "Ultimo backup", ja: "最新のバックアップ"}
@@ -472,9 +472,9 @@ settings.unknown: {en: "Unknown", it: "Sconosciuto", ja: "不明"}
 settings.card_open: {en: "In use: do not close the game", it: "In uso: non chiudere il gioco", ja: "使用中：ゲームを閉じないでください"}
 settings.card_closed: {en: "Closed: safe to close the game", it: "Chiusa: puoi chiudere il gioco", ja: "終了済み：ゲームを閉じて大丈夫です"}
 settings.card_cut: {en: "Last session cut short", it: "Ultima sessione interrotta", ja: "前回は途中終了"}
-settings.card_new: {en: "New club card", it: "Nuova tessera club", ja: "新しいクラブカード"}
-settings.card_unreadable: {en: "Club card unreadable", it: "Tessera club illeggibile", ja: "クラブカードを読めません"}
-settings.card_none: {en: "No club card yet", it: "Nessuna tessera club", ja: "クラブカードなし"}
+settings.card_new: {en: "New club card", it: "Nuova carta club", ja: "新しいクラブカード"}
+settings.card_unreadable: {en: "Club card unreadable", it: "Carta club illeggibile", ja: "クラブカードを読めません"}
+settings.card_none: {en: "No club card yet", it: "Nessuna carta club", ja: "クラブカードなし"}
 settings.bad_one: {en: "1 (limit 2)", it: "1 (limite 2)", ja: "1 回（上限 2 回）"}
 settings.bad_many: {en: "%{n} (limit 2)", it: "%{n} (limite 2)", ja: "%{n} 回（上限 2 回）"}
 settings.never: {en: "Never", it: "Mai", ja: "なし"}
@@ -519,11 +519,11 @@ settings.msg_saving: {en: "Saving logs…", it: "Salvataggio dei log…", ja: "�
 settings.msg_not_saved: {en: "Could not save the settings. Try again.", it: "Impossibile salvare le impostazioni. Riprova.", ja: "設定を保存できませんでした。もう一度お試しください。"}
 
 # ---- club card ----
-club.label: {en: "CLUB CARD", it: "TESSERA CLUB", ja: "クラブカード"}
+club.label: {en: "CLUB CARD", it: "CARTA CLUB", ja: "クラブカード"}
 club.manager: {en: "Manager: %{name}", it: "Allenatore: %{name}", ja: "監督：%{name}"}
-club.your_cards: {en: "YOUR CARDS", it: "LE TUE TESSERE", ja: "あなたのカード"}
+club.your_cards: {en: "YOUR CARDS", it: "LE TUE CARTE", ja: "あなたのカード"}
 club.clear_bad: {en: "CLEAR AND RESTART", it: "AZZERA E RIAVVIA", ja: "クリアして再起動"}
-club.new_card: {en: "NEW CLUB CARD", it: "NUOVA TESSERA CLUB", ja: "新しいクラブカード"}
+club.new_card: {en: "NEW CLUB CARD", it: "NUOVA CARTA CLUB", ja: "新しいクラブカード"}
 club.new_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.play: {en: "PLAY THIS CLUB", it: "GIOCA QUESTO CLUB", ja: "このクラブでプレイ"}
 club.click_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
@@ -531,8 +531,8 @@ club.transferred: {en: "NOT PLAYABLE", it: "NON GIOCABILE", ja: "使用できま
 club.clear_again: {en: "CLICK AGAIN", it: "CLICCA ANCORA", ja: "もう一度押す"}
 club.clear_hint: {en: "The count of bad endings goes back to 0 when the game restarts.", it: "Il conteggio delle chiusure anomale torna a 0 al riavvio del gioco.", ja: "異常終了の回数は、ゲームを再起動すると 0 に戻ります。"}
 club.intro: {en: "Your club card is saved with every game save.", it: "La tua carta club viene salvata a ogni salvataggio del gioco.", ja: "クラブカードはゲームのセーブごとに保存されます。"}
-club.noview: {en: "Waiting for the club card. Start the game from Launcher.exe.", it: "In attesa della tessera club. Avvia il gioco da Launcher.exe.", ja: "クラブカードの読み込み待ち。ゲームは Launcher.exe から起動してください。"}
-club.none_1718: {en: "Your club is saved on the game server. There is no card file to show.", it: "Il tuo club è salvato sul server di gioco. Non c'è nessun file della tessera da mostrare.", ja: "クラブはゲームサーバーに保存されます。表示できるカードファイルはありません。"}
+club.noview: {en: "Waiting for the club card. Start the game from Launcher.exe.", it: "In attesa della carta club. Avvia il gioco da Launcher.exe.", ja: "クラブカードの読み込み待ち。ゲームは Launcher.exe から起動してください。"}
+club.none_1718: {en: "Your club is saved on the game server. There is no card file to show.", it: "Il tuo club è salvato sul server di gioco. Non c'è nessun file della carta club da mostrare.", ja: "クラブはゲームサーバーに保存されます。表示できるカードファイルはありません。"}
 club.backups: {en: "BACKUPS", it: "BACKUP", ja: "バックアップ"}
 club.backups_hint: {en: "The saved copies are kept in data\\save\\backup.", it: "Le copie salvate sono in data\\save\\backup.", ja: "保存したコピーは data\\save\\backup にあります。"}
 club.squad: {en: "SQUAD", it: "ROSA", ja: "スカッド"}
@@ -564,11 +564,11 @@ club.row_all_matches: {en: "ALL MATCHES", it: "TUTTE LE PARTITE", ja: "全試合
 club.row_prize: {en: "PRIZE MONEY", it: "PREMI", ja: "賞金"}
 club.row_trade: {en: "TRADE RIGHTS", it: "DIRITTI DI SCAMBIO", ja: "トレード権"}
 club.row_last_played: {en: "LAST PLAYED", it: "ULTIMA PARTITA", ja: "最終プレイ"}
-club.row_health: {en: "CARD CONDITION", it: "STATO DELLA TESSERA", ja: "カードの状態"}
+club.row_health: {en: "CARD CONDITION", it: "STATO DELLA CARTA", ja: "カードの状態"}
 club.row_session: {en: "SESSION", it: "SESSIONE", ja: "セッション"}
 club.row_bad: {en: "BAD ENDINGS", it: "CHIUSURE ANOMALE", ja: "異常終了"}
 club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"}
-club.row_saved: {en: "CARD SAVED", it: "TESSERA SALVATA", ja: "カード保存"}
+club.row_saved: {en: "CARD SAVED", it: "CARTA SALVATA", ja: "カード保存"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
@@ -628,7 +628,7 @@ lobby.room_code: {en: "Arcade code", it: "Codice della sala", ja: "ゲームセ�
 lobby.opening: {en: "Opening the arcade…", it: "Apertura della sala…", ja: "ゲームセンターを開いています…"}
 lobby.howto_code: {en: "1. Give your friends the arcade code.", it: "1. Dai il codice della sala ai tuoi amici.", ja: "1. ゲームセンターのコードを友だちに伝えます。"}
 lobby.howto_lan: {en: "1. Give your friends an address above.", it: "1. Dai ai tuoi amici uno degli indirizzi qui sopra.", ja: "1. 上のアドレスを友だちに伝えます。"}
-lobby.howto_entry: {en: "2. Both players insert their club card during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
+lobby.howto_entry: {en: "2. Both players insert their club card during the same ENTRY.", it: "2. Entrambi i giocatori inseriscono la carta club nella stessa ENTRY.", ja: "2. 二人とも同じエントリー中にカードを入れます。"}
 lobby.howto_fixture: {en: "3. In the game: Arrange Fixture → Set opponent.", it: "3. Nel gioco: Fissa un incontro → Scegli avversario.", ja: "3. ゲーム内で Arrange Fixture → Set opponent を選びます。"}
 lobby.joining: {en: "Joining %{code}…", it: "Ingresso in %{code}…", ja: "%{code} に参加しています…"}
 lobby.code_target: {en: "JOIN: the arcade with code %{code}.", it: "ENTRA: la sala con codice %{code}.", ja: "参加：コード %{code} のゲームセンター。"}
@@ -801,7 +801,7 @@ launcher.run_playing_remote: {en: "Playing on the server at %{ip}.", it: "Stai g
 launcher.run_playing_remote_seat: {en: "Playing on the server at %{ip} as seat %{seat}.", it: "Stai giocando sul server all'indirizzo %{ip} come posto %{seat}.", ja: "%{ip} のサーバーで席 %{seat} としてプレイしています。"}
 launcher.run_running: {en: "Running. Click the game window to use the keyboard:", it: "In esecuzione. Fai clic sulla finestra del gioco per usare la tastiera:", ja: "実行中です。キーボードを使うにはゲームのウィンドウをクリックしてください:"}
 launcher.run_keys1: {en: "Enter START (free play)   X decide   C shoot   arrows tactics", it: "Enter START (gioco libero)   X decidi   C tira   frecce tattiche", ja: "Enter START (フリープレイ)   X 決定   C シュート   矢印キー 戦術"}
-launcher.run_keys2: {en: "I club card in/out   F11 window size   (or click the buttons around the picture)", it: "I inserisci/estrai tessera club   F11 dimensione finestra   (o fai clic sui pulsanti intorno all'immagine)", ja: "I クラブカードの出し入れ   F11 ウィンドウサイズ   (または画面まわりのボタンをクリック)"}
+launcher.run_keys2: {en: "I club card in/out   F11 window size   (or click the buttons around the picture)", it: "I inserisci/estrai carta club   F11 dimensione finestra   (o fai clic sui pulsanti intorno all'immagine)", ja: "I クラブカードの出し入れ   F11 ウィンドウサイズ   (または画面まわりのボタンをクリック)"}
 launcher.run_card_1011: {en: "New club: press I to put the card in. Saved in data\\save\\seat1_club.bin.", it: "Nuovo club: premi I per inserire la carta. Salvato in data\\save\\seat1_club.bin.", ja: "新しいクラブ: I キーでカードを入れてください。data\\save\\seat1_club.bin に保存されます。"}
 launcher.run_card_1718: {en: "Aime card: data\\save\\seat1_aime.txt. Club: data\\save\\gamesvr.", it: "Carta Aime: data\\save\\seat1_aime.txt. Club: data\\save\\gamesvr.", ja: "Aimeカード: data\\save\\seat1_aime.txt。クラブ: data\\save\\gamesvr。"}
 launcher.run_to_quit: {en: "To quit: take the card out after the match (I), then close the game window.", it: "Per uscire: estrai la carta dopo la partita (I), poi chiudi la finestra del gioco.", ja: "終了するには: 試合後にカードを取り出し (I)、ゲームのウィンドウを閉じてください。"}
@@ -910,8 +910,8 @@ launcher.run_arcade_seat_on: {en: "This PC's seat still plays in this arcade. St
 launcher.run_arcade_guest: {en: "1 guest connected to this arcade may be in a match here. Launcher.exe stop force ends it for them.", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Launcher.exe stop force la termina per lui.", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。Launcher.exe stop force を使うとその試合が終了します。"}
 launcher.run_arcade_guests: {en: "%{n} guests connected to this arcade may be in a match here. Launcher.exe stop force ends it for them.", it: "%{n} ospiti connessi a questa sala potrebbero essere in una partita qui. Launcher.exe stop force la termina per loro.", ja: "このゲームセンターに接続中のゲスト %{n} 人がここで試合中の可能性があります。Launcher.exe stop force を使うとその試合が終了します。"}
 launcher.run_card_session: {en: "A card session is open. Stopping now skips the locker-room save and gives the card a bad ending (trade rights are lost at 2). If the game is stuck (\"WCCF CONTROL NOT FOUND\"), the match is lost already: stop.", it: "Una sessione della carta è aperta. Fermare ora salta il salvataggio nello spogliatoio e dà alla carta un cattivo finale (i diritti di scambio si perdono a 2). Se il gioco è bloccato (\"WCCF CONTROL NOT FOUND\"), la partita è già persa: ferma.", ja: "カードのセッションが開いています。今終了するとロッカールームでのセーブが行われず、カードが不正な終了状態になります (トレード権は 2 回で失われます)。ゲームが固まっている場合 (\"WCCF CONTROL NOT FOUND\")、試合はすでに失われているため、終了してください。"}
-launcher.run_card_in: {en: "Your club card is IN the reader. Press I in the game to take the card out first.", it: "La tua tessera club è NEL lettore. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードがリーダーに入っています。先にゲーム内で I を押してカードを取り出してください。"}
-launcher.run_card_unknown: {en: "Cannot tell whether your club card is in. Press I in the game to take the card out first.", it: "Non si capisce se la tua tessera club è inserita. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードが入っているか確認できません。先にゲーム内で I を押してカードを取り出してください。"}
+launcher.run_card_in: {en: "Your club card is IN the reader. Press I in the game to take the card out first.", it: "La tua carta club è NEL lettore. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードがリーダーに入っています。先にゲーム内で I を押してカードを取り出してください。"}
+launcher.run_card_unknown: {en: "Cannot tell whether your club card is in. Press I in the game to take the card out first.", it: "Non si capisce se la tua carta club è inserita. Premi I nel gioco per estrarre prima la carta.", ja: "クラブカードが入っているか確認できません。先にゲーム内で I を押してカードを取り出してください。"}
 launcher.run_window_ended: {en: "A game window ended (see data\\logs\\%{logs}). The rest keeps running.", it: "Una finestra di gioco è terminata (vedi data\\logs\\%{logs}). Il resto continua.", ja: "ゲームのウィンドウが終了しました (data\\logs\\%{logs} を確認してください)。残りは実行を続けます。"}
 launcher.run_window_ended_crashed: {en: "A game window ended (see data\\logs\\%{logs}) and one crashed (see data\\logs\\%{crashed}). The rest keeps running.", it: "Una finestra di gioco è terminata (vedi data\\logs\\%{logs}) e una è andata in crash (vedi data\\logs\\%{crashed}). Il resto continua.", ja: "ゲームのウィンドウが終了し (data\\logs\\%{logs} を確認)、1 つがクラッシュしました (data\\logs\\%{crashed} を確認)。残りは実行を続けます。"}
 launcher.run_window_crashed: {en: "A game window crashed (see data\\logs\\%{logs}). The rest keeps running.", it: "Una finestra di gioco è andata in crash (vedi data\\logs\\%{logs}). Il resto continua.", ja: "ゲームのウィンドウがクラッシュしました (data\\logs\\%{logs} を確認してください)。残りは実行を続けます。"}
@@ -932,7 +932,7 @@ setup.no_folder: {en: "no game folder is set up - choose it under SETUP", it: "n
 setup.no_game_files: {en: "no WCCF %{edition} game files in %{folder} (%{programs})", it: "nessun file di gioco WCCF %{edition} in %{folder} (%{programs})", ja: "%{folder} に WCCF %{edition} のゲームファイルがありません(%{programs})"}
 setup.setup_title: {en: "Forza-WCCF %{edition} - setup - game: %{game}", it: "Forza-WCCF %{edition} - configurazione - gioco: %{game}", ja: "Forza-WCCF %{edition} - セットアップ - ゲーム: %{game}"}
 setup.undo_title: {en: "Forza-WCCF %{edition} - undo - game: %{game}", it: "Forza-WCCF %{edition} - annulla - gioco: %{game}", ja: "Forza-WCCF %{edition} - セットアップの取り消し - ゲーム: %{game}"}
-setup.undone_1718: {en: "Undone: the original programs are back in %{game}. Your club card stays in data\\save.", it: "Annullato: i programmi originali sono di nuovo in %{game}. La tua tessera club resta in data\\save.", ja: "取り消しました: 元のプログラムが %{game} に戻りました。クラブカードは data\\save に残ります。"}
+setup.undone_1718: {en: "Undone: the original programs are back in %{game}. Your club card stays in data\\save.", it: "Annullato: i programmi originali sono di nuovo in %{game}. La tua carta club resta in data\\save.", ja: "取り消しました: 元のプログラムが %{game} に戻りました。クラブカードは data\\save に残ります。"}
 setup.done: {en: "Setup done.", it: "Configurazione completata.", ja: "セットアップが完了しました。"}
 setup.catalogue_made: {en: "card catalogue made", it: "catalogo delle carte creato", ja: "カードカタログを作成しました"}
 setup.uses_hook: {en: "%{what}: uses wccfk.dll", it: "%{what}: usa wccfk.dll", ja: "%{what}: wccfk.dll を使用"}
@@ -979,7 +979,7 @@ setup.import_restored: {en: "%{file}: the original WINMM import restored", it: "
 setup.not_our_hook: {en: "%{file} is not Forza-WCCF's hook - left alone", it: "%{file} non è l'hook di Forza-WCCF: lasciato com'è", ja: "%{file} は Forza-WCCF のフックではないため、そのままにしました"}
 setup.removed: {en: "%{file} removed", it: "%{file} rimosso", ja: "%{file} を削除しました"}
 setup.changed_left: {en: "%{file} was changed after setup - left alone", it: "%{file} è stato modificato dopo la configurazione: lasciato com'è", ja: "%{file} はセットアップ後に変更されているため、そのままにしました"}
-setup.undone_1011: {en: "Undone. The game folder is back as before setup (busram*.bin and eeprom*.bin may remain). Your club card stays in data\\save.", it: "Annullato. La cartella del gioco è come prima della configurazione (busram*.bin e eeprom*.bin possono restare). La tua tessera club resta in data\\save.", ja: "取り消しました。ゲームフォルダーはセットアップ前の状態に戻りました(busram*.bin と eeprom*.bin は残る場合があります)。クラブカードは data\\save に残ります。"}
+setup.undone_1011: {en: "Undone. The game folder is back as before setup (busram*.bin and eeprom*.bin may remain). Your club card stays in data\\save.", it: "Annullato. La cartella del gioco è come prima della configurazione (busram*.bin e eeprom*.bin possono restare). La tua carta club resta in data\\save.", ja: "取り消しました。ゲームフォルダーはセットアップ前の状態に戻りました(busram*.bin と eeprom*.bin は残る場合があります)。クラブカードは data\\save に残ります。"}
 setup.cat_missing: {en: "missing: %{file}", it: "mancante: %{file}", ja: "見つかりません: %{file}"}
 setup.cat_wrong_folder: {en: "GAME must be the %{edition} game folder, the one that holds client_Release.exe", it: "GAME deve essere la cartella del gioco %{edition}, quella che contiene client_Release.exe", ja: "GAME には、client_Release.exe がある %{edition} のゲームフォルダーを指定してください"}
 setup.cat_game_files: {en: "game files: %{folder}", it: "file del gioco: %{folder}", ja: "ゲームファイル: %{folder}"}
