@@ -1895,10 +1895,12 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool
             note_line(ui, &mut st.message)
         });
     }
-    if !compact {
-        cabinet_deck(ui, st, deck, lang, deck_scale, side);
+    // the deck's keys read the raw pointer, which a page and a dialog's backdrop never take: no deck under either, and
+    // no button left to let a latched key go, so the key goes up
+    if compact || st.close_warn || dialog || (st.page != Page::Game && above.contains_rect(deck)) {
+        st.latched = None;
     } else {
-        st.latched = None; // no deck: no button left to let it go
+        cabinet_deck(ui, st, deck, lang, deck_scale, side);
     }
     page_bar(ui, st, tabs, lang, side);
     // popped out: the card touched on the board window, over the deck in the column
@@ -5121,6 +5123,16 @@ fn when_text(lang: Lang, (t, age): &When) -> String {
 }
 
 fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
+    // taller than its sheet (2017-18 at 1440x900), the page scrolls instead of running over the page bar (#348)
+    let room = (ui.available_height() - NOTE_LINE - ui.spacing().item_spacing.y).max(120.0);
+    egui::ScrollArea::vertical()
+        .max_height(room)
+        .auto_shrink([false, true])
+        .show(ui, |ui| settings_columns(ui, st, lang));
+    note_line(ui, &mut st.message);
+}
+
+fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let accent = st.edition.accent();
     let now = ui.input(|i| i.time);
     let s = st.status.clone();
@@ -5489,7 +5501,6 @@ fn settings(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             });
         }
     });
-    note_line(ui, &mut st.message);
 }
 
 // ---- CLUB CARD ----

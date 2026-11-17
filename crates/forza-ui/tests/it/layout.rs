@@ -569,6 +569,257 @@ fn cabinet_shapes_click() {
     }
 }
 
+/// The cabinet deck's key buttons on the game page and their rects, as `ed` draws them: the keys a page or a dialog
+/// must not get a press through.
+fn deck_keys(ed: Edition) -> Vec<(String, egui::Rect)> {
+    use std::cell::RefCell;
+    let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+    let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    [
+        "cab.central",
+        "cab.counter",
+        "cab.press",
+        "cab.data",
+        "cab.key_player",
+        "cab.start",
+        "cab.shoot",
+        "cab.keeper",
+    ]
+    .into_iter()
+    .filter_map(|k| {
+        let l = forza_ui::text(Lang::En, k, &[]);
+        let r = h.query_all_by_label(&l).next().map(|n| n.rect())?;
+        Some((l, r))
+    })
+    .collect()
+}
+
+/// A click on an open page where a cabinet key sits under it sends no key to the game (#348): the deck was drawn and
+/// live under every page (`cabinet_deck(ui, st, deck, lang, deck_scale, side);`, no page check) and its keys read the
+/// raw pointer, so the page could not take the press from them.
+#[test]
+fn a_page_over_the_deck_sends_no_key() {
+    use std::cell::RefCell;
+    for ed in [Edition::E1011, Edition::E1718] {
+        let keys = deck_keys(ed);
+        assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
+        for page in [panel::Page::Keys, panel::Page::Settings] {
+            for (label, r) in &keys {
+                // a fresh panel per click: a click on SETTINGS' layout choice would take the deck away
+                let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, page));
+                let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+                    panel::show(ui, &mut st.borrow_mut())
+                });
+                h.run_steps(3);
+                let at = r.center();
+                h.hover_at(at);
+                h.run_steps(1);
+                h.drag_at(at);
+                h.run_steps(1);
+                h.drop_at(at);
+                h.run_steps(2);
+                assert_eq!(
+                    st.borrow().pressed,
+                    None,
+                    "{ed:?} {}: {label} sent under the page",
+                    page.tag()
+                );
+            }
+        }
+    }
+}
+
+/// A latched KEY PLAYER (a right-click keeps its key down in the game) goes up when a page takes the docked deck away:
+/// the button that lets the latch go is gone with the deck (#349).
+#[test]
+fn a_page_releases_the_latched_key() {
+    use std::cell::RefCell;
+    for ed in [Edition::E1011, Edition::E1718] {
+        let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+        let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(3);
+        let label = forza_ui::text(Lang::En, "cab.key_player", &[]);
+        let at = h
+            .query_all_by_label(&label)
+            .next()
+            .unwrap_or_else(|| panic!("{ed:?}: the deck's {label}"))
+            .rect()
+            .center();
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(1);
+        }
+        assert_eq!(
+            st.borrow().latched,
+            Some("KEYPLAYER"),
+            "{ed:?}: the right-click did not latch the key"
+        );
+        for page in [panel::Page::Keys, panel::Page::Settings] {
+            st.borrow_mut().latched = Some("KEYPLAYER");
+            st.borrow_mut().page = page;
+            h.run_steps(2);
+            assert_eq!(
+                st.borrow().latched,
+                None,
+                "{ed:?} {}: the key stayed latched with the deck gone",
+                page.tag()
+            );
+        }
+    }
+}
+
+/// A click on a dialog's backdrop over a cabinet key sends no key (#349): the deck read the raw pointer, which a dialog
+/// never takes, so CLOSE, IMPORT's question and help and FORMATIONS took every one of its keys as the game's.
+#[test]
+fn a_dialog_over_the_deck_sends_no_key() {
+    use forza::cards::formations;
+    use std::cell::RefCell;
+    type Open = fn(&mut panel::PanelState);
+    let modals: [(&str, Open); 4] = [
+        ("the close warning", |st| st.close_warn = true),
+        ("IMPORT's question", |st| {
+            st.import_ask = Some(panel::ImportAsk {
+                text: String::new(),
+                cards: 11,
+                skipped: 0,
+            })
+        }),
+        ("IMPORT's help", |st| st.import_help = true),
+        ("FORMATIONS", |st| {
+            st.formations = Some(panel::Formations {
+                slots: vec![None; formations::SLOTS],
+                naming: None,
+            })
+        }),
+    ];
+    for ed in [Edition::E1011, Edition::E1718] {
+        let keys = deck_keys(ed);
+        assert!(keys.len() >= 4, "{ed:?}: the deck's keys {keys:?}");
+        for (name, open) in modals {
+            // the deck's first two keys, CENTRAL and COUNTER
+            for (label, r) in keys.iter().take(2) {
+                let st = RefCell::new(panel::PanelState::sample(ed, Lang::En, panel::Page::Game));
+                open(&mut st.borrow_mut());
+                let mut h = harness(panel::SIZE, 1.0, ed, |ui| {
+                    panel::show(ui, &mut st.borrow_mut())
+                });
+                h.run_steps(3);
+                let at = r.center();
+                h.hover_at(at);
+                h.run_steps(1);
+                h.drag_at(at);
+                h.run_steps(1);
+                h.drop_at(at);
+                h.run_steps(2);
+                assert_eq!(
+                    st.borrow().pressed,
+                    None,
+                    "{ed:?} under {name}: {label} sent"
+                );
+            }
+        }
+    }
+}
+
+/// 2017-18 SETTINGS at 1440x900 is taller than its sheet: it scrolls, so its last toggles, scrolled to, sit inside the
+/// sheet and clear of the page bar in every language (#348: Ask before RESET LINEUP ran over the bar's SETTINGS).
+#[test]
+fn settings_fit_their_sheet_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Settings,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        let settings = forza_ui::text(lang, "panel.settings", &[]);
+        let bar = h.get_by_role_and_label(Role::Button, &settings).rect();
+        for key in ["settings.reset_ask", "settings.pad_bg"] {
+            let label = forza_ui::text(lang, key, &[]);
+            h.get_by_label(&label).scroll_to_me();
+            h.run_steps(4);
+            let r = h.get_by_label(&label).rect();
+            // the sheet ends 12 points above the bar's row, the bar's buttons at or under it
+            assert!(
+                r.top() >= 0.0 && r.bottom() <= bar.top() - 12.0,
+                "{} {key}: {r:?} not clear of the page bar's {bar:?}",
+                lang.code()
+            );
+        }
+    }
+}
+
+/// A player's path to SETTINGS' last toggles (#349 round 2): from the game page, SETTINGS on the page bar, the row
+/// scrolled to, then clicked. The click turns that toggle and stays on SETTINGS; board_reset_lineup_asks_first saw it
+/// open CARDS instead, so the scrolled-to row sat over the page bar there.
+#[test]
+fn settings_last_toggles_take_the_click_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Game,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        let settings = forza_ui::text(lang, "panel.settings", &[]);
+        h.get_by_role_and_label(Role::Button, &settings).click();
+        h.run_steps(4);
+        assert_eq!(st.borrow().page, panel::Page::Settings, "{}", lang.code());
+        let bar = h.get_by_role_and_label(Role::Button, &settings).rect();
+        type Read = fn(&panel::PanelState) -> bool;
+        let toggles: [(&str, Read); 2] = [
+            ("settings.reset_ask", |s| s.file.reset_ask_off),
+            ("settings.pad_bg", |s| s.file.pad_background),
+        ];
+        for (key, value) in toggles {
+            let label = forza_ui::text(lang, key, &[]);
+            let before = value(&st.borrow());
+            h.get_by_label(&label).scroll_to_me();
+            h.run_steps(4); // a scroll_to_me lands on the 4th frame (2 leave the row where it was)
+            let r = h.get_by_label(&label).rect();
+            assert!(
+                r.bottom() <= bar.top() - 12.0,
+                "{} {key}: the row at {r:?} reaches the page bar's {bar:?}",
+                lang.code()
+            );
+            h.get_by_label(&label).click();
+            h.run_steps(4);
+            let s = st.borrow();
+            assert_eq!(
+                s.page,
+                panel::Page::Settings,
+                "{} {key}: the click at {r:?} left SETTINGS",
+                lang.code()
+            );
+            assert_ne!(
+                value(&s),
+                before,
+                "{} {key}: the click at {r:?} did not turn it",
+                lang.code()
+            );
+        }
+    }
+}
+
 /// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer; H
 /// hosts a VS room, Enter in it is READY.
 #[test]
