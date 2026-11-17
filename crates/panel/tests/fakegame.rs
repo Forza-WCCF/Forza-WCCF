@@ -923,6 +923,7 @@ fn projector_role_and_money() {
             "wait:800",
             "key:27", // Esc: out of it
             "wait:800",
+            "close", // the window's X: its close message gets a line in the log
         ])
         .output()
         .unwrap();
@@ -955,6 +956,10 @@ fn projector_role_and_money() {
             "the projector's log has no '{line}'"
         );
     }
+    assert!(
+        log.contains("projector: window closing (WM_CLOSE)"),
+        "the close got no line in the log"
+    );
     assert!(!log.contains("first frame shown") && !game.join("forza_panel.log").exists());
     assert!(!said.contains("device changed"));
     if env::var_os("FORZA_PANEL_KEEP").is_none() {

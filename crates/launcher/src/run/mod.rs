@@ -972,6 +972,16 @@ enum Role {
     Seat,
 }
 
+/// 2017-18's money line: the game loads the panel itself, so with no `forza_panel.dll` in the folder it says the
+/// display is not loaded, not that the game starts it with a log for proof (#298).
+fn money_line(panel: bool) -> Text {
+    if panel {
+        Text::key("launcher.run_money_by_game")
+    } else {
+        Text::key("launcher.run_money_off").part("why", Text::key("launcher.run_panel_missing"))
+    }
+}
+
 /// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
 /// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
 fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
@@ -2023,7 +2033,8 @@ impl Run<'_> {
             // the overlay in its money-only mode: the projector's amounts with commas; it plays on without it.
             // 2017-18: the game loads it itself (wccfnet.dll, from FORZA_PANEL)
             if self.edition == Edition::E1718 {
-                self.tell("       ", &Text::key("launcher.run_money_by_game"));
+                let panel = self.kit.program("forza_panel.dll").is_file();
+                self.tell("       ", &money_line(panel));
             } else {
                 let panel = self.kit.program("forza_panel.dll");
                 let why = self.launched(Role::Projector).map_or_else(
@@ -3404,6 +3415,19 @@ mod tests {
         assert!(at("if helper_first {") < at("self.start_cabinet()?;"));
         assert!(at("self.start_helper(projector);") < at("self.start_cabinet()?;"));
         assert!(code.contains("let helper_first = self.edition == Edition::E1718;"));
+    }
+
+    /// The panel is gone (an antivirus took it): the money line says so and points at no log that will never appear.
+    #[test]
+    fn the_money_line_points_at_the_log_only_when_the_panel_is_there() {
+        let there = super::money_line(true);
+        assert!(there.en().contains("forza_panel_projector.log"), "{}", there.en());
+        let gone = super::money_line(false);
+        assert!(!gone.en().contains(".log"), "{}", gone.en());
+        assert_eq!(
+            gone.en(),
+            "projector: money display not loaded (forza_panel.dll is missing)"
+        );
     }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
