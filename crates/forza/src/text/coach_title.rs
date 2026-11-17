@@ -6,7 +6,7 @@
 //! are `title_NNNN` and `requirement_NNNN`, NNNN the record's id (the ids run 0, 1, 2...; the original keys are
 //! romanised Japanese and one holds the publisher's name).
 
-use super::{Built, Ctx, Failed, Lang, R, cell, fail, sha};
+use super::{Built, Ctx, Failed, Lang, Line, R, cell, fail, sha};
 
 pub(super) const TITLES: &str = "prog_data/enumdata/CoachtitleTableRecord.bin";
 pub(super) const TITLES_SHA: &str =
@@ -124,20 +124,25 @@ impl Ctx {
                 .cloned()
                 .collect()
         })?;
-        let mut note = format!("{done} manager title texts in {}", lang.name());
-        if let Some(m) = misfit.first() {
-            note += &format!(
-                "; {} do not fit and gave way to the next choice ({m})",
-                misfit.len()
+        let note = Line::key("text.note_titles")
+            .arg("count", done)
+            .part("lang", lang.line())
+            .part(
+                "misfit",
+                match misfit.first() {
+                    Some(first) => Line::key("text.note_title_misfit")
+                        .arg("count", misfit.len())
+                        .arg("first", first),
+                    None => Line::raw(""),
+                },
             );
-        }
-        Ok((vec![(TITLES.to_string(), new)], note))
+        Ok((vec![(TITLES.to_string(), new)], vec![note]))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Edition, spec};
+    use super::super::{Edition, spec, tests::note_words};
     use super::*;
     use std::fs;
     use std::path::Path;
@@ -249,7 +254,12 @@ mod tests {
             cpu: vec![],
         };
         for lang in [Lang::En, Lang::It] {
-            let (files, note) = c.build_titles(lang).unwrap();
+            let (files, notes) = c.build_titles(lang).unwrap();
+            let note = notes
+                .iter()
+                .map(|l| note_words("en", l))
+                .collect::<Vec<_>>()
+                .join("\n");
             println!("{note}");
             assert!(!note.contains("do not fit"), "{note}");
             fs::write(f.with_extension(lang.code()), &files[0].1).unwrap();
