@@ -2918,6 +2918,41 @@ fn deck_label_parts(
     }
 }
 
+/// A deck button's printed name, where it sits and where its keycap sits (`None`: no keycap): the keycap follows the
+/// name on its line; a name under its button (2017-18) whose line has no room for it gets it on a line of its own
+/// under the name, while that stays 4 points inside `plate` (DATA and START, issue #367).
+#[allow(clippy::too_many_arguments)]
+fn deck_label(
+    p: &egui::Painter,
+    rect: Rect,
+    side: Dir,
+    plate: Rect,
+    room: f32,
+    name: &str,
+    cap: &str,
+    fit: bool,
+) -> (std::sync::Arc<egui::Galley>, Rect, Option<Rect>) {
+    let (name, cap_w) = deck_label_parts(p, name, cap, room, fit);
+    let size = name.size();
+    if cap_w > 0.0 {
+        let at = deck_label_rect(rect, side, vec2(size.x + 4.0 + cap_w, size.y), plate);
+        let cap_at = Rect::from_min_size(
+            pos2(at.left() + size.x + 4.0, at.center().y - KEYCAP_H / 2.0),
+            vec2(cap_w, KEYCAP_H),
+        );
+        return (name, Rect::from_min_size(at.min, size), Some(cap_at));
+    }
+    let at = deck_label_rect(rect, side, size, plate);
+    let w = keycap_width(p, cap, room);
+    let below = Rect::from_center_size(
+        pos2(rect.center().x, at.bottom() + 2.0 + KEYCAP_H / 2.0),
+        vec2(w, KEYCAP_H),
+    );
+    let cap_at = (fit && side == Dir::Down && w > 0.0 && below.bottom() <= plate.bottom() - 4.0)
+        .then_some(below);
+    (name, at, cap_at)
+}
+
 /// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
 /// way, never past `plate`'s right edge (DATA sits close to it).
 fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
@@ -3097,16 +3132,18 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
             let room = deck_label_room(it.rect, side, plate, data, &rects, both);
-            let (name, cap_w) = deck_label_parts(p, &tr!(lang, it.key), &cap, room, !both);
-            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-            let at = deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
-            let (left, cy) = (at.left(), at.center().y);
-            p.galley(at.min, name.clone(), theme::TEXT_DIM);
-            if cap_w > 0.0 {
-                let r = Rect::from_min_size(
-                    pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
-                    vec2(cap_w, KEYCAP_H),
-                );
+            let (name, at, cap_at) = deck_label(
+                p,
+                it.rect,
+                side,
+                plate,
+                room,
+                &tr!(lang, it.key),
+                &cap,
+                !both,
+            );
+            p.galley(at.min, name, theme::TEXT_DIM);
+            if let Some(r) = cap_at {
                 paint_keycap(p, r, &cap);
             }
         } else {
@@ -6524,12 +6561,20 @@ mod tests {
                             let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
                             let room =
                                 deck_label_room(it.rect, side, plate, at("DATA"), &rects, false);
-                            let (name, cap_w) =
-                                deck_label_parts(&p, &tr!(lang, it.key), cap, room, true);
-                            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-                            let label =
-                                deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+                            let (_, label, cap_at) = deck_label(
+                                &p,
+                                it.rect,
+                                side,
+                                plate,
+                                room,
+                                &tr!(lang, it.key),
+                                cap,
+                                true,
+                            );
                             let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
+                            if let Some(r) = cap_at {
+                                boxes.push((format!("{why} keycap"), r, plate));
+                            }
                             if matches!(it.action, "UP" | "DOWN") {
                                 assert!(
                                     label.left() >= it.rect.right() + 3.0,
@@ -6552,6 +6597,67 @@ mod tests {
                             assert!(!ra.intersects(*rb), "{a} overlaps {b}");
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Under Alt every bound 2017-18 deck button shows its keycap: DATA (here on Down) and START (Enter), whose names
+    /// leave no room beside them, get it under the name, inside their plate, in EN, IT and JA (issue #367).
+    #[test]
+    fn data_and_start_show_their_keycaps_under_alt() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let p = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        st.keys[forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "DATA")
+            .unwrap()] = 0x28;
+        for lang in [Lang::En, Lang::It, Lang::Ja] {
+            for stack in [false, true] {
+                let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                let plates = deck_plates(area, false, 1.0, stack);
+                let items = deck_layout_for(area, false, 1.0, stack);
+                let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+                let data = items.iter().find(|i| i.action == "DATA").unwrap().rect;
+                for (action, want) in [("DATA", "Down"), ("START", "Enter")] {
+                    let it = items.iter().find(|i| i.action == action).unwrap();
+                    let cap = deck_keycap(&st, action, true);
+                    assert_eq!(cap, want);
+                    let plate = *plates
+                        .iter()
+                        .find(|r| r.contains(it.rect.center()))
+                        .unwrap();
+                    let side = it.label.unwrap();
+                    let room = deck_label_room(it.rect, side, plate, data, &rects, false);
+                    let (_, name, cap_at) = deck_label(
+                        &p,
+                        it.rect,
+                        side,
+                        plate,
+                        room,
+                        &tr!(lang, it.key),
+                        &cap,
+                        true,
+                    );
+                    let why = format!("{lang:?} stack={stack} {action}");
+                    let r = cap_at.unwrap_or_else(|| panic!("{why}: no keycap"));
+                    assert!(
+                        plate.shrink(3.5).contains_rect(r),
+                        "{why}: keycap leaves its plate"
+                    );
+                    assert!(!r.intersects(name), "{why}: keycap over its name");
+                    assert!(!r.intersects(it.rect), "{why}: keycap over its button");
                 }
             }
         }
