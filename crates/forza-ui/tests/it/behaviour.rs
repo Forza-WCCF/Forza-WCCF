@@ -217,10 +217,10 @@ fn board_reset_lineup_asks_first() {
             let row = h.get_by_label("Ask before RESET LINEUP").rect();
             h.get_by_label("Ask before RESET LINEUP").click();
             h.run_steps(4);
-            let moved = h.get_by_label("Ask before RESET LINEUP").rect();
             assert!(
                 !st.borrow().file.reset_ask_off,
-                "the setting is on: clicked at {row:?}, the row now at {moved:?}"
+                "the setting is on: clicked at {row:?}, now on {:?}",
+                st.borrow().page
             );
             st.borrow_mut().page = panel::Page::Game;
             h.run_steps(4);

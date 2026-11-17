@@ -764,6 +764,62 @@ fn settings_fit_their_sheet_1718() {
     }
 }
 
+/// A player's path to SETTINGS' last toggles (#349 round 2): from the game page, SETTINGS on the page bar, the row
+/// scrolled to, then clicked. The click turns that toggle and stays on SETTINGS; board_reset_lineup_asks_first saw it
+/// open CARDS instead, so the scrolled-to row sat over the page bar there.
+#[test]
+fn settings_last_toggles_take_the_click_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Game,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        let settings = forza_ui::text(lang, "panel.settings", &[]);
+        h.get_by_role_and_label(Role::Button, &settings).click();
+        h.run_steps(4);
+        assert_eq!(st.borrow().page, panel::Page::Settings, "{}", lang.code());
+        let bar = h.get_by_role_and_label(Role::Button, &settings).rect();
+        type Read = fn(&panel::PanelState) -> bool;
+        let toggles: [(&str, Read); 2] = [
+            ("settings.reset_ask", |s| s.file.reset_ask_off),
+            ("settings.pad_bg", |s| s.file.pad_background),
+        ];
+        for (key, value) in toggles {
+            let label = forza_ui::text(lang, key, &[]);
+            let before = value(&st.borrow());
+            h.get_by_label(&label).scroll_to_me();
+            h.run_steps(2);
+            let r = h.get_by_label(&label).rect();
+            assert!(
+                r.bottom() <= bar.top() - 12.0,
+                "{} {key}: the row at {r:?} reaches the page bar's {bar:?}",
+                lang.code()
+            );
+            h.get_by_label(&label).click();
+            h.run_steps(4);
+            let s = st.borrow();
+            assert_eq!(
+                s.page,
+                panel::Page::Settings,
+                "{} {key}: the click at {r:?} left SETTINGS",
+                lang.code()
+            );
+            assert_ne!(
+                value(&s),
+                before,
+                "{} {key}: the click at {r:?} did not turn it",
+                lang.code()
+            );
+        }
+    }
+}
+
 /// Down, Down, Enter on the sample list joins the third row; Right switches to the VS rooms, F5 and Esc answer; H
 /// hosts a VS room, Enter in it is READY.
 #[test]
