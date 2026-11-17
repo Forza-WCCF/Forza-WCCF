@@ -339,6 +339,111 @@ fn board_hint_clear_of_the_buttons() {
     }
 }
 
+/// The board's row of buttons (POP OUT, RESET LINEUP, FORMATIONS) on the docked board at the divider's least width:
+/// no two buttons overlap or crowd each other and all stay inside the board's 16-point margin, in English, Italian
+/// and Japanese (the Italian labels are the longest). The divider's ◀▶ handle sits on that row, on the board's edge,
+/// and meets none of the three buttons; also at the 1920-wide window's default board. Laid out only: no GPU.
+#[test]
+fn board_foot_buttons_apart_at_the_least_width() {
+    for (w, h, set) in [
+        (1440.0, 900.0, Some(panel::BOARD_MIN)),
+        (1920.0, 1080.0, Some(panel::BOARD_MIN)),
+        (1920.0, 1080.0, None),
+    ] {
+        let size = Vec2::new(w, h);
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let board = panel::layout_at(sheet, false, set).board;
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            st.file.board_width = set.map(|w| w as u16);
+            let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            hs.run_steps(8);
+            let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let r = ["board.pop_out", "board.reset", "form.open"].map(at);
+            let case = format!("{w}x{h} {} board {board:?}: {r:?}", lang.code());
+            // right to left: POP OUT, RESET LINEUP, FORMATIONS, each the row's 6 points from the next (a label too
+            // long for the row at the least text size pushes its button into the gap and over its neighbour)
+            assert!(
+                r[1].right() <= r[0].left() - 6.0 + 0.5,
+                "{case}: RESET into POP OUT's gap"
+            );
+            assert!(
+                r[2].right() <= r[1].left() - 6.0 + 0.5,
+                "{case}: FORMATIONS into RESET's gap"
+            );
+            assert!(
+                r[2].left() >= board.left() + 16.0 - 0.5,
+                "{case}: past the board's left margin"
+            );
+            assert!(
+                r[0].right() <= board.right() - 16.0 + 0.5,
+                "{case}: past the board's right margin"
+            );
+            let handle = panel::divider_handle(&hs.ctx).expect("the divider's handle");
+            let case = format!("{case} handle {handle:?}");
+            assert!(
+                (handle.center().x - board.left()).abs() < 0.5,
+                "{case}: off the board's edge"
+            );
+            for b in r {
+                assert!(!b.intersects(handle), "{case}: on a button");
+                assert!(
+                    b.y_range().contains(handle.center().y),
+                    "{case}: off the buttons' row"
+                );
+            }
+        }
+    }
+}
+
+/// The pop-out board's foot (#285): DOCK THE BOARD, RESET LINEUP and SAVED LINEUPS keep their 6-point gaps inside the
+/// board, in English, Italian and Japanese: at the window's least sheet (900 points on its short side, the cabinet
+/// buttons under a board just taller than wide: the narrowest board, about 500), at the default window, and on a sheet
+/// narrower than any window gets, where the labels do not fit at the least text size and wrap instead. The old row
+/// pinned the last button to the row's edge there (`pos2((right - w).max(row.left()), row.top())`), on its neighbour.
+#[test]
+fn popout_board_foot_buttons_apart() {
+    for (w, h, buttons) in [
+        (900.0, 901.0, true),
+        (960.0, 1232.0, false),
+        (380.0, 900.0, false),
+    ] {
+        let size = Vec2::new(w, h);
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let (room, _) = panel::desk_parts(sheet, buttons, false);
+        let (board, _) = panel::desk_board_rect(room);
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.desk = true;
+            st.file.board_window = true;
+            st.file.board_buttons = buttons;
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            hs.run_steps(8);
+            let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let r = ["board.dock", "board.reset", "form.open"].map(at);
+            let case = format!("{w}x{h} {} board {board:?}: {r:?}", lang.code());
+            assert!(
+                r[1].right() <= r[0].left() - 6.0 + 0.5,
+                "{case}: RESET into DOCK's gap"
+            );
+            assert!(
+                r[2].right() <= r[1].left() - 6.0 + 0.5,
+                "{case}: FORMATIONS into RESET's gap"
+            );
+            assert!(
+                r[2].left() >= board.left() + 16.0 - 0.5,
+                "{case}: past the board's left margin"
+            );
+            assert!(
+                r[0].right() <= board.right() - 16.0 + 0.5,
+                "{case}: past the board's right margin"
+            );
+        }
+    }
+}
+
 /// LOAD is greyed out and answers nothing while the own seat plays a match; SAVE works at any time.
 #[test]
 fn formations_load_refused_in_match_and_save_works() {

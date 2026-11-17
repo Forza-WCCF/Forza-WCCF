@@ -1463,7 +1463,7 @@ fn lobby_screens() {
     all.unwrap();
 }
 
-/// The big card on the docked 2017-18 board at its least width (the divider dragged to 420 points): a click on a mat
+/// The big card on the docked 2017-18 board at its least width (the divider dragged to BOARD_MIN): a click on a mat
 /// card shows it big on its front (the click does not turn it over); its FRONT | BACK switch, a click on the big card
 /// and FLIP's key turn it over and back; another card opens on its front. The pane, its card and its switch stay
 /// inside the board's column, clear of the game's picture.
