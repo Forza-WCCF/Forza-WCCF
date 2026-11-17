@@ -214,9 +214,14 @@ fn board_reset_lineup_asks_first() {
             // at the foot of the page: SETTINGS scrolls at this size (#348)
             h.get_by_label("Ask before RESET LINEUP").scroll_to_me();
             h.run_steps(2);
+            let row = h.get_by_label("Ask before RESET LINEUP").rect();
             h.get_by_label("Ask before RESET LINEUP").click();
             h.run_steps(4);
-            assert!(!st.borrow().file.reset_ask_off, "the setting is on");
+            let moved = h.get_by_label("Ask before RESET LINEUP").rect();
+            assert!(
+                !st.borrow().file.reset_ask_off,
+                "the setting is on: clicked at {row:?}, the row now at {moved:?}"
+            );
             st.borrow_mut().page = panel::Page::Game;
             h.run_steps(4);
             h.get_by_label("RESET LINEUP").click();
