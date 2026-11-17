@@ -61,12 +61,33 @@ fn files_in(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// The folders `logs::rotate` sets aside when a run's archive fails (`previous-<time>`): kept until a later start
+/// archives them, so the ZIP sends their files too.
+fn set_aside(logs: &Path) -> Vec<String> {
+    let Ok(rd) = fs::read_dir(logs) else {
+        return vec![];
+    };
+    let mut v: Vec<String> = rd
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("previous-") && n != "previous-2" && n != "previous-3")
+        .collect();
+    v.sort();
+    v
+}
+
 /// `(name in the ZIP, path)` of what goes in. `game` is the game folder: its `wccfnet.log`, and the `seat1\` beside it.
 fn files(kit: &Path, game: Option<&Path>) -> Vec<(String, PathBuf)> {
     let data = kit.join("data");
     let mut out = vec![];
-    // the last run and the two before it (the launcher's logs::rotate keeps them as folders)
-    for sub in ["", "previous", "previous-2", "previous-3", "hook"] {
+    // the last run and the two before it (the launcher's logs::rotate keeps them as folders), and a run set aside
+    // while its archive failed, which no start has zipped yet
+    let mut subs: Vec<String> = ["", "previous", "previous-2", "previous-3", "hook"]
+        .map(String::from)
+        .to_vec();
+    subs.extend(set_aside(&data.join("logs")));
+    for sub in &subs {
         for p in files_in(&data.join("logs").join(sub)) {
             let n = p.file_name().unwrap_or_default().to_string_lossy();
             out.push((

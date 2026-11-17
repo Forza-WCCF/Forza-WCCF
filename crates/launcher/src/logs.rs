@@ -43,6 +43,31 @@ pub fn append(file: &Path, line: &str) {
     }
 }
 
+/// The line [`session_log`] leaves between two sessions of one run (a cabinet restart): [`last_session`] reads what
+/// follows the last one, the session that is running.
+pub const RESTART: &str = "--- the cabinet restarted; the lines above are the session before ---";
+
+/// This session's log at `path`, made when it is not there: a log that is there is appended to, so a cabinet restart
+/// keeps the session before it (the logs a player then saves with SAVE LOGS), set off by [`RESTART`].
+pub fn session_log(path: &Path) -> io::Result<File> {
+    let mut f = open_log(path)?;
+    if f.metadata()?.len() > 0 {
+        writeln!(f, "\n{RESTART}")?;
+    }
+    Ok(f)
+}
+
+/// `path` opened to add this session's lines to, with no [`RESTART`] line: a log opened again inside one session (a text
+/// switch done twice, a start that skipped rotation) did not see the cabinet restart.
+pub fn open_log(path: &Path) -> io::Result<File> {
+    fs::OpenOptions::new().create(true).append(true).open(path)
+}
+
+/// `text` from after the last [`RESTART`] line: the session that is running (all of it when there is none).
+pub fn last_session(text: &str) -> &str {
+    text.rsplit_once(RESTART).map_or(text, |(_, running)| running)
+}
+
 /// Every file under `dir` in os.walk's order: a folder's files, then its folders one by one; none if it is missing.
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -114,23 +139,28 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
     }
     z.finish()?;
     fs::rename(&tmp, &out)?;
-    let mut zips: Vec<String> = fs::read_dir(archive)?
+    let mut zips: Vec<(String, SystemTime)> = fs::read_dir(archive)?
         .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".zip"))
+        .filter_map(|e| {
+            let n = e.file_name().into_string().ok()?;
+            let t = e.metadata().ok()?.modified().ok()?;
+            n.ends_with(".zip").then_some((n, t))
+        })
         .collect();
-    zips.sort(); // the names sort by time
+    // oldest first by last write: two runs in one second are "run-<t>.zip" and "run-<t> (2).zip", and their names
+    // alone put the newer one first (a space sorts before the dot), so it was the newer that went
+    zips.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     let size = |n: &String| fs::metadata(archive.join(n)).map(|m| m.len());
     let mut total = 0;
-    for z in &zips {
-        total += size(z)?;
+    for (n, _) in &zips {
+        total += size(n)?;
     }
-    for z in &zips[..zips.len() - 1] {
+    for (n, _) in &zips[..zips.len() - 1] {
         if total <= limit {
             break;
         }
-        total -= size(z)?;
-        fs::remove_file(archive.join(z))?;
+        total -= size(n)?;
+        fs::remove_file(archive.join(n))?;
     }
     Ok(true)
 }
@@ -141,26 +171,40 @@ pub const OLDER: [&str; 2] = ["previous-2", "previous-3"];
 /// At a start: previous\ zipped into archive\ and moved to previous-2\ (previous-2\ to previous-3\, the old
 /// previous-3\ gone), the last run's logs into previous\, and a fresh hook\ folder.  What it had to step around, in
 /// the words to say; an error only if `logs` or its hook\ cannot be made.  A previous-<time> folder set aside by an
-/// earlier start (a file in it was busy then) goes now (play.py left them for ever); one still busy stays until a later
-/// start.
+/// earlier start (its archive failed then) is zipped here and goes once it is in the archive; one still unarchived
+/// stays for SAVE LOGS.
 pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     let mut said = Vec::new();
     fs::create_dir_all(logs)?;
+    let archive = logs.join("archive");
     for e in fs::read_dir(logs)?.flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
         if n.starts_with("previous-") && !OLDER.contains(&n.as_str()) && e.file_type().is_ok_and(|t| t.is_dir()) {
-            let _ = fs::remove_dir_all(e.path());
+            // a run an earlier start set aside (its archive failed then) goes once it is in the archive, not before:
+            // the start tries again, and a folder that still cannot be archived stays for SAVE LOGS
+            if archive_run(&e.path(), &archive, ARCHIVE_LIMIT).is_ok() {
+                let _ = fs::remove_dir_all(e.path());
+            }
         }
     }
     let prev = logs.join("previous");
     if prev.is_dir() {
-        if let Err(ex) = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT) {
+        let archived = archive_run(&prev, &archive, ARCHIVE_LIMIT);
+        if let Err(ex) = &archived {
             said.push(format!("  logs: the run before last not archived ({ex})"));
         }
         let _ = fs::remove_dir_all(logs.join(OLDER[1]));
         let _ = fs::rename(logs.join(OLDER[0]), logs.join(OLDER[1]));
-        // a run that cannot move (previous-2\ still there, a file held) goes as before: it is in the archive
-        if let Err(ex) = fs::rename(&prev, logs.join(OLDER[0])).or_else(|_| fs::remove_dir_all(&prev)) {
+        // a run that cannot move (previous-2\ still there, a file held) goes, as before, once it is in the archive;
+        // with none it is set aside below instead of deleted
+        let moved = fs::rename(&prev, logs.join(OLDER[0])).or_else(|ex| {
+            if archived.is_ok() {
+                fs::remove_dir_all(&prev)
+            } else {
+                Err(ex)
+            }
+        });
+        if let Err(ex) = moved {
             // a file in it is held open: set it aside so a fresh one can be made
             let t = local(SystemTime::now());
             let name = format!(
@@ -174,7 +218,7 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
             );
             if fs::rename(&prev, logs.join(&name)).is_ok() {
                 said.push(format!(
-                    "  logs: last run's folder was busy ({ex}) - set aside as {name}"
+                    "  logs: last run's folder could not move ({ex}) - set aside as {name}"
                 ));
             } else {
                 said.push(format!(
@@ -252,7 +296,7 @@ impl<W: Write> Write for Stamped<W> {
 
 #[cfg(test)]
 mod tests {
-    use super::Stamped;
+    use super::{Stamped, last_session, session_log};
     use std::io::Write;
 
     #[test]
@@ -265,5 +309,25 @@ mod tests {
             String::from_utf8(s.out).unwrap(),
             "09:05:07.042   t+  1.0s process started\n09:05:07.042 a\n09:05:07.042 b\n"
         );
+    }
+
+    /// A cabinet restart reopens the run's logs: the session before it stays (SAVE LOGS sends all), and what the run
+    /// reads of a log (its seat's window, a crash) is the session that is running.
+    #[test]
+    fn a_restarted_cabinet_keeps_the_session_before_it() {
+        let d = crate::scratch();
+        let f = d.path().join("run_seat1.txt");
+        writeln!(Stamped::new(session_log(&f).unwrap()), "launched control pid 4242").unwrap();
+        writeln!(Stamped::new(session_log(&f).unwrap()), "launched control pid 5151").unwrap();
+        let text = std::fs::read_to_string(&f).unwrap();
+        assert!(
+            text.contains("launched control pid 4242"),
+            "the session before the restart is kept: {text}"
+        );
+        assert!(
+            !last_session(&text).contains("4242"),
+            "only the running session is read: {text}"
+        );
+        assert!(last_session(&text).contains("5151"), "{text}");
     }
 }

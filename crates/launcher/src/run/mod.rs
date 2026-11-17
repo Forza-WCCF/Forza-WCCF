@@ -940,7 +940,8 @@ fn game_dpi() -> (String, String) {
 fn launched_pid(logs: &Path, log: &str) -> Option<u32> {
     let text = fs::read_to_string(logs.join(log)).ok()?;
     let re = Regex::new(r"launched \S+ pid (\d+)").expect("a fixed pattern");
-    re.captures(&text)?[1].parse().ok()
+    // after a cabinet restart the log holds the session before it too: the running one is the one to read
+    re.captures(crate::logs::last_session(&text))?[1].parse().ok()
 }
 
 /// A log of the run's stand-ins: data\logs\<name>, a line each with the wall clock and the seconds since it started.
@@ -955,7 +956,9 @@ fn lan_name(arcade: String) -> String {
 
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
-    let file = Mutex::new(File::create(path).ok());
+    // a stand-in's log is opened again inside one session (a text switch twice): no RESTART line, which only the
+    // run's own log writes, when a session starts (logs::session_log)
+    let file = Mutex::new(logs::open_log(&path).ok());
     Arc::new(move |msg| {
         if let Some(f) = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
             let now = logs::clock(logs::local(std::time::SystemTime::now()));
@@ -1692,7 +1695,7 @@ impl Run<'_> {
             hang_after: crate::debug::HANG_AFTER,
             checked,
         };
-        let mut log = logs::Stamped::new(File::create(self.logs().join(role.log()))?);
+        let mut log = logs::Stamped::new(logs::session_log(&self.logs().join(role.log()))?);
         let (job, tx, id) = (self.job.clone(), self.tx.clone(), self.next_id);
         self.next_id += 1;
         let thread = thread::spawn(move || {
@@ -2792,9 +2795,11 @@ impl Run<'_> {
 
     fn read_log(&self, name: &str) -> String {
         // unreadable counts as no close: the safe side keeps the rest running
-        fs::read(self.logs().join(name))
+        let text = fs::read(self.logs().join(name))
             .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // a restarted cabinet appended its session to the log: the running session is the one that says how it went
+        logs::last_session(&text).to_owned()
     }
 
     /// SAVE LOGS (the SETTINGS panel, data\savelogs.request): the ZIP written to [`Params::logs_dir`] on a thread;
