@@ -76,22 +76,22 @@ fn launcher_screens() {
     let mut all = SnapshotResults::new();
     use launcher::Scenario::*;
     for lang in Lang::ALL {
-        for (s, ed, tag) in [
-            (Ready, Edition::E1011, "ready"),
-            (Running, Edition::E1718, "running"),
-            (StopArmed, Edition::E1718, "stop"),
-            (NotSetUp, Edition::E1011, "setup"),
-            (Update, Edition::E1011, "update"),
-            (Busy, Edition::E1718, "busy"),
-            (Report, Edition::E1718, "report"),
-            (CleanedUp, Edition::E1718, "cleanup"),
+        for (s, tag) in [
+            (Ready, "ready"),
+            (Running, "running"),
+            (StopArmed, "stop"),
+            (NotSetUp, "setup"),
+            (Update, "update"),
+            (Busy, "busy"),
+            (Report, "report"),
+            (CleanedUp, "cleanup"),
         ] {
-            let mut st = launcher::LauncherState::sample(ed, lang, s);
+            let mut st = launcher::LauncherState::sample(Edition::E1718, lang, s);
             snap(
                 &mut all,
                 &format!("launcher_{tag}_{}", lang.code()),
                 launcher::SIZE,
-                ed,
+                Edition::E1718,
                 |ui| {
                     launcher::show(ui, &mut st);
                 },
@@ -142,25 +142,6 @@ fn launcher_on_a_short_screen() {
         h.run_steps(8);
         h.snapshot(format!("launcher_short_{tag}_en"));
         all.extend_harness(&mut h);
-    }
-    all.unwrap();
-}
-
-/// The ONLINE tab: the lobby inside the launcher, the Direct address fold closed, then open.
-#[test]
-fn launcher_online() {
-    let _gpu = gpu();
-    let mut all = SnapshotResults::new();
-    for (open, name) in [
-        (false, "launcher_online_en"),
-        (true, "launcher_online_direct_en"),
-    ] {
-        let mut st =
-            launcher::LauncherState::sample(Edition::E1011, Lang::En, launcher::Scenario::Online);
-        st.lobby.direct_open = open;
-        snap(&mut all, name, launcher::SIZE, Edition::E1011, |ui| {
-            launcher::show(ui, &mut st);
-        });
     }
     all.unwrap();
 }
@@ -231,22 +212,32 @@ fn launcher_online_1718() {
     all.unwrap();
 }
 
+/// The installer's sample, about a 2017-18 disc with 2010-11 already installed.
+fn installer_1718(lang: Lang, page: installer::Page) -> installer::InstallerState {
+    let mut st = installer::InstallerState::sample(lang, page);
+    st.iso = r"D:\Images\disc-2017-18.iso".into();
+    st.detected = Some(Edition::E1718);
+    st.package_check = Some(installer::PackageCheck::Ok(Edition::E1718));
+    st.installed = vec![Edition::E1011];
+    st
+}
+
 #[test]
 fn installer_pages() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
         for page in installer::Page::ALL {
-            let mut st = installer::InstallerState::sample(lang, page);
+            let mut st = installer_1718(lang, page);
             let name = format!("installer_{}_{}", page.tag(), lang.code());
-            snap(&mut all, &name, installer::SIZE, Edition::E1011, |ui| {
+            snap(&mut all, &name, installer::SIZE, Edition::E1718, |ui| {
                 installer::show(ui, &mut st);
             });
         }
-        let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+        let mut st = installer_1718(lang, installer::Page::Files);
         st.confirm = true;
         let name = format!("installer_confirm_{}", lang.code());
-        snap(&mut all, &name, installer::SIZE, Edition::E1011, |ui| {
+        snap(&mut all, &name, installer::SIZE, Edition::E1718, |ui| {
             installer::show(ui, &mut st);
         });
     }
@@ -258,21 +249,14 @@ fn panel_pages() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
-        for page in panel::Page::ALL {
-            // SETTINGS on 2017-18: its projector and controller switches
-            let ed = if matches!(page, panel::Page::Keys | panel::Page::Settings) {
-                Edition::E1718
-            } else {
-                Edition::E1011
-            };
-            let mut st = panel::PanelState::sample(ed, lang, page);
+        for page in [panel::Page::Keys, panel::Page::Settings] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, page);
             let name = format!("panel_{}_{}", page.tag(), lang.code());
-            snap(&mut all, &name, panel::SIZE, ed, |ui| {
+            snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
                 panel::show(ui, &mut st)
             });
         }
-        // the pages the 2010-11 shots above cover, as 2017-18 draws them: its arcade line on the game page, its
-        // own filters in the catalogue, the club card's share code
+        // its arcade line on the game page, its own filters in the catalogue, the club card's share code
         for page in [
             panel::Page::Game,
             panel::Page::Catalogue,
@@ -323,13 +307,13 @@ fn scaled_screens() {
 fn panel_compact() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::It, panel::Page::Game);
     st.file.compact = true;
     snap(
         &mut all,
         "panel_compact_it",
         panel::SIZE,
-        Edition::E1011,
+        Edition::E1718,
         |ui| panel::show(ui, &mut st),
     );
     all.unwrap();
@@ -409,7 +393,7 @@ fn widget_sheet() {
             &mut all,
             &format!("widgets_{}", lang.code()),
             panel::SHEET_SIZE,
-            Edition::E1011,
+            Edition::E1718,
             |ui| panel::widget_sheet(ui, &mut st),
         );
     }
@@ -419,10 +403,10 @@ fn widget_sheet() {
 #[test]
 fn board_interaction() {
     let _gpu = gpu();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     let spots = st.board.spots;
     let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st)
     });
     h.run_steps(4);
@@ -462,7 +446,7 @@ fn hover_pane() {
         (Vec2::new(2560.0, 1440.0), 2, "panel_hover_1440p_en"),
         (panel::SIZE, 9, "panel_hover_1440x900_top_en"),
     ] {
-        let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         let col = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false)
             .board
             .shrink(16.0);
@@ -470,7 +454,7 @@ fn hover_pane() {
         let at = forza_ui::board::slot_rects(pitch, pitch.bottom() + 12.0, &st.board.spots)[slot]
             .center();
         st.hover_delay = Some(0.0);
-        let mut h = harness(size, 1.0, Edition::E1011, |ui| panel::show(ui, &mut st));
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
         h.run_steps(4);
         h.hover_at(at);
         h.run_steps(4);
@@ -487,51 +471,15 @@ fn hover_pane() {
 fn popout_board_window() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (w, h, ed, lang, buttons, name) in [
-        (
-            960.0,
-            1232.0,
-            Edition::E1718,
-            Lang::En,
-            false,
-            "popout_board_960x1232_en",
-        ),
+    for (w, h, lang, buttons, name) in [
+        (960.0, 1232.0, Lang::En, false, "popout_board_960x1232_en"),
+        (1080.0, 1920.0, Lang::En, false, "popout_board_1080x1920_en"),
+        (2360.0, 1640.0, Lang::En, false, "popout_board_2360x1640_en"),
+        (1920.0, 1080.0, Lang::En, false, "popout_board_1920x1080_en"),
+        (1920.0, 1080.0, Lang::It, false, "popout_board_1920x1080_it"),
         (
             1080.0,
             1920.0,
-            Edition::E1718,
-            Lang::En,
-            false,
-            "popout_board_1080x1920_en",
-        ),
-        (
-            2360.0,
-            1640.0,
-            Edition::E1011,
-            Lang::En,
-            false,
-            "popout_board_2360x1640_en",
-        ),
-        (
-            1920.0,
-            1080.0,
-            Edition::E1718,
-            Lang::En,
-            false,
-            "popout_board_1920x1080_en",
-        ),
-        (
-            1920.0,
-            1080.0,
-            Edition::E1011,
-            Lang::It,
-            false,
-            "popout_board_1920x1080_it",
-        ),
-        (
-            1080.0,
-            1920.0,
-            Edition::E1718,
             Lang::En,
             true,
             "popout_board_buttons_1080x1920_en",
@@ -539,17 +487,16 @@ fn popout_board_window() {
         (
             1920.0,
             1080.0,
-            Edition::E1011,
             Lang::It,
             true,
             "popout_board_buttons_1920x1080_it",
         ),
     ] {
-        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
         st.desk = true;
         st.file.board_window = true;
         st.file.board_buttons = buttons;
-        snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
+        snap(&mut all, name, Vec2::new(w, h), Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
     }
@@ -562,42 +509,17 @@ fn popout_board_window() {
 fn popout_game_window() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (w, h, ed, lang, name) in [
-        (
-            1920.0,
-            1080.0,
-            Edition::E1718,
-            Lang::En,
-            "popout_game_1920x1080_en",
-        ),
-        (
-            2560.0,
-            1440.0,
-            Edition::E1718,
-            Lang::En,
-            "popout_game_2560x1440_en",
-        ),
-        (
-            1920.0,
-            1080.0,
-            Edition::E1011,
-            Lang::It,
-            "popout_game_1920x1080_it",
-        ),
-        (
-            2560.0,
-            1440.0,
-            Edition::E1011,
-            Lang::En,
-            "popout_game_2560x1440_1011_en",
-        ),
+    for (w, h, lang, name) in [
+        (1920.0, 1080.0, Lang::En, "popout_game_1920x1080_en"),
+        (2560.0, 1440.0, Lang::En, "popout_game_2560x1440_en"),
+        (1920.0, 1080.0, Lang::It, "popout_game_1920x1080_it"),
     ] {
-        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
         st.file.board_window = true;
         st.popped = true;
         let ci = st.board.slots[2].expect("a card in slot 2");
         st.touched = Some((st.board.cards[ci].clone(), 0.0));
-        snap(&mut all, name, Vec2::new(w, h), ed, |ui| {
+        snap(&mut all, name, Vec2::new(w, h), Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
     }
@@ -646,12 +568,12 @@ NEAREST texture)"
         );
     }
     for (ppp, lang, name) in cases {
-        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Catalogue);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
         st.catalogue.filter = Default::default();
         st.catalogue.view = Some(ci);
         let path = dir.path().to_owned();
         let mut first = true;
-        let mut h = harness(panel::SIZE, ppp, Edition::E1011, |ui| {
+        let mut h = harness(panel::SIZE, ppp, Edition::E1718, |ui| {
             if first {
                 forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
                 first = false;
@@ -696,12 +618,12 @@ fn board_mat() {
 #[test]
 fn board_links() {
     let _gpu = gpu();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Game);
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     st.links = forza_ui::sample::links();
     let spots = st.board.spots;
     let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
     let st = std::cell::RefCell::new(st);
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(4);
@@ -933,8 +855,8 @@ fn links_list_latin_extended() {
 #[test]
 fn panel_1920x1080() {
     let _gpu = gpu();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::It, panel::Page::Game);
-    let mut h = harness(Vec2::new(1920.0, 1080.0), 1.0, Edition::E1011, |ui| {
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::It, panel::Page::Game);
+    let mut h = harness(Vec2::new(1920.0, 1080.0), 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st)
     });
     h.run_steps(8);
@@ -946,15 +868,14 @@ fn panel_1920x1080() {
 fn panel_2560x1440() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (ed, lang, name) in [
-        (Edition::E1011, Lang::En, "panel_game_1440p_1011_en"),
-        (Edition::E1718, Lang::En, "panel_game_1440p_1718_en"),
-    ] {
-        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
-        snap(&mut all, name, Vec2::new(2560.0, 1440.0), ed, |ui| {
-            panel::show(ui, &mut st)
-        });
-    }
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    snap(
+        &mut all,
+        "panel_game_1440p_1718_en",
+        Vec2::new(2560.0, 1440.0),
+        Edition::E1718,
+        |ui| panel::show(ui, &mut st),
+    );
     all.unwrap();
 }
 
@@ -972,7 +893,7 @@ fn card_pictures() {
     let cards = forza_ui::sample::cards();
     let path = dir.path().to_owned();
     let mut first = true;
-    let mut h = harness(Vec2::new(860.0, 200.0), 1.0, Edition::E1011, |ui| {
+    let mut h = harness(Vec2::new(860.0, 200.0), 1.0, Edition::E1718, |ui| {
         if first {
             forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
             first = false;
@@ -999,9 +920,9 @@ fn card_pictures() {
 fn catalogue_imported() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    let mut st = panel::PanelState::sample(Edition::E1011, Lang::En, panel::Page::Catalogue);
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
     st.catalogue.filter = panel::Filter::default();
-    let text = "# WCCF DB lineup\ngame 1011\nname Sunday XI\n\
+    let text = "# WCCF DB lineup\ngame 1718\nname Sunday XI\n\
                 P 1 50 92 K\nP 2 15 70\nP 3 38 74\nP 4 62 74\nP 5 85 70\nP 6 30 50\nP 7 50 55\n\
                 P 8 70 50\nP 9 25 25\nP 10 50 20\nP 11 75 25\nS 12\nS 13\n\
                 S \"13/GES 3 \" # GULLIT · 13 GES 3\nS 999\n";
@@ -1010,7 +931,7 @@ fn catalogue_imported() {
         &mut all,
         "panel_catalogue_imported_en",
         panel::SIZE,
-        Edition::E1011,
+        Edition::E1718,
         |ui| panel::show(ui, &mut st),
     );
     all.unwrap();
@@ -1023,7 +944,7 @@ fn catalogue_search_and_add() {
     use std::cell::RefCell;
     let _gpu = gpu();
     let st = RefCell::new(panel::PanelState::sample(
-        Edition::E1011,
+        Edition::E1718,
         Lang::En,
         panel::Page::Catalogue,
     ));
@@ -1032,7 +953,7 @@ fn catalogue_search_and_add() {
         s.catalogue.filter = panel::Filter::default();
         s.message = None;
     }
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(4);
@@ -1058,13 +979,13 @@ fn keys_click_then_press() {
     use std::cell::RefCell;
     let _gpu = gpu();
     let st = RefCell::new(panel::PanelState::new(
-        Edition::E1011,
+        Edition::E1718,
         Lang::En,
         forza_ui::sample::board(),
         forza_ui::sample::cards().into(),
     ));
     st.borrow_mut().page = panel::Page::Keys;
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(3);
@@ -1106,7 +1027,7 @@ fn settings_choices_and_restart() {
     use std::cell::RefCell;
     let _gpu = gpu();
     let st = RefCell::new(panel::PanelState::new(
-        Edition::E1011,
+        Edition::E1718,
         Lang::En,
         forza_ui::sample::board(),
         forza_ui::sample::cards().into(),
@@ -1117,7 +1038,7 @@ fn settings_choices_and_restart() {
         s.status.text = Some("en");
         s.status.card = panel::CardState::Open;
     }
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
     });
     h.run_steps(3);
@@ -1139,106 +1060,20 @@ fn settings_choices_and_restart() {
     h.snapshot("panel_settings_changed_en");
 }
 
-/// CLUB CARD as a player uses it: the view's club, rows and squad; PLAY THIS CLUB needs a second click and asks for that
-/// card (data\panel.txt's card=, then the restart); a transferred card has no button; refused while a card session is
-/// open; CLEAR BAD ENDINGS the same way (2010-11); Esc closes the page.
-#[test]
-fn club_card_switch_and_clear() {
-    use std::cell::RefCell;
-    let _gpu = gpu();
-    let st = RefCell::new(panel::PanelState::new(
-        Edition::E1011,
-        Lang::En,
-        forza_ui::sample::board(),
-        forza_ui::sample::cards().into(),
-    ));
-    {
-        let mut s = st.borrow_mut();
-        s.page = panel::Page::ClubCard;
-        s.club = forza_ui::sample::club_view();
-    }
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
-        panel::show(ui, &mut st.borrow_mut())
-    });
-    h.run_steps(3);
-    h.get_by_label("PLAY THIS CLUB").click();
-    h.run_steps(2);
-    h.get_by_label("CLICK AGAIN").click();
-    h.run_steps(2);
-    // the DLL took the request
-    st.borrow_mut().club_request = None;
-    st.borrow_mut().club.session = "open".into();
-    h.get_by_label("NEW CLUB CARD").click();
-    h.run_steps(2);
-    h.get_by_label("NEW CLUB CARD").click();
-    h.run_steps(2);
-    st.borrow_mut().club.session = "cut".into();
-    h.get_by_label("CLEAR AND RESTART").click();
-    h.run_steps(2);
-    h.get_by_label("CLICK AGAIN").click();
-    h.run_steps(2);
-    st.borrow_mut().club_request = None;
-    h.snapshot("panel_clubcard_view_en");
-}
-
-/// The card dealt after a match over the game: NEW PLAYER CARD with the card, its stats and TOTAL; the picture's clicks
-/// stay off while it shows; a click on it closes it.
-#[test]
-fn card_deal() {
-    use std::cell::RefCell;
-    let _gpu = gpu();
-    let st = RefCell::new(panel::PanelState::new(
-        Edition::E1011,
-        Lang::En,
-        forza_ui::sample::board(),
-        forza_ui::sample::cards().into(),
-    ));
-    st.borrow_mut().deal = Some(panel::Deal::new(3));
-    let mut h = harness(panel::SIZE, 1.0, Edition::E1011, |ui| {
-        panel::show(ui, &mut st.borrow_mut())
-    });
-    h.run_steps(4);
-    h.snapshot("panel_deal_en");
-    // a click on the card turns it over
-    let r = h.get_by_label_contains("NEW PLAYER CARD").rect();
-    let card = egui::pos2(r.center().x, r.top() + 200.0);
-    h.drag_at(card);
-    h.drop_at(card);
-    h.run_steps(2);
-    h.snapshot("panel_deal_back_en");
-}
-
-/// The close dialog after a close refused during a card session, over the whole middle: KEEP PLAYING answers Enter and
-/// Esc, QUIT only its own click.
-#[test]
-fn close_dialog() {
-    let _gpu = gpu();
-    let mut all = SnapshotResults::new();
-    for lang in Lang::ALL {
-        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
-        st.close_warn = true;
-        snap(
-            &mut all,
-            &format!("panel_close_dialog_{}", lang.code()),
-            panel::SIZE,
-            Edition::E1011,
-            |ui| panel::show(ui, &mut st),
-        );
-    }
-    all.unwrap();
-}
-
 #[test]
 fn import_dialog() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
     for lang in Lang::ALL {
-        let mut st = import_asked(lang);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.catalogue.filter = panel::Filter::default();
+        let text = "game 1718\nP 1 50 92\nP 2 15 70\nP 3 38 74\nS 999\n";
+        assert!(panel::ask_import(&mut st, text, false));
         snap(
             &mut all,
             &format!("panel_import_dialog_{}", lang.code()),
             panel::SIZE,
-            Edition::E1011,
+            Edition::E1718,
             |ui| panel::show(ui, &mut st),
         );
     }
@@ -1351,48 +1186,17 @@ fn board_formations_button() {
     all.unwrap();
 }
 
-/// The card lamp in the bottom bar in each state, and the bar in 2017-18 (no lamp).
-#[test]
-fn card_lamp() {
-    let _gpu = gpu();
-    let mut all = SnapshotResults::new();
-    use panel::CardState::*;
-    for lang in Lang::ALL {
-        for (card, tag) in [(Open, "in_use"), (Closed, "safe"), (None, "none")] {
-            let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
-            st.status.card = card;
-            snap(
-                &mut all,
-                &format!("panel_lamp_{tag}_{}", lang.code()),
-                panel::SIZE,
-                Edition::E1011,
-                |ui| panel::show(ui, &mut st),
-            );
-        }
-    }
-    all.unwrap();
-}
-
 /// The crash screen in the board's place; RESTART THE GAME and SAVE LOGS each ask once.
 #[test]
 fn crash_screen() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (ed, lang) in [
-        (Edition::E1011, Lang::En),
-        (Edition::E1011, Lang::It),
-        (Edition::E1011, Lang::Ja),
-        (Edition::E1718, Lang::En),
-    ] {
-        let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
         st.crash = true;
         st.status.card = panel::CardState::Open;
-        let name = format!(
-            "panel_crash_{}{}",
-            if ed == Edition::E1718 { "1718_" } else { "" },
-            lang.code()
-        );
-        snap(&mut all, &name, panel::SIZE, ed, |ui| {
+        let name = format!("panel_crash_1718_{}", lang.code());
+        snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
     }
