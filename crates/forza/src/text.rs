@@ -2813,6 +2813,30 @@ mod tests {
         );
         assert!(backup.join(pictures::STATE).is_file());
     }
+    /// The check mode for a player's own original 2017-18 game: `FORZA_GAME=<game folder> FORZA_SHEETS=<editions/
+    /// 2017-18> cargo nextest run -p forza --run-ignored all -E 'test(the_real_text_has_no_line_that_gives_way)'`.
+    /// A line that does not fit its place, a line that stays Japanese, and a player name that is cut or that gets a
+    /// `?` all fail here.
+    #[test]
+    #[ignore]
+    fn the_real_text_has_no_line_that_gives_way() {
+        let game = std::path::PathBuf::from(std::env::var("FORZA_GAME").unwrap());
+        let sheets = std::path::PathBuf::from(std::env::var("FORZA_SHEETS").unwrap());
+        let c = Ctx::new(Edition::E1718, &game, Path::new("none"), &sheets).unwrap();
+        for lang in [Lang::En, Lang::It] {
+            let (_, note) = c.build_all(lang).unwrap();
+            println!("{}: {note}", lang.name());
+            for bad in [
+                "do not fit",
+                "still Japanese",
+                "too long for the field",
+                "cannot show",
+            ] {
+                assert!(!note.contains(bad), "{}: {note}", lang.name());
+            }
+        }
+    }
+
     impl Ctx {
         fn new_bare(ed: Edition, game: &Path, backup: &Path) -> Self {
             Self {
