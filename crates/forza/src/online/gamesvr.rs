@@ -498,6 +498,10 @@ pub(super) const TAIL: usize = 3100;
 /// was stored (0 = none).
 type Saved = (Vec<u8>, u16, u16, Vec<u8>, i64);
 
+/// A Grand Trophy result for a card-in ([`Store::promote`]): the class it moves up from, the closed week's rank, the
+/// record, and None for a new grant or the granted week for a result sent again.
+type Granted = (u8, u32, i32, Option<u16>);
+
 /// Where a stored SAVE_DATA_SET (277, 8,572 bytes) feeds a SAVE_DATA answer (276): `(276 offset, 277 offset, length)`.
 /// The client sets these from the answer even when zero (sub_81AC50 applies them, sub_817F10 writes the 277), so a
 /// span left out puts that state back to its default at every card-in. 3,100..3,556 is the club's league state
@@ -682,7 +686,8 @@ CREATE TABLE IF NOT EXISTS gt_points (
 -- the Grand Trophy promotion issued at a card-in of `week` from the card's record of week - 1: one per week and
 -- card, to the club `coach_id` that carded in, which moved up to `class`; `rank` and `record` are the closed week's
 -- at the grant, so a re-issue sends the same result; `created` is the club's (coaches.created), the one club field an
--- import keeps (online::club gives it new ids)
+-- import keeps (online::club gives it new ids), unique per card (new_created; shortcut: two clubs a store made in
+-- one second before that keep a shared key, fix them by hand if one ever shows)
 CREATE TABLE IF NOT EXISTS gt_promotions (
     week     INTEGER NOT NULL,
     aime_id  INTEGER NOT NULL,
@@ -692,12 +697,14 @@ CREATE TABLE IF NOT EXISTS gt_promotions (
     rank     INTEGER NOT NULL,
     record   INTEGER NOT NULL,
     created  INTEGER NOT NULL,
+    -- the week a card-in of a save below this grant got its result again (Store::promote, once per grant); 0 never
+    resent   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (week, aime_id)
 );
 ";
 
 /// `PRAGMA user_version` of a store this code has migrated.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// The 0 -> 1 backfill of [`migrate`]: a club saved before `requests` existed keeps only its tail in `saves`, so its
 /// 277 is rebuilt from the row (ids at +4/+8/+12, kind at +24, block at +28, tail at +3,100) and the first card-in
@@ -743,8 +750,9 @@ fn backfill(tx: &rusqlite::Transaction) -> rusqlite::Result<()> {
 
 /// `PRAGMA user_version` 0 -> 1 runs [`backfill`]; 1 -> 2 only adds `purchases` (`CREATE TABLE IF NOT EXISTS` in
 /// [`SCHEMA`], every open); 2 -> 3 adds `gt_points` the same way and fills it from the stored 277s, each under the
-/// week it was saved in; 3 -> 4 only adds `gt_promotions` (`CREATE TABLE IF NOT EXISTS`). One transaction; nothing
-/// is dropped or rewritten, and an older server ignores the tables.
+/// week it was saved in; 3 -> 4 only adds `gt_promotions` (`CREATE TABLE IF NOT EXISTS`); 4 -> 5 adds its `resent`
+/// column (0 on every stored grant). One transaction; nothing is dropped or rewritten, and an older server ignores
+/// the tables and the column.
 fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
     let version = db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
     if version >= SCHEMA_VERSION {
@@ -766,8 +774,29 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<()> {
             record_gt(&tx, gt_week(at), aime, &req, at)?;
         }
     }
+    // a version-4 table: SCHEMA made the column for any older store
+    let has: bool = tx.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('gt_promotions') WHERE name = 'resent'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has {
+        tx.execute_batch("ALTER TABLE gt_promotions ADD COLUMN resent INTEGER NOT NULL DEFAULT 0")?;
+    }
     tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
     tx.commit()
+}
+
+/// A new club's `created` for `aime`: now, or one past the newest `created` of the card's clubs and Grand Trophy
+/// grants when that is later, so no two clubs of one card share it (it keys the Grand Trophy floor across an import,
+/// [`Store::promote`]). A clock set back gets the same treatment.
+fn new_created(db: &Connection, aime: u32) -> rusqlite::Result<i64> {
+    db.query_row(
+        "SELECT max(?2, coalesce((SELECT max(created) + 1 FROM coaches WHERE aime_id = ?1), 0),
+                    coalesce((SELECT max(created) + 1 FROM gt_promotions WHERE aime_id = ?1), 0))",
+        params![aime, now()],
+        |r| r.get(0),
+    )
 }
 
 /// Next id from counter `name` (1, 2, ...), inside the caller's transaction.
@@ -844,8 +873,8 @@ impl Store {
         }
         let (coach, card) = (next_id(&tx, "coach")?, next_id(&tx, "card")?);
         tx.execute(
-            "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (?1, ?2, ?3, ?4, ?4)",
-            params![aime, coach, card, now()],
+            "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![aime, coach, card, new_created(&tx, aime)?, now()],
         )?;
         tx.commit()?;
         Ok(Some((coach, card)))
@@ -899,8 +928,8 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO coaches (aime_id, coach_id, card_id, name1, name2, rec122, play_count, titles, created, updated)
-             VALUES (?1, ?2, ?3, ?4, ?5, 100, 0, ?6, ?7, ?7)",
-            params![aime, coach, card, n1, n2, SKIP_TITLES, now()],
+             VALUES (?1, ?2, ?3, ?4, ?5, 100, 0, ?6, ?7, ?8)",
+            params![aime, coach, card, n1, n2, SKIP_TITLES, new_created(&tx, aime)?, now()],
         )?;
         tx.execute(
             "INSERT INTO saves VALUES (?1, ?2, ?3, 12, 3072, 1, ?4, x'')",
@@ -1005,16 +1034,17 @@ impl Store {
     /// granted club gets the stored result again at each card-in of the week while its stored 277 is still one class
     /// below (a lost 276, or a session that ended before the info scene applied it). A club imported again (a guest's
     /// next join, online::club) has a new coachId and the granted one is gone: the row moves to it when it is the same
-    /// club (same `created`), never to another club of the card. The club's latest grant of an earlier week is the
-    /// floor of its saved class: a save that fell back below it is promoted from the granted class, or gets that
-    /// grant's result again when this week brings no promotion.
+    /// club (same `created`, which [`new_created`] keeps unique per card), never to another club of the card. The
+    /// club's latest grant of an earlier week is the floor of its saved class: a save that fell back below it is
+    /// promoted from the granted class, or gets that grant's result again, once per grant (`resent`), when this week
+    /// brings no promotion: a save that keeps falling below does not get the old result scene at every card-in.
     fn promote(
         &self,
         week: u16,
         aime: u32,
         coach: u32,
         saved: &[u8],
-    ) -> rusqlite::Result<Option<(u8, u32, i32)>> {
+    ) -> rusqlite::Result<Option<Granted>> {
         let (Some(last), Some(&class)) = (week.checked_sub(1), saved.get(GT_CLASS_277)) else {
             return Ok(None);
         };
@@ -1046,40 +1076,45 @@ impl Store {
                 return Ok(None);
             }
             // the granted class itself: a save more than one class below must not land one below the grant
-            return Ok(Some((next - 1, rank, record)));
+            return Ok(Some((next - 1, rank, record, Some(week))));
         }
         // the same club as at the current week's re-issue: its coach, or its re-import once that coach is gone
-        let floor: Option<(u8, u32, i32)> = self
+        let floor: Option<(u8, u32, i32, u16, u16)> = self
             .0
             .query_row(
-                "SELECT class, rank, record FROM gt_promotions p WHERE aime_id = ?1 AND week < ?2
+                "SELECT class, rank, record, week, resent FROM gt_promotions p WHERE aime_id = ?1 AND week < ?2
                  AND (coach_id = ?3 OR (created = (SELECT created FROM coaches WHERE coach_id = ?3)
                       AND NOT EXISTS (SELECT 1 FROM coaches c WHERE c.coach_id = p.coach_id)))
                  ORDER BY week DESC LIMIT 1",
                 params![aime, week, coach],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?;
         let resend = floor
-            .filter(|f| class < f.0)
-            .map(|(next, rank, record)| (next - 1, rank, record));
+            .filter(|f| class < f.0 && f.4 == 0)
+            .map(|(next, rank, record, at, _)| (next - 1, rank, record, Some(at)));
         let class = floor.map_or(class, |f| class.max(f.0));
         let ranking = self.gt_ranking(last)?;
         let entry = ranking.iter().enumerate().find(|(_, e)| e.0 == aime);
         let need = GT_RAISE.get(usize::from(class)).copied().unwrap_or(0);
-        let Some((i, &(_, record))) = entry else {
+        let Some((i, &(_, record))) =
+            entry.filter(|(_, e)| need != 0 && i64::from(e.1) >= i64::from(need))
+        else {
+            if let Some((.., Some(at))) = resend {
+                self.0.execute(
+                    "UPDATE gt_promotions SET resent = ?3 WHERE week = ?1 AND aime_id = ?2",
+                    params![at, aime, week],
+                )?;
+            }
             return Ok(resend);
         };
-        if need == 0 || i64::from(record) < i64::from(need) {
-            return Ok(resend);
-        }
         let n = self.0.execute(
             "INSERT INTO gt_promotions (week, aime_id, coach_id, class, at, rank, record, created)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, created FROM coaches WHERE coach_id = ?3
              ON CONFLICT DO NOTHING",
             params![week, aime, coach, class + 1, now(), i as u32 + 1, record],
         )?;
-        Ok((n == 1).then_some((class, i as u32 + 1, record)))
+        Ok((n == 1).then_some((class, i as u32 + 1, record, None)))
     }
 
     /// Keeps the latest whole 309 under (0, shop id).
@@ -1394,13 +1429,20 @@ fn club(
                     ));
                     None
                 });
-                if let Some((class, rank, record)) = promoted {
-                    log(&format!(
+                match promoted {
+                    Some((class, rank, record, None)) => log(&format!(
                         "grand trophy: aime {aime} coach {coach} week {week} class {class} -> {} (record {record}, rank {rank})",
                         class + 1
-                    ));
+                    )),
+                    // the save is below a grant already given: the same result again, not a new promotion
+                    Some((class, rank, record, Some(of))) => log(&format!(
+                        "grand trophy: aime {aime} coach {coach} week {week} save below the week {of} grant of class {}: \
+                         its result sent again, no new promotion (record {record}, rank {rank})",
+                        class + 1
+                    )),
+                    None => {}
                 }
-                fill_gt_result(body, promoted.map(|(class, rank, _)| (class, rank)));
+                fill_gt_result(body, promoted.map(|(class, rank, ..)| (class, rank)));
             }
             fill_save_data(body, &block, version, size);
         }
@@ -2868,12 +2910,16 @@ mod tests {
 
     /// A club granted Area B last week whose save fell back to Local: its class is the grant, also after a re-import
     /// (a public server's clubs get new ids each session), so this week's record promotes it Area B -> Area A, each
-    /// card-in of the week sends that grant, and a record below that threshold re-sends last week's grant, writing
-    /// nothing; never Local -> Area B.
+    /// card-in of the week sends that grant, and a record below that threshold re-sends last week's grant once, with
+    /// a log line that is no promotion, writing no grant; never Local -> Area B.
     #[test]
     fn an_earlier_weeks_grant_is_the_floor_of_the_saved_class() {
         let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
-        let log: Log = Arc::new(|_: &str| {});
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log: Log = {
+            let lines = lines.clone();
+            Arc::new(move |l: &str| lines.lock().unwrap().push(l.to_owned()))
+        };
         let vs = Vs {
             cfg: VsConfig {
                 public_ip: std::net::Ipv4Addr::LOCALHOST,
@@ -2919,11 +2965,12 @@ mod tests {
                 .unwrap();
             let c = st.club(aime).unwrap();
             let link = st.import_public(&c, aime, 1, "t", &|_| false).unwrap();
-            (link.coaches[0].1, link.cards[0].1)
+            let ids = link.coaches.iter().zip(&link.cards);
+            ids.map(|(c, k)| (c.1, k.1)).collect::<Vec<_>>()
         };
 
         let old = demoted(5);
-        let k = rejoin(5);
+        let k = rejoin(5)[0];
         assert_ne!(k, old);
         record(week - 1, 5, 1_300);
         assert_eq!(
@@ -2944,6 +2991,25 @@ mod tests {
             (2, 1),
             "no promotion this week: last week's grant (rank 2) again"
         );
+        assert_eq!(
+            result(6, k),
+            (0, 0),
+            "the save still below: once per grant, not at every card-in (#334)"
+        );
+        let want = format!(
+            "grand trophy: aime 6 coach {} week {week} save below the week {} grant of class 1: its result sent \
+             again, no new promotion (record 1000, rank 2)",
+            k.0,
+            week - 1
+        );
+        let said = lines.lock().unwrap().clone();
+        assert!(said.contains(&want), "{want}");
+        assert!(
+            !said
+                .iter()
+                .any(|l| l.starts_with("grand trophy: aime 6 ") && l.contains("->")),
+            "a re-issue never reads as a promotion: {said:?}"
+        );
         let rows: i64 = store
             .lock()
             .unwrap()
@@ -2955,6 +3021,28 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rows, 0, "a re-sent grant spends nothing this week");
+
+        // a second club of the card made in the same second as the granted one: after a re-import (both old coaches
+        // gone) the floor stays with the granted club, never the other (#334)
+        let first = demoted(7);
+        let b = ask(279, &fixture(279, [7, 0, 0]));
+        let second = (u32_at(&b, 8), u32_at(&b, 12));
+        let mut r = fixture(277, [7, second.0, second.1]);
+        r[GT_CLASS_277] = 0;
+        ask(277, &r);
+        record(week - 1, 7, 500);
+        let ks = rejoin(7);
+        assert!(!ks.contains(&first) && !ks.contains(&second));
+        assert_eq!(
+            result(7, ks[1]),
+            (0, 0),
+            "the other club: no floor, no result"
+        );
+        assert_eq!(
+            result(7, ks[0]),
+            (3, 1),
+            "the granted club: its grant (rank 3)"
+        );
     }
 
     /// A server with VS sends the promotion thresholds as GAME_CTRL raisePoint; an arcade's stand-in sends none.
@@ -2984,8 +3072,8 @@ mod tests {
     }
 
     /// A version-3 store (before `gt_promotions`) keeps every row, gets the table (from [`SCHEMA`], as `purchases`
-    /// and `gt_points` did) and version 4, and its `gt_points` is not filled again from the stored 277s; a second open
-    /// changes nothing.
+    /// and `gt_points` did) and the current version, and its `gt_points` is not filled again from the stored 277s; a
+    /// second open changes nothing.
     #[test]
     fn a_v3_store_gets_gt_promotions_and_loses_nothing() {
         let dir = tempfile::tempdir().unwrap();
@@ -3015,7 +3103,7 @@ mod tests {
         for open in 0..2 {
             let st = Store::open(&path).unwrap();
             let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
-            assert_eq!(n("PRAGMA user_version"), 4, "open {open}");
+            assert_eq!(n("PRAGMA user_version"), SCHEMA_VERSION, "open {open}");
             assert_eq!(
                 [
                     n("SELECT count(*) FROM coaches"),
@@ -3035,11 +3123,57 @@ mod tests {
             assert_eq!(n("SELECT at FROM gt_points"), 77);
             // the table takes a promotion, and the row outlives the reopen
             st.0.execute(
-                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78, 1, 1234, 70)",
+                "INSERT OR IGNORE INTO gt_promotions VALUES (41, 5, 1, 1, 78, 1, 1234, 70, 0)",
                 [],
             )
             .unwrap();
         }
+    }
+
+    /// A version-4 store (`gt_promotions` without `resent`) keeps its grants, and a stored grant is still the floor
+    /// of its club: a save below it gets the grant's result once, then none (#334).
+    #[test]
+    fn a_v4_store_keeps_its_grand_trophy_floors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gamesvr.db");
+        let week = gt_week(now());
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(SCHEMA).unwrap();
+            db.execute_batch(
+                "ALTER TABLE gt_promotions DROP COLUMN resent; PRAGMA user_version = 4",
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO coaches (aime_id, coach_id, card_id, created, updated) VALUES (5, 1, 9, 70, 70)",
+                [],
+            )
+            .unwrap();
+            // Area B granted to club 1 two weeks ago
+            db.execute(
+                "INSERT INTO gt_promotions VALUES (?1, 5, 1, 1, 78, 2, 1234, 70)",
+                [week - 2],
+            )
+            .unwrap();
+        }
+        let st = Store::open(&path).unwrap();
+        let n = |q: &str| -> i64 { st.0.query_row(q, [], |r| r.get(0)).unwrap() };
+        assert_eq!(n("PRAGMA user_version"), SCHEMA_VERSION);
+        assert_eq!(n("SELECT count(*) FROM gt_promotions WHERE resent = 0"), 1);
+        let local = vec![0u8; 8572];
+        assert_eq!(
+            st.promote(week, 5, 1, &local).unwrap(),
+            Some((0, 2, 1234, Some(week - 2))),
+            "the stored grant is the floor: its result again"
+        );
+        assert_eq!(st.promote(week, 5, 1, &local).unwrap(), None, "once");
+        drop(st);
+        let st = Store::open(&path).unwrap();
+        assert_eq!(
+            st.promote(week, 5, 1, &local).unwrap(),
+            None,
+            "a reopen keeps the mark"
+        );
     }
 
     #[test]
