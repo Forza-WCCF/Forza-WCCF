@@ -280,7 +280,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
 fn probe_links(dest: &Path) -> Result<()> {
     let (a, b) = (dest.join(".probe-a"), dest.join(".probe-b"));
     let _ = (fs::remove_file(&a), fs::remove_file(&b));
-    fs::write(&a, b"x")?;
+    fs::write(&a, b"x").map_err(write_err(dest))?;
     let linked = fs::hard_link(&a, &b);
     let _ = (fs::remove_file(&a), fs::remove_file(&b));
     Ok(linked.map_err(|_| E::NotNtfsDrive)?)
@@ -350,10 +350,22 @@ fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
     Ok(out)
 }
 
+/// A failed write as the player reads it: a full drive is the free-space message, anything else names the path (not
+/// bare OS text, #301).
+fn write_err(path: &Path) -> impl FnOnce(std::io::Error) -> E + '_ {
+    move |e| match e.kind() {
+        std::io::ErrorKind::StorageFull => E::NoSpace,
+        _ => E::CannotWrite {
+            path: shown(path),
+            detail: e.to_string(),
+        },
+    }
+}
+
 /// `partial` made, `fill` run on it, and the tree taken with it when `fill` fails: a Cancel, a full disk or a read
 /// error leaves no half game folder behind.
 fn partial_tree(partial: &Path, fill: impl FnOnce() -> Result<()>) -> Result<()> {
-    fs::create_dir_all(partial)?;
+    fs::create_dir_all(partial).map_err(write_err(partial))?;
     let done = fill();
     if done.is_err() {
         let _ = fs::remove_dir_all(partial);
@@ -378,7 +390,7 @@ fn extract(
         dest.join(format!("{GAME_DIR}.partial")),
     );
     if partial.exists() {
-        fs::remove_dir_all(&partial)?;
+        fs::remove_dir_all(&partial).map_err(write_err(&partial))?;
     }
     partial_tree(&partial, || {
         emit(Event::Log(format!(
@@ -390,13 +402,10 @@ fn extract(
             check(cancel)?;
             let path = partial.join(&it.rel);
             if it.dir {
-                fs::create_dir_all(&path)?;
+                fs::create_dir_all(&path).map_err(write_err(&path))?;
                 continue;
             }
-            let mut out = File::create(&path).map_err(|e| E::CannotWrite {
-                path: shown(&path),
-                detail: e.to_string(),
-            })?;
+            let mut out = File::create(&path).map_err(write_err(&path))?;
             let file = ntfs.file(vol, it.rec)?;
             if let Some(d) = file.data(vol, "") {
                 let item = d?;
@@ -407,7 +416,8 @@ fn extract(
                     if n == 0 {
                         break;
                     }
-                    out.write_all(buf.get(..n).unwrap_or_default())?;
+                    out.write_all(buf.get(..n).unwrap_or_default())
+                        .map_err(write_err(&path))?;
                     done += n as u64;
                     emit(Event::Progress(done, total));
                 }
@@ -419,7 +429,7 @@ fn extract(
         );
         check(cancel)?;
         ensure!(!game.exists(), E::GameFolderExists);
-        fs::rename(&partial, &game)?;
+        fs::rename(&partial, &game).map_err(write_err(&game))?;
         Ok(())
     })
 }
@@ -440,24 +450,24 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
         let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
             continue;
         };
-        if rel.as_os_str().is_empty() || (keep_data && rel.starts_with("data")) {
+        // data\ is the player's in any capitals: Windows folder names ignore case (the Launcher's UPDATE skips it alike)
+        let player_data = rel
+            .components()
+            .next()
+            .is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("data"));
+        if rel.as_os_str().is_empty() || (keep_data && player_data) {
             continue;
         }
         let out = dest.join(rel);
         if f.is_dir() {
-            fs::create_dir_all(&out)?;
+            fs::create_dir_all(&out).map_err(write_err(&out))?;
             continue;
         }
         if let Some(parent) = out.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).map_err(write_err(parent))?;
         }
-        done += std::io::copy(
-            &mut f,
-            &mut File::create(&out).map_err(|e| E::CannotWrite {
-                path: shown(&out),
-                detail: e.to_string(),
-            })?,
-        )?;
+        let mut file = File::create(&out).map_err(write_err(&out))?;
+        done += std::io::copy(&mut f, &mut file).map_err(write_err(&out))?;
         emit(Event::Progress(done, total));
     }
     Ok(())
@@ -805,15 +815,197 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// A zip whose every file holds its own name as bytes.
     fn kit_zip(dir: &Path, name: &str, files: &[&str]) -> PathBuf {
         let path = dir.join(name);
         let mut zip = zip::ZipWriter::new(File::create(&path).unwrap());
         for n in files {
             zip.start_file(*n, zip::write::SimpleFileOptions::default())
                 .unwrap();
+            zip.write_all(n.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
         path
+    }
+
+    /// Every file under `dir` with its bytes, by path relative to `dir`.
+    fn tree(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    out.insert(p.strip_prefix(dir).unwrap().into(), fs::read(&p).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// Both editions side by side, each with its game files and the player's save; the 2017-18 root returned.
+    fn two_editions(root: &Path) -> PathBuf {
+        for (id, save) in [("SBWG", "2010-11 save"), ("SDDY", "2017-18 save")] {
+            let (ed, game) = version_paths(root, id).unwrap();
+            fs::create_dir_all(game.join("local")).unwrap();
+            fs::write(game.join("client_Release.exe"), id).unwrap();
+            fs::write(game.join(format!("local/{id}_Table.dat")), id).unwrap();
+            fs::create_dir_all(ed.join("data/save")).unwrap();
+            fs::write(ed.join("data/save/club.bin"), save).unwrap();
+        }
+        version_paths(root, "SDDY").unwrap().0
+    }
+
+    /// The package goes over the 2017-18 install: its top folder stripped, the player's data\ and the 2010-11 tree
+    /// untouched (#302).
+    #[test]
+    fn unpack_kit_keeps_data_and_the_other_edition() {
+        let root = std::env::temp_dir().join(format!("unpack-kit-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let other = version_paths(&root, "SBWG").unwrap().0;
+        let before = tree(&other);
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &[
+                "Forza-WCCF-2017-18/Launcher.exe",
+                "Forza-WCCF-2017-18/bin/x.dll",
+                "Forza-WCCF-2017-18/data/save/club.bin",
+            ],
+        );
+        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        assert_eq!(
+            fs::read(dest.join("Launcher.exe")).unwrap(),
+            b"Forza-WCCF-2017-18/Launcher.exe"
+        );
+        assert!(dest.join("bin/x.dll").is_file() && !dest.join("Forza-WCCF-2017-18").exists());
+        assert_eq!(
+            fs::read(dest.join("data/save/club.bin")).unwrap(),
+            b"2017-18 save"
+        );
+        assert_eq!(tree(&other), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A package entry under `Data/` (other capitals) is the player's data\ too: kept, never written (#280).
+    #[test]
+    fn a_data_folder_in_other_capitals_is_kept() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-data-case-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("2017-2018");
+        fs::create_dir_all(dest.join("data/save")).unwrap();
+        fs::write(dest.join("data/save/club.bin"), b"player").unwrap();
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &[
+                "Launcher.exe",
+                "bin/x.dll",
+                "Data/save/club.bin",
+                "DATA/keys.txt",
+            ],
+        );
+        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        // one folder on Windows, two elsewhere: either way no package byte lands in it
+        for p in ["data/save/club.bin", "Data/save/club.bin"] {
+            let p = dest.join(p);
+            assert!(!p.exists() || fs::read(&p).unwrap() == b"player", "{p:?}");
+        }
+        assert!(!dest.join("DATA/keys.txt").exists() && !dest.join("data/keys.txt").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A folder the package cannot write (here a file stands where its folder goes) names the path in the player's
+    /// language, not bare OS text; a full drive is the free-space message (#301).
+    #[test]
+    fn a_write_error_names_the_path_in_three_languages() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-write-err-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("2017-2018");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("scripts"), b"a file, not a folder").unwrap();
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &["Launcher.exe", "bin/x.dll", "scripts/setup.py"],
+        );
+        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        let path = shown(&dest.join("scripts"));
+        let texts: Vec<String> = forza_ui::Lang::ALL
+            .into_iter()
+            .map(|l| crate::err::localize(&e, l))
+            .collect();
+        for t in &texts {
+            assert!(t.contains(&path), "{t}");
+        }
+        assert!(texts.iter().skip(1).all(|t| *t != texts[0]), "{texts:?}");
+        assert_eq!(
+            write_err(&dest)(std::io::ErrorKind::StorageFull.into()),
+            E::NoSpace
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unpack_kit_refuses_a_path_out_of_the_folder() {
+        let root = std::env::temp_dir().join(format!("unpack-unsafe-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = root.join("in");
+        fs::create_dir_all(&dest).unwrap();
+        let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll", "../x"]);
+        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        assert_eq!(e.downcast_ref::<E>(), Some(&E::KitUnsafePath));
+        assert!(!root.join("x").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Updating the 2017-18 install from a package (reuse + setup) in a folder with a space and non-ASCII letters: the
+    /// 2010-11 tree and both saves stay byte-identical.  Setup fails here (no control_Release.exe), after the unpack:
+    /// what that leaves is the baseline for #276 (the package's files stay written, nothing is rolled back).
+    #[test]
+    fn an_update_leaves_the_other_edition_identical() {
+        let root = std::env::temp_dir()
+            .join(format!("update-coexist-test-{}", std::process::id()))
+            .join("Forza WCCF àé 日本");
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let other = version_paths(&root, "SBWG").unwrap().0;
+        let before = tree(&other);
+        let kit = kit_zip(
+            root.parent().unwrap(),
+            "k.zip",
+            &["Launcher.exe", "bin/x.dll", "data/save/club.bin"],
+        );
+        let plan = Plan {
+            dest: root.clone(),
+            iso: None,
+            key: None,
+            game_id: Some("SDDY"),
+            verify: false,
+            setup: true,
+            english: false,
+            shortcuts: false,
+            kit: Some(kit),
+            latest: false,
+        };
+        let e = run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err();
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::Script { .. })),
+            "{e:#}"
+        );
+        assert_eq!(tree(&other), before);
+        assert_eq!(
+            fs::read(dest.join("data/save/club.bin")).unwrap(),
+            b"2017-18 save"
+        );
+        // #276 baseline: the failed setup leaves the package's files in place
+        assert!(dest.join("Launcher.exe").is_file() && dest.join("bin/x.dll").is_file());
+        fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
 
     #[test]
