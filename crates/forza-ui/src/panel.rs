@@ -3684,11 +3684,17 @@ fn crash_screen(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let ui = &mut ui;
     ui.spacing_mut().item_spacing.y = 14.0;
     let (ic, _) = ui.allocate_exact_size(vec2(w, 36.0), Sense::hover());
-    ui.painter().text(
-        ic.center(),
-        Align2::CENTER_CENTER,
-        tr!(lang, "panel.crash_title"),
+    let p = ui.painter();
+    let g = widgets::fit_elided(
+        p,
+        &tr!(lang, "panel.crash_title"),
         theme::display(38.0),
+        theme::RED_TEXT,
+        ic.width(),
+    );
+    p.galley(
+        Align2::CENTER_CENTER.anchor_size(ic.center(), g.size()).min,
+        g,
         theme::RED_TEXT,
     );
     ui.label(
@@ -5570,17 +5576,24 @@ fn club_card(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                             .filter(|v| !v.is_empty() && v != "-")
                     };
                     if let Some(club) = first(view.row("CLUB")) {
-                        let g = widgets::fit(p, &club, theme::display(34.0), Color32::WHITE, 300.0);
+                        let g = widgets::fit_elided(
+                            p,
+                            &club,
+                            theme::display(34.0),
+                            Color32::WHITE,
+                            300.0,
+                        );
                         p.galley(r.min + vec2(24.0, 104.0), g, Color32::WHITE);
                     }
                     if let Some(m) = first(view.row("MANAGER")) {
-                        p.text(
-                            r.min + vec2(24.0, 146.0),
-                            Align2::LEFT_TOP,
-                            tr!(lang, "club.manager", name = m),
+                        let g = widgets::fit_elided(
+                            p,
+                            &tr!(lang, "club.manager", name = m),
                             theme::body(15.0),
                             theme::TEXT,
+                            300.0,
                         );
+                        p.galley(r.min + vec2(24.0, 146.0), g, theme::TEXT);
                     }
                     p.text(
                         r.right_bottom() + vec2(-20.0, -18.0),
@@ -5854,17 +5867,22 @@ fn club_row(ui: &mut Ui, name: &str, sub: &str, transferred: bool, lit: bool, la
     );
     let bw = 170.0;
     let tw = w - bw - 30.0;
-    let g = widgets::fit(p, name, theme::display(20.0), theme::TEXT, tw);
+    let g = widgets::fit_elided(p, name, theme::display(20.0), theme::TEXT, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 6.0), g, theme::TEXT);
-    let g = widgets::fit(p, sub, theme::body(HINT), theme::TEXT_DIM, tw);
+    let g = widgets::fit_elided(p, sub, theme::body(HINT), theme::TEXT_DIM, tw);
     p.galley(pos2(r.left() + 14.0, r.top() + 31.0), g, theme::TEXT_DIM);
     let b = Rect::from_min_size(pos2(r.right() - bw - 8.0, r.top() + 8.0), vec2(bw, 38.0));
     if transferred {
-        p.text(
-            b.center(),
-            Align2::CENTER_CENTER,
-            tr!(lang, "club.transferred"),
+        let g = widgets::fit_elided(
+            p,
+            &tr!(lang, "club.transferred"),
             theme::display(15.0),
+            theme::TEXT_FAINT,
+            bw,
+        );
+        p.galley(
+            Align2::CENTER_CENTER.anchor_size(b.center(), g.size()).min,
+            g,
             theme::TEXT_FAINT,
         );
         return false;

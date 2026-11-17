@@ -83,6 +83,24 @@ pub fn fit(
     }
 }
 
+/// [`fit`], then cut with "…" when the text is still too wide at the 70 % floor: for names from the game data and
+/// other text of any length, which may never run past its room.
+pub fn fit_elided(
+    painter: &Painter,
+    text: &str,
+    font: FontId,
+    color: Color32,
+    max_width: f32,
+) -> Arc<Galley> {
+    let g = fit(painter, text, font, color, max_width);
+    if g.size().x <= max_width {
+        return g;
+    }
+    let mut job = (*g.job).clone();
+    job.wrap = egui::text::TextWrapping::truncate_at_width(max_width);
+    painter.layout_job(job)
+}
+
 /// A text [`fit`] could not fit: its room and its width at the 70 % floor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Overflow {
