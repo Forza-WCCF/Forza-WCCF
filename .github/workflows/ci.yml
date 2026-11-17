@@ -346,9 +346,9 @@ jobs:
           done
           du -m -d 2 target | sort -rn | head -12 || true
 
-  # The GPU snapshot tests (informational: the runner has no GPU, they never fail the run). Parallel to build-test, not in
-  # ci-ok's needs. It builds `-p forza-ui` alone: other feature sets than the workspace build's, so build-test's cache
-  # reuses none of it (a trial in the ci profile compiled 123 crates in 4.7 min). It keeps its own, small cache (the
+  # The GPU snapshot tests (informational: the runner has no GPU, they never fail the run; the failed names go to the
+  # step summary). Parallel to build-test, not in ci-ok's needs. It builds `-p forza-ui` alone: other feature sets than
+  # the workspace build's, so build-test's cache reuses none of it (a trial in the ci profile compiled 123 crates in 4.7 min). It keeps its own, small cache (the
   # debug tree of forza-ui's tests), saved by main only, instead of restoring the 4.7 GB one for nothing.
   snapshots:
     name: snapshots (informational)
@@ -377,7 +377,21 @@ jobs:
       # one at a time: wgpu devices made in parallel crashed the test process (crates/forza-ui/tests/it/snapshots.rs)
       - name: snapshots
         continue-on-error: true
-        run: 'cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked -p forza-ui --test it --target x86_64-pc-windows-msvc -- snapshots:: --test-threads=1 2>&1 | tee snapshots.log
+      # the job never fails (above), so the failed tests and pictures go where a reader of the run sees them
+      - name: snapshot summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Snapshots'
+            grep -E '^test result' snapshots.log || echo 'no test result: the build or the run failed, see the log'
+            grep -E '^test snapshots::.* FAILED$' snapshots.log | sed -E 's/^test snapshots::(.*) \.\.\. FAILED$/- `\1`/' || true
+            grep -oE "'[^']+' Image did not match snapshot\. Diff: [0-9]+" snapshots.log | sed -E 's/^/- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: snapshot differences
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
