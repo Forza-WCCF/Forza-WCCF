@@ -1,8 +1,9 @@
 //! A memory snapshot at a crash, so every crash leaves enough to find its cause.  The report printed at a crash says
 //! WHERE (address, registers, the callers); the snapshot holds what WHY needs.  Two per crash, in data\dumps (beside data\logs, so a start's log
-//! rotation never zips them): _lean = every thread's stack and the memory it points to (a cabinet ~1 MB, ~90 KB zipped:
-//! SAVE LOGS puts it in the ZIP) and _full = also the program's globals (the server 3.5 MB, a cabinet
-//! 36 MB: kept on this PC).  The newest `DUMPS_KEEP` of each kind stay.  Open with Visual Studio or WinDbg (.effmach x86).
+//! rotation never zips them): _lean = every thread's stack, the memory it points to and every memory region's state
+//! (so a fault's page shows whether it was still mapped at the crash), a cabinet ~1 MB, ~90 KB zipped: SAVE LOGS puts it
+//! in the ZIP; and _full = also the program's globals (the server 3.5 MB, a cabinet 36 MB: kept on this PC).  The newest
+//! `DUMPS_KEEP` of each kind stay.  Open with Visual Studio or WinDbg (.effmach x86).
 //!
 //! dbghelp's MiniDumpWriteDump through windows-sys, not the minidump-writer crate: on Windows that crate is a wrapper of
 //! the same call that needs a crash context (EXCEPTION_POINTERS inside the crashed process, which a debugger does not
