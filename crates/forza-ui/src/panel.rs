@@ -1790,8 +1790,8 @@ fn divider(ui: &mut Ui, st: &mut PanelState, sheet: Rect, board: Rect) {
             Stroke::new(3.0, theme::RIM_HI),
         );
     }
-    // the handle, always drawn: the divider reads as one at rest too (the panel crate does not apply egui's cursor
-    // to the game's window yet: the resize cursor above stays egui's). Shapes, not glyphs: the fonts may lack them.
+    // the handle, always drawn: the divider reads as one at rest too (the panel crate shows the resize cursor above
+    // on the game's window, `set_cursor`). Shapes, not glyphs: the fonts may lack them.
     if let Some(h) = handle {
         let p = ui.painter();
         p.rect_filled(h, 4.0, if lit { theme::RIM_HI } else { theme::RAISED_HI });
