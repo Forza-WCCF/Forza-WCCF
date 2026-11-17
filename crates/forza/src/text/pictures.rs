@@ -34,18 +34,23 @@ const S: i64 = 4;
 fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
     let read = |p: PathBuf| -> R<Value> {
         let d = fs::read(&p)?;
-        serde_json::from_slice(&d).map_err(|e| super::Failed(format!("{}: {e}", p.display())))
+        serde_json::from_slice(&d).map_err(|e| super::Failed::in_file(p.display(), e))
     };
     let mut out = match read(sheets.join("english").join("pictures.json"))?
         .get_mut("pictures")
         .map(Value::take)
     {
         Some(Value::Array(a)) => a,
-        _ => return fail("english\\pictures.json has no pictures list"),
+        _ => {
+            return fail(super::Line::raw(
+                "english\\pictures.json has no pictures list",
+            ));
+        }
     };
     for r in &out {
-        check_recipe(r)
-            .map_err(|e| super::Failed(format!("english\\pictures.json: {}: {e}", r["id"])))?;
+        check_recipe(r).map_err(|e| {
+            super::Failed::in_file(format!("english\\pictures.json: {}", r["id"]), e)
+        })?;
     }
     let p = sheets.join("italian").join("pictures.json");
     let itw = if it && p.is_file() {
@@ -60,7 +65,9 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
         .flat_map(Map::keys)
         .find(|id| !out.iter().any(|r| r["id"].as_str() == Some(id.as_str())))
     {
-        return fail(format!("italian\\pictures.json: {id} is no recipe's id"));
+        return fail(super::Line::raw(format!(
+            "italian\\pictures.json: {id} is no recipe's id"
+        )));
     }
     for r in &mut out {
         let id = r["id"].as_str().unwrap_or("").to_owned();
@@ -73,11 +80,11 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
             .as_array_mut()
             .map_or(&mut [][..], Vec::as_mut_slice);
         if !words.is_empty() && words.len() != labels.len() {
-            return fail(format!(
+            return fail(super::Line::raw(format!(
                 "italian\\pictures.json: {id} has {} words for {} labels",
                 words.len(),
                 labels.len()
-            ));
+            )));
         }
         for (n, lab) in labels.iter_mut().enumerate() {
             let w = words
@@ -324,7 +331,9 @@ fn clear(im: &mut Img, a: (i64, i64, i64, i64), fill: &Value) -> R<()> {
     match fill.as_str() {
         Some(f @ ("rows" | "cols")) => {
             if !im.holds(a) {
-                return fail(format!("the {f} area {a:?} is outside the picture"));
+                return fail(super::Line::raw(format!(
+                    "the {f} area {a:?} is outside the picture"
+                )));
             }
             let src = im.clone();
             let (w, h) = (im.w as i64, im.h as i64);
@@ -379,7 +388,7 @@ struct Line {
 
 impl Font {
     fn line(&self, size: i64, text: &str) -> R<Line> {
-        let ft = |e: freetype::Error| super::Failed(format!("{FONT}: {e}"));
+        let ft = |e: freetype::Error| super::Failed::in_file(FONT, e);
         let face = self.lib.new_memory_face(self.data.clone(), 0).map_err(ft)?;
         face.set_char_size((size * 64) as isize, (size * 64) as isize, 0, 0)
             .map_err(ft)?;
@@ -412,12 +421,12 @@ impl Line {
         for &(idx, _) in &self.glyphs {
             self.face
                 .load_glyph(idx, LoadFlag::DEFAULT)
-                .map_err(|e| super::Failed(format!("{FONT}: {e}")))?;
+                .map_err(|e| super::Failed::in_file(FONT, e))?;
             let g = self
                 .face
                 .glyph()
                 .get_glyph()
-                .map_err(|e| super::Failed(format!("{FONT}: {e}")))?;
+                .map_err(|e| super::Failed::in_file(FONT, e))?;
             let b = g.get_cbox(freetype::ffi::FT_GLYPH_BBOX_PIXELS);
             ymax = ymax.max(i64::from(b.yMax));
             ymin = ymin.min(i64::from(b.yMin));
@@ -428,7 +437,7 @@ impl Line {
     /// The words' coverage as Pillow's `ImageDraw.text` leaves it in an "L" image, cropped to the ink
     /// (`m.crop(m.getbbox())`): width, height, pixels.
     fn ink(&self) -> R<(usize, usize, Vec<u8>)> {
-        let ft = |e: freetype::Error| super::Failed(format!("{FONT}: {e}"));
+        let ft = |e: freetype::Error| super::Failed::in_file(FONT, e);
         let mut parts = vec![];
         let mut x = 0i64;
         for &(idx, adv) in &self.glyphs {
@@ -620,7 +629,7 @@ fn reflect(im: &mut Img, rf: &Value) -> R<()> {
     let (a0, a1) = (num(&rf["alpha"][0]), num(&rf["alpha"][1]));
     let dst_y = rf["dst_y"].as_i64().unwrap_or(0);
     if !im.holds((x0, y0, x1, y1)) || !im.holds((x0, dst_y, x1, dst_y + y1 - y0)) {
-        return fail("the reflection is outside the picture");
+        return fail(super::Line::raw("the reflection is outside the picture"));
     }
     let (mw, h) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
     let mut m = Vec::with_capacity(mw * h * 4);
@@ -708,13 +717,13 @@ fn remake(
         retext(&mut d, r, notes)?;
         return Ok(d);
     }
-    let (w, h, px) = bcn::decode_dds(data).map_err(|e| super::Failed(format!("{p}: {e}")))?;
+    let (w, h, px) = bcn::decode_dds(data).map_err(|e| super::Failed::in_file(p, e))?;
     let mut im = Img {
         w: w as usize,
         h: h as usize,
         px,
     };
-    redraw(&mut im, r, font, refh).map_err(|e| super::Failed(format!("{p}: {}", e.0)))?;
+    redraw(&mut im, r, font, refh).map_err(|e| e.after(p))?;
     encode(data, &im)
 }
 
@@ -728,7 +737,10 @@ fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<String>) -> R<()> {
         let t = lab["text"].as_str().unwrap_or("");
         let fits = at.checked_add(len).is_some_and(|e| e < d.len()) && usize::from(d[at]) == len;
         if !t.is_ascii() || t.len() > len || !fits {
-            return fail(format!("{}: {t:?} does not fit at {at}", r["id"]));
+            return fail(super::Line::raw(format!(
+                "{}: {t:?} does not fit at {at}",
+                r["id"]
+            )));
         }
         if t.is_empty() {
             notes.push(format!(
@@ -795,7 +807,10 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
         }
         if pf_flags & 4 != 0 {
             if fourcc != b"DXT5" {
-                return fail(format!("DDS format {}", String::from_utf8_lossy(fourcc)));
+                return fail(super::Line::raw(format!(
+                    "DDS format {}",
+                    String::from_utf8_lossy(fourcc)
+                )));
             }
             out.extend(bcn::encode_dxt5(&lv.px, lv.w as u32, lv.h as u32));
         } else {
@@ -803,11 +818,11 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
         }
     }
     if out.len() != orig.len() {
-        return fail(format!(
+        return fail(super::Line::raw(format!(
             "the redrawn picture's size {} differs from the original's {}",
             out.len(),
             orig.len()
-        ));
+        )));
     }
     Ok(out)
 }
@@ -866,9 +881,13 @@ fn load_state(path: &Path) -> R<Option<Map<String, Value>>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         r => r?,
     };
-    serde_json::from_slice(&d)
-        .map(Some)
-        .map_err(|e| super::Failed(format!("{STATE} is damaged ({e}) - left as it is")))
+    serde_json::from_slice(&d).map(Some).map_err(|e| {
+        super::Failed(
+            super::Line::key("text.fail_state_damaged_detail")
+                .arg("file", STATE)
+                .arg("detail", e),
+        )
+    })
 }
 
 /// `{path: entry number}` for every file in the archive.
@@ -877,13 +896,13 @@ fn toc(f: &mut File) -> R<HashMap<String, usize>> {
     f.seek(SeekFrom::Start(0))?;
     f.read_exact(&mut hdr)?;
     if &hdr[..4] != b"xaf0" {
-        return fail("data\\wccf_data.xaf is not an xaf0 archive");
+        return fail(super::Line::key("text.fail_xaf_archive").arg("file", "data\\wccf_data.xaf"));
     }
     let n = u32_at(&hdr, 12) as usize;
     // a damaged count must not size the allocation: the table has to fit in the file
     let len = f.seek(SeekFrom::End(0))?;
     if (n as u64).saturating_mul(ENTRY as u64) > len.saturating_sub(TOC_AT) {
-        return fail("data\\wccf_data.xaf is cut short or damaged (its entry count)");
+        return fail(super::Line::key("text.fail_xaf_count").arg("file", "data\\wccf_data.xaf"));
     }
     f.seek(SeekFrom::Start(TOC_AT))?;
     let mut raw = vec![0u8; n * ENTRY];
@@ -912,15 +931,15 @@ fn toc(f: &mut File) -> R<HashMap<String, usize>> {
 
 fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
     if e.len() != ENTRY {
-        return Err(super::Failed(format!(
-            "{STATE} is damaged (a short entry) - left as it is"
-        )));
+        return Err(super::Failed(
+            super::Line::key("text.fail_state_short").arg("file", STATE),
+        ));
     }
     let (size, stored) = (u32_at(e, 0x94) as usize, u32_at(e, 0x98) as usize);
     let at = u64::from(u32_at(e, 0xA0)) * SECTOR;
     // a damaged size must not size the allocation: the data has to fit in the file
     if at.saturating_add(stored as u64) > f.seek(SeekFrom::End(0))? {
-        return fail("data\\wccf_data.xaf is cut short or damaged (an entry's size)");
+        return fail(super::Line::key("text.fail_xaf_size").arg("file", "data\\wccf_data.xaf"));
     }
     f.seek(SeekFrom::Start(at))?;
     let mut d = vec![0u8; stored];
@@ -964,7 +983,7 @@ pub fn build(
         ));
     };
     let font = Font {
-        lib: freetype::Library::init().map_err(|e| super::Failed(format!("FreeType: {e}")))?,
+        lib: freetype::Library::init().map_err(|e| super::Failed::in_file("FreeType", e))?,
         data: std::rc::Rc::new(fs::read(fp)?),
     };
     let refh = font.line(100, "Hgjy")?.height()?;
@@ -1014,10 +1033,7 @@ pub fn build(
         }
     }
     if names.is_some() && !seen {
-        return fail(format!(
-            "pictures={} names no picture of english\\pictures.json",
-            spec.unwrap_or("")
-        ));
+        return fail(super::Line::key("text.fail_pictures_name").arg("name", spec.unwrap_or("")));
     }
     notes.insert(
         0,
@@ -1039,12 +1055,12 @@ pub fn build(
 
 fn hex(s: &str) -> R<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
-        return Err(super::Failed(format!("{STATE}: not hex")));
+        return Err(super::Failed(super::Line::raw(format!("{STATE}: not hex"))));
     }
     (0..s.len() / 2)
         .map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2).unwrap_or("zz"), 16))
         .collect::<Result<_, _>>()
-        .map_err(|_| super::Failed(format!("{STATE}: not hex")))
+        .map_err(|_| super::Failed(super::Line::raw(format!("{STATE}: not hex"))))
 }
 
 fn to_hex(d: &[u8]) -> String {
@@ -1064,9 +1080,7 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
         .transpose()?;
     let entries = state.get("entries").and_then(Value::as_object);
     let (Some(length), Some(header), Some(entries)) = (length, header, entries) else {
-        return fail(format!(
-            "{STATE} is not the archive's way back - left as it is"
-        ));
+        return fail(super::Line::key("text.fail_state_way_back").arg("file", STATE));
     };
     let mut f = OpenOptions::new()
         .read(true)
@@ -1075,10 +1089,10 @@ pub fn restore(game: &Path, state_path: &Path) -> R<usize> {
     let mut magic = [0u8; 4];
     f.read_exact(&mut magic)?;
     if &magic != b"xaf0" || f.seek(SeekFrom::End(0))? < length {
-        return fail("data\\wccf_data.xaf is shorter than before the pictures - left as it is");
+        return fail(super::Line::key("text.fail_xaf_shorter").arg("file", "data\\wccf_data.xaf"));
     }
     // everything is checked before the first byte is written; the state file stays when anything is wrong
-    let bad = || super::Failed(format!("{STATE} is damaged - left as it is"));
+    let bad = || super::Failed(super::Line::key("text.fail_state_damaged").arg("file", STATE));
     if header.len() != 0x18 {
         return Err(bad());
     }
@@ -1165,9 +1179,7 @@ pub fn apply(game: &Path, pics: &Pics, state_path: &Path) -> R<usize> {
     let q = |o: usize| u64::from_le_bytes(hdr[o..o + 8].try_into().unwrap());
     let (total, toc_sectors, data_sectors) = (q(0x18), q(0x20), q(0x28));
     if &hdr[..4] != b"xaf0" || length % SECTOR != 0 || total * SECTOR != length {
-        return fail(
-            "data\\wccf_data.xaf is not as the original was made (its length) - pictures left as they are",
-        );
+        return fail(super::Line::key("text.fail_xaf_length").arg("file", "data\\wccf_data.xaf"));
     }
     let mut old = vec![];
     for (i, ..) in pics {
@@ -1230,9 +1242,7 @@ pub fn apply(game: &Path, pics: &Pics, state_path: &Path) -> R<usize> {
         f.seek(SeekFrom::Start(TOC_AT + (i * ENTRY) as u64))?;
         f.read_exact(&mut e)?;
         if e != entries[i] || &read_entry(&mut f, &e)? != blob {
-            return fail(format!(
-                "{p} did not write correctly - switch the game text back to Japanese"
-            ));
+            return fail(super::Line::key("text.fail_not_written").arg("file", p));
         }
     }
     Ok(pics.len())
@@ -1422,7 +1432,9 @@ mod tests {
             )
             .unwrap();
             fs::write(t.path().join("italian/pictures.json"), it.to_string()).unwrap();
-            recipes(t.path(), true).map(drop).map_err(|e| e.0)
+            recipes(t.path(), true)
+                .map(drop)
+                .map_err(|e| super::super::tests::note_words("en", &e.0))
         };
         let good = json!({"id": "p", "where": "w", "sha256": "AB", "files": ["ui/p.dds"],
             "style": {"core": "auto", "halo": [0, 0, 0, 200], "halo_px": 1, "align": "left"},

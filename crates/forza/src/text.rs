@@ -32,26 +32,41 @@ use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::sync::LazyLock;
 use unicode_normalization::{UnicodeNormalization, char::canonical_combining_class};
 
-/// A refusal or a failed check; nothing changed.
+/// A refusal or a failed check; nothing changed. Its words are a [`Line`] like the notes': the player reads them in
+/// their language (`forza_ui::line`). A `Raw` one is a path or a system or file-format error, the same everywhere.
 #[derive(Debug)]
-pub struct Failed(pub String);
+pub struct Failed(pub Line);
 
-impl fmt::Display for Failed {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+impl Failed {
+    /// `%{file}: %{detail}`: a failure in a file, or the error its reader gave.
+    fn in_file(file: impl fmt::Display, detail: impl fmt::Display) -> Self {
+        Self(
+            Line::key("text.fail_in_file")
+                .arg("file", file)
+                .arg("detail", detail),
+        )
+    }
+
+    /// The same failure after the file it happened in.
+    fn after(self, file: impl fmt::Display) -> Self {
+        Self(
+            Line::key("text.fail_in_file")
+                .arg("file", file)
+                .part("detail", self.0),
+        )
     }
 }
 
 impl From<io::Error> for Failed {
     fn from(e: io::Error) -> Self {
-        Self(e.to_string())
+        Self(Line::raw(e))
     }
 }
 
 type R<T> = Result<T, Failed>;
 
-fn fail<T>(s: impl Into<String>) -> R<T> {
-    Err(Failed(s.into()))
+fn fail<T>(line: Line) -> R<T> {
+    Err(Failed(line))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -332,16 +347,16 @@ impl Ctx {
             .quoting(false)
             .flexible(true)
             .from_path(&p)
-            .map_err(|e| Failed(format!("{}: {e}", p.display())))?;
+            .map_err(|e| Failed::in_file(p.display(), e))?;
         let head: Vec<String> = rd
             .headers()
-            .map_err(|e| Failed(format!("{}: {e}", p.display())))?
+            .map_err(|e| Failed::in_file(p.display(), e))?
             .iter()
             .map(String::from)
             .collect();
         let mut out = vec![];
         for rec in rd.records() {
-            let rec = rec.map_err(|e| Failed(format!("{}: {e}", p.display())))?;
+            let rec = rec.map_err(|e| Failed::in_file(p.display(), e))?;
             out.push(
                 head.iter()
                     .cloned()
@@ -453,12 +468,9 @@ fn import_name_offset(d: &[u8], dll: &[u8]) -> Option<usize> {
 fn rename_import(d: &[u8], frm: &[u8], to: &[u8]) -> R<Vec<u8>> {
     let Some(s) = import_name_offset(d, frm) else {
         return fail(if import_name_offset(d, to).is_some() {
-            format!("already renamed to {}", String::from_utf8_lossy(to))
+            Line::key("text.fail_already_renamed").arg("name", String::from_utf8_lossy(to))
         } else {
-            format!(
-                "this program does not import {}",
-                String::from_utf8_lossy(frm)
-            )
+            Line::key("text.fail_no_import").arg("name", String::from_utf8_lossy(frm))
         });
     };
     let mut out = d.to_vec();
@@ -541,7 +553,7 @@ fn read_strings(raw: &[u8], hf_raw: &[u8]) -> R<(Vec<u8>, Keys)> {
             .map(|x| std::str::from_utf8(x).ok().and_then(|x| x.parse().ok()))
             .collect::<Option<Vec<usize>>>();
         let (Some(nums), Ok(k)) = (nums, std::str::from_utf8(k)) else {
-            return fail("string_list.hf: a line is not a key and numbers");
+            return fail(Line::raw("string_list.hf: a line is not a key and numbers"));
         };
         keys.insert(k.into(), (i, nums));
     }
@@ -566,7 +578,7 @@ fn has_high(b: &[u8]) -> bool {
 
 /// The line as the game's bytes, or what is wrong with it: a line keeps exactly the printf and `$` codes of the
 /// game's Japanese line, the printf ones in its order (msvcr90's `vsprintf_s` takes no positional argument).
-fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, String> {
+fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, Line> {
     let sorted = |r: &Regex, s: &str| {
         let mut v: Vec<String> = r.find_iter(s).map(|m| m.as_str().into()).collect();
         v.sort();
@@ -584,22 +596,20 @@ fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, Stri
             Edition::E1718 => CODES.is_match(jp),
         };
         return if FMT.is_match(jp) || codes {
-            Err("<empty> would drop the Japanese line's codes".into())
+            Err(Line::key("text.why_empty"))
         } else {
             Ok(vec![])
         };
     }
     let en = text.replace("\\n", "\n");
     if fmt(jp) != fmt(&en) {
-        return Err(format!(
-            "codes {:?}, the game's line has {:?}",
-            fmt(&en),
-            fmt(jp)
-        ));
+        return Err(Line::key("text.why_codes")
+            .arg("found", format!("{:?}", fmt(&en)))
+            .arg("want", format!("{:?}", fmt(jp))));
     }
     if FMT.replace_all(&en, "").matches('%').count() > FMT.replace_all(jp, "").matches('%').count()
     {
-        return Err("a % sign that is no printf code - the game would show junk or stop".into());
+        return Err(Line::key("text.why_percent"));
     }
     match ed {
         Edition::E1011 => {
@@ -614,29 +624,27 @@ fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, Stri
             };
             if jp.matches("$c[").count() != en.matches("$c[").count() || letters(jp) != letters(&en)
             {
-                return Err("$ codes (colour, layout) differ from the game's line".into());
+                return Err(Line::key("text.why_dollar"));
             }
         }
         Edition::E1718 => {
             if sorted(&CODES, jp) != sorted(&CODES, &en) {
-                return Err(format!(
-                    "$ codes {:?}, the game's line has {:?}",
-                    sorted(&CODES, &en),
-                    sorted(&CODES, jp)
-                ));
+                return Err(Line::key("text.why_dollar_diff")
+                    .arg("found", format!("{:?}", sorted(&CODES, &en)))
+                    .arg("want", format!("{:?}", sorted(&CODES, jp))));
             }
         }
     }
     let (b, _, bad) = encoding_rs::SHIFT_JIS.encode(&en);
     if bad {
-        return Err("a letter the game's font cannot show".into());
+        return Err(Line::key("text.why_letter"));
     }
     let mut b = b.into_owned();
     if ed == Edition::E1011 && nl != b"\n" {
         b = b.split(|&c| c == b'\n').collect::<Vec<_>>().join(nl);
     }
     if b.contains(&0) {
-        return Err("holds an end byte".into());
+        return Err(Line::key("text.why_end_byte"));
     }
     Ok(b)
 }
@@ -737,7 +745,7 @@ type Slots<'a> = (BTreeMap<String, usize>, Vec<&'a String>, Vec<(i64, i64)>);
 type Encoded = (
     BTreeMap<String, Vec<u8>>,
     HashMap<String, &'static str>,
-    Vec<String>,
+    Vec<Line>,
     usize,
 );
 fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) -> Encoded {
@@ -749,7 +757,11 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
                 options
                     .iter()
                     .filter(|(_, s)| s.starts_with("kit"))
-                    .map(|_| format!("{k}: no such line in the game")),
+                    .map(|_| {
+                        Line::key("text.misfit")
+                            .arg("key", k)
+                            .part("why", Line::key("text.why_no_line"))
+                    }),
             );
             continue;
         };
@@ -765,15 +777,49 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
                     break;
                 }
                 Err(p) if src.starts_with("kit") => misfit.push(if ed == Edition::E1718 {
-                    format!("{k} ({src}): {p}")
+                    Line::key("text.misfit_source")
+                        .arg("key", k)
+                        .part("source", source_line(src))
+                        .part("why", p)
                 } else {
-                    format!("{k}: {p}")
+                    Line::key("text.misfit").arg("key", k).part("why", p)
                 }),
                 Err(_) => original_bad += 1,
             }
         }
     }
     (enc, used, misfit, original_bad)
+}
+
+/// Where a line's words came from, for the note under the lines: the label is a text key (`text.src_*`).
+fn source_line(src: &str) -> Line {
+    Line::key(match src {
+        "kit" => "text.src_kit",
+        "kit Italian" => "text.src_kit_it",
+        "original second column" => "text.src_original_second",
+        "original European English" => "text.src_original_english",
+        "original Italian" => "text.src_original_it",
+        "original European Italian" => "text.src_original_eu_it",
+        other => return Line::raw(other),
+    })
+}
+
+/// `%{source} %{count}` for each source, in order: one key for the first, one for each after it.
+fn by_line(by: &BTreeMap<&str, usize>) -> Line {
+    let mut it = by.iter();
+    let Some((src, n)) = it.next() else {
+        return Line::raw("");
+    };
+    let mut out = Line::key("text.note_by")
+        .part("source", source_line(src))
+        .arg("count", n);
+    for (src, n) in it {
+        out = Line::key("text.note_by_more")
+            .part("head", out)
+            .part("source", source_line(src))
+            .arg("count", n);
+    }
+    out
 }
 
 /// New string_list.bin, .hf and the offset of each packed key.
@@ -793,7 +839,7 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
     let mut own: HashMap<&str, (usize, usize)> = HashMap::new();
     for k in enc.keys() {
         let Some((_, nums)) = keys.get(k) else {
-            return fail(format!("no such line {k}"));
+            return fail(Line::raw(format!("no such line {k}")));
         };
         let p = nums[0];
         let end = p + at(&body, p).len() + 1;
@@ -835,7 +881,7 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
     for k in spill {
         let b = &enc[k];
         let Some(i) = free.iter().position(|&(s, e)| e - s > b.len() as i64) else {
-            return fail(format!("no room in string_list.bin for {k}"));
+            return fail(Line::raw(format!("no room in string_list.bin for {k}")));
         };
         let s = free[i].0 as usize;
         nbody[s..s + b.len()].copy_from_slice(b);
@@ -891,9 +937,9 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
         }
     }
     if wrong > 0 || new_bin.len() != raw.len() || new_hf[0] != hf_lines[0] {
-        return fail(format!(
+        return fail(Line::raw(format!(
             "the built screen text does not read back as intended ({wrong} places) - nothing changed"
-        ));
+        )));
     }
     Ok((new_bin, new_hf.concat(), pos))
 }
@@ -906,7 +952,7 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
     let u32at = |p: usize| {
         d.get(p..p + 4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-            .ok_or_else(|| Failed("StringListTableRecord.bin is cut short".into()))
+            .ok_or_else(|| Failed(Line::raw("StringListTableRecord.bin is cut short")))
     };
     let (n, mut p, mut recs) = (u32at(0)?, 4, vec![]);
     for _ in 0..n {
@@ -917,7 +963,7 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
             let ln = u32at(p)? as usize;
             f.push(
                 d.get(p + 4..p + 4 + ln)
-                    .ok_or_else(|| Failed("StringListTableRecord.bin is cut short".into()))?
+                    .ok_or_else(|| Failed(Line::raw("StringListTableRecord.bin is cut short")))?
                     .to_vec(),
             );
             p += 4 + ln;
@@ -925,10 +971,10 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
         recs.push((id, f));
     }
     if p != d.len() {
-        return fail(format!(
+        return fail(Line::raw(format!(
             "StringListTableRecord.bin has {} bytes after its last line",
             d.len() - p
-        ));
+        )));
     }
     Ok(recs)
 }
@@ -973,9 +1019,9 @@ fn pack_enum(
             i == j && b[..2] == o[..2] && b[3..] == o[3..] && b[2] == *done.get(&k).unwrap_or(&o[2])
         });
     if !ok {
-        return fail(
+        return fail(Line::raw(
             "the built client screen text does not read back as intended - nothing changed",
-        );
+        ));
     }
     Ok((new, done.len()))
 }
@@ -1000,8 +1046,10 @@ impl Ctx {
                 && Some(sha(d)) != self.original_hash(rel)
             {
                 return fail(match self.ed {
-                    Edition::E1011 => "data\\string\\string_list.* are not original Rev D files - the English is made for those only".into(),
-                    Edition::E1718 => format!("{rel} is not the original 2.00.00 file - the English is made for that only"),
+                    Edition::E1011 => Line::key("text.fail_lines_not_original"),
+                    Edition::E1718 => Line::key("text.fail_not_original_only")
+                        .arg("file", rel)
+                        .arg("edition", "2.00.00"),
                 });
             }
         }
@@ -1014,16 +1062,17 @@ impl Ctx {
         let ch = self.choices(&body, &keys, lang)?;
         let (enc, used, misfit, original_bad) = encode_lines(self.ed, &body, &keys, &ch, nl);
         if self.ed == Edition::E1011 && !misfit.is_empty() {
-            return fail(format!(
-                "the game text has {} problem(s), e.g. {}",
-                misfit.len(),
-                misfit
-                    .iter()
-                    .take(3)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ));
+            let mut examples = misfit[0].clone();
+            for next in misfit.iter().skip(1).take(2) {
+                examples = Line::key("text.fail_example_more")
+                    .part("head", examples)
+                    .part("next", next.clone());
+            }
+            return fail(
+                Line::key("text.fail_lines_problems")
+                    .arg("count", misfit.len())
+                    .part("examples", examples),
+            );
         }
         let (new_bin, new_hf, pos) = pack_strings(&raw, &hf_raw, &enc)?;
         let mut by: BTreeMap<&str, usize> = BTreeMap::new();
@@ -1042,7 +1091,7 @@ impl Ctx {
             if !misfit.is_empty() {
                 misfit_note = Line::key("text.note_misfit")
                     .arg("count", misfit.len())
-                    .arg("first", &misfit[0]);
+                    .part("first", misfit[0].clone());
             }
         } else if original_bad > 0 {
             unusable = Line::key("text.note_unusable").arg("count", original_bad);
@@ -1081,13 +1130,7 @@ impl Ctx {
         let note = Line::key("text.note_lines")
             .arg("count", pos.len())
             .part("lang", lang.line())
-            .arg(
-                "by",
-                by.iter()
-                    .map(|(s, n)| format!("{s} {n}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            )
+            .part("by", by_line(&by))
             .part("clients", clients)
             .part("misfit", misfit_note)
             .part("unusable", unusable)
@@ -1212,14 +1255,17 @@ impl Ctx {
         let s = &self.spec;
         let mut pd = self.original_file(PLAYERS)?;
         if Some(sha(&pd)) != self.original_hash(PLAYERS) || pd.len() % s.rec != 0 {
-            return fail(match self.ed {
-                Edition::E1011 => {
-                    "prog_data\\player_data\\player_data.bin is not the original Rev D file"
-                }
-                Edition::E1718 => {
-                    "prog_data\\player_data\\player_data.bin is not the original 2.00.00 file"
-                }
-            });
+            return fail(
+                Line::key("text.fail_not_original")
+                    .arg("file", "prog_data\\player_data\\player_data.bin")
+                    .arg(
+                        "edition",
+                        match self.ed {
+                            Edition::E1011 => "Rev D",
+                            Edition::E1718 => "2.00.00",
+                        },
+                    ),
+            );
         }
         let set = |pd: &mut Vec<u8>, at: usize, v: &[u8]| {
             let n = put_field(&pd[at..at + FIELD], v, FIELD);
@@ -1274,7 +1320,7 @@ impl Ctx {
                 continue;
             }
             if !team_name_fits(en) {
-                return fail(format!("the team name for {file} does not fit"));
+                return fail(Line::key("text.fail_team_name").arg("file", file));
             }
             let n = put_field(&d[NAME_AT..NAME_END], en.as_bytes(), NAME_END - NAME_AT);
             d[NAME_AT..NAME_END].copy_from_slice(&n);
@@ -1289,22 +1335,11 @@ impl Ctx {
         let rows = self.sheet("exe_text.tsv", "english")?;
         let mut files = vec![];
         for (rel, program, what) in [
-            (
-                PROJECTOR,
-                "client",
-                "the projector's client_Release.exe (the original Rev D)",
-            ),
-            (
-                SEAT_EXE,
-                "client",
-                "seat 1's client_Release.exe (the copy setup makes)",
-            ),
-            (
-                SERVER,
-                "server",
-                "the server's control_Release.exe (the original Rev D)",
-            ),
+            (PROJECTOR, "client", "text.fail_what_projector"),
+            (SEAT_EXE, "client", "text.fail_what_seat1"),
+            (SERVER, "server", "text.fail_what_server"),
         ] {
+            let what = Line::key(what);
             let mine: Vec<_> = rows
                 .iter()
                 .filter(|r| cell(r, "program") == program)
@@ -1314,18 +1349,16 @@ impl Ctx {
             }
             let mut d = self.original_file(rel)?;
             if Some(sha(&d)) != self.original_hash(rel) {
-                return fail(format!(
-                    "{what} is not the expected file - press SET UP in Launcher.exe first"
-                ));
+                return fail(Line::key("text.fail_set_up_first").part("what", what.clone()));
             }
             let size = d.len();
             for r in mine {
                 let off = cell(r, "offset");
                 let o = usize::from_str_radix(off.trim_start_matches("0x"), 16)
-                    .map_err(|_| Failed(format!("exe_text.tsv: bad offset {off}")))?;
+                    .map_err(|_| Failed(Line::raw(format!("exe_text.tsv: bad offset {off}"))))?;
                 let n: usize = cell(r, "length")
                     .parse()
-                    .map_err(|_| Failed(format!("exe_text.tsv: bad length at {off}")))?;
+                    .map_err(|_| Failed(Line::raw(format!("exe_text.tsv: bad length at {off}"))))?;
                 let en = if lang == Lang::It && !cell(r, "italiano").is_empty() {
                     cell(r, "italiano")
                 } else {
@@ -1334,23 +1367,25 @@ impl Ctx {
                 if d.get(o..o + n).map(sha).as_deref() != Some(cell(r, "original_sha256"))
                     || d.get(o + n) != Some(&0)
                 {
-                    return fail(format!(
-                        "{what} at {off} is not the text Forza-WCCF expects"
-                    ));
+                    return fail(
+                        Line::key("text.fail_text_expected")
+                            .part("what", what.clone())
+                            .arg("at", off),
+                    );
                 }
                 let mut room = n + 1;
                 while o + room < d.len() && d[o + room] == 0 {
                     room += 1;
                 }
                 if en.len() + 1 > room || !en.chars().all(|c| (' '..'\u{7f}').contains(&c)) {
-                    return fail(format!("the text at {off} does not fit"));
+                    return fail(Line::key("text.fail_text_does_not_fit").arg("at", off));
                 }
                 // over exactly the room measured: never a byte more or less
                 d[o..o + room].fill(0);
                 d[o..o + en.len()].copy_from_slice(en.as_bytes());
             }
             if d.len() != size {
-                return fail(format!("{what} would change size - nothing written"));
+                return fail(Line::key("text.fail_would_change_size").part("what", what));
             }
             files.push((rel.to_string(), d));
         }
@@ -1359,9 +1394,7 @@ impl Ctx {
             .map(|r| cell(r, "program"))
             .find(|p| !["client", "server"].contains(p))
         {
-            return fail(format!(
-                "exe_text.tsv names a program Forza-WCCF does not know: {p}"
-            ));
+            return fail(Line::key("text.fail_unknown_program").arg("program", p));
         }
         let n_client = rows
             .iter()
@@ -1451,10 +1484,11 @@ fn read_manifest(p: &Path) -> R<Map<String, Value>> {
         r => r?,
     };
     let m = serde_json::from_slice::<Map<String, Value>>(&d).map_err(|e| {
-        Failed(format!(
-            "the backup list {} is damaged ({e}) - left as it is",
-            p.display()
-        ))
+        Failed(
+            Line::key("text.fail_backup_list_damaged")
+                .arg("file", p.display())
+                .arg("detail", e),
+        )
     })?;
     Ok(m.into_iter().map(|(k, v)| (fold_dots(&k), v)).collect())
 }
@@ -1484,7 +1518,7 @@ impl Ctx {
             &mut out,
             serde_json::ser::PrettyFormatter::with_indent(b" "),
         );
-        serde::Serialize::serialize(m, &mut ser).map_err(|e| Failed(e.to_string()))?;
+        serde::Serialize::serialize(m, &mut ser).map_err(|e| Failed(Line::raw(e)))?;
         Ok(put(&self.manifest_path(), &out)?)
     }
 
@@ -1494,7 +1528,7 @@ impl Ctx {
         let data = norm(fs::read(self.at(rel))?, rel)?;
         put(dst, &data)?;
         if fs::read(dst)? != data {
-            return fail(format!("could not copy {rel} to the backup"));
+            return fail(Line::key("text.fail_copy_backup").arg("file", rel));
         }
         Ok(())
     }
@@ -1510,9 +1544,7 @@ impl Ctx {
             if unsaved(&man, rel)
                 && Some(sha(&norm(fs::read(self.at(rel))?, rel)?)) != self.original_hash(rel)
             {
-                return fail(format!(
-                    "{rel} is neither original nor backed up - refusing to replace it"
-                ));
+                return fail(Line::key("text.fail_no_backup").arg("file", rel));
             }
         }
         for (rel, data) in files {
@@ -1526,9 +1558,7 @@ impl Ctx {
             }
             put(&tgt, data)?;
             if sha(&fs::read(&tgt)?) != sha(data) {
-                return fail(format!(
-                    "{rel} did not write correctly - switch the game text back to Japanese"
-                ));
+                return fail(Line::key("text.fail_not_written").arg("file", rel));
             }
             if let Some(Value::Object(e)) = man.get_mut(&key(rel)) {
                 e.insert("english".into(), sha(data).into());
@@ -1558,9 +1588,7 @@ impl Ctx {
                 // a program's backup as the original WINMM import (an older kit's raw copy is the same bytes)
                 let data = norm(fs::read(&bak)?, &rel)?;
                 if sha(&data) != want {
-                    return fail(format!(
-                        "the backup of {rel} is not the original file - left as it is"
-                    ));
+                    return fail(Line::key("text.fail_backup_not_original").arg("file", rel));
                 }
                 put(&tgt, &data)?; // one step: the original file back, never a moment without one
                 apply_hook(&rel, &tgt)?;
@@ -1570,12 +1598,12 @@ impl Ctx {
             }
         }
         if !lost.is_empty() {
-            return fail(format!(
-                "{} file(s) are not original and have no backup of the original, so they stay as they are ({}{})",
-                lost.len(),
-                lost[0],
-                if lost.len() > 1 { ", ..." } else { "" }
-            ));
+            return fail(
+                Line::key("text.fail_no_original_backup")
+                    .arg("count", lost.len())
+                    .arg("first", lost[0].clone())
+                    .arg("more", if lost.len() > 1 { ", ..." } else { "" }),
+            );
         }
         for f in [
             self.manifest_path(),
@@ -1641,7 +1669,7 @@ impl Ctx {
         // the old list stays until the new one lands in one step: the files it names stay originals meanwhile
         copy_tree(&self.backup, &to, &["manifest.json", SHEETS])?;
         man.extend(self.load_manifest()?);
-        let out = serde_json::to_vec_pretty(&man).map_err(|e| Failed(e.to_string()))?;
+        let out = serde_json::to_vec_pretty(&man).map_err(|e| Failed(Line::raw(e)))?;
         Ok(put(&to.join("manifest.json"), &out)?)
     }
 
@@ -1818,7 +1846,7 @@ pub fn run(
         {
             say(
                 "  ",
-                &Line::raw(format!("could not keep the backup beside the game: {e}")),
+                &Line::key("text.fail_save_beside").part("detail", e.0),
             );
         }
         say(
@@ -1833,7 +1861,7 @@ pub fn run(
     match r {
         Ok(()) => 0,
         Err(e) => {
-            say("  FAIL  ", &Line::raw(e));
+            say("  FAIL  ", &e.0);
             1
         }
     }
@@ -1890,6 +1918,29 @@ mod tests {
         }
         assert!(!it.contains("%{"), "every argument is filled: {it}");
         assert_ne!(note_words("ja", &note), it, "the Japanese is its own text");
+    }
+
+    /// A reason the FAIL line shows is keyed too: the Italian and the Japanese say it in their own words, with the
+    /// file as the only English left, and every argument filled.
+    #[test]
+    fn the_player_reason_is_keyed() {
+        let reason =
+            Line::key("text.fail_set_up_first").part("what", Line::key("text.fail_what_seat1"));
+        let en = note_words("en", &reason);
+        assert!(
+            en.starts_with("seat 1's client_Release.exe (the copy setup makes)")
+                && en.ends_with("is not the expected file - press SET UP in Launcher.exe first"),
+            "{en}"
+        );
+        let it = note_words("it", &reason);
+        for english in ["seat 1", "copy setup", "expected file", "press SET UP"] {
+            assert!(!it.contains(english), "{it}");
+        }
+        assert!(!it.contains("%{"), "every argument is filled: {it}");
+        let ja = note_words("ja", &reason);
+        assert!(!ja.contains("%{"), "every argument is filled: {ja}");
+        assert!(!ja.contains("expected file"), "{ja}");
+        assert_ne!(ja, it, "the Japanese is its own text");
     }
 
     #[test]

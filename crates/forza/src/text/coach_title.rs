@@ -19,7 +19,7 @@ const PART: [&str; 2] = ["title", "requirement"];
 type Rec = ([u8; 8], [Vec<u8>; 3], [u8; 32]);
 
 fn read(d: &[u8]) -> R<Vec<Rec>> {
-    let short = || Failed("CoachtitleTableRecord.bin is cut short".into());
+    let short = || Failed(Line::raw("CoachtitleTableRecord.bin is cut short"));
     let take = |p: &mut usize, n: usize| -> R<&[u8]> {
         let b = d.get(*p..*p + n).ok_or_else(short)?;
         *p += n;
@@ -38,10 +38,10 @@ fn read(d: &[u8]) -> R<Vec<Rec>> {
         recs.push((head, s, take(&mut p, 32)?.try_into().unwrap()));
     }
     if p != d.len() {
-        return fail(format!(
+        return fail(Line::raw(format!(
             "CoachtitleTableRecord.bin has {} bytes after its last title",
             d.len() - p
-        ));
+        )));
     }
     Ok(recs)
 }
@@ -61,7 +61,7 @@ fn write(recs: &[Rec]) -> Vec<u8> {
 
 /// Each title's and requirement's first choice that fits (printable ASCII within its room), else the next; none
 /// fits = the Japanese stays. Read back. Returns the file, how many strings changed and the misfits.
-fn pack(raw: &[u8], choose: impl Fn(&str) -> Vec<String>) -> R<(Vec<u8>, usize, Vec<String>)> {
+fn pack(raw: &[u8], choose: impl Fn(&str) -> Vec<String>) -> R<(Vec<u8>, usize, Vec<Line>)> {
     let old = read(raw)?;
     let mut recs = old.clone();
     let (mut done, mut misfit) = (0, vec![]);
@@ -74,7 +74,11 @@ fn pack(raw: &[u8], choose: impl Fn(&str) -> Vec<String>) -> R<(Vec<u8>, usize, 
                 !t.is_empty() && t.len() <= ROOM[i] && t.bytes().all(|b| (b' '..0x7f).contains(&b))
             };
             if let Some(bad) = all.iter().find(|t| !fits(t)) {
-                misfit.push(format!("{id} \"{bad}\""));
+                misfit.push(
+                    Line::key("text.misfit_title")
+                        .arg("id", &id)
+                        .arg("text", bad),
+                );
             }
             if let Some(t) = all.iter().find(fits) {
                 s[i + 1] = t.as_bytes().to_vec();
@@ -90,7 +94,9 @@ fn pack(raw: &[u8], choose: impl Fn(&str) -> Vec<String>) -> R<(Vec<u8>, usize, 
             .zip(&old)
             .any(|(a, b)| a.0 != b.0 || a.1[0] != b.1[0] || a.2 != b.2)
     {
-        return fail("the built manager titles do not read back as intended - nothing changed");
+        return fail(Line::raw(
+            "the built manager titles do not read back as intended - nothing changed",
+        ));
     }
     Ok((new, done, misfit))
 }
@@ -100,9 +106,11 @@ impl Ctx {
     pub(super) fn build_titles(&self, lang: Lang) -> R<Built> {
         let raw = self.original_file(TITLES)?;
         if sha(&raw) != TITLES_SHA {
-            return fail(format!(
-                "{TITLES} is not the original 2.00.00 file - the English is made for that only"
-            ));
+            return fail(
+                Line::key("text.fail_not_original_only")
+                    .arg("file", TITLES)
+                    .arg("edition", "2.00.00"),
+            );
         }
         let load = |folder, col| -> R<std::collections::HashMap<String, String>> {
             Ok(self
@@ -132,7 +140,7 @@ impl Ctx {
                 match misfit.first() {
                     Some(first) => Line::key("text.note_title_misfit")
                         .arg("count", misfit.len())
-                        .arg("first", first),
+                        .part("first", first.clone()),
                     None => Line::raw(""),
                 },
             );
