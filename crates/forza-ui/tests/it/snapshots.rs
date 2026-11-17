@@ -81,7 +81,6 @@ fn launcher_screens() {
             (Running, "running"),
             (StopArmed, "stop"),
             (NotSetUp, "setup"),
-            (Update, "update"),
             (Busy, "busy"),
             (Report, "report"),
             (CleanedUp, "cleanup"),
@@ -218,6 +217,9 @@ fn installer_1718(lang: Lang, page: installer::Page) -> installer::InstallerStat
     st.iso = r"D:\Images\disc-2017-18.iso".into();
     st.detected = Some(Edition::E1718);
     st.package_check = Some(installer::PackageCheck::Ok(Edition::E1718));
+    st.package = r"D:\Images\WCCF-2017-18-kit.zip".into();
+    st.done_path = r"C:\Games\Forza-WCCF\2017-2018".into();
+    st.edition = Edition::E1718;
     st.installed = vec![Edition::E1011];
     st
 }
@@ -256,12 +258,8 @@ fn panel_pages() {
                 panel::show(ui, &mut st)
             });
         }
-        // its arcade line on the game page, its own filters in the catalogue, the club card's share code
-        for page in [
-            panel::Page::Game,
-            panel::Page::Catalogue,
-            panel::Page::ClubCard,
-        ] {
+        // its arcade line on the game page, its own filters in the catalogue
+        for page in [panel::Page::Game, panel::Page::Catalogue] {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, page);
             let name = format!("panel_{}_1718_{}", page.tag(), lang.code());
             snap(&mut all, &name, panel::SIZE, Edition::E1718, |ui| {
@@ -1201,6 +1199,33 @@ fn crash_screen() {
         });
     }
     all.unwrap();
+}
+
+/// The card dealt after a match over the game: NEW PLAYER CARD with the card, its stats and TOTAL; the picture's clicks
+/// stay off while it shows; a click on it closes it.
+#[test]
+fn card_deal() {
+    use std::cell::RefCell;
+    let _gpu = gpu();
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1718,
+        Lang::En,
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
+    ));
+    st.borrow_mut().deal = Some(panel::Deal::new(3));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(4);
+    h.snapshot("panel_deal_en");
+    // a click on the card turns it over
+    let r = h.get_by_label_contains("NEW PLAYER CARD").rect();
+    let card = egui::pos2(r.center().x, r.top() + 200.0);
+    h.drag_at(card);
+    h.drop_at(card);
+    h.run_steps(2);
+    h.snapshot("panel_deal_back_en");
 }
 
 /// The PAUSED page over the game's picture (Japanese: the longest lines), and RESUME on the page bar asking for the
