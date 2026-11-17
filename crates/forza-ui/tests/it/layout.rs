@@ -794,7 +794,7 @@ fn settings_last_toggles_take_the_click_1718() {
             let label = forza_ui::text(lang, key, &[]);
             let before = value(&st.borrow());
             h.get_by_label(&label).scroll_to_me();
-            h.run_steps(2);
+            h.run_steps(4); // a scroll_to_me lands on the 4th frame (2 leave the row where it was)
             let r = h.get_by_label(&label).rect();
             assert!(
                 r.bottom() <= bar.top() - 12.0,

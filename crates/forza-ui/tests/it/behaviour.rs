@@ -213,7 +213,7 @@ fn board_reset_lineup_asks_first() {
             h.run_steps(4);
             // at the foot of the page: SETTINGS scrolls at this size (#348)
             h.get_by_label("Ask before RESET LINEUP").scroll_to_me();
-            h.run_steps(2);
+            h.run_steps(4); // a scroll_to_me lands on the 4th frame (2 leave the row where it was)
             let row = h.get_by_label("Ask before RESET LINEUP").rect();
             h.get_by_label("Ask before RESET LINEUP").click();
             h.run_steps(4);
