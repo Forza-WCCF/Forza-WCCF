@@ -72,6 +72,8 @@ fn stamps(v: &Value) -> Vec<String> {
         .iter()
         .map(|n| {
             let n = n.as_str().unwrap();
+            // ".zip" goes first: the plain name keeps it through the " (n)" split, the " (2)" one does not
+            let n = n.strip_suffix(".zip").unwrap_or(n);
             n.split_once(" (").map_or(n, |(stamp, _)| stamp).to_owned()
         })
         .collect();
