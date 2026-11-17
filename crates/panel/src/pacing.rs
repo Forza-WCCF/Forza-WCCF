@@ -1,6 +1,7 @@
 //! Seat 1's frame pacing, measured where the game shows each frame (`hook_present`): the frames a second for the FPS
 //! counter (SETTINGS > FPS COUNTER), and one line per match in `WCCF_LOGS\frame_times.txt` with the frame times'
-//! average, 99th percentile, longest and the count over 50 ms (the game runs 30 frames a second: 33.3 ms each).
+//! average, 99th percentile, longest and the count over 50 ms (the game runs 30 frames a second: 33.3 ms each). That
+//! line starts at match loading (seat state 22), so it includes the loading, not comparable with 0.7.3's numbers.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};

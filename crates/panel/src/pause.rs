@@ -122,9 +122,9 @@ pub(crate) fn seat_state() -> Option<u32> {
     patches::read_u32(obj as usize).filter(|&s| s < 64)
 }
 
-/// 2017-18 seat state 19: set by the match sequence's start (C17 sub_61AB80; its update sends `REQ_MATCH` and
-/// `GO TO GAME`) and kept through the match (sub_87FF60 sets none) until the next sequence writes its own.
-pub(crate) const SEAT_MATCH: u32 = 19;
+/// 2017-18 seat states of this seat's match: 22 and 21 (match loading) and 23 (the match). Seen in guarded runs and a
+/// player's logs: each match went 19 (before the match) -> 22 -> 21 -> 22 -> 23 -> 26 (the result screen).
+pub(crate) const SEAT_MATCH: std::ops::RangeInclusive<u32> = 21..=23;
 
 /// The kit's control on this PC (`control_Release.exe` from this game's folders): its process and its Stop checkbox
 /// (ID 1035 on its `#32770` main dialog, hidden by the run); either may be missing.
