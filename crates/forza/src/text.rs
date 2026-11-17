@@ -980,7 +980,8 @@ fn pack_enum(
     Ok((new, done.len()))
 }
 
-type Built = (Vec<(String, Vec<u8>)>, String);
+/// The files a build changes and the lines the player reads under them (each an `ui.yml` key of forza-ui).
+type Built = (Vec<(String, Vec<u8>)>, Vec<Line>);
 
 impl Ctx {
     fn build_strings(&self, lang: Lang) -> R<Built> {
@@ -1029,30 +1030,22 @@ impl Ctx {
         for k in pos.keys() {
             *by.entry(used[k]).or_default() += 1;
         }
-        let mut note = format!(
-            "{} lines in {} ({})",
-            pos.len(),
-            lang.name(),
-            by.iter()
-                .map(|(s, n)| format!("{s} {n}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
         let mut files = vec![(BIN.to_string(), new_bin), (HF.to_string(), new_hf)];
+        // The note under the lines: its head and every piece are ui.yml keys, the pieces that do not apply empty.
+        let no = Line::raw("");
+        let (mut clients, mut misfit_note) = (no.clone(), no.clone());
+        let mut unusable = no.clone();
         if let Some(e) = enum_raw {
             let (new_enum, done) = pack_enum(&e, &body, &keys, &enc)?;
-            note += &format!("; {done} in the clients' table");
+            clients = Line::key("text.note_clients").arg("count", done);
             files.push((ENUM.to_string(), new_enum));
             if !misfit.is_empty() {
-                note += &format!(
-                    "; {} of the text lines do not fit this game's line and gave way to the next choice ({})",
-                    misfit.len(),
-                    misfit[0]
-                );
+                misfit_note = Line::key("text.note_misfit")
+                    .arg("count", misfit.len())
+                    .arg("first", &misfit[0]);
             }
         } else if original_bad > 0 {
-            note +=
-                &format!("; {original_bad} of the original lines unusable, the next choice taken");
+            unusable = Line::key("text.note_unusable").arg("count", original_bad);
         }
         // Both editions: the real-game test looks for this note, and a line left in Japanese is wrong.
         let mut left: Vec<_> = keys
@@ -1072,15 +1065,34 @@ impl Ctx {
             .map(|(k, _)| k.as_str())
             .collect();
         left.sort_unstable();
+        let mut japanese = no;
         if !left.is_empty() {
-            note += &format!(
-                "; {} still Japanese ({}{})",
-                left.len(),
-                left[..left.len().min(3)].join(", "),
-                if left.len() > 3 { ", ..." } else { "" }
-            );
+            japanese = Line::key("text.note_japanese")
+                .arg("count", left.len())
+                .arg(
+                    "names",
+                    format!(
+                        "{}{}",
+                        left[..left.len().min(3)].join(", "),
+                        if left.len() > 3 { ", ..." } else { "" }
+                    ),
+                );
         }
-        Ok((files, note))
+        let note = Line::key("text.note_lines")
+            .arg("count", pos.len())
+            .part("lang", lang.line())
+            .arg(
+                "by",
+                by.iter()
+                    .map(|(s, n)| format!("{s} {n}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )
+            .part("clients", clients)
+            .part("misfit", misfit_note)
+            .part("unusable", unusable)
+            .part("japanese", japanese);
+        Ok((files, vec![note]))
     }
 }
 
@@ -1130,22 +1142,36 @@ impl NameFaults {
         }
     }
 
-    /// The status note's tail: empty when every name went in as it is.
-    fn note(&self) -> String {
-        let mut s = String::new();
-        if self.cut > 0 {
-            s += &format!(
-                "; {} player names are too long for the field and are cut",
-                self.cut
+    /// The player data's status note: the counts, then the names that did not go in as they are (`skipped`: the team
+    /// files that are not original ones). The keys hold every piece; one that does not apply is empty.
+    fn note(&self, players: usize, teams: usize, skipped: &[String]) -> Line {
+        let no = Line::raw("");
+        let mut note = Line::key("text.note_players")
+            .arg("players", players)
+            .arg("teams", teams)
+            .part(
+                "skipped",
+                match skipped.first() {
+                    Some(first) => Line::key("text.note_team_files")
+                        .arg("count", skipped.len())
+                        .arg("first", first),
+                    None => no.clone(),
+                },
+            );
+        for (count, key, slot) in [
+            (self.cut, "text.note_cut", "cut"),
+            (self.unknown, "text.note_unknown", "unknown"),
+        ] {
+            note = note.part(
+                slot,
+                if count > 0 {
+                    Line::key(key).arg("count", count)
+                } else {
+                    no.clone()
+                },
             );
         }
-        if self.unknown > 0 {
-            s += &format!(
-                "; {} player names have a letter the game's font cannot show and got a ?",
-                self.unknown
-            );
-        }
-        s
+        note
     }
 }
 
@@ -1254,16 +1280,8 @@ impl Ctx {
             d[NAME_AT..NAME_END].copy_from_slice(&n);
             files.push((rel.clone(), d));
         }
-        let mut note = format!("{n_players} players, {} CPU teams", files.len() - 1);
-        if !skipped.is_empty() {
-            note += &format!(
-                "; {} team files are not original ones and stay as they are ({}...)",
-                skipped.len(),
-                skipped[0]
-            );
-        }
-        note += &names.note();
-        Ok((files, note))
+        let note = names.note(n_players, files.len() - 1, &skipped);
+        Ok((files, vec![note]))
     }
 
     /// 2010-11: text inside the programs, both client copies; the server only for its own rows.
@@ -1350,16 +1368,18 @@ impl Ctx {
             .filter(|r| cell(r, "program") == "client")
             .count();
         let n_server = rows.len() - n_client;
-        let more = if n_server > 0 {
-            format!(", and {n_server} in the server")
+        let server = if n_server > 0 {
+            Line::key("text.note_exe_server").arg("count", n_server)
         } else {
-            String::new()
+            Line::raw("")
         };
         Ok((
             files,
-            format!(
-                "{n_client} texts inside the program, in the projector's and seat 1's copies{more}"
-            ),
+            vec![
+                Line::key("text.note_exe")
+                    .arg("client", n_client)
+                    .part("server", server),
+            ],
         ))
     }
 
@@ -1367,7 +1387,7 @@ impl Ctx {
         let (mut files, mut notes) = (vec![], vec![]);
         let mut add = |(f, n): Built| {
             files.extend(f);
-            notes.push(n);
+            notes.extend(n);
         };
         add(self.build_strings(lang)?);
         add(self.build_names(lang)?);
@@ -1377,7 +1397,7 @@ impl Ctx {
         if self.ed == Edition::E1011 {
             add(self.build_exe(lang)?);
         }
-        Ok((files, notes.join("\n")))
+        Ok((files, notes))
     }
 }
 
@@ -1770,7 +1790,10 @@ pub fn run(
         } else {
             (vec![], vec![PICTURES_OFF.into()])
         };
-        for n in notes.lines().chain(pnotes.iter().map(String::as_str)) {
+        for n in &notes {
+            say("  ok    ", n);
+        }
+        for n in &pnotes {
             say("  ok    ", &Line::raw(n));
         }
         if mode == Mode::Check {
@@ -1829,6 +1852,46 @@ mod tests {
         )
     }
 
+    /// A line's words in `lang`, from forza-ui's sheet: forza words nothing (`forza-ui` needs forza), so a test that
+    /// reads a note takes the text from the file the screens load.
+    pub(super) fn note_words(lang: &str, line: &Line) -> String {
+        let sheet = include_str!("../../forza-ui/locales/ui.yml");
+        match line {
+            Line::Raw(s) => s.clone(),
+            Line::Key(key, args) => {
+                let row = sheet
+                    .lines()
+                    .find(|l| l.starts_with(&format!("{key}: {{")))
+                    .unwrap_or_else(|| panic!("{key} is not in ui.yml"));
+                let start =
+                    row.find(&format!("{lang}: \"")).expect("the language") + lang.len() + 3;
+                let rest = &row[start..];
+                let mut own = rest[..rest.find('"').expect("the closing quote")].to_string();
+                for (name, value) in args {
+                    own = own.replace(&format!("%{{{name}}}"), &note_words(lang, value));
+                }
+                own
+            }
+        }
+    }
+
+    /// The note's pieces are `ui.yml` keys: the English reads as it did, and the Italian none of those words.
+    #[test]
+    fn the_player_note_is_keyed() {
+        let faults = NameFaults { cut: 2, unknown: 1 };
+        let note = faults.note(2, 3, &[]);
+        assert_eq!(
+            note_words("en", &note),
+            "2 players, 3 CPU teams; 2 player names are too long for the field and are cut; 1 player names have a letter the game's font cannot show and got a ?"
+        );
+        let it = note_words("it", &note);
+        for english in ["player names", "CPU teams", "too long", "cannot show"] {
+            assert!(!it.contains(english), "{it}");
+        }
+        assert!(!it.contains("%{"), "every argument is filled: {it}");
+        assert_ne!(note_words("ja", &note), it, "the Japanese is its own text");
+    }
+
     #[test]
     fn put_field_keeps_the_fill() {
         assert_eq!(put_field(b"ab\0\xAA\xAA\xAA", b"xyz", 6), b"xyz\0\xAA\xAA");
@@ -1865,7 +1928,7 @@ mod tests {
             (1, 1),
             "a letter the font has no glyph for"
         );
-        let n = f.note();
+        let n = note_words("en", &f.note(1, 0, &[]));
         assert!(
             n.contains("1 player names are too long for the field"),
             "{n}"
@@ -2829,7 +2892,12 @@ mod tests {
         let sheets = std::path::PathBuf::from(std::env::var("FORZA_SHEETS").unwrap());
         let c = Ctx::new(Edition::E1718, &game, Path::new("none"), &sheets).unwrap();
         for lang in [Lang::En, Lang::It] {
-            let (_, note) = c.build_all(lang).unwrap();
+            let (_, notes) = c.build_all(lang).unwrap();
+            let note = notes
+                .iter()
+                .map(|l| note_words("en", l))
+                .collect::<Vec<_>>()
+                .join("\n");
             println!("{}: {note}", lang.name());
             for bad in [
                 "do not fit",
