@@ -1339,6 +1339,14 @@ fn unload() {
         log("unloaded before init finished: the init thread would run in freed code"); // ponytail: no wait under the loader lock
     }
     boot::unload(log); // the factory's slot back before the code it points at goes
+    // a WCCF_TYPING left on a window outlives us: the key driver would leave the game without keys for good
+    for slot in [&WINDOW, &BOARD] {
+        let h = slot.load(Relaxed);
+        if h != 0 {
+            // SAFETY: a window of this process (one gone already fails harmlessly) and a constant name
+            let _ = unsafe { RemovePropW(HWND(h as *mut c_void), w!("WCCF_TYPING")) };
+        }
+    }
     let h = WINDOW.swap(0, Relaxed);
     if h != 0 {
         // out of full screen first: no handler is left to leave it
@@ -1671,8 +1679,8 @@ struct Render {
     board_drawn: u32,
     board_skipped: u32,
     board_logged: (u32, Instant),
-    /// The window that carries WCCF_TYPING while a page is open (the game's).
-    typing: isize,
+    /// The windows that carry WCCF_TYPING while a page is open or a field types (the game's, the board's).
+    typing: [isize; 2],
     game: Option<(IDirect3DTexture9, IDirect3DSurface9, u32, u32)>,
     max_tex: usize,
     dump: bool,
@@ -1832,7 +1840,7 @@ impl Render {
             board_drawn: 0,
             board_skipped: 0,
             board_logged: (0, Instant::now()),
-            typing: 0,
+            typing: [0, 0],
             game: None,
             max_tex: 2048,
             dump: std::env::var_os("FORZA_PANEL_DUMP").is_some_and(|v| v == "1"),
@@ -1893,6 +1901,12 @@ impl Render {
                 }
                 POPPED.store(popped, Relaxed);
                 self.st.set_popped(popped);
+                // paint() does not run: the board window's field still keeps its keys from the game (#366)
+                WANTS_KEYS.store(
+                    popped && self.board_ctx.egui_wants_keyboard_input(),
+                    Relaxed,
+                );
+                self.page_open();
                 return None;
             }
             // while the player drags the window's edge the chain it has is kept (Present stretches it to the window),
@@ -2441,7 +2455,12 @@ impl Render {
             _ => {}
         }
         self.close_out();
-        WANTS_KEYS.store(self.ctx.egui_wants_keyboard_input(), Relaxed);
+        // a text field with the keys in either window (the board window's pass ran first this frame)
+        WANTS_KEYS.store(
+            self.ctx.egui_wants_keyboard_input()
+                || (POPPED.load(Relaxed) && self.board_ctx.egui_wants_keyboard_input()),
+            Relaxed,
+        );
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
         if std::mem::take(&mut self.st.pause_asked)
             && (pause::enabled() || self.st.paused.is_some())
@@ -2750,29 +2769,37 @@ impl Render {
         }
     }
 
-    /// A page opened or closed: while one is open, the key driver leaves the keys alone (the window's WCCF_TYPING, as
-    /// the C panel sets it), and the window procedure keeps them from the game.
+    /// A page opened or closed: while one is open, or a text field has the keys, the key driver leaves the keys alone
+    /// (the window's WCCF_TYPING, as the C panel sets it), and the window procedure keeps them from the game.
     fn page_open(&mut self) {
         // the close dialog and the crash screen hold the keys too
         let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
-        // the window the page is in: the game's (popped out too)
-        let want = if open { WINDOW.load(Relaxed) } else { 0 };
-        if want != self.typing {
-            // SAFETY: windows of this process and a constant name
+        // a field typed in on the game page (a saved lineup's name, issue #366) as well; the key driver reads the
+        // window in front: the game's or the popped-out board's
+        let want = if open || WANTS_KEYS.load(Relaxed) {
+            [WINDOW.load(Relaxed), BOARD.load(Relaxed)]
+        } else {
+            [0, 0]
+        };
+        for (old, new) in self.typing.into_iter().zip(want) {
+            if old == new {
+                continue;
+            }
+            // SAFETY: windows of this process (one gone already fails harmlessly) and a constant name
             unsafe {
-                if self.typing != 0 {
-                    let _ = RemovePropW(HWND(self.typing as *mut c_void), w!("WCCF_TYPING"));
+                if old != 0 {
+                    let _ = RemovePropW(HWND(old as *mut c_void), w!("WCCF_TYPING"));
                 }
-                if want != 0 {
+                if new != 0 {
                     let _ = SetPropW(
-                        HWND(want as *mut c_void),
+                        HWND(new as *mut c_void),
                         w!("WCCF_TYPING"),
                         Some(HANDLE(std::ptr::without_provenance_mut(1))),
                     );
                 }
             }
-            self.typing = want;
         }
+        self.typing = want;
         if PAGE_OPEN.swap(open, Relaxed) == open {
             return;
         }

@@ -47,9 +47,14 @@ const BOARD_EXTRA: f32 = 101.0;
 /// 22-point rects), [`FOOT_GAP`] 8 and the hint's line. Its 24 points take 116, 4 past this; 112 holds a 20-point
 /// line, the drawn hint (17) inside the board's 16-point margin at 1440x900.
 const BOARD_EXTRA_1718: f32 = 112.0;
-/// The pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its room is at
-/// least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
+/// The 2010-11 pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its
+/// room is at least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
+/// 2017-18 (issue #270): Auto puts the bench at the pitch's right unless that makes the cards more than this much
+/// smaller than with the bench under the pitch; [`BENCH_HYSTERESIS`] either side of it keeps a dragged divider from
+/// flipping it back and forth.
+const BENCH_SHRINK: f32 = 0.15;
+const BENCH_HYSTERESIS: f32 = 0.02;
 /// The pop-out board's foot: a gap 4 and one row for DOCK and UNDO 24.
 const DESK_FOOT: f32 = 28.0;
 /// The foot's buttons and hint keep this much of the board at their sides, the margin the board itself keeps in its
@@ -225,13 +230,67 @@ pub fn desk_parts(sheet: Rect, buttons: bool, both: bool) -> (Rect, Option<(Rect
     (sheet.with_max_y(deck.top()), Some((deck, s, false)))
 }
 
-/// The pop-out board in `room` (16 points in from its edges, the DOCK row under it): its rect, as large as the room
-/// allows and centred (the rest a bar on two sides), and whether its bench is a column beside the pitch
-/// ([`BENCH_BESIDE`]), else a strip under it.
-pub fn desk_board_rect(room: Rect) -> (Rect, bool) {
+/// Whether a 2017-18 board's bench goes at the pitch's right (`choice`: panel.txt bench=, None Auto). Auto compares
+/// the pitch (and so its cards) with the bench at the right, `right` wide, and under it, `below` wide: right unless
+/// that is more than [`BENCH_SHRINK`] smaller; `was` (the side last drawn) moves the edge [`BENCH_HYSTERESIS`] away
+/// from it.
+pub fn bench_right(choice: Option<bool>, right: f32, below: f32, was: Option<bool>) -> bool {
+    choice.unwrap_or_else(|| {
+        let band = match was {
+            Some(true) => -BENCH_HYSTERESIS,
+            Some(false) => BENCH_HYSTERESIS,
+            None => 0.0,
+        };
+        right >= (1.0 - BENCH_SHRINK + band) * below
+    })
+}
+
+/// The bench's side this frame, `now` given the side this window drew last frame (kept in its egui memory).
+fn bench_side(ui: &Ui, now: impl FnOnce(Option<bool>) -> bool) -> bool {
+    let id = egui::Id::unique("bench-right");
+    let side = now(ui.data(|d| d.get_temp::<bool>(id)));
+    ui.data_mut(|d| d.insert_temp(id, side));
+    side
+}
+
+/// The 2017-18 docked board in the layout's `board` strip, with its bench at the pitch's right and under it: as wide
+/// as the strip, or as its height can use, centred ([`bench_right`] picks one).
+pub fn docked_mats(board: Rect) -> [board::Mat; 2] {
+    let r = board.shrink(16.0);
+    let room = board.height() - BOARD_EXTRA_1718;
+    let top = |w: f32| pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD);
+    let w = r.width().min(room / board::COLUMN_ASPECT);
+    let below = r.width().min(room / BOARD_PER_W);
+    let pitch = board::pitch_rect(top(below), below);
+    [
+        board::Mat::column(top(w), w),
+        board::Mat::row(pitch, pitch.bottom() + 12.0),
+    ]
+}
+
+/// The pop-out board's room for itself in `room`: 16 points in from its edges, the DOCK row under it.
+fn desk_inner(room: Rect) -> Rect {
     let r = room.shrink(16.0);
-    let r = r.with_max_y(r.bottom() - DESK_FOOT);
-    let beside = r.width() >= BENCH_BESIDE * r.height();
+    r.with_max_y(r.bottom() - DESK_FOOT)
+}
+
+/// Whether the pop-out board in `room` lays its bench beside the pitch: 2017-18 ([`bench_right`], `choice` and `was`
+/// as there), 2010-11 from 2:3 wide ([`BENCH_BESIDE`]).
+pub fn desk_bench_right(room: Rect, e1718: bool, choice: Option<bool>, was: Option<bool>) -> bool {
+    if !e1718 {
+        let r = desk_inner(room);
+        return r.width() >= BENCH_BESIDE * r.height();
+    }
+    // the pitch's width each way (the row's board is its pitch's width)
+    let right = board::Mat::column(Pos2::ZERO, desk_board_rect(room, true).width());
+    let below = desk_board_rect(room, false).width();
+    bench_right(choice, right.pitch.width(), below, was)
+}
+
+/// The pop-out board in `room` (16 points in from its edges, the DOCK row under it): its rect, as large as the room
+/// allows and centred (the rest a bar on two sides), its bench a column beside the pitch (`beside`) or a strip under it.
+pub fn desk_board_rect(room: Rect, beside: bool) -> Rect {
+    let r = desk_inner(room);
     let size = if beside {
         let w = r.width().min(r.height() / board::COLUMN_ASPECT);
         vec2(w, w * board::COLUMN_ASPECT)
@@ -244,7 +303,7 @@ pub fn desk_board_rect(room: Rect) -> (Rect, bool) {
         r.center() + vec2(0.0, DESK_FOOT / 2.0),
         size + vec2(0.0, DESK_FOOT),
     );
-    (at.with_max_y(at.bottom() - DESK_FOOT), beside)
+    at.with_max_y(at.bottom() - DESK_FOOT)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1654,21 +1713,18 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
     board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
-/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`: the pitch narrowed
-/// to the board's height as [`board_strip`] lays it out.
+/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`, the bench on Auto:
+/// the board as [`board_strip`] lays it out ([`docked_mats`]).
 pub fn board_slot_center_1718(
     sheet: Rect,
     board_w: Option<f32>,
     spots: &[Pos2; 11],
     slot: usize,
 ) -> Pos2 {
-    let board = layout_at(sheet, false, board_w).board;
-    let r = board.shrink(16.0);
-    let w = r
-        .width()
-        .min((board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
-    let pitch = board::pitch_rect(pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD), w);
-    board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
+    let [right, below] = docked_mats(layout_at(sheet, false, board_w).board);
+    let side = bench_right(None, right.pitch.width(), below.pitch.width(), None);
+    let mat = if side { right } else { below };
+    mat.slot_rects(spots)[slot].center()
 }
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
@@ -2918,6 +2974,41 @@ fn deck_label_parts(
     }
 }
 
+/// A deck button's printed name, where it sits and where its keycap sits (`None`: no keycap): the keycap follows the
+/// name on its line; a name under its button (2017-18) whose line has no room for it gets it on a line of its own
+/// under the name, while that stays 4 points inside `plate` (DATA and START, issue #367).
+#[allow(clippy::too_many_arguments)]
+fn deck_label(
+    p: &egui::Painter,
+    rect: Rect,
+    side: Dir,
+    plate: Rect,
+    room: f32,
+    name: &str,
+    cap: &str,
+    fit: bool,
+) -> (std::sync::Arc<egui::Galley>, Rect, Option<Rect>) {
+    let (name, cap_w) = deck_label_parts(p, name, cap, room, fit);
+    let size = name.size();
+    if cap_w > 0.0 {
+        let at = deck_label_rect(rect, side, vec2(size.x + 4.0 + cap_w, size.y), plate);
+        let cap_at = Rect::from_min_size(
+            pos2(at.left() + size.x + 4.0, at.center().y - KEYCAP_H / 2.0),
+            vec2(cap_w, KEYCAP_H),
+        );
+        return (name, Rect::from_min_size(at.min, size), Some(cap_at));
+    }
+    let at = deck_label_rect(rect, side, size, plate);
+    let w = keycap_width(p, cap, room);
+    let below = Rect::from_center_size(
+        pos2(rect.center().x, at.bottom() + 2.0 + KEYCAP_H / 2.0),
+        vec2(w, KEYCAP_H),
+    );
+    let cap_at = (fit && side == Dir::Down && w > 0.0 && below.bottom() <= plate.bottom() - 4.0)
+        .then_some(below);
+    (name, at, cap_at)
+}
+
 /// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
 /// way, never past `plate`'s right edge (DATA sits close to it).
 fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
@@ -3097,16 +3188,18 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
             let room = deck_label_room(it.rect, side, plate, data, &rects, both);
-            let (name, cap_w) = deck_label_parts(p, &tr!(lang, it.key), &cap, room, !both);
-            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-            let at = deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
-            let (left, cy) = (at.left(), at.center().y);
-            p.galley(at.min, name.clone(), theme::TEXT_DIM);
-            if cap_w > 0.0 {
-                let r = Rect::from_min_size(
-                    pos2(left + name.size().x + 4.0, cy - KEYCAP_H / 2.0),
-                    vec2(cap_w, KEYCAP_H),
-                );
+            let (name, at, cap_at) = deck_label(
+                p,
+                it.rect,
+                side,
+                plate,
+                room,
+                &tr!(lang, it.key),
+                &cap,
+                !both,
+            );
+            p.galley(at.min, name, theme::TEXT_DIM);
+            if let Some(r) = cap_at {
                 paint_keycap(p, r, &cap);
             }
         } else {
@@ -3443,18 +3536,26 @@ fn ping(p: &egui::Painter, r: Rect, ms: u32, lang: Lang) {
 fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     strip_ground(ui);
     let r = ui.max_rect().shrink(16.0);
-    // as wide as the strip, or as its height can use, centred
-    let extra = if st.edition == Edition::E1718 {
-        BOARD_EXTRA_1718
+    // 2017-18: the bench at the pitch's right or under it (#270); 2010-11 keeps it under, the board as wide as the
+    // strip, or as its height can use, centred
+    let mat = if st.edition == Edition::E1718 {
+        let [right, below] = docked_mats(ui.max_rect());
+        let (a, b, choice) = (right.pitch.width(), below.pitch.width(), st.file.bench);
+        if bench_side(ui, |was| bench_right(choice, a, b, was)) {
+            right
+        } else {
+            below
+        }
     } else {
-        BOARD_EXTRA
+        let w = r
+            .width()
+            .min((ui.max_rect().height() - BOARD_EXTRA) / BOARD_PER_W);
+        let pitch = board::pitch_rect(pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD), w);
+        board::Mat::row(pitch, pitch.bottom() + 12.0)
     };
-    let w = r
-        .width()
-        .min((ui.max_rect().height() - extra) / BOARD_PER_W);
-    let r = Rect::from_min_size(pos2(r.center().x - w / 2.0, r.top()), vec2(w, r.height()));
-    let pitch = board::pitch_rect(r.min + vec2(0.0, BOARD_HEAD), r.width());
-    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(pitch.min, r.max)));
+    // the board's own column: the pitch as drawn and the bench, at its right or under it
+    let pitch = mat.shown.with_max_x(mat.bench.right());
+    let mut b = ui.new_child(egui::UiBuilder::new().max_rect(pitch.with_max_y(r.bottom())));
     b.spacing_mut().item_spacing.y = 4.0;
     board::keep_on_table(&b, st.in_match || st.match_seen);
     st.board_changed |= board::formation_board(
@@ -3463,7 +3564,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
         &st.links,
         st.hover_delay,
         lang,
-        false,
+        mat.column,
         false,
     );
     let Some((b, btn)) = board_foot(&mut b, st, lang) else {
@@ -3500,13 +3601,21 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
             theme::NIGHT,
             true,
         );
-        cabinet_deck(ui, st, r, lang, s, stack);
+        // as on the game window: the deck's keys read the raw pointer, which a dialog's backdrop drawn here never takes
+        // (#361), so no deck under it, and a latched key goes up
+        if (st.formations_desk && st.formations.is_some()) || st.reset_ask == Some(true) {
+            st.latched = None;
+        } else {
+            cabinet_deck(ui, st, r, lang, s, stack);
+        }
     }
     let mut c = ui.new_child(egui::UiBuilder::new().max_rect(room));
     if st.crash {
         return crash_screen(&mut c, st, lang);
     }
-    let (at, beside) = desk_board_rect(room);
+    let (e1718, choice) = (st.edition == Edition::E1718, st.file.bench);
+    let beside = bench_side(ui, |was| desk_bench_right(room, e1718, choice, was));
+    let at = desk_board_rect(room, beside);
     let mut b =
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
     b.spacing_mut().item_spacing.y = 4.0;
@@ -5297,6 +5406,25 @@ fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     },
                 );
             }
+            if st.edition == Edition::E1718 {
+                // the bench at the pitch's right unless the cards get much smaller, or always there or under it (#270)
+                field(ui, &tr!(lang, "settings.bench"), w);
+                const BENCH: [Option<bool>; 3] = [None, Some(true), Some(false)];
+                let mut i = BENCH.iter().position(|&b| b == st.file.bench).unwrap_or(0);
+                if segmented(
+                    ui,
+                    &mut i,
+                    &[
+                        &tr!(lang, "settings.bench_auto"),
+                        &tr!(lang, "settings.bench_right"),
+                        &tr!(lang, "settings.bench_below"),
+                    ],
+                    w,
+                ) {
+                    st.file.bench = BENCH[i];
+                    st.file_changed = true;
+                }
+            }
             if widgets::toggle_row(
                 ui,
                 &mut st.file.board_buttons,
@@ -6409,21 +6537,16 @@ mod tests {
             for compact in [false, true] {
                 let l = layout(sheet_of(w, h), compact);
                 let col = l.board.shrink(16.0);
-                // the 2017-18 pitch, as board_strip narrows it to the board's height
-                let pitch_w = col
-                    .width()
-                    .min((l.board.height() - BOARD_EXTRA_1718) / BOARD_PER_W);
-                let pitch =
-                    board::pitch_rect(pos2(col.center().x - pitch_w / 2.0, col.top()), pitch_w);
-                // the board's row (the pitch, its gap of 12 and the bench strip), the foot 8 under the bench, the row
-                // of buttons 32 (drawn taller than their 22-point rects) and the hint's 24-point line FOOT_GAP under
-                // them, as board_strip and board_foot lay them out
-                let hint_bottom = pitch.bottom() + board::row_height(pitch_w)
-                    - pitch_w * board::PITCH_ASPECT
-                    + 8.0
-                    + 32.0
-                    + FOOT_GAP
-                    + 24.0;
+                // the 2017-18 board as board_strip lays it out, its bench on Auto (#270): the pitch as drawn and the
+                // bench at its right or under it
+                let [right, below] = docked_mats(l.board);
+                let side = bench_right(None, right.pitch.width(), below.pitch.width(), None);
+                let mat = if side { right } else { below };
+                let pitch = mat.shown.with_max_x(mat.bench.right());
+                // the foot 8 under the board, the row of buttons 32 (drawn taller than their 22-point rects) and the
+                // hint's 24-point line FOOT_GAP under them, as board_strip and board_foot lay them out
+                let hint_bottom =
+                    mat.bench.bottom().max(mat.shown.bottom()) + 8.0 + 32.0 + FOOT_GAP + 24.0;
                 let win = format!("{w}x{h} compact {compact}");
                 for card_y in [
                     pitch.top() + 40.0,
@@ -6524,12 +6647,20 @@ mod tests {
                             let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
                             let room =
                                 deck_label_room(it.rect, side, plate, at("DATA"), &rects, false);
-                            let (name, cap_w) =
-                                deck_label_parts(&p, &tr!(lang, it.key), cap, room, true);
-                            let w = name.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
-                            let label =
-                                deck_label_rect(it.rect, side, vec2(w, name.size().y), plate);
+                            let (_, label, cap_at) = deck_label(
+                                &p,
+                                it.rect,
+                                side,
+                                plate,
+                                room,
+                                &tr!(lang, it.key),
+                                cap,
+                                true,
+                            );
                             let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
+                            if let Some(r) = cap_at {
+                                boxes.push((format!("{why} keycap"), r, plate));
+                            }
                             if matches!(it.action, "UP" | "DOWN") {
                                 assert!(
                                     label.left() >= it.rect.right() + 3.0,
@@ -6552,6 +6683,67 @@ mod tests {
                             assert!(!ra.intersects(*rb), "{a} overlaps {b}");
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Under Alt every bound 2017-18 deck button shows its keycap: DATA (here on Down) and START (Enter), whose names
+    /// leave no room beside them, get it under the name, inside their plate, in EN, IT and JA (issue #367).
+    #[test]
+    fn data_and_start_show_their_keycaps_under_alt() {
+        let ctx = egui::Context::default();
+        theme::install(&ctx, Edition::E1718, &theme::font_dir())
+            .expect("the fonts in assets/fonts");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let p = egui::Painter::new(ctx.clone(), egui::LayerId::background(), Rect::EVERYTHING);
+        let mut st = PanelState::new(
+            Edition::E1718,
+            Lang::En,
+            cards::board(&[], &[]),
+            cards().into(),
+        );
+        st.keys[forza::keys::NAMES
+            .iter()
+            .position(|n| *n == "DATA")
+            .unwrap()] = 0x28;
+        for lang in [Lang::En, Lang::It, Lang::Ja] {
+            for stack in [false, true] {
+                let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                let plates = deck_plates(area, false, 1.0, stack);
+                let items = deck_layout_for(area, false, 1.0, stack);
+                let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+                let data = items.iter().find(|i| i.action == "DATA").unwrap().rect;
+                for (action, want) in [("DATA", "Down"), ("START", "Enter")] {
+                    let it = items.iter().find(|i| i.action == action).unwrap();
+                    let cap = deck_keycap(&st, action, true);
+                    assert_eq!(cap, want);
+                    let plate = *plates
+                        .iter()
+                        .find(|r| r.contains(it.rect.center()))
+                        .unwrap();
+                    let side = it.label.unwrap();
+                    let room = deck_label_room(it.rect, side, plate, data, &rects, false);
+                    let (_, name, cap_at) = deck_label(
+                        &p,
+                        it.rect,
+                        side,
+                        plate,
+                        room,
+                        &tr!(lang, it.key),
+                        &cap,
+                        true,
+                    );
+                    let why = format!("{lang:?} stack={stack} {action}");
+                    let r = cap_at.unwrap_or_else(|| panic!("{why}: no keycap"));
+                    assert!(
+                        plate.shrink(3.5).contains_rect(r),
+                        "{why}: keycap leaves its plate"
+                    );
+                    assert!(!r.intersects(name), "{why}: keycap over its name");
+                    assert!(!r.intersects(it.rect), "{why}: keycap over its button");
                 }
             }
         }
@@ -6688,10 +6880,11 @@ mod tests {
     }
 
     /// The board window: the board as large as the window allows, centred (bars on two sides only), its bench beside
-    /// the pitch from 2:3 wide, under it on taller windows.
+    /// the pitch from 2:3 wide, under it on taller windows (2010-11); 2017-18 on Auto keeps it beside in every one of
+    /// these shapes, its cards no smaller than with the bench under the pitch (#270).
     #[test]
     fn the_board_window_fills_its_shape() {
-        for (w, h, beside) in [
+        for (w, h, beside_1011) in [
             (960.0, 1232.0, true),
             (1080.0, 1920.0, false),
             (2360.0, 1640.0, true),
@@ -6700,9 +6893,20 @@ mod tests {
             (700.0, 1400.0, false),
         ] {
             let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / board_scale(w, h, 96.0));
-            let (b, side) = desk_board_rect(room);
+            assert!(desk_bench_right(room, true, None, None), "{w}x{h}: 2017-18");
+            let side = desk_bench_right(room, false, None, None);
+            let b = desk_board_rect(room, side);
             let at = format!("{w}x{h}: {room:?} {b:?}");
-            assert_eq!(side, beside, "{at}");
+            assert_eq!(side, beside_1011, "{at}");
+            let pitch = |beside| {
+                let b = desk_board_rect(room, beside);
+                if beside {
+                    board::Mat::column(b.min, b.width()).pitch.width()
+                } else {
+                    b.width()
+                }
+            };
+            assert!(pitch(true) >= pitch(false), "{at}: smaller cards beside");
             let inner = room.shrink(16.0);
             assert!(inner.expand(0.01).contains_rect(b), "{at}");
             assert!(b.bottom() + DESK_FOOT <= inner.bottom() + 0.01, "{at}");
@@ -6717,6 +6921,55 @@ mod tests {
                 board::row_height(b.width()) / b.width()
             };
             assert!((b.height() / b.width() - ratio).abs() < 1e-3, "{at}");
+        }
+    }
+
+    /// Auto's edge (#270): the bench at the right while the pitch there is at least 85 % as wide as with the bench under
+    /// it, else under it; once drawn on one side the edge moves 2 points away from it, so a divider dragged across the
+    /// edge does not flip the bench back and forth. RIGHT and BELOW take no sizes into account.
+    #[test]
+    fn the_bench_rule_has_an_edge_and_a_band() {
+        let b = 100.0;
+        assert!(bench_right(None, 85.5, b, None));
+        assert!(!bench_right(None, 84.5, b, None));
+        // inside the band each side stays
+        assert!(bench_right(None, 84.0, b, Some(true)));
+        assert!(!bench_right(None, 86.0, b, Some(false)));
+        // past it, it moves
+        assert!(!bench_right(None, 82.5, b, Some(true)));
+        assert!(bench_right(None, 87.5, b, Some(false)));
+        assert!(bench_right(Some(true), 10.0, b, Some(false)));
+        assert!(!bench_right(Some(false), 200.0, b, Some(true)));
+    }
+
+    /// The 2017-18 docked board at 1440x900 (#270), the divider at its default and at its least: on Auto the bench is a
+    /// column right of the pitch inside the strip, and its cards are no more than 15 % smaller than with the bench under
+    /// the pitch (larger: the column takes the place of the pitch artwork's side margins); BELOW puts it under.
+    #[test]
+    fn the_docked_bench_sits_right_of_the_pitch() {
+        let sheet = sheet_of(1440.0, 900.0);
+        for board_w in [None, Some(BOARD_MIN)] {
+            let strip = layout_at(sheet, false, board_w).board;
+            let [right, below] = docked_mats(strip);
+            let at = format!("{board_w:?} {strip:?}");
+            assert!(right.column && !below.column, "{at}");
+            assert!(
+                right.bench.left() >= right.shown.right() - 0.01,
+                "{at}: the bench right of the pitch"
+            );
+            let inside = strip.shrink(16.0).expand(0.01);
+            assert!(inside.contains_rect(right.shown.union(right.bench)), "{at}");
+            let (r, b) = (right.pitch.width(), below.pitch.width());
+            let card = |w| board::card_size(w).x;
+            assert!(
+                card(r) >= 0.85 * card(b),
+                "{at}: cards {} against {}",
+                card(r),
+                card(b)
+            );
+            assert!(bench_right(None, r, b, None), "{at}");
+            assert!(!bench_right(Some(false), r, b, None), "{at}");
+            assert!(bench_right(Some(true), r, b, None), "{at}");
         }
     }
 
@@ -6743,8 +6996,9 @@ mod tests {
                 let plates = deck_plates(d, both, s, stack);
                 assert!(plates[..n].iter().all(|r| d.contains_rect(*r)), "{at}");
                 assert!(s >= 1.0, "{at}");
-                let (b, _) = desk_board_rect(room);
-                assert!(room.contains_rect(b), "{at}");
+                for beside in [false, true] {
+                    assert!(room.contains_rect(desk_board_rect(room, beside)), "{at}");
+                }
             }
         }
     }
@@ -6784,8 +7038,9 @@ mod tests {
                 .clear();
         }
         let (w, h) = (960.0, 1232.0);
-        let (at, beside) = desk_board_rect(Rect::from_min_size(Pos2::ZERO, vec2(w, h)));
-        assert!(beside);
+        let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
+        assert!(desk_bench_right(room, true, None, None));
+        let at = desk_board_rect(room, true);
         let slot = (0..11).find(|&s| st.board.slots[s].is_some()).unwrap();
         let card = st.board.cards[st.board.slots[slot].unwrap()].number;
         let pos = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots)[slot].center();

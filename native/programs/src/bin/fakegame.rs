@@ -40,7 +40,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MAPVK_VK_TO_VSC, MapVirtualKeyA, VK_ESCAPE, VkKeyScanA,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{HSTRING, Interface, s};
+use windows::core::{HSTRING, Interface, s, w};
 
 const GAME_W: u32 = 1440;
 const MK_LBUTTON: usize = 1;
@@ -202,6 +202,11 @@ impl Game {
             match unsafe { FreeLibrary(self.panel) } {
                 Ok(()) => println!("unloaded the panel"),
                 Err(e) => println!("unload failed ({})", e.code().0 & 0xFFFF),
+            }
+            // a page's WCCF_TYPING left on the window would keep the key driver off the game for good
+            // SAFETY: our own window and a constant name
+            if !unsafe { GetPropW(w, w!("WCCF_TYPING")) }.is_invalid() {
+                println!("WCCF_TYPING left on the window");
             }
             return 0;
         }

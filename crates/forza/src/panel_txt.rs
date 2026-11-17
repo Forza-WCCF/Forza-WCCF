@@ -67,6 +67,9 @@ pub struct PanelFile {
     pub other: String,
     /// reset_ask=off (2017-18): RESET LINEUP resets at once, without its question (DON'T ASK AGAIN).
     pub reset_ask_off: bool,
+    /// bench=right|below (2017-18): where the formation board's bench goes; missing or anything else: None, Auto (at
+    /// the pitch's right unless that makes the cards much smaller).
+    pub bench: Option<bool>,
 }
 
 impl Default for PanelFile {
@@ -89,6 +92,7 @@ impl Default for PanelFile {
             fps: false,
             other: String::new(),
             reset_ask_off: false,
+            bench: None,
         }
     }
 }
@@ -139,6 +143,12 @@ impl PanelFile {
                 }
                 "fps" => f.fps = is("on"),
                 "reset_ask" => f.reset_ask_off = is("off"),
+                "bench" => {
+                    f.bench = [("right", true), ("below", false)]
+                        .into_iter()
+                        .find(|(w, _)| is(w))
+                        .map(|(_, r)| r)
+                }
                 "board_rect" => {
                     let n: Vec<i32> = val
                         .split(',')
@@ -214,6 +224,13 @@ impl PanelFile {
         if self.reset_ask_off {
             s += "reset_ask=off\n";
         }
+        if let Some(right) = self.bench {
+            s += if right {
+                "bench=right\n"
+            } else {
+                "bench=below\n"
+            };
+        }
         s + &self.other
     }
 }
@@ -281,12 +298,13 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwh
             board_rect: Some([-1600, 20, 900, 1400, 0]),
             board_width: Some(440),
             reset_ask_off: true,
+            bench: Some(false),
             ..PanelFile::default()
         };
         assert_eq!(PanelFile::parse(all.text(true).as_bytes()), all);
         assert!(all.text(true).contains("read by PLAY.bat at its next\n"));
         assert!(
-            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\nboard_width=440\nreset_ask=off\n")
+            all.text(false).ends_with("play_on=this_pc\nenglish=it\ncard=new\ncard_fix=bad_endings\nlayout=compact\nhover_delay_ms=2000\nboard=window\nboard_buttons=on\npad_background=on\ntextures=8\nfps=on\nboard_rect=-1600,20,900,1400,0\nboard_width=440\nreset_ask=off\nbench=below\n")
         );
         for (line, ms) in [
             ("", Some(500)),
