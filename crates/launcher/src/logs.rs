@@ -133,23 +133,28 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
     }
     z.finish()?;
     fs::rename(&tmp, &out)?;
-    let mut zips: Vec<String> = fs::read_dir(archive)?
+    let mut zips: Vec<(String, SystemTime)> = fs::read_dir(archive)?
         .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".zip"))
+        .filter_map(|e| {
+            let n = e.file_name().into_string().ok()?;
+            let t = e.metadata().ok()?.modified().ok()?;
+            n.ends_with(".zip").then_some((n, t))
+        })
         .collect();
-    zips.sort(); // the names sort by time
+    // oldest first by last write: two runs in one second are "run-<t>.zip" and "run-<t> (2).zip", and their names
+    // alone put the newer one first (a space sorts before the dot), so it was the newer that went
+    zips.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     let size = |n: &String| fs::metadata(archive.join(n)).map(|m| m.len());
     let mut total = 0;
-    for z in &zips {
-        total += size(z)?;
+    for (n, _) in &zips {
+        total += size(n)?;
     }
-    for z in &zips[..zips.len() - 1] {
+    for (n, _) in &zips[..zips.len() - 1] {
         if total <= limit {
             break;
         }
-        total -= size(z)?;
-        fs::remove_file(archive.join(z))?;
+        total -= size(n)?;
+        fs::remove_file(archive.join(n))?;
     }
     Ok(true)
 }
@@ -173,13 +178,17 @@ pub fn rotate(logs: &Path) -> io::Result<Vec<String>> {
     }
     let prev = logs.join("previous");
     if prev.is_dir() {
-        if let Err(ex) = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT) {
+        let archived = archive_run(&prev, &logs.join("archive"), ARCHIVE_LIMIT);
+        if let Err(ex) = &archived {
             said.push(format!("  logs: the run before last not archived ({ex})"));
         }
         let _ = fs::remove_dir_all(logs.join(OLDER[1]));
         let _ = fs::rename(logs.join(OLDER[0]), logs.join(OLDER[1]));
-        // a run that cannot move (previous-2\ still there, a file held) goes as before: it is in the archive
-        if let Err(ex) = fs::rename(&prev, logs.join(OLDER[0])).or_else(|_| fs::remove_dir_all(&prev)) {
+        // a run that cannot move (previous-2\ still there, a file held) goes, as before, once it is in the archive;
+        // with none it is set aside below instead of deleted
+        let moved = fs::rename(&prev, logs.join(OLDER[0]))
+            .or_else(|ex| if archived.is_ok() { fs::remove_dir_all(&prev) } else { Err(ex) });
+        if let Err(ex) = moved {
             // a file in it is held open: set it aside so a fresh one can be made
             let t = local(SystemTime::now());
             let name = format!(

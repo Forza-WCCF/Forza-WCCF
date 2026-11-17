@@ -63,6 +63,22 @@ fn tree(root: &Path) -> Vec<Value> {
     out
 }
 
+/// The zips' names with the " (n)" of a second run in the same second dropped: which of the two stays follows the
+/// fixed pruning (#356), where the recorded cases keep play.py's choice of it.
+fn stamps(v: &Value) -> Vec<String> {
+    let mut s: Vec<String> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            let n = n.as_str().unwrap();
+            n.split_once(" (").map_or(n, |(stamp, _)| stamp).to_owned()
+        })
+        .collect();
+    s.sort();
+    s
+}
+
 fn archive_case(root: &Path, rec: &Value) {
     let arc = root.join("archive");
     let folder = root.join(rec["folder"].as_str().unwrap());
@@ -82,7 +98,12 @@ fn archive_case(root: &Path, rec: &Value) {
     let ret = archive_run(&folder, &arc, num(&rec["limit"])).unwrap();
     assert_eq!(Value::from(ret), rec["ret"], "{rec}");
     let zips = arc.is_dir().then(|| names(&arc));
-    assert_eq!(json!(zips), rec["zips"], "{rec}");
+    // the same runs stay; of two zips of one second the newer one now stays, where play.py's name order kept the older
+    assert_eq!(
+        zips.as_ref().map(|z| stamps(&json!(z))),
+        Some(stamps(&rec["zips"])),
+        "{rec}"
+    );
     let made: Vec<String> = zips
         .unwrap_or_default()
         .into_iter()
@@ -222,6 +243,61 @@ fn rotate_keeps_the_last_three_runs() {
     assert!(!logs.join("previous-20261001-000000").exists());
     let zips = fs::read_dir(logs.join("archive")).unwrap().count();
     assert!(zips >= 1, "every run that left previous\\ is zipped");
+}
+
+/// The archive: the oldest run goes by its last write, so the " (2)" of two runs in one second outlives the plain
+/// name it sorts before (#356). Runs everywhere: no recorded times, no PC clock offset.
+#[test]
+fn the_archive_prunes_by_time_not_by_name() {
+    let d = crate::scratch();
+    let arc = d.path().join("logs").join("archive");
+    fs::create_dir_all(&arc).unwrap();
+    let old = arc.join("run-2026-10-09_00-53-21.zip");
+    let newer = arc.join("run-2026-10-09_00-53-21 (2).zip");
+    // two zips of one second, 60 KB each: over the limit below together with the run made now
+    for (p, seed) in [(&old, 1u32), (&newer, 2u32)] {
+        fs::write(p, data(seed, 60_000)).unwrap();
+        let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_791_500_000 + u64::from(seed));
+        File::options().write(true).open(p).unwrap().set_modified(at).unwrap();
+    }
+    let run = d.path().join("run");
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("run_seat1.txt"), "a run").unwrap();
+    archive_run(&run, &arc, 100_000).unwrap();
+    assert!(newer.exists(), "the newer of two runs in one second stays");
+    assert!(!old.exists(), "the older of the two goes");
+    assert_eq!(fs::read_dir(&arc).unwrap().count(), 2, "the run made now stays as the newest");
+}
+
+/// A run whose archive could not be made is set aside, not deleted (#356): previous-2\ cannot go (a file in it is
+/// held), so previous\ has nowhere to move, and play.py's path dropped it with no copy in the archive.
+#[test]
+fn a_run_whose_archive_failed_is_set_aside() {
+    let d = crate::scratch();
+    let logs = d.path().join("logs");
+    fs::create_dir_all(logs.join("previous")).unwrap();
+    fs::write(logs.join("previous").join("run_seat1.txt"), "the run before last").unwrap();
+    // the archive cannot be made: a file is in its place
+    fs::write(logs.join("archive"), "not a folder").unwrap();
+    fs::create_dir_all(logs.join("previous-2")).unwrap();
+    let held = logs.join("previous-2").join("mxhook_1.log");
+    fs::write(&held, "held").unwrap();
+    let open = File::options()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(&held)
+        .unwrap();
+    let said = rotate(&logs).unwrap();
+    drop(open);
+    assert!(
+        said.iter().any(|s| s.contains("not archived")),
+        "the start says the run was not archived: {said:?}"
+    );
+    let kept = fs::read_dir(&logs).unwrap().flatten().any(|e| {
+        fs::read_to_string(e.path().join("run_seat1.txt"))
+            .is_ok_and(|t| t.contains("the run before last"))
+    });
+    assert!(kept, "the run whose archive failed is kept, not deleted: {said:?}");
 }
 
 #[test]
