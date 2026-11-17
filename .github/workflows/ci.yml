@@ -390,7 +390,8 @@ jobs:
             echo '### Snapshots'
             grep -E '^test result' snapshots.log || echo 'no test result: the build or the run failed, see the log'
             grep -E '^test snapshots::.* FAILED$' snapshots.log | sed -E 's/^test snapshots::(.*) \.\.\. FAILED$/- `\1`/' || true
-            grep -oE "'[^']+' Image did not match snapshot\. Diff: [0-9]+" snapshots.log | sed -E 's/^/- /' || true
+            # every picture failure egui_kittest reports (diff, size, missing, write, render, decode) and a test process that died
+            grep -E "Image (size )?did not match snapshot|Missing snapshot|Error (writing|rendering|decoding) snapshot|process didn't exit successfully" snapshots.log | sed -E 's/^ +//; s/, [A-Za-z]:\\.*$//; s/^/- /' || true
           } >> "$GITHUB_STEP_SUMMARY"
       - name: snapshot differences
         if: always()
