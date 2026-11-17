@@ -1939,6 +1939,15 @@ fn target_scopes(scope: &[String], hook: &str) -> Vec<(&'static str, Vec<String>
         .collect()
 }
 
+/// `cargo check -p forza-server` on its own: in a workspace build another crate turns on forza's `full`, so a call
+/// into a `full`-only module passed the workspace's checks and broke the server build (2026-11-17). `check quick`
+/// and `check ci` both run it.
+fn server_check(root: &Path) -> Command {
+    let mut c = rust("check", root);
+    c.args(["--locked", "-p", "forza-server"]);
+    c
+}
+
 /// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`, then the kit's self-tests
 /// when a 32-bit crate changed, the Launcher's imports and the installer's checks when theirs did. The 2010-11 hooks
 /// only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build. The GPU snapshot
@@ -2023,11 +2032,8 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     for (target, lint) in &runs {
         run_ok(clippy(root, target, lint), "cargo clippy")?;
     }
-    // the server alone: in a workspace build another crate turns on forza's `full`, so a call into a `full`-only
-    // module passed check quick and CI and broke the server build (2026-11-17)
-    let mut server = rust("check", root);
-    server.args(["--locked", "-p", "forza-server"]);
-    run_ok(server, "cargo check -p forza-server")?;
+    // the server alone, which a workspace build's feature unification hides
+    run_ok(server_check(root), "cargo check -p forza-server")?;
     // the hook's other features, as `check` lints them
     if native {
         for (feature, _, _) in hooks(e1011).skip(1) {
@@ -2228,6 +2234,13 @@ fn check(
 
     // the Rust workspace, xtask included: format, lint, tests
     fmt_clippy(root, e1011, &mut ck.failed);
+    // the server alone, as `check quick` runs it: the workspace build turns on forza's `full`, which hides a server
+    // that no longer builds without it
+    cargo_step(
+        "cargo check -p forza-server",
+        server_check(root),
+        &mut ck.failed,
+    );
     // the 64-bit workspace, then the 32-bit crates (the panel; FPR_Emu's table file and frame; the hook's tests run on
     // x86_64 too)
     let native: Vec<&str> = [
