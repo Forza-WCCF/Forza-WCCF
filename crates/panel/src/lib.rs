@@ -155,6 +155,10 @@ static AFFINITY: OnceLock<Option<Arc<cards::links::Affinity>>> = OnceLock::new()
 static PICTURE: Mutex<Option<egui::Rect>> = Mutex::new(None);
 /// The docked board divider's handle on the window (pixels): half of it lies on the picture, but its presses are ours.
 static DIVIDER_HANDLE: Mutex<Option<egui::Rect>> = Mutex::new(None);
+/// The system cursor egui asked for in the last pass ([`cursor_for`]'s resource id, 0: the window's own): the game
+/// window's and the board window's. The window procedures show it on WM_SETCURSOR ([`set_cursor`]).
+static CURSOR: AtomicUsize = AtomicUsize::new(0);
+static BOARD_CURSOR: AtomicUsize = AtomicUsize::new(0);
 /// The mouse buttons whose press went to the game (bit per button): their release goes there too.
 static GAME_DOWN: AtomicU32 = AtomicU32::new(0);
 /// The side buttons whose press the panel swallowed (bit per XBUTTON number): their release is swallowed too, the
@@ -702,6 +706,14 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
             board_place(h)
         }
         WM_ERASEBKGND => return LRESULT(1),
+        WM_SETCURSOR
+            if !DEAD.load(Relaxed)
+                && POPPED.load(Relaxed)
+                // SAFETY: our own window's message, on its thread
+                && unsafe { set_cursor(h, wp, lp, &BOARD_CURSOR, false) } =>
+        {
+            return LRESULT(1);
+        }
         WM_KEYDOWN | WM_KEYUP if wp.0 == 0x7A => {
             if m == WM_KEYDOWN && lp.0 & (1 << 30) == 0 {
                 toggle_fullscreen(h, &BOARD_FS);
@@ -2412,6 +2424,12 @@ impl Render {
             self.split.passed();
             self.ctx.run_ui(raw, |ui| panel::show(ui, st))
         });
+        if let Some(o) = &out {
+            CURSOR.store(
+                cursor_id(self.st.edition, o.platform_output.cursor_icon),
+                Relaxed,
+            );
+        }
         self.split.mark(cost::Part::Ui);
         match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
             (Some(_), None) => log("deal: closed"),
@@ -2567,6 +2585,12 @@ impl Render {
             self.st.desk = false;
             out
         });
+        if let Some(o) = &out {
+            BOARD_CURSOR.store(
+                cursor_id(self.st.edition, o.platform_output.cursor_icon),
+                Relaxed,
+            );
+        }
         self.split.mark(cost::Part::Ui);
         self.import();
         self.settings_out();
@@ -4025,6 +4049,7 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         if let Ok(mut h) = DIVIDER_HANDLE.lock() {
             *h = None;
         }
+        CURSOR.store(0, Relaxed);
         if let Ok(mut e) = EVENTS.lock() {
             e.clear();
         }
@@ -4041,6 +4066,11 @@ unsafe fn panel_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     }
     if let Some(r) = side_button_msg(false, m, wp) {
         return r;
+    }
+    // egui's cursor over the panel's part of the window only; on the game's picture the game keeps its own
+    // SAFETY: the window's own message, on its thread
+    if m == WM_SETCURSOR && unsafe { set_cursor(h, wp, lp, &CURSOR, true) } {
+        return LRESULT(1);
     }
     // popped out too: the board is the board window's, the picture, the pages and the buttons stay here
     let lp = match to_game(h, m, lp) {
@@ -4155,6 +4185,78 @@ fn game_press(m: u32) -> bool {
 /// divider); right and middle presses there stay the game's on its picture half.
 fn handle_press(m: u32) -> bool {
     matches!(m, WM_LBUTTONDOWN | WM_LBUTTONDBLCLK)
+}
+
+/// The system cursor for egui's `icon`: the divider's resize arrows and a button's hand. Any other (the arrow, or one
+/// the panel never asks for) is `None`: the window's own cursor, the game's on its window and the arrow on the board's.
+fn cursor_for(icon: egui::CursorIcon) -> Option<windows::core::PCWSTR> {
+    use egui::CursorIcon as C;
+    match icon {
+        C::ResizeHorizontal | C::ResizeColumn | C::ResizeEast | C::ResizeWest => Some(IDC_SIZEWE),
+        C::PointingHand => Some(IDC_HAND),
+        _ => None,
+    }
+}
+
+/// [`cursor_for`] as the resource id kept in [`CURSOR`] (0: none). 2010-11 keeps the game's cursor as it always had.
+fn cursor_id(edition: theme::Edition, icon: egui::CursorIcon) -> usize {
+    if edition != theme::Edition::E1718 {
+        return 0;
+    }
+    cursor_for(icon).map_or(0, |c| c.0 as usize)
+}
+
+/// Whether a WM_SETCURSOR is the panel's to answer: the pointer in the client area (`hit`, the low word of lParam) of
+/// the window itself (`own`: wParam is it, not a child), at `p` (client pixels) off the game's picture `pic` or on the
+/// divider's `handle` (half of it lies on the picture). Anything else goes to the window's own procedure.
+fn cursor_ours(
+    hit: u32,
+    own: bool,
+    p: Pos2,
+    pic: Option<egui::Rect>,
+    handle: Option<egui::Rect>,
+) -> bool {
+    hit == HTCLIENT
+        && own
+        && (handle.is_some_and(|r| r.contains(p)) || !pic.is_some_and(|r| r.contains(p)))
+}
+
+/// WM_SETCURSOR on window `h` (the game's, `game`: its picture is the game's, or the board's): egui's cursor (`id`,
+/// [`CURSOR`]) set when there is one and [`cursor_ours`] says so. True: answered, the window's procedure is skipped.
+///
+/// # Safety
+/// The window's own message, on its thread.
+unsafe fn set_cursor(h: HWND, wp: WPARAM, lp: LPARAM, id: &AtomicUsize, game: bool) -> bool {
+    let id = id.load(Relaxed);
+    if id == 0 {
+        return false;
+    }
+    let mut pt = POINT::default();
+    // SAFETY: plain cursor and window queries
+    let placed = unsafe {
+        GetCursorPos(&mut pt).is_ok()
+            && windows::Win32::Graphics::Gdi::ScreenToClient(h, &mut pt).as_bool()
+    };
+    let rect = |r: &Mutex<Option<egui::Rect>>| r.lock().ok().and_then(|r| *r);
+    let (pic, handle) = if game {
+        (rect(&PICTURE), rect(&DIVIDER_HANDLE))
+    } else {
+        (None, None)
+    };
+    let p = pos2(pt.x as f32, pt.y as f32);
+    if !placed || !cursor_ours((lp.0 & 0xFFFF) as u32, wp.0 == h.0 as usize, p, pic, handle) {
+        return false;
+    }
+    // SAFETY: a system cursor (a resource id, no module); SetCursor only changes the shown cursor
+    unsafe {
+        match LoadCursorW(None, windows::core::PCWSTR(id as *const u16)) {
+            Ok(c) => {
+                SetCursor(Some(c));
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 /// A mouse side button's message (`WM_XBUTTON*`): `Some(vk)` = handled here, with KEYS' key for a press (`vk`, while
@@ -5035,5 +5137,47 @@ mod tests {
         assert!(!big_enough(true, Some((800, 600))));
         assert!(!big_enough(false, Some((63, 600))));
         assert!(!big_enough(false, None));
+    }
+
+    use super::{HTCLIENT, IDC_HAND, IDC_SIZEWE, cursor_for, cursor_id, cursor_ours};
+
+    /// egui's divider and button cursors map to the system's; the arrow and any other stay the window's own, and
+    /// 2010-11 keeps the game's cursor whatever egui asks (#341).
+    #[test]
+    fn egui_cursors_map_to_system_cursors() {
+        use egui::CursorIcon as C;
+        assert_eq!(cursor_for(C::ResizeHorizontal), Some(IDC_SIZEWE));
+        assert_eq!(cursor_for(C::PointingHand), Some(IDC_HAND));
+        for other in [C::Default, C::Text, C::Grab, C::ResizeVertical, C::None] {
+            assert_eq!(cursor_for(other), None, "{other:?}");
+        }
+        let (e1718, e1011) = (
+            forza_ui::theme::Edition::E1718,
+            forza_ui::theme::Edition::E1011,
+        );
+        assert_eq!(cursor_id(e1718, C::ResizeHorizontal), IDC_SIZEWE.0 as usize);
+        assert_eq!(cursor_id(e1718, C::Default), 0);
+        assert_eq!(cursor_id(e1011, C::ResizeHorizontal), 0);
+    }
+
+    /// WM_SETCURSOR is the panel's only in the window's own client area, off the game's picture or on the divider's
+    /// handle; the picture, the frame and a child window keep the game's cursor (#341).
+    #[test]
+    fn set_cursor_is_ours_only_off_the_picture() {
+        const HTCAPTION: u32 = 2;
+        let pic = Some(Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 900.0)));
+        // the handle straddles the picture's right edge
+        let handle = Some(Rect::from_min_max(pos2(990.0, 850.0), pos2(1010.0, 890.0)));
+        let ours = |hit, own, x, y| cursor_ours(hit, own, pos2(x, y), pic, handle);
+        assert!(ours(HTCLIENT, true, 1200.0, 400.0), "the docked board");
+        assert!(
+            ours(HTCLIENT, true, 995.0, 870.0),
+            "the handle's half on the picture"
+        );
+        assert!(!ours(HTCLIENT, true, 500.0, 400.0), "the game's picture");
+        assert!(!ours(HTCAPTION, true, 1200.0, 400.0), "not the client area");
+        assert!(!ours(HTCLIENT, false, 1200.0, 400.0), "a child window");
+        // no picture (a page covers it, or the board window): the whole client area
+        assert!(cursor_ours(HTCLIENT, true, pos2(500.0, 400.0), None, None));
     }
 }
