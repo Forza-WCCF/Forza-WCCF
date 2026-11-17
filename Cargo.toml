@@ -131,14 +131,14 @@ opt-level = "z"
 codegen-units = 4
 
 [profile.release.package.forza-panel]
-# 2026-11-12: opt-level "z" with one codegen unit above was what cleared this DLL in 0.6.2, yet the 0.7.3 re-cut
-# (85ace7e4) came back as Trojan:Win32/Wacatac.B!ml on VirusTotal, 4 KB apart from the clean DLL of 0.7.3 first
-# candidate, with the local Defender clean on both. Sixteen codegen units reshape the same sources: the built file
-# (81bcf143) is undetected, 1/75 (VBA32, the same engine hit the flagged file). Measure a build with a VirusTotal
-# analysis before changing this again (docs/RELEASING.md, "Antivirus verdicts"); lto and panic cannot be set per
-# package.
+# 2026-11-17: "z" with sixteen codegen units (what cleared 0.7.3, 81bcf143) came back as Trojan:Win32/Wacatac.H!ml on
+# the 0.7.4 candidate (2b6ad88f, the local Defender flagged that file too). Eight codegen units reshape the same
+# sources: the built file (86acb422, 8 969 216 bytes) is undetected on its first VirusTotal analysis, 1/74 (VBA32, the
+# engine that hit the flagged files). "s" with sixteen units read flagged on its first analysis and undetected 40 s
+# later (febadbb0), so it was not taken. Measure a build with a VirusTotal analysis before changing this again
+# (docs/RELEASING.md, "Antivirus verdicts"); lto and panic cannot be set per package.
 opt-level = "z"
-codegen-units = 16
+codegen-units = 8
 
 # The setup wizard is the other big eframe program players download: same reason and same lever as the Launcher above,
 # and it needs no speed.
