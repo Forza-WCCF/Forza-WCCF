@@ -56,30 +56,35 @@
 
 A release ships the bytes CI built for its candidate, never a local package.
 
-1. `next` = `origin/main` plus the picked PRs: `git switch -C next origin/main`, then `git merge --no-ff` of each
-   pick's head (with `rerere.enabled`), then the one `chore(release): <ver>` commit that sets the version
-   ([Version numbers](#version-numbers)). `next` stays between releases: ready picks merge into it as they pass CI,
-   candidates are dispatched from it, and a re-cut force-pushes it. The release merge deletes the remote branch
-   (delete-branch-on-merge), so right after it `next` is reset to `origin/main` and pushed again (no approval needed:
-   it is not `main`).
+User-facing PRs merge to `main` after green CI and a review with no open blocker or major; there are no release
+picks. A PR labelled `hold` waits (an unfinished feature); a change the maintainers reject after playing it is
+reverted on `main` (`git revert -m 1 <merge>`). Server code of an unreleased client feature merges only when it keeps
+working with released clients (CI and the loopback server test); otherwise it is held.
+
+1. `next` = a `main` sha the maintainers name plus the one `chore(release): <ver>` commit that sets the version
+   ([Version numbers](#version-numbers)): `git switch -C next <sha>`, then that commit. The candidate is that fixed
+   sha: `main` keeps taking PRs while it is out, and a fix for the candidate merges to `main` first and is then
+   cherry-picked onto `next` (`git cherry-pick -x`), or `next` is cut again from a newer `main` sha. A re-cut
+   force-pushes `next`. The release merge deletes the remote branch (delete-branch-on-merge), so right after it `next`
+   is reset to `origin/main` and pushed again (no approval needed: it is not `main`).
 2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. While it
    is a draft only `ci-ok` runs there, and fails on purpose (`ci.yml` skips the other jobs; the candidate build is the
    dispatch below): the long jobs start when it is marked ready, after the play test (step 5).
    Every push to `next` runs the `next` workflow (`next.yml`, a few minutes): `cargo check` of both release targets,
-   so a compile break between picks fails there instead of in the candidate build. Dispatch after it passes.
+   so a compile break fails there instead of in the candidate build. Dispatch after it passes.
 3. Dispatch the candidate: `gh workflow run release.yml --ref next -f version=<x.y.z>`. The build runs with
    `FORZA_VERSION=<x.y.z>` (semver; it wins over `git describe`), the file-name check expects that version, and the
    job summary names the commit, the run and the SHA-256 sums. A dispatch never publishes. `dist` is kept 14 days:
    the tag must come within that time, or the commit is dispatched again and that new build is the one played and
    tagged.
-4. The [stability gate](#stability-gate) runs on that candidate. A fix goes on its PR; then `next` is cut again and
-   dispatched again.
+4. The [stability gate](#stability-gate) runs on that candidate. A fix merges to `main`, then is cherry-picked onto
+   `next` (or `next` is cut again, step 1) and dispatched again.
 5. Mark the `chore(release)` PR ready (`gh pr ready <n> -R Forza-WCCF/Forza-WCCF`), which starts its CI, and wait for
    it to be green: find the `ci.yml` run started after `gh pr ready` (`gh run list -R Forza-WCCF/Forza-WCCF -w ci.yml
    -b next -e pull_request -L 1`) and wait on it (`timeout 1500 gh run watch <id> -R Forza-WCCF/Forza-WCCF --exit-status --interval 30`), then
    confirm `gh pr checks <n> -R Forza-WCCF/Forza-WCCF` shows `ci-ok` passing. `gh pr checks --watch` can exit on the
    draft's stale red `ci-ok`, so it is not the wait. Then merge it with a merge
-   commit, never squash or rebase, so the candidate sha stays an ancestor of `main`; the picked PRs then show as merged.
+   commit, never squash or rebase, so the candidate sha stays an ancestor of `main`.
 6. Sign the tag on the candidate sha, not on the merge commit: `git tag -s v<x.y.z> -m "..." <candidate sha>`.
    Pushing the tag prints `Cannot create ref ... restricted` (the tag ruleset), yet the admin bypass creates it:
    confirm with `gh api repos/Forza-WCCF/Forza-WCCF/git/ref/tags/v<x.y.z>`.
