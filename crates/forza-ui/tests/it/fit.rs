@@ -4,6 +4,8 @@
 
 use egui::accesskit::Role;
 use egui::{Ui, Vec2};
+use egui_kittest::kittest::NodeT as _;
+use egui_kittest::kittest::Queryable as _;
 use forza_ui::theme::Edition;
 use forza_ui::{Lang, installer, launcher, lobby, panel, widgets};
 
@@ -102,20 +104,35 @@ fn clickable(role: Role) -> bool {
     )
 }
 
+/// Whether a click reaches a widget at `r`: inside the window and on the page's own layer. A dialog's buttons are in a
+/// layer of their own and the widgets under it are clipped or covered, so the page's check reads what a player sees
+/// and can click. An open panel page takes the cabinet deck away and stays clear of the page bar (#348), so the
+/// widgets under a page are in this check too.
+fn on_page(ctx: &egui::Context, r: egui::Rect) -> bool {
+    ctx.content_rect().contains_rect(r)
+        && ctx.layer_id_at(r.center()) == Some(egui::LayerId::background())
+}
+
 /// The clickable widgets of one screen that sit on each other, as "screen: role label {rect} on role label {rect}".
 /// Two of them on the page's own layer may not share space (a button drawn over its neighbour takes the clicks meant
-/// for it), in any language. A dialog's buttons are in a layer of their own and the widgets under it are clipped or
-/// covered, so this reads the page's window: what a player sees and can click. An open panel page takes the cabinet
-/// deck away and stays clear of the page bar (#348), so the widgets under a page are in this check too.
+/// for it), in any language.
 fn overlaps(name: &str, size: Vec2, ed: Edition, show: impl FnMut(&mut Ui)) -> Vec<String> {
-    use egui_kittest::kittest::NodeT as _;
     let mut h = harness(size, 1.0, ed, show);
     h.run_steps(8);
-    let window = h.ctx.content_rect();
-    let page = |r: egui::Rect| h.ctx.layer_id_at(r.center()) == Some(egui::LayerId::background());
-    let mut clicks: Vec<(String, egui::Rect)> = h
-        .root()
-        .children_recursive()
+    let nodes = h.root().children_recursive();
+    overlaps_of(name, size, &h.ctx, nodes, |r| on_page(&h.ctx, r)).1
+}
+
+/// The clickables among `nodes` and their children that a click reaches at `keep` and that sit on each other, and how
+/// many of them it looked at (a dialog whose buttons are found nowhere would pass a pair check for nothing).
+fn overlaps_of<'a>(
+    name: &str,
+    size: Vec2,
+    ctx: &egui::Context,
+    nodes: impl Iterator<Item = egui_kittest::Node<'a>>,
+    keep: impl Fn(egui::Rect) -> bool,
+) -> (usize, Vec<String>) {
+    let mut clicks: Vec<(String, egui::Rect)> = nodes
         .filter_map(|n| {
             let a = n.accesskit_node();
             let label = a.label();
@@ -134,9 +151,9 @@ fn overlaps(name: &str, size: Vec2, ed: Edition, show: impl FnMut(&mut Ui)) -> V
             // SAFETY: the value is the high-entropy one egui stored for this very widget (`Id::accesskit_id`, the way
             // back `from_high_entropy_bits` names); the lookup only reads the rects of the frame just run.
             let id = unsafe { egui::Id::from_high_entropy_bits(a.locate().0.0) };
-            let r = h.ctx.read_response(id).map_or(r, |resp| resp.interact_rect);
+            let r = ctx.read_response(id).map_or(r, |resp| resp.interact_rect);
             // of no size, scrolled out of the window or clipped away, or in a dialog over the page
-            let shown = r.width() > 1.0 && r.height() > 1.0 && window.contains_rect(r) && page(r);
+            let shown = r.width() > 1.0 && r.height() > 1.0 && keep(r);
             shown.then_some((format!("{:?} {label:?}", a.role()), r))
         })
         .collect();
@@ -149,7 +166,7 @@ fn overlaps(name: &str, size: Vec2, ed: Edition, show: impl FnMut(&mut Ui)) -> V
             }
         }
     }
-    over
+    (clicks.len(), over)
 }
 
 /// The room two clickables share, when it is room a player can aim a click at: `None` for a widget inside another (a
@@ -184,6 +201,132 @@ fn no_two_clickables_overlap() {
     screens(|name, size, ed, show| {
         over.extend(overlaps(name, size, ed, show));
     });
+    assert!(
+        over.is_empty(),
+        "clickable widgets on each other:\n{}",
+        over.join("\n")
+    );
+}
+
+/// #353: the pop-out board's own buttons, the audit's blind spot — the foot's DOCK, RESET LINEUP and FORMATIONS with
+/// the cabinet buttons under them — at the least sheet a window gives the board (900 points on its short side, the
+/// narrowest board), in every language. The check ran over the docked panel only, and #285's foot row was found by
+/// hand instead.
+#[test]
+fn no_two_clickables_overlap_on_the_popout_board() {
+    let size = Vec2::new(900.0, 901.0);
+    let mut over = vec![];
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.desk = true;
+        st.file.board_window = true;
+        st.file.board_buttons = true;
+        // a table kept: RESET LINEUP is lit, so the whole foot row is in the check (a disabled button takes no click)
+        st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        let name = format!("popout board 900x901 {}", lang.code());
+        over.extend(overlaps(&name, size, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        }));
+    }
+    assert!(
+        over.is_empty(),
+        "clickable widgets on each other:\n{}",
+        over.join("\n")
+    );
+}
+
+/// The dialog `st` opens: how many of its clickable widgets a click reaches and the ones on each other. egui gives a
+/// modal's frame `Role::Dialog`, so its own tree holds the dialog's buttons and the page drawn under it does not.
+fn dialog_overlaps(name: &str, st: &mut panel::PanelState) -> (usize, Vec<String>) {
+    let ed = st.edition;
+    let mut h = harness(panel::SIZE, 1.0, ed, |ui| panel::show(ui, st));
+    h.run_steps(8);
+    let dialog = h
+        .root()
+        .children_recursive()
+        .filter(|n| n.accesskit_node().role() == Role::Dialog)
+        .find(|n| {
+            n.children_recursive()
+                .any(|c| clickable(c.accesskit_node().role()))
+        })
+        .expect("the dialog's frame with a button in it");
+    let window = h.ctx.content_rect();
+    overlaps_of(
+        name,
+        panel::SIZE,
+        &h.ctx,
+        dialog.children_recursive(),
+        |r| window.contains_rect(r),
+    )
+}
+
+/// #353: a dialog's buttons are apart too, in every language — the close warning's KEEP PLAYING and QUIT, and RESET
+/// LINEUP's CONFIRM, DON'T ASK AGAIN and CANCEL. The page's check reads the page's layer, where a dialog's own
+/// buttons never were.
+#[test]
+fn no_two_dialog_buttons_overlap() {
+    for lang in Lang::ALL {
+        // an open panel session: closing asks first
+        let mut st = panel::PanelState::sample(Edition::E1011, lang, panel::Page::Game);
+        st.close_warn = true;
+        let (seen, over) = dialog_overlaps(&format!("close warning {}", lang.code()), &mut st);
+        assert!(
+            seen >= 2,
+            "the close warning's buttons: {seen} in the check"
+        );
+        assert!(
+            over.is_empty(),
+            "clickable widgets on each other:\n{}",
+            over.join("\n")
+        );
+        // a table kept: RESET LINEUP asks first
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        st.reset_ask = Some(false);
+        let (seen, over) = dialog_overlaps(&format!("reset ask {}", lang.code()), &mut st);
+        assert!(
+            seen >= 3,
+            "the reset question's buttons: {seen} in the check"
+        );
+        assert!(
+            over.is_empty(),
+            "clickable widgets on each other:\n{}",
+            over.join("\n")
+        );
+    }
+}
+
+/// #353, from #349's review (F3): SETTINGS is taller than its sheet at 1440x900 in 2017-18 and scrolls, and the check
+/// reads each widget's clipped rect, so the rows below the viewport were out of its reach. Scrolled to the page's last
+/// setting (the way #349's tests scroll to one and wait four frames), the foot of SETTINGS is in the check too.
+#[test]
+fn no_two_clickables_overlap_at_the_foot_of_settings() {
+    let mut over = vec![];
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Settings);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(8);
+        let fps = forza_ui::text(lang, "settings.fps", &[]);
+        h.get_by_label(&fps).scroll_to_me();
+        h.run_steps(8); // the scroll lands on the 4th frame (#349's wait) and its 0.1 s animation finishes by the 8th
+        assert!(
+            h.ctx
+                .content_rect()
+                .contains_rect(h.get_by_label(&fps).rect()),
+            "SETTINGS did not scroll to its last row"
+        );
+        let nodes = h.root().children_recursive();
+        let (_, pairs) = overlaps_of(
+            &format!("settings foot {}", lang.code()),
+            panel::SIZE,
+            &h.ctx,
+            nodes,
+            |r| on_page(&h.ctx, r),
+        );
+        over.extend(pairs);
+    }
     assert!(
         over.is_empty(),
         "clickable widgets on each other:\n{}",
