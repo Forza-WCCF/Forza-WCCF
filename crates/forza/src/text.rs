@@ -1114,6 +1114,43 @@ pub(crate) fn fold(s: &str) -> String {
         .collect()
 }
 
+/// A name field holds [`FIELD`] bytes and a closing end byte, so a longer folded name is cut; and `fold` writes
+/// `?` for a letter the game's font has no glyph for.
+#[derive(Default)]
+struct NameFaults {
+    cut: usize,
+    unknown: usize,
+}
+
+impl NameFaults {
+    fn add(&mut self, name: &str) {
+        if name.len() >= FIELD {
+            self.cut += 1;
+        }
+        if name.contains('?') {
+            self.unknown += 1;
+        }
+    }
+
+    /// The status note's tail: empty when every name went in as it is.
+    fn note(&self) -> String {
+        let mut s = String::new();
+        if self.cut > 0 {
+            s += &format!(
+                "; {} player names are too long for the field and are cut",
+                self.cut
+            );
+        }
+        if self.unknown > 0 {
+            s += &format!(
+                "; {} player names have a letter the game's font cannot show and got a ?",
+                self.unknown
+            );
+        }
+        s
+    }
+}
+
 /// value + end byte, then the field's own fill (whatever followed the original end byte).
 fn put_field(field: &[u8], value: &[u8], size: usize) -> Vec<u8> {
     let fill = match field.iter().position(|&b| b == 0) {
@@ -1164,6 +1201,7 @@ impl Ctx {
             let n = put_field(&pd[at..at + FIELD], v, FIELD);
             pd[at..at + FIELD].copy_from_slice(&n);
         };
+        let mut names = NameFaults::default();
         for i in 0..pd.len() / s.rec {
             let r = i * s.rec;
             let kana = cp932(first(&pd[r + s.short_kana..r + s.short_kana + FIELD]));
@@ -1182,6 +1220,7 @@ impl Ctx {
                     name = ini + &name;
                 }
             }
+            names.add(&name);
             set(&mut pd, r + s.short_kana, name.as_bytes());
             if let Some((full_latin, card_name)) = s.full {
                 let full = fold(&utf16(&pd[r + full_latin..r + full_latin + FIELD]));
@@ -1224,6 +1263,7 @@ impl Ctx {
                 skipped[0]
             );
         }
+        note += &names.note();
         Ok((files, note))
     }
 
@@ -1801,6 +1841,31 @@ mod tests {
     fn fold_drops_accents() {
         assert_eq!(fold("Kaká Øre ß"), "Kaka Ore SS");
         assert_eq!(fold("日"), "?");
+    }
+
+    #[test]
+    fn a_cut_or_unknown_player_name_is_counted() {
+        let mut f = NameFaults::default();
+        f.add("Del Piero");
+        assert_eq!((f.cut, f.unknown), (0, 0), "a name that fits as it is");
+        f.add(&"A".repeat(FIELD));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (1, 0),
+            "one byte too many for the field"
+        );
+        f.add(&fold("FC 東京"));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (1, 1),
+            "a letter the font has no glyph for"
+        );
+        let n = f.note();
+        assert!(
+            n.contains("1 player names are too long for the field"),
+            "{n}"
+        );
+        assert!(n.contains("1 player names have a letter"), "{n}");
     }
 
     #[test]
@@ -2748,7 +2813,6 @@ mod tests {
         );
         assert!(backup.join(pictures::STATE).is_file());
     }
-
     impl Ctx {
         fn new_bare(ed: Edition, game: &Path, backup: &Path) -> Self {
             Self {
