@@ -7,7 +7,8 @@
 //! game 1718                 0203 | 0506 | 1011 | 1718
 //! name My team
 //! P 1234 50 88 K            starter: card number, x y in percent (y 0 = opponent goal), optional K = key player
-//! S 2345                    substitute, in bench order
+//! S 2345 # box 3            substitute, in bench order; the box it sits in (1-5, as the board shows it), so a
+//!                            saved formation keeps the gaps in its bench (no box: the boxes fill in order)
 //! S "13/GES 3 "             a card with no number in that game: the site's ver/card, quoted when it has spaces
 //! ```
 //! A bare list of numbers (first 11 start, the next 5 sit on the bench) is read too. Numbers are the game's own card
@@ -31,6 +32,9 @@ pub struct Entry {
     pub at: Option<(f32, f32)>,
     /// The line's comment (the site writes `SHORT · version card`), else the ref.
     pub label: String,
+    /// The bench box the file names (`# box 3`), 0-4; `None` = the first free box, in bench order. Always `None` on
+    /// the pitch.
+    pub bench_box: Option<usize>,
 }
 
 /// An entry that did not come through, and why.
@@ -168,11 +172,11 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
     let keyed_text = lines.iter().any(|(_, t, _)| keyed(t));
     let mut l = Lineup::default();
     let mut seen = Vec::new();
-    // (kind, ref, x y, K, comment)
+    // (kind, ref, x y, K, comment, bench box)
     let mut entries = Vec::new();
     for (raw, t, c) in &lines {
         if !keyed_text {
-            entries.extend(t.iter().map(|r| ('P', r, None, false, c)));
+            entries.extend(t.iter().map(|r| ('P', r, None, false, c.as_str(), None)));
         } else if t[0].text() == "name" {
             let n = raw.strip_prefix("name").unwrap_or("").trim();
             if !n.is_empty() {
@@ -189,7 +193,13 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
                 .zip(xy(3))
                 .map(|(x, y)| (from_percent(x), from_percent(y)));
             let kp = t[0].text() == "P" && t.get(4).is_some_and(|k| k.text() == "K");
-            entries.push((t[0].text().chars().next().unwrap_or('P'), &t[1], at, kp, c));
+            let kind = t[0].text().chars().next().unwrap_or('P');
+            let (bench_box, c) = if kind == 'S' {
+                bench_box_of(c)
+            } else {
+                (None, c.as_str())
+            };
+            entries.push((kind, &t[1], at, kp, c, bench_box));
         } else {
             l.skipped.push(Skipped {
                 label: raw.clone(),
@@ -198,11 +208,11 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
         }
     }
     // As the site's `addTo`: a starter past the 11th takes the next free bench box, so a bare list needs no split.
-    for (kind, r, at, kp, c) in entries {
+    for (kind, r, at, kp, c, bench_box) in entries {
         let label = if c.is_empty() {
             r.text().to_string()
         } else {
-            c.clone()
+            c.to_string()
         };
         let Some(no) = number(r) else {
             let why = if matches!(r, Tok::Quoted(_)) || r.text().contains('/') {
@@ -228,6 +238,7 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
             no,
             at: if kind == 'P' { at } else { None },
             label,
+            bench_box: if kind == 'S' { bench_box } else { None },
         };
         if kind == 'S' {
             if l.bench.len() < BENCH {
@@ -256,13 +267,14 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
 }
 
 /// The lineup as the table the panel writes: pitch cards at their spots (auto-placed ones where [`add`] puts them), the
-/// bench on its band boxes in order, slots 1.. in that order. Cards the catalogue lacks, and a second card of a player
-/// already in, are skipped after the lineup's own skips. `Err(Empty)` when no card is left.
+/// bench in the boxes the file names, the rest in the first free boxes in bench order, slots 1.. in that order. Cards the
+/// catalogue lacks, and a second card of a player already in, are skipped after the lineup's own skips. `Err(Empty)`
+/// when no card is left.
 pub fn table(l: &Lineup, catalogue: &[Card]) -> Result<Import, LineupError> {
     let mut placed: Vec<Placed> = Vec::new();
     let mut taken: Vec<&Card> = Vec::new();
     let mut skipped = l.skipped.clone();
-    let mut benched = 0;
+    let mut boxes = [false; BENCH];
     for (e, bench) in l
         .pitch
         .iter()
@@ -281,21 +293,27 @@ pub fn table(l: &Lineup, catalogue: &[Card]) -> Result<Import, LineupError> {
             skipped.push(skip(Skip::Duplicate));
             continue;
         }
-        let slot = (1..=MAX_CARDS as i32)
-            .find(|s| !placed.iter().any(|p| p.slot == *s))
-            .unwrap_or(1);
+        let free = (1..=MAX_CARDS as i32).find(|s| !placed.iter().any(|p| p.slot == *s));
+        let Some(slot) = free else {
+            skipped.push(skip(Skip::NoRoom));
+            continue;
+        };
         if bench {
-            let Some(&y) = BENCH_Y.get(benched) else {
+            let b = e
+                .bench_box
+                .filter(|&b| b < BENCH && !boxes[b])
+                .or_else(|| (0..BENCH).find(|&b| !boxes[b]));
+            let Some(b) = b else {
                 skipped.push(skip(Skip::NoRoom));
                 continue;
             };
+            boxes[b] = true;
             placed.push(Placed {
                 slot,
                 no: e.no,
                 x: BENCH_X,
-                y,
+                y: BENCH_Y[b],
             });
-            benched += 1;
         } else if placed.iter().filter(|p| !p.on_bench()).count() >= PITCH {
             skipped.push(skip(Skip::NoRoom));
             continue;
@@ -350,19 +368,40 @@ pub fn share_path(id: &str) -> String {
 /// on the pitch in table order, the order the board shows them) and `S no` (the bench by band, the first 5). No key
 /// player and no comments: the table has neither.
 pub fn export(placed: &[Placed], edition: Edition, name: &str) -> String {
-    write(placed, edition, name, |v| format!("{}", v.round()))
+    write(placed, edition, name, |v| format!("{}", v.round()), false)
 }
 
 /// [`export`] with the percent to two decimals (the table's own three-decimal spots), so [`parse`] and [`table`] give
 /// the same table back: a saved formation's file.
 pub fn export_exact(placed: &[Placed], edition: Edition, name: &str) -> String {
-    write(placed, edition, name, |v| {
+    let exact = |v: f32| {
         let t = format!("{v:.2}");
         t.trim_end_matches('0').trim_end_matches('.').to_string()
-    })
+    };
+    write(placed, edition, name, exact, true)
 }
 
-fn write(placed: &[Placed], edition: Edition, name: &str, num: impl Fn(f32) -> String) -> String {
+/// A comment as a bench entry's box (`# box 3`), and the rest of the comment (the label): any other comment is all label.
+fn bench_box_of(c: &str) -> (Option<usize>, &str) {
+    let c = c.trim();
+    if let Some(n) = c
+        .strip_prefix("box")
+        .map(str::trim_start)
+        .and_then(|n| n.parse::<usize>().ok())
+        .filter(|n| (1..=BENCH).contains(n))
+    {
+        return (Some(n - 1), "");
+    }
+    (None, c)
+}
+
+fn write(
+    placed: &[Placed],
+    edition: Edition,
+    name: &str,
+    num: impl Fn(f32) -> String,
+    boxes: bool,
+) -> String {
     let mut bench: Vec<&Placed> = placed.iter().filter(|p| p.on_bench()).collect();
     bench.sort_by_key(|p| (super::bench_band(p.y), p.slot));
     let pct = |v: f32| num(((v + 1.0) * 50.0).clamp(0.0, 100.0));
@@ -374,7 +413,12 @@ fn write(placed: &[Placed], edition: Edition, name: &str, num: impl Fn(f32) -> S
         t += &format!("P {} {} {}\n", p.no, pct(p.x), pct(p.y));
     }
     for p in bench.iter().take(BENCH) {
-        t += &format!("S {}\n", p.no);
+        // the site reads the line before its comment, which carries the box a saved formation keeps
+        t += &if boxes {
+            format!("S {} # box {}\n", p.no, super::bench_band(p.y) + 1)
+        } else {
+            format!("S {}\n", p.no)
+        };
     }
     t
 }
@@ -713,6 +757,39 @@ mod tests {
         assert_eq!(t.matches("\nP ").count(), 11);
         assert!(t.starts_with("# WCCF DB lineup\ngame 1011\nP 1 50 50\n"));
         assert!(t.ends_with("S 91\nS 90\n"));
+        // a saved formation's file names each substitute's box; the site reads the line before its comment
+        let exact = export_exact(&placed, Edition::E1011, "");
+        assert!(exact.ends_with("S 91 # box 2\nS 90 # box 4\n"), "{exact:?}");
+    }
+
+    /// A bench box in the comment (`# box 3`) keeps its gap; a file without one fills the boxes in order.
+    #[test]
+    fn a_bench_box_in_the_comment_keeps_its_gap() {
+        let l = parse(
+            "game 1718\nP 1 50 90\nS 2 # box 5\nS 3 # box 2\nS 4\n",
+            Edition::E1718,
+        )
+        .unwrap();
+        assert_eq!(
+            l.bench.iter().map(|e| e.bench_box).collect::<Vec<_>>(),
+            [Some(4), Some(1), None]
+        );
+        let i = table(&l, &cat(&[1, 2, 3, 4])).unwrap();
+        let bench: Vec<(u32, f32)> = i
+            .placed
+            .iter()
+            .filter(|p| p.on_bench())
+            .map(|p| (p.no, p.y))
+            .collect();
+        assert_eq!(bench, [(2, BENCH_Y[4]), (3, BENCH_Y[1]), (4, BENCH_Y[0])]);
+        // any other comment stays the entry's label
+        let l = parse("P 1 50 90\nS 2 # GERVINHO · 11-12 012\n", Edition::E1718).unwrap();
+        assert_eq!(l.bench[0].bench_box, None);
+        assert_eq!(l.bench[0].label, "GERVINHO · 11-12 012");
+        // two cards naming one box: the second takes the first free one
+        let l = parse("P 1 50 90\nS 2 # box 1\nS 3 # box 1\n", Edition::E1718).unwrap();
+        let i = table(&l, &cat(&[1, 2, 3])).unwrap();
+        assert_eq!((i.placed[1].y, i.placed[2].y), (BENCH_Y[0], BENCH_Y[1]));
     }
 
     /// db.wccf.it's own `exportText` (board.js) run on real 2017-18 cards (E:\\wccf-builds\\saved-formations-20261030\\

@@ -37,7 +37,7 @@ impl Placed {
     }
 }
 
-/// The table holds at most 16 cards: 11 on the pitch and 5 on the bench.
+/// The board holds at most 16 cards: 11 on the pitch and 5 on the bench (the table itself may hold more rows).
 pub const MAX_CARDS: usize = 16;
 /// Bench cards lie at x 1.24, y on one of the game's five band spots.
 pub const BENCH_X: f32 = 1.24;
@@ -71,7 +71,9 @@ pub fn bench_band(y: f32) -> usize {
 // ---- the table file ----
 
 /// The table file's text -> its cards, by FPR_Emu's rules: `#` starts a comment, commas count as spaces, a line is
-/// "slot card x y" with slot 1-20 and card 1 or more; anything else is skipped; at most 16 cards.
+/// "slot card x y" with slot 1-20 and card 1 or more; anything else is skipped, and so is a position that is not a
+/// finite number (NaN or an infinity would put the card on no bench and no spot). The rows past the board's 16 are kept:
+/// the board shows the first 16 and the rest stay in the file, as FPR_Emu's slots go up to 20.
 pub fn parse_table(text: &[u8]) -> Vec<Placed> {
     // ponytail: a number with trailing junk ("3x") is skipped, where the C panel's sscanf took its leading digits
     String::from_utf8_lossy(text)
@@ -83,14 +85,14 @@ pub fn parse_table(text: &[u8]) -> Vec<Placed> {
             let no: i64 = w.next()?.parse().ok()?;
             let x: f32 = w.next()?.parse().ok()?;
             let y: f32 = w.next()?.parse().ok()?;
-            ((1..=20).contains(&slot) && no >= 1).then_some(Placed {
+            let finite = x.is_finite() && y.is_finite();
+            ((1..=20).contains(&slot) && no >= 1 && finite).then_some(Placed {
                 slot,
                 no: u32::try_from(no).ok()?,
                 x,
                 y,
             })
         })
-        .take(MAX_CARDS)
         .collect()
 }
 
@@ -146,6 +148,10 @@ pub struct TableFile {
     /// The table is swapped in but the formation copy failed: only the copy is tried again (`retry_copy`).
     pub copy_owed: bool,
     copy_try: Option<std::time::Instant>,
+    /// When a failed write was last tried: the retry comes at most once a second, as the copy's does.
+    write_try: Option<std::time::Instant>,
+    /// The owed write's failure was logged: one line per failed streak, not one per frame.
+    write_logged: bool,
 }
 
 impl TableFile {
@@ -158,6 +164,8 @@ impl TableFile {
             pending: false,
             copy_owed: false,
             copy_try: None,
+            write_try: None,
+            write_logged: false,
         }
     }
 
@@ -198,11 +206,30 @@ impl TableFile {
         swap_in(&tmp, &self.table, 4, 1)?;
         self.stamp = Some(when);
         self.pending = false;
+        self.write_logged = false;
         // the copy is owed until it is written: the two files disagree meanwhile
         self.copy_owed = true;
         self.write_state(cards)?;
         self.copy_owed = false;
         Ok(())
+    }
+
+    /// The table written, the way the board does it: a failed write is retried at most once a second (as the copy is),
+    /// and its error is returned only for the first failure of a streak, so the log gets one line.
+    pub fn write_retry(&mut self, cards: &[Placed]) -> Option<io::Error> {
+        let now = std::time::Instant::now();
+        if self.pending
+            && self
+                .write_try
+                .is_some_and(|t| now.duration_since(t) < Duration::from_secs(1))
+        {
+            return None;
+        }
+        self.write_try = Some(now);
+        match self.write(cards) {
+            Ok(()) => None,
+            Err(e) => (!std::mem::replace(&mut self.write_logged, true)).then_some(e),
+        }
     }
 
     /// The formation copy still owed: written again, at most once a second.
@@ -220,10 +247,20 @@ impl TableFile {
     }
 
     fn write_state(&self, cards: &[Placed]) -> io::Result<()> {
-        let mirror = fs::read(&self.state).is_ok_and(|b| mirror_of(&String::from_utf8_lossy(&b)));
+        let mirror = self.read_mirror()?;
         let tmp = with_suffix(&self.state, ".board");
         fs::write(&tmp, state_text(cards, mirror))?;
         swap_in(&tmp, &self.state, 20, 2)
+    }
+
+    /// The state file's mirror choice: a file that is not there is off; one that cannot be read for a moment (a sharing
+    /// violation) is an error, so the write waits for it rather than saving "mirror": false over it.
+    fn read_mirror(&self) -> io::Result<bool> {
+        match fs::read(&self.state) {
+            Ok(b) => Ok(mirror_of(&String::from_utf8_lossy(&b))),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -296,7 +333,7 @@ pub fn add(cards: &mut Vec<Placed>, no: u32, pos: Position) -> Result<Placed, Ad
         .ok_or(AddRefused::NoPlace)?;
     let slot = (1..=MAX_CARDS as i32)
         .find(|s| !cards.iter().any(|c| c.slot == *s))
-        .unwrap_or(1);
+        .ok_or(AddRefused::NoPlace)?;
     let p = Placed { slot, no, x, y };
     cards.push(p);
     Ok(p)
@@ -445,9 +482,11 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
         } else {
             (BENCH_X, BENCH_Y[s - 11])
         };
-        let slot = (1..=MAX_CARDS as i32)
-            .find(|n| !out.iter().any(|c| c.slot == *n))
-            .unwrap_or(1);
+        let slot = (1..=MAX_CARDS as i32).find(|n| !out.iter().any(|c| c.slot == *n));
+        let Some(slot) = slot else {
+            // every slot is taken: the card stays off the table rather than taking slot 1 again
+            continue;
+        };
         out.push(Placed {
             slot,
             no: board.cards[i].number,
@@ -697,7 +736,8 @@ mod tests {
         );
     }
 
-    /// FPR_Emu's reading rules (`parse_table`): comments, commas, bad slots and card numbers, short lines, 16 at most.
+    /// FPR_Emu's reading rules (`parse_table`): comments, commas, bad slots and card numbers, short lines, positions
+    /// that are not finite; and the rows past the board's 16 are kept, as the file's slots go up to 20.
     #[test]
     fn the_table_is_read_by_fpr_emus_rules() {
         let text = b"# a note\r\n1,101,0.1,0.2 # the keeper\r\n0 5 0 0\n21 5 0 0\n3 0 0 0\n4 5 0\n\n  7   8  -0.5  0.25\n";
@@ -705,8 +745,43 @@ mod tests {
             parse_table(text),
             [p(1, 101, 0.1, 0.2), p(7, 8, -0.5, 0.25)]
         );
+        // a NaN or an infinity would put the card on no bench and no spot: the row is skipped
+        assert_eq!(
+            parse_table(b"1 101 NaN 0.5\n2 102 inf -inf\n3 103 1e999 0\n4 104 0.1 -0.2\n"),
+            [p(4, 104, 0.1, -0.2)]
+        );
+        // 20 rows: all of them are read, so the next save writes them back
         let many: String = (1..=20).map(|s| format!("{s} {s} 0 0\n")).collect();
-        assert_eq!(parse_table(many.as_bytes()).len(), 16);
+        let rows = parse_table(many.as_bytes());
+        assert_eq!(rows.len(), 20);
+        assert_eq!(parse_table(table_text(&rows).as_bytes()), rows);
+    }
+
+    /// A card the board takes in with every slot taken is left off the table, not put on slot 1 again.
+    #[test]
+    fn a_card_with_no_free_slot_keeps_off_the_table() {
+        // 12 on the pitch and 4 substitutes: the board shows 11 and 4, so the file's slots 1-16 are all taken
+        let mut before: Vec<Placed> = (0..12)
+            .map(|i| p(i + 1, 100 + i as u32, -0.8 + 0.13 * i as f32, 0.0))
+            .collect();
+        for b in 0..4 {
+            before.push(p(13 + b, 200 + b as u32, BENCH_X, BENCH_Y[b as usize]));
+        }
+        let mut seventeen = before.clone();
+        seventeen.push(p(17, 300, BENCH_X, BENCH_Y[4]));
+        let board = self::board(&seventeen, &[]);
+        assert_eq!(
+            board.slots[15],
+            Some(16),
+            "the last card sits in the free box"
+        );
+        let t = table_after(&before, &board);
+        assert_eq!(t.len(), 16, "no free slot: the card is not added");
+        assert_eq!(
+            t.iter().filter(|c| c.slot == 1).count(),
+            1,
+            "no slot reused"
+        );
     }
 
     /// `write_panel_state_locked`: the mirror choice as the old file had it, a pitch card's x unmirrored, a bench
@@ -754,6 +829,53 @@ mod tests {
         );
         assert_eq!(fs::read_dir(d.path()).unwrap().count(), 2);
         assert_eq!(f.read().unwrap(), cards);
+    }
+
+    /// A write that keeps failing is retried at most once a second and logged once per streak: a folder where the
+    /// table goes can never be swapped in.
+    #[test]
+    fn a_failing_write_is_retried_once_a_second_and_logged_once() {
+        let d = tempfile::tempdir().unwrap();
+        let mut f = TableFile::in_dir(d.path());
+        let one = [p(1, 101, 0.5, 0.5)];
+        let two = [p(1, 102, 0.5, 0.5)];
+        assert!(
+            f.write_retry(&one).is_none(),
+            "a write that goes in is no line"
+        );
+        assert_eq!(fs::read_to_string(&f.table).unwrap(), table_text(&one));
+        fs::remove_file(&f.table).unwrap();
+        fs::create_dir(&f.table).unwrap();
+        assert!(f.write_retry(&two).is_some(), "the first failure is logged");
+        assert!(f.pending);
+        assert!(
+            f.write_retry(&one).is_none(),
+            "a retry within the second is skipped"
+        );
+        assert_eq!(
+            fs::read_to_string(with_suffix(&f.table, ".board")).unwrap(),
+            table_text(&two),
+            "the skipped retry wrote nothing"
+        );
+    }
+
+    /// A state file that cannot be read for a moment (a sharing violation, a folder where it was) is not written over
+    /// with "mirror": false from the session's first write: the copy waits, and is tried again once the file reads.
+    #[test]
+    fn a_state_file_that_cannot_be_read_is_not_written_over() {
+        let d = tempfile::tempdir().unwrap();
+        let mut f = TableFile::in_dir(d.path());
+        let t = [p(1, 101, 0.5, 0.5)];
+        fs::create_dir(&f.state).unwrap();
+        assert!(f.write(&t).is_err(), "the copy waits for the file to read");
+        assert!(!f.pending && f.copy_owed && f.state.is_dir());
+        fs::remove_dir(&f.state).unwrap();
+        fs::write(&f.state, "{\"placed\": [], \"mirror\": true}").unwrap();
+        f.retry_copy(&t);
+        assert!(!f.copy_owed);
+        assert_eq!(fs::read_to_string(&f.state).unwrap(), state_text(&t, true));
+        fs::remove_file(&f.state).unwrap();
+        assert!(!f.read_mirror().unwrap(), "a missing file is off");
     }
 
     /// A failed formation copy leaves only the copy owed: the table is swapped in (not pending, edits seen), and
