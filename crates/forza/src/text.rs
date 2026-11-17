@@ -1050,37 +1050,35 @@ impl Ctx {
                     misfit[0]
                 );
             }
-        } else {
-            if original_bad > 0 {
-                note += &format!(
-                    "; {original_bad} of the original lines unusable, the next choice taken"
-                );
-            }
-            let mut left: Vec<_> = keys
-                .iter()
-                .filter(|(k, (_, nums))| {
-                    !pos.contains_key(*k)
-                        && !blocked(k)
-                        && has_high(at(&body, nums[0]))
-                        && !["SYS_DEBUG", "COM_debug"].contains(
-                            &k.splitn(3, '_')
-                                .take(2)
-                                .collect::<Vec<_>>()
-                                .join("_")
-                                .as_str(),
-                        )
-                })
-                .map(|(k, _)| k.as_str())
-                .collect();
-            left.sort_unstable();
-            if !left.is_empty() {
-                note += &format!(
-                    "; {} still Japanese ({}{})",
-                    left.len(),
-                    left[..left.len().min(3)].join(", "),
-                    if left.len() > 3 { ", ..." } else { "" }
-                );
-            }
+        } else if original_bad > 0 {
+            note +=
+                &format!("; {original_bad} of the original lines unusable, the next choice taken");
+        }
+        // Both editions: the real-game test looks for this note, and a line left in Japanese is wrong.
+        let mut left: Vec<_> = keys
+            .iter()
+            .filter(|(k, (_, nums))| {
+                !pos.contains_key(*k)
+                    && !blocked(k)
+                    && has_high(at(&body, nums[0]))
+                    && !["SYS_DEBUG", "COM_debug"].contains(
+                        &k.splitn(3, '_')
+                            .take(2)
+                            .collect::<Vec<_>>()
+                            .join("_")
+                            .as_str(),
+                    )
+            })
+            .map(|(k, _)| k.as_str())
+            .collect();
+        left.sort_unstable();
+        if !left.is_empty() {
+            note += &format!(
+                "; {} still Japanese ({}{})",
+                left.len(),
+                left[..left.len().min(3)].join(", "),
+                if left.len() > 3 { ", ..." } else { "" }
+            );
         }
         Ok((files, note))
     }
@@ -1225,6 +1223,7 @@ impl Ctx {
             if let Some((full_latin, card_name)) = s.full {
                 let full = fold(&utf16(&pd[r + full_latin..r + full_latin + FIELD]));
                 if !full.is_empty() {
+                    names.add(&full);
                     set(&mut pd, r + card_name, full.as_bytes());
                 }
             }
@@ -1848,6 +1847,12 @@ mod tests {
         let mut f = NameFaults::default();
         f.add("Del Piero");
         assert_eq!((f.cut, f.unknown), (0, 0), "a name that fits as it is");
+        f.add(&"A".repeat(FIELD - 1));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (0, 0),
+            "the longest name the field keeps whole"
+        );
         f.add(&"A".repeat(FIELD));
         assert_eq!(
             (f.cut, f.unknown),
