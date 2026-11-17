@@ -2,6 +2,7 @@
 //! and times are local times, so the replay checks only on a PC with the recorder's UTC offset at those times.
 
 use std::fs::{self, File};
+use std::io::Read;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -171,8 +172,25 @@ fn rotate_case(root: &Path, rec: &Value) {
             json!([p, v[1]])
         })
         .collect();
-    // the one change from play.py: a previous-<time> folder an earlier start set aside goes at the next start
+    // the one change from play.py: a previous-<time> folder an earlier start set aside goes at the next start, into
+    // the archive (play.py left them for ever), so the archive gains a run-<time>.zip that the recording has not got
     let set_aside = |v: &Value| v[0].as_str().unwrap().contains("previous-20261001");
+    let zipped =
+        |v: &Value| v[0].as_str().unwrap().starts_with("archive\\run-") && !rec["tree"].as_array().unwrap().contains(v);
+    let aside_files = rec["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f[0].as_str().unwrap().starts_with("previous-20261001"))
+        .count();
+    let mut t = t;
+    assert_eq!(
+        t.iter().filter(|v| zipped(v)).count(),
+        usize::from(aside_files > 0),
+        "{}: the run an earlier start set aside is zipped",
+        rec["case"]
+    );
+    t.retain(|v| !zipped(v));
     let want: Vec<Value> = rec["tree"]
         .as_array()
         .unwrap()
@@ -268,7 +286,11 @@ fn the_archive_prunes_by_time_not_by_name() {
     archive_run(&run, &arc, 100_000).unwrap();
     assert!(newer.exists(), "the newer of two runs in one second stays");
     assert!(!old.exists(), "the older of the two goes");
-    assert_eq!(fs::read_dir(&arc).unwrap().count(), 2, "the run made now stays as the newest");
+    assert_eq!(
+        fs::read_dir(&arc).unwrap().count(),
+        2,
+        "the run made now stays as the newest"
+    );
 }
 
 /// A run whose archive could not be made is set aside, not deleted (#356): previous-2\ cannot go (a file in it is
@@ -295,11 +317,56 @@ fn a_run_whose_archive_failed_is_set_aside() {
         said.iter().any(|s| s.contains("not archived")),
         "the start says the run was not archived: {said:?}"
     );
-    let kept = fs::read_dir(&logs).unwrap().flatten().any(|e| {
-        fs::read_to_string(e.path().join("run_seat1.txt"))
-            .is_ok_and(|t| t.contains("the run before last"))
-    });
+    let kept = fs::read_dir(&logs)
+        .unwrap()
+        .flatten()
+        .any(|e| fs::read_to_string(e.path().join("run_seat1.txt")).is_ok_and(|t| t.contains("the run before last")));
     assert!(kept, "the run whose archive failed is kept, not deleted: {said:?}");
+}
+
+/// #356: a run an earlier start set aside because its archive failed is not deleted at the next start - the start
+/// tries the archive again, and the folder goes only once the run is in it.
+#[test]
+fn a_run_set_aside_by_a_failed_archive_is_kept_until_it_is_archived() {
+    let d = crate::scratch();
+    let logs = d.path().join("logs");
+    fs::create_dir_all(logs.join("previous")).unwrap();
+    fs::write(logs.join("previous").join("run_seat1.txt"), "the run before last").unwrap();
+    // the archive cannot be made (a file is in its place) and previous-2\ cannot go (a file in it is held): previous\
+    // has nowhere to move to and is set aside
+    fs::write(logs.join("archive"), "not a folder").unwrap();
+    fs::create_dir_all(logs.join("previous-2")).unwrap();
+    let held = logs.join("previous-2").join("mxhook_1.log");
+    fs::write(&held, "held").unwrap();
+    let open = File::options()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(&held)
+        .unwrap();
+    rotate(&logs).unwrap();
+    let kept = || {
+        fs::read_dir(&logs).unwrap().flatten().any(|e| {
+            fs::read_to_string(e.path().join("run_seat1.txt")).is_ok_and(|t| t.contains("the run before last"))
+        })
+    };
+    assert!(kept(), "the run whose archive failed is set aside, not deleted");
+    rotate(&logs).unwrap(); // the next start: its archive still cannot be made
+    assert!(kept(), "a set-aside run is not deleted while it is unarchived");
+    // the file in the archive's place goes and the held one is let go: the start after archives the set-aside run
+    fs::remove_file(logs.join("archive")).unwrap();
+    drop(open);
+    rotate(&logs).unwrap();
+    assert!(!kept(), "the set-aside folder goes once the run is in the archive");
+    let zips: Vec<_> = fs::read_dir(logs.join("archive"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(zips.len(), 1, "the set-aside run is zipped: {zips:?}");
+    let mut z = zip::ZipArchive::new(File::open(&zips[0]).unwrap()).unwrap();
+    let mut text = String::new();
+    z.by_name("run_seat1.txt").unwrap().read_to_string(&mut text).unwrap();
+    assert_eq!(text, "the run before last");
 }
 
 #[test]
