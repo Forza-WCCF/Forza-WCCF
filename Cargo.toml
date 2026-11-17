@@ -79,8 +79,9 @@ dbg_macro = "warn"
 # Cargo's own lints (1.100): a dependency a crate does not use is reported at build time, inherited with the two tables
 # above. It misses a dependency a path dependency also uses (a deliberately unused `md-5` in the server, which `forza`
 # uses, is not reported); removing one of those stays a `cargo-shear` job (the ignored list below).
-[workspace.lints.cargo]
-unused_dependencies = "warn"
+# Off on the 1.99.0 pin (Cargo 1.99 warns "unused manifest key" on every crate); turn on with the next toolchain bump.
+# [workspace.lints.cargo]
+# unused_dependencies = "warn"
 
 [workspace.metadata.cargo-shear]
 # no code names it: launcher and installer depend on it for eframe's wgpu fallback, so feature unification leaves that

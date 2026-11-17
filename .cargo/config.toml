@@ -16,8 +16,9 @@ linker = "rust-lld"
 # A version published in the last 7 days is not picked for a new resolution, as `.github/dependabot.yml` already waits:
 # hours or days are when a malicious release is caught (Cargo 1.100, `registry.global-min-publish-age`). A version already
 # in `Cargo.lock` stays.
-[registry]
-global-min-publish-age = "7 days"
+# Off on the 1.99.0 pin (Cargo 1.99 ignores it with a warning); turn on with the next toolchain bump.
+# [registry]
+# global-min-publish-age = "7 days"
 
 [alias]
 xtask = "run -q -p xtask --"
