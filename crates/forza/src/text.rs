@@ -1050,37 +1050,35 @@ impl Ctx {
                     misfit[0]
                 );
             }
-        } else {
-            if original_bad > 0 {
-                note += &format!(
-                    "; {original_bad} of the original lines unusable, the next choice taken"
-                );
-            }
-            let mut left: Vec<_> = keys
-                .iter()
-                .filter(|(k, (_, nums))| {
-                    !pos.contains_key(*k)
-                        && !blocked(k)
-                        && has_high(at(&body, nums[0]))
-                        && !["SYS_DEBUG", "COM_debug"].contains(
-                            &k.splitn(3, '_')
-                                .take(2)
-                                .collect::<Vec<_>>()
-                                .join("_")
-                                .as_str(),
-                        )
-                })
-                .map(|(k, _)| k.as_str())
-                .collect();
-            left.sort_unstable();
-            if !left.is_empty() {
-                note += &format!(
-                    "; {} still Japanese ({}{})",
-                    left.len(),
-                    left[..left.len().min(3)].join(", "),
-                    if left.len() > 3 { ", ..." } else { "" }
-                );
-            }
+        } else if original_bad > 0 {
+            note +=
+                &format!("; {original_bad} of the original lines unusable, the next choice taken");
+        }
+        // Both editions: the real-game test looks for this note, and a line left in Japanese is wrong.
+        let mut left: Vec<_> = keys
+            .iter()
+            .filter(|(k, (_, nums))| {
+                !pos.contains_key(*k)
+                    && !blocked(k)
+                    && has_high(at(&body, nums[0]))
+                    && !["SYS_DEBUG", "COM_debug"].contains(
+                        &k.splitn(3, '_')
+                            .take(2)
+                            .collect::<Vec<_>>()
+                            .join("_")
+                            .as_str(),
+                    )
+            })
+            .map(|(k, _)| k.as_str())
+            .collect();
+        left.sort_unstable();
+        if !left.is_empty() {
+            note += &format!(
+                "; {} still Japanese ({}{})",
+                left.len(),
+                left[..left.len().min(3)].join(", "),
+                if left.len() > 3 { ", ..." } else { "" }
+            );
         }
         Ok((files, note))
     }
@@ -1112,6 +1110,43 @@ pub(crate) fn fold(s: &str) -> String {
         .filter(|&c| canonical_combining_class(c) == 0)
         .map(|c| if (' '..'\u{7f}').contains(&c) { c } else { '?' })
         .collect()
+}
+
+/// A name field holds [`FIELD`] bytes and a closing end byte, so a longer folded name is cut; and `fold` writes
+/// `?` for a letter the game's font has no glyph for.
+#[derive(Default)]
+struct NameFaults {
+    cut: usize,
+    unknown: usize,
+}
+
+impl NameFaults {
+    fn add(&mut self, name: &str) {
+        if name.len() >= FIELD {
+            self.cut += 1;
+        }
+        if name.contains('?') {
+            self.unknown += 1;
+        }
+    }
+
+    /// The status note's tail: empty when every name went in as it is.
+    fn note(&self) -> String {
+        let mut s = String::new();
+        if self.cut > 0 {
+            s += &format!(
+                "; {} player names are too long for the field and are cut",
+                self.cut
+            );
+        }
+        if self.unknown > 0 {
+            s += &format!(
+                "; {} player names have a letter the game's font cannot show and got a ?",
+                self.unknown
+            );
+        }
+        s
+    }
 }
 
 /// value + end byte, then the field's own fill (whatever followed the original end byte).
@@ -1164,6 +1199,7 @@ impl Ctx {
             let n = put_field(&pd[at..at + FIELD], v, FIELD);
             pd[at..at + FIELD].copy_from_slice(&n);
         };
+        let mut names = NameFaults::default();
         for i in 0..pd.len() / s.rec {
             let r = i * s.rec;
             let kana = cp932(first(&pd[r + s.short_kana..r + s.short_kana + FIELD]));
@@ -1182,10 +1218,12 @@ impl Ctx {
                     name = ini + &name;
                 }
             }
+            names.add(&name);
             set(&mut pd, r + s.short_kana, name.as_bytes());
             if let Some((full_latin, card_name)) = s.full {
                 let full = fold(&utf16(&pd[r + full_latin..r + full_latin + FIELD]));
                 if !full.is_empty() {
+                    names.add(&full);
                     set(&mut pd, r + card_name, full.as_bytes());
                 }
             }
@@ -1224,6 +1262,7 @@ impl Ctx {
                 skipped[0]
             );
         }
+        note += &names.note();
         Ok((files, note))
     }
 
@@ -1801,6 +1840,37 @@ mod tests {
     fn fold_drops_accents() {
         assert_eq!(fold("Kaká Øre ß"), "Kaka Ore SS");
         assert_eq!(fold("日"), "?");
+    }
+
+    #[test]
+    fn a_cut_or_unknown_player_name_is_counted() {
+        let mut f = NameFaults::default();
+        f.add("Del Piero");
+        assert_eq!((f.cut, f.unknown), (0, 0), "a name that fits as it is");
+        f.add(&"A".repeat(FIELD - 1));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (0, 0),
+            "the longest name the field keeps whole"
+        );
+        f.add(&"A".repeat(FIELD));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (1, 0),
+            "one byte too many for the field"
+        );
+        f.add(&fold("FC 東京"));
+        assert_eq!(
+            (f.cut, f.unknown),
+            (1, 1),
+            "a letter the font has no glyph for"
+        );
+        let n = f.note();
+        assert!(
+            n.contains("1 player names are too long for the field"),
+            "{n}"
+        );
+        assert!(n.contains("1 player names have a letter"), "{n}");
     }
 
     #[test]
@@ -2747,6 +2817,29 @@ mod tests {
             Beside::Fine
         );
         assert!(backup.join(pictures::STATE).is_file());
+    }
+    /// The check mode for a player's own original 2017-18 game: `FORZA_GAME=<game folder> FORZA_SHEETS=<editions/
+    /// 2017-18> cargo nextest run -p forza --run-ignored all -E 'test(the_real_text_has_no_line_that_gives_way)'`.
+    /// A line that does not fit its place, a line that stays Japanese, and a player name that is cut or that gets a
+    /// `?` all fail here.
+    #[test]
+    #[ignore]
+    fn the_real_text_has_no_line_that_gives_way() {
+        let game = std::path::PathBuf::from(std::env::var("FORZA_GAME").unwrap());
+        let sheets = std::path::PathBuf::from(std::env::var("FORZA_SHEETS").unwrap());
+        let c = Ctx::new(Edition::E1718, &game, Path::new("none"), &sheets).unwrap();
+        for lang in [Lang::En, Lang::It] {
+            let (_, note) = c.build_all(lang).unwrap();
+            println!("{}: {note}", lang.name());
+            for bad in [
+                "do not fit",
+                "still Japanese",
+                "too long for the field",
+                "cannot show",
+            ] {
+                assert!(!note.contains(bad), "{}: {note}", lang.name());
+            }
+        }
     }
 
     impl Ctx {
