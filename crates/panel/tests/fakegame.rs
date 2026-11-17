@@ -78,6 +78,11 @@ fn panel_draws_in_fakegame() {
     println!("fakegame:\n{said}\nforza_panel.log:\n{log}");
     assert!(out.status.success(), "fakegame ended with {}", out.status);
     assert!(said.contains("unloaded the panel"), "no unload");
+    // KEYS was open: its WCCF_TYPING goes with the panel
+    assert!(
+        !said.contains("WCCF_TYPING left"),
+        "WCCF_TYPING outlived the panel"
+    );
     assert!(
         !said.contains("device changed"),
         "the panel left the game's device changed"
