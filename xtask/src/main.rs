@@ -2023,6 +2023,11 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     for (target, lint) in &runs {
         run_ok(clippy(root, target, lint), "cargo clippy")?;
     }
+    // the server alone: in a workspace build another crate turns on forza's `full`, so a call into a `full`-only
+    // module passed check quick and CI and broke the server build (2026-11-17)
+    let mut server = rust("check", root);
+    server.args(["--locked", "-p", "forza-server"]);
+    run_ok(server, "cargo check -p forza-server")?;
     // the hook's other features, as `check` lints them
     if native {
         for (feature, _, _) in hooks(e1011).skip(1) {
