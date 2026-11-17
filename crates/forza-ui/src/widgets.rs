@@ -652,29 +652,42 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
     let h = 34.0;
     let (rect, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let w = width / labels.len() as f32;
+    let segs: Vec<(Rect, Response)> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
+            (
+                r,
+                ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click()),
+            )
+        })
+        .collect();
+    // the click lands before the highlight is read, so the frame that turned the switch already lights the new side
     let mut changed = false;
-    ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
-    for (i, label) in labels.iter().enumerate() {
-        let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
-        let resp = ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click());
-        let on = *selected == i;
-        resp.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, on, *label));
-        if resp.clicked() && !on {
+    for (i, (_, resp)) in segs.iter().enumerate() {
+        if resp.clicked() && *selected != i {
             *selected = i;
             changed = true;
         }
+    }
+    ui.painter().rect_filled(rect, theme::RADIUS, theme::WELL);
+    for (i, (r, resp)) in segs.iter().enumerate() {
+        let label = labels[i];
+        let on = *selected == i;
+        resp.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, on, label));
         let p = ui.painter();
         if on {
             gradient(
                 p,
-                r,
+                *r,
                 3,
                 theme::AMBER.lerp_to_gamma(Color32::WHITE, 0.2),
                 theme::AMBER,
                 true,
             );
         } else if resp.hovered() {
-            p.rect_filled(r, 3, theme::RAISED_HI);
+            p.rect_filled(*r, 3, theme::RAISED_HI);
         }
         let color = if on { theme::INK } else { theme::TEXT_DIM };
         centered_text(

@@ -83,19 +83,6 @@ pub fn whole_fit(pic_px: Vec2, room: Vec2, ppp: f32) -> Vec2 {
     (pic_px * k).floor() / ppp
 }
 
-/// The detail pane's picture of `pic_px` pixels in `room` points: (the slot, the picture). The slot is the album art's
-/// [`whole_fit`] whatever the picture, so both sides of a card (a scan front, an album back, one still loading) take
-/// the same room; the picture is the largest whole step of its pixels inside the slot, or (a large scan in a very
-/// small window, when even a quarter does not fit) the slot itself, which [`crate::board::card_side`] letterboxes.
-pub fn detail_picture(pic_px: Vec2, room: Vec2, ppp: f32) -> (Vec2, Vec2) {
-    let slot = whole_fit(ALBUM, room, ppp);
-    // a pixel of slack: the slot's floored size (178 of the album's 178.5 at half) still takes the album art's step
-    (
-        slot,
-        whole_fit(pic_px, slot + Vec2::splat(1.0 / ppp), ppp).min(slot),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,29 +173,6 @@ mod tests {
                 "{ppp} px a point: a {} px picture against a {card} px card ({room:?})",
                 picture.x
             );
-        }
-    }
-
-    /// FRONT and BACK take the same slot whatever their pictures (the pack's scan, the album art, a large scan, the
-    /// stand-in while one loads), and each picture fits inside it.
-    #[test]
-    fn both_sides_of_the_detail_picture_take_the_same_slot() {
-        for ppp in [0.625, 1.0, 1.25, 1.5, 2.0] {
-            for room in [vec2(226.0, 200.0), vec2(306.0, 420.0), vec2(282.0, 700.0)] {
-                let (slot, album) = detail_picture(ALBUM, room, ppp);
-                assert_eq!(
-                    album, slot,
-                    "{ppp} {room:?}: the album art fills its own slot"
-                );
-                for pic in [NATIVE, ALBUM, vec2(664.0, 911.0)] {
-                    let (s, size) = detail_picture(pic, room, ppp);
-                    assert_eq!(s, slot, "{ppp} {room:?} {pic:?}");
-                    assert!(
-                        size.x <= slot.x + 0.01 && size.y <= slot.y + 0.01,
-                        "{ppp} {pic:?}"
-                    );
-                }
-            }
         }
     }
 

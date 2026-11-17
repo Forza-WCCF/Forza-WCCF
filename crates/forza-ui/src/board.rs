@@ -396,8 +396,8 @@ pub fn card_picture_px(
     None
 }
 
-/// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture, letterboxed when its shape differs
-/// from the slot's, or the drawn face or back. `true`: the picture was drawn, not the stand-in.
+/// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture filling the slot, letterboxed when its
+/// shape is not a card's, or the drawn face or back. `true`: the picture was drawn, not the stand-in.
 pub fn card_side(
     p: &Painter,
     rect: Rect,
@@ -416,8 +416,15 @@ pub fn card_side(
     match got {
         Some((id, size)) => {
             p.rect_filled(rect, 0, theme::DEEP);
-            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid
-            let at = letterbox(rect, size.x / size.y);
+            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid.
+            // A card-shaped picture fills the slot, so two sides of slightly different shapes (a scan front, an album
+            // back) draw in the same rect (issue #265); only another shape (the game's square picture) is letterboxed
+            let aspect = size.x / size.y;
+            let at = if (aspect / rect.aspect_ratio() - 1.0).abs() < 0.05 {
+                rect
+            } else {
+                letterbox(rect, aspect)
+            };
             let at = Rect::from_min_size(
                 rect.min
                     + ((at.min - rect.min) * p.pixels_per_point()).round() / p.pixels_per_point(),

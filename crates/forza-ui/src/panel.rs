@@ -4100,6 +4100,18 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let e1718 = st.edition == Edition::E1718;
     // the search line, IMPORT LINEUP and FORMATIONS at its right end
     let row = vec2(ui.available_width(), 36.0);
+    // the FORMATIONS dialog's name line keeps the keys
+    let keep = !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() && !st.import_help;
+    // a click elsewhere (FRONT | BACK, a chip, a card) leaves the keys with the search line: egui drops a field's
+    // focus as it draws it, and for that one frame the thinner idle outline made the field a point taller and
+    // moved everything under it (issue #265)
+    let surrender = ui.ctx().options_mut(|o| {
+        let was = o.input_options.surrender_focus_on;
+        if keep {
+            o.input_options.surrender_focus_on = egui::SurrenderFocusOn::Never;
+        }
+        was
+    });
     let search = ui
         .allocate_ui_with_layout(
             row,
@@ -4114,22 +4126,24 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .hint_text(tr!(lang, "cat.search_hint"))
                         .font(theme::body(16.0))
                         .desired_width(f32::INFINITY)
-                        .margin(vec2(12.0, 8.0)),
+                        .margin(vec2(12.0, 8.0))
+                        // one height with and without the keys: egui rounds the room for the 1.5 pt focus outline
+                        // up and for the 1 pt idle one not, so the idle field was a point taller (issue #265)
+                        .min_size(vec2(0.0, 40.0)),
                 )
                 .accessible_name(tr!(lang, "cat.search_hint"))
             },
         )
         .inner;
+    ui.ctx()
+        .options_mut(|o| o.input_options.surrender_focus_on = surrender);
     if form {
         st.formations_open = true;
         st.formations_desk = false;
     }
-    // the FORMATIONS dialog's name line keeps the keys
-    if !search.has_focus()
-        && !egui::Popup::is_any_open(ui.ctx())
-        && st.formations.is_none()
-        && !st.import_help
-    {
+    if !keep {
+        search.surrender_focus();
+    } else if !search.has_focus() {
         search.request_focus();
     }
     // an import's report runs to a few lines: across the page under the search line, not in the stats pane
@@ -4584,8 +4598,8 @@ fn combo(
     });
 }
 
-/// The focused card's detail: its picture at whole pixels in a slot that is the same for both sides
-/// ([`sizing::detail_picture`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
+/// The focused card's detail: its picture in a slot that is the same for both sides (the album art's
+/// [`sizing::whole_fit`]) with a FRONT | BACK toggle (`back`), TOTAL, the position, name, club line, best roles,
 /// the six stats in a column and ADD. The picture gives up its height so that ADD ends above `bottom` (the pane's
 /// visible edge), or keeps half the album art when that is all the pane shows. Returns (ADD clicked, the picture
 /// clicked: the card view asked for).
@@ -4644,8 +4658,10 @@ fn stats_pane(
             let rest = ui.data(|d| d.get_temp::<f32>(rest_id)).unwrap_or(330.0);
             let top = ui.cursor().top();
             let room = vec2(w, (bottom - top - rest - 16.0).max(1.0));
-            let (slot_size, size) = sizing::detail_picture(pic, room, ppp);
-            let (slot, resp) = ui.allocate_exact_size(vec2(w, slot_size.y), Sense::click());
+            // both sides draw in the whole slot, whatever their pixels: each side sized by its own picture changed
+            // the picture's size on every turn (issue #265)
+            let size = sizing::whole_fit(sizing::ALBUM, room, ppp);
+            let (slot, resp) = ui.allocate_exact_size(vec2(w, size.y), Sense::click());
             ui.ctx()
                 .data_mut(|d| d.insert_temp(picture_rect_id(), slot));
             let open = resp
