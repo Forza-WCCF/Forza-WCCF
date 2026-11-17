@@ -3537,7 +3537,13 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
             theme::NIGHT,
             true,
         );
-        cabinet_deck(ui, st, r, lang, s, stack);
+        // as on the game window: the deck's keys read the raw pointer, which a dialog's backdrop drawn here never takes
+        // (#361), so no deck under it, and a latched key goes up
+        if (st.formations_desk && st.formations.is_some()) || st.reset_ask == Some(true) {
+            st.latched = None;
+        } else {
+            cabinet_deck(ui, st, r, lang, s, stack);
+        }
     }
     let mut c = ui.new_child(egui::UiBuilder::new().max_rect(room));
     if st.crash {

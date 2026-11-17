@@ -814,6 +814,73 @@ fn a_dialog_over_the_deck_sends_no_key() {
     }
 }
 
+/// The board window's deck (`board_buttons=on`) sends no key through FORMATIONS or RESET LINEUP's question opened on
+/// that window (#361): its keys read the raw pointer, which the dialog's backdrop never takes. Without a dialog the
+/// same click presses its key.
+#[test]
+fn a_dialog_on_the_board_window_covers_its_deck() {
+    use forza::cards::formations;
+    use std::cell::RefCell;
+    type Open = fn(&mut panel::PanelState);
+    let size = Vec2::new(900.0, 901.0);
+    let desk = || {
+        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+        st.desk = true;
+        st.file.board_window = true;
+        st.file.board_buttons = true;
+        st
+    };
+    let dialogs: [(&str, Open); 3] = [
+        ("no dialog", |_| {}),
+        ("FORMATIONS", |st| {
+            st.formations_desk = true;
+            st.formations = Some(panel::Formations {
+                slots: vec![None; formations::SLOTS],
+                naming: None,
+            })
+        }),
+        // the question needs a kept table: without one it closes at once
+        ("RESET LINEUP's question", |st| {
+            st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            st.reset_ask = Some(true)
+        }),
+    ];
+    let label = forza_ui::text(Lang::En, "cab.central", &[]);
+    let at = {
+        let st = RefCell::new(desk());
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(3);
+        h.query_all_by_label(&label)
+            .next()
+            .unwrap_or_else(|| panic!("the board window's {label}"))
+            .rect()
+            .center()
+    };
+    for (name, open) in dialogs {
+        let st = RefCell::new(desk());
+        open(&mut st.borrow_mut());
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(3);
+        let up = {
+            let s = st.borrow();
+            s.reset_ask.is_some() || s.formations.is_some()
+        };
+        assert_eq!(up, name != "no dialog", "{name} open");
+        h.hover_at(at);
+        h.run_steps(1);
+        h.drag_at(at);
+        h.run_steps(1);
+        h.drop_at(at);
+        h.run_steps(2);
+        let want = (name == "no dialog").then_some("UP");
+        assert_eq!(st.borrow().pressed, want, "{name}: {label}");
+    }
+}
+
 /// 2017-18 SETTINGS at 1440x900 is taller than its sheet: it scrolls, so its last toggles, scrolled to, sit inside the
 /// sheet and clear of the page bar in every language (#348: Ask before RESET LINEUP ran over the bar's SETTINGS).
 #[test]
