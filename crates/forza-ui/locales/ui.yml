@@ -117,7 +117,7 @@ launcher.msg_game_running: {en: "The game is running. Close it and try again.", 
 launcher.msg_busy: {en: "Please wait until the current operation finishes.", it: "Attendi la fine dell'operazione.", ja: "処理が終わるまでお待ちください。"}
 launcher.msg_unguarded: {en: "The game did not start. Open Launcher.exe from Explorer.", it: "Il gioco non è partito. Apri Launcher.exe da Esplora file.", ja: "ゲームは起動しませんでした。エクスプローラーから Launcher.exe を開いてください。"}
 launcher.msg_not_guarded: {en: "The game did not start. Press SET UP first.", it: "Il gioco non è partito. Premi prima CONFIGURA.", ja: "ゲームは起動しませんでした。先に「設定する」を押してください。"}
-launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna sfida VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1 分後にもう一度お試しください。"}
+launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna stanza VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1 分後にもう一度お試しください。"}
 launcher.msg_no_arcade_room: {en: "Could not open the arcade: %{error}", it: "Impossibile aprire la sala: %{error}", ja: "ゲームセンターを開けません：%{error}"}
 launcher.msg_arcade_stays: {en: "The arcade stays open while guests play. It closes when they leave, or now with STOP THE GAME.", it: "La sala resta aperta finché ci sono ospiti. Si chiude quando escono, o subito con FERMA IL GIOCO.", ja: "ゲストがいる間、ゲームセンターは開いたままです。全員が抜けると閉じます。「ゲームを終了」ですぐに閉じます。"}
 launcher.club_in: {en: "Your club came along to this arcade. It goes back home after every match and when you leave.", it: "Il tuo club è venuto con te in questa sala. Torna a casa dopo ogni partita e quando esci.", ja: "あなたのクラブをこのゲームセンターに持ち込みました。試合のたびと退出時にホームへ戻ります。"}
@@ -582,7 +582,7 @@ close.body: {en: "Closing now damages your card.", it: "Chiudere ora danneggia l
 # ---- online lobby ----
 lobby.title: {en: "LOBBY", it: "LOBBY", ja: "ロビー"}
 lobby.arcades: {en: "ARCADES", it: "SALE", ja: "ゲームセンター"}
-lobby.vs: {en: "VS ROOMS", it: "SFIDE VS", ja: "対戦ルーム"}
+lobby.vs: {en: "VS ROOMS", it: "STANZE VS", ja: "対戦ルーム"}
 lobby.players: {en: "PLAYERS", it: "GIOCATORI", ja: "人数"}
 lobby.open: {en: "OPEN", it: "APERTA", ja: "受付中"}
 lobby.in_match: {en: "IN MATCH", it: "IN PARTITA", ja: "試合中"}
@@ -591,7 +591,7 @@ lobby.closed: {en: "CLOSED", it: "CHIUSA", ja: "終了"}
 lobby.join: {en: "JOIN", it: "ENTRA", ja: "参加"}
 lobby.connect: {en: "CONNECT", it: "CONNETTI", ja: "接続"}
 lobby.quick: {en: "QUICK MATCH", it: "PARTITA RAPIDA", ja: "クイックマッチ"}
-lobby.host: {en: "HOST A VS ROOM", it: "CREA UNA SFIDA", ja: "対戦ルームを作る"}
+lobby.host: {en: "HOST A VS ROOM", it: "CREA UNA STANZA", ja: "対戦ルームを作る"}
 lobby.ready: {en: "READY", it: "PRONTO", ja: "準備OK"}
 lobby.leave: {en: "LEAVE", it: "ESCI", ja: "退出"}
 lobby.direct: {en: "Server address", it: "Indirizzo del server", ja: "サーバーアドレス"}
@@ -621,7 +621,7 @@ lobby.taken: {en: "That seat was just taken.", it: "Quel posto è appena stato p
 lobby.room_closed: {en: "The host closed the room.", it: "L'host ha chiuso la stanza.", ja: "ホストがルームを閉じました。"}
 lobby.stale: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "%{s} 秒前に更新。"}
 lobby.arcade_rooms_off: {en: "Arcades are off on this PC.", it: "Le sale sono disattivate su questo PC.", ja: "このPCではゲームセンターがオフになっています。"}
-lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le SFIDE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
+lobby.grey_vs_1011: {en: "VS ROOMS are not available for 2010-11.", it: "Le STANZE VS non sono disponibili per 2010-11.", ja: "2010-11 では対戦ルームは利用できません。"}
 lobby.host_arcade: {en: "HOST ARCADE", it: "APRI SALA", ja: "ゲームセンターを開く"}
 lobby.host_title: {en: "Host an arcade", it: "Apri la tua sala", ja: "自分のゲームセンターを開く"}
 lobby.room_code: {en: "Arcade code", it: "Codice della sala", ja: "ゲームセンターのコード"}
@@ -655,7 +655,7 @@ lobby.stale_room: {en: "Updated %{s} s ago.", it: "Aggiornato %{s} s fa.", ja: "
 # lobby controls: the list filters and HOST ARCADE's "List my arcade" switch
 lobby.show: {en: "Show:", it: "Mostra:", ja: "表示:"}
 lobby.open_arcades: {en: "Open arcades only", it: "Solo sale aperte", ja: "受付中のゲームセンターのみ"}
-lobby.open_rooms: {en: "Open rooms only", it: "Solo sfide aperte", ja: "受付中のルームのみ"}
+lobby.open_rooms: {en: "Open rooms only", it: "Solo stanze aperte", ja: "受付中のルームのみ"}
 lobby.ping_under: {en: "Ping under 150 ms", it: "Ping sotto i 150 ms", ja: "Ping 150 ms 未満"}
 lobby.language: {en: "Language:", it: "Lingua:", ja: "言語:"}
 lobby.list_arcade: {en: "List my arcade when I host", it: "Elenca la mia sala quando la apro", ja: "ゲームセンターを開くとき一覧に表示"}
@@ -753,7 +753,7 @@ launcher.run_failed: {en: "FAILED: %{why}", it: "NON RIUSCITO: %{why}", ja: "失
 launcher.run_no_job: {en: "could not start the game (%{error})", it: "impossibile avviare il gioco (%{error})", ja: "ゲームを開始できませんでした（%{error}）"}
 launcher.run_not_up: {en: "%{what} did not come up", it: "%{what} non si è avviato", ja: "%{what} が起動しませんでした"}
 launcher.run_not_up_log: {en: "%{what} did not come up - see data\\logs\\%{log}", it: "%{what} non si è avviato - vedi data\\logs\\%{log}", ja: "%{what} が起動しませんでした - data\\logs\\%{log} を確認してください"}
-launcher.run_ports_unread: {en: "Windows' port table could not be read (%{error}) - waiting for the server's programs instead.", it: "Impossibile leggere la tabella delle porte di Windows (%{error}) - si attende i programmi del server.", ja: "Windows のポート表を読み込めませんでした（%{error}） - サーバーのプログラムを待ちます。"}
+launcher.run_ports_unread: {en: "Windows' port table could not be read (%{error}) - waiting for the server's programs instead.", it: "Impossibile leggere la tabella delle porte di Windows (%{error}) - si attendono invece i programmi del server.", ja: "Windows のポート表を読み込めませんでした（%{error}） - サーバーのプログラムを待ちます。"}
 launcher.run_part_server: {en: "the server", it: "il server", ja: "サーバー"}
 launcher.run_part_seat: {en: "seat %{n}", it: "posto %{n}", ja: "席 %{n}"}
 launcher.run_part_seat_window: {en: "seat %{n}'s window", it: "la finestra del posto %{n}", ja: "席 %{n} のウィンドウ"}
