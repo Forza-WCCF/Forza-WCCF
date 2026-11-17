@@ -412,7 +412,7 @@ fn popout_board_foot_buttons_apart() {
         let size = Vec2::new(w, h);
         let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
         let (room, _) = panel::desk_parts(sheet, buttons, false);
-        let (board, _) = panel::desk_board_rect(room);
+        let board = panel::desk_board_rect(room, panel::desk_bench_right(room, true, None, None));
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.desk = true;
