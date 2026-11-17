@@ -139,9 +139,13 @@ impl Kit {
                     || v.as_array().is_some_and(|a| !a.is_empty())
             }
             // only a damaged list hashes the game's file (the panel's status asks every 1-2 s)
+            #[cfg(feature = "full")]
             Err(_) => self.settings()["game"]
                 .as_str()
                 .is_some_and(|g| !crate::text::text_is_original(self.edition(), Path::new(g))),
+            // builds without the text module (the server) never switch text: a damaged list counts as switched
+            #[cfg(not(feature = "full"))]
+            Err(_) => true,
         }
     }
 
