@@ -97,9 +97,10 @@ SICUREZZA
 
 LOG E SEGNALAZIONI
   I log sono in data\logs; quelli dell'avvio precedente in data\logs\previous. Per segnalare un problema mandate i log
-  e dite cosa avete fatto e cosa avete visto: Segnala un problema in Launcher.exe, INVIA I LOG in IMPOSTAZIONI nel
-  pannello (serve l'indirizzo di un server), oppure SALVA LOG e mandate il file. Per un avviso di Defender o
-  SmartScreen aggiungete il nome del file e il testo dell'avviso.
+  e dite cosa avete fatto e cosa avete visto: Segnala un problema in Launcher.exe oppure SALVA I LOG in IMPOSTAZIONI
+  nel pannello. Entrambi salvano forza-wccf-logs-DATA-ORA.zip nella cartella Download e mostrano dove; mandate quel
+  file a chi ve l'ha chiesto. Non viene caricato nulla. Per un avviso di Defender o SmartScreen aggiungete il nome
+  del file e il testo dell'avviso.
 
 CARTELLE
   bin\       i programmi di Forza-WCCF: i sostituti, l'aiuto per il tavolo carte

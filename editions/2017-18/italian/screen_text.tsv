@@ -30,6 +30,7 @@ SYS_TEAM_style_0427	Motore warp
 SYS_TEAM_style_0428	Redini esperte
 SYS_TEAM_style_0431	Unico
 SYS_TEAM_style_0433	Libero asiatico
+SYS_TEAM_style_0434	Kaiser
 SYS_TEAM_style_0435	Titano
 SYS_TEAM_style_0439	Ala finta
 SYS_TEAM_style_0440	Unita' totale
@@ -650,8 +651,8 @@ SYS_TEAM_style_exp_0386	[Difesa] Tutta la squadra difende in modo organizzato.
 SYS_TEAM_style_exp_0387	[Difesa] Tutta la squadra difende chiudendo gli spazi dietro.
 SYS_TEAM_style_exp_0388	[Difesa] Tutta la squadra difende col pressing.
 SYS_TEAM_style_exp_0389	[Difesa] Tutta la squadra difende col pressing a piu' uomini.
-SYS_TEAM_style_exp_0390	[Difesa] Migliora la attenzione alle coperture di tutta la squadra.
-SYS_TEAM_style_exp_0391	[Difesa] Migliora la attenzione agli intercetti di tutta la squadra.
+SYS_TEAM_style_exp_0390	[Difesa] Migliora l'attenzione alle coperture di tutta la squadra.
+SYS_TEAM_style_exp_0391	[Difesa] Migliora l'attenzione agli intercetti di tutta la squadra.
 SYS_TEAM_style_exp_0392	[Difesa] Tutta la squadra difende marcando gli avversari.
 SYS_TEAM_style_exp_0393	[Difesa] Tutta la squadra difende rallentando l'attacco avversario.
 SYS_TEAM_style_exp_0394	[Difesa] Tutta la squadra difende puntando prima di tutto alla sicurezza.
@@ -705,7 +706,7 @@ SYS_TEAM_style_exp_0441	[Attacco] Tutta la squadra attacca con giocatori e palla
 SYS_TEAM_style_exp_0442	[Attacco] Tutta la squadra attacca con passaggi di prima.
 SYS_TEAM_style_exp_0443	[Attacco] Tutta la squadra attacca per la via piu' breve verso la porta.
 SYS_TEAM_style_exp_0444	[Supporto] Tutta la squadra difende controllando la linea.
-SYS_TEAM_style_exp_0445	[Difesa] Migliora la attenzione agli intercetti di tutta la squadra.
+SYS_TEAM_style_exp_0445	[Difesa] Migliora l'attenzione agli intercetti di tutta la squadra.
 SYS_TEAM_style_exp_0446	[Attacco] Tutta la squadra attacca con azioni di combinazione.
 SYS_TEAM_style_exp_0447	[Supporto] Migliora la dedizione del Giocatore Chiave alla squadra.
 SYS_TEAM_style_exp_0448	[Attacco] Tutta la squadra attacca con tiri dalla distanza.
@@ -728,7 +729,7 @@ SYS_TEAM_style_exp_0464	[Attacco] Tutta la squadra attacca con giocatori e palla
 SYS_TEAM_style_exp_0465	[Attacco] Tutta la squadra attacca puntando allo sfondamento.
 SYS_TEAM_style_exp_0466	[Attacco] Tutta la squadra attacca con rapidi cambi sul lato opposto.
 SYS_TEAM_style_exp_0467	[Supporto] Il Giocatore Chiave difende coprendo e partecipando all'attacco.
-SYS_TEAM_style_exp_0468	[Difesa] Migliora la attenzione alle coperture di tutta la squadra.
+SYS_TEAM_style_exp_0468	[Difesa] Migliora l'attenzione alle coperture di tutta la squadra.
 SYS_TEAM_style_exp_0469	[Attacco] Il Giocatore Chiave attacca puntando al tiro.
 SYS_TEAM_style_exp_0470	[Difesa] Tutta la squadra difende in modo organizzato.
 SYS_TEAM_style_exp_0471	[Attacco] Il Giocatore Chiave attacca con inserimenti da dietro.
@@ -762,7 +763,7 @@ SYS_TEAM_style_exp_0498	[Attacco] Tutta la squadra attacca con giocatori e palla
 SYS_TEAM_style_exp_0499	[Attacco] Il Giocatore Chiave attacca creando occasioni.
 SYS_TEAM_style_exp_0500	[Attacco] Tutta la squadra attacca puntando allo sfondamento.
 SYS_TEAM_style_exp_0501	[Attacco] Tutta la squadra attacca con passaggi corti.
-SYS_TEAM_style_exp_0502	[Difesa] Migliora la attenzione agli intercetti di tutta la squadra.
+SYS_TEAM_style_exp_0502	[Difesa] Migliora l'attenzione agli intercetti di tutta la squadra.
 SYS_TEAM_style_exp_0503	[Attacco] Tutta la squadra attacca con tutti in avanti.
 SYS_TEAM_style_exp_0504	[Attacco] Tutta la squadra attacca attorno al Giocatore Chiave.
 SYS_TEAM_style_exp_0505	[Attacco] Tutta la squadra attacca con passaggi di prima.
@@ -770,7 +771,7 @@ SYS_TEAM_style_exp_0506	[Attacco] Tutta la squadra attacca con azioni di combina
 SYS_TEAM_style_exp_0507	[Difesa] Tutta la squadra difende puntando prima di tutto alla sicurezza.
 SYS_TEAM_style_exp_0508	[Attacco] Il Giocatore Chiave attacca con movimenti alle spalle della difesa.
 SYS_TEAM_style_exp_0509	[Attacco] Il Giocatore Chiave attacca puntando al tiro.
-SYS_TEAM_style_exp_0510	[Difesa] Migliora la attenzione alle coperture di tutta la squadra.
+SYS_TEAM_style_exp_0510	[Difesa] Migliora l'attenzione alle coperture di tutta la squadra.
 SYS_TEAM_style_exp_0511	[Difesa] Tutta la squadra difende puntando sull'uno contro uno.
 SYS_TEAM_style_exp_0512	[Attacco] Tutta la squadra attacca con azioni di combinazione.
 SYS_TEAM_style_exp_0513	[Attacco] Tutta la squadra attacca con tutti in avanti.
@@ -822,7 +823,7 @@ SYS_TEAM_style_exp_0558	[Attacco] Tutta la squadra attacca attorno al Giocatore 
 SYS_TEAM_style_exp_0559	[Attacco] Il Giocatore Chiave attacca puntando al tiro.
 SYS_TEAM_style_exp_0560	[Attacco] Il Giocatore Chiave attacca con gioco libero.
 SYS_TEAM_style_exp_0561	[Attacco] Tutta la squadra attacca con cross.
-SYS_TEAM_style_exp_0562	[Difesa] Migliora la attenzione alle coperture di tutta la squadra.
+SYS_TEAM_style_exp_0562	[Difesa] Migliora l'attenzione alle coperture di tutta la squadra.
 SYS_TEAM_style_exp_0563	[Attacco] Tutta la squadra attacca attorno al Giocatore Chiave.
 SYS_TEAM_style_exp_0564	[Attacco] Il Giocatore Chiave attacca creando occasioni.
 SYS_TEAM_style_exp_0565	[Supporto] Migliora la resistenza del Giocatore Chiave.
@@ -847,7 +848,7 @@ SYS_TEAM_style_exp_0583	[Attacco] Il Giocatore Chiave attacca guidando il gioco.
 SYS_TEAM_style_exp_0584	[Attacco] Tutta la squadra attacca con tutti in avanti.
 SYS_TEAM_style_exp_0585	[Attacco] Tutta la squadra attacca puntando allo sfondamento.
 SYS_TEAM_style_exp_0586	[Attacco] Tutta la squadra attacca per la via piu' breve verso la porta.
-SYS_TEAM_style_exp_0587	[Difesa] Migliora la attenzione alle coperture di tutta la squadra.
+SYS_TEAM_style_exp_0587	[Difesa] Migliora l'attenzione alle coperture di tutta la squadra.
 SYS_TEAM_style_exp_0588	[Attacco] Il Giocatore Chiave attacca puntando al tiro.
 SYS_TEAM_style_exp_0589	[Supporto] Migliora la dedizione del Giocatore Chiave alla squadra.
 SYS_TEAM_style_exp_0590	[Attacco] Tutta la squadra attacca puntando allo sfondamento.
@@ -865,7 +866,7 @@ SYS_TEAM_style_exp_0601	[Supporto] Migliora la dedizione del Giocatore Chiave al
 SYS_TEAM_style_exp_0602	[Attacco] Tutta la squadra attacca attorno al Giocatore Chiave.
 SYS_TEAM_style_exp_0603	[Attacco] Tutta la squadra attacca attorno al Giocatore Chiave.
 SYS_TEAM_style_exp_0604	[Attacco] Tutta la squadra attacca con rapidi cambi sul lato opposto.
-SYS_TEAM_style_exp_0605	[Difesa] Migliora la attenzione agli intercetti di tutta la squadra.
+SYS_TEAM_style_exp_0605	[Difesa] Migliora l'attenzione agli intercetti di tutta la squadra.
 SYS_TEAM_style_exp_0606	[Attacco] Tutta la squadra attacca attorno al Giocatore Chiave.
 SYS_TEAM_style_exp_0607	[Supporto] Il Giocatore Chiave difende coprendo alle spalle della difesa.
 SYS_TEAM_style_exp_0608	[Supporto] Il Giocatore Chiave difende coprendo e partecipando all'attacco.
@@ -1342,7 +1343,7 @@ COM_SEC_COACH_hint_0198	"Lo stile di squadra nazionale '$c[FF6633FF]Nati$c' di S
 COM_SEC_COACH_hint_0199	"Lo stile di squadra nazionale '$c[FF6633FF]Black Stars$c' di Ghana\n unisce $c[FF6633FF]Passaggi misti$c e $c[FF6633FF]Intercetto$c."
 COM_SEC_COACH_hint_0200	"Il $c[FF6633FF]contenuto dei rapporti dei coach$c sembra ampliarsi a certe condizioni.\n Mmm, quali saranno le condizioni?"
 COM_SEC_COACH_hint_0201	"Piu' alta e' la $c[FF6633FF]fiducia$c con noi segretarie, piu' spesso interveniamo.\n I $c[FF6633FF]luoghi dove compaiamo spesso$c cambiano da segretaria a segretaria."
-COM_SEC_COACH_hint_0202	"$c[FF6633FF]Vinca$c tutti i 10 tipi di titolo e per il club\n arrivera' un' $c[FF6633FF]era d'oro$c!"
+COM_SEC_COACH_hint_0202	"$c[FF6633FF]Vinca$c tutti i 10 tipi di titolo e per il club\n arrivera' un'$c[FF6633FF]era d'oro$c!"
 COM_SEC_COACH_hint_0203	"Piu' alta e' la $c[FF6633FF]fiducia$c con noi segretarie, piu' spesso interveniamo.\n I $c[FF6633FF]luoghi dove compaiamo spesso$c cambiano da segretaria a segretaria."
 COM_SEC_COACH_hint_0204	"Le $c[FF6633FF]Scarpe d'Oro$c non fanno solo crescere le abilita' del giocatore,\n influiscono molto anche sulla creazione di un $c[FF6633FF]rapporto maestro-allievo$c."
 COM_SEC_COACH_hint_0205	"Nello $c[FF6633FF]Special Trophy$c, continui a vincere e provi\n una $c[FF6633FF]tripletta$c o il $c[FF6633FF]superamento di missioni$c."
@@ -1426,7 +1427,7 @@ COM_SEC_COACH_hint_0282	"Lo stile di squadra del club '$c[FF6633FF]Celtinhas$c' 
 COM_SEC_COACH_hint_0283	"Lo stile di squadra del club '$c[FF6633FF]Merengues$c' di Real Madrid\n unisce $c[FF6633FF]Passa e muoviti$c e $c[FF6633FF]Copertura$c."
 COM_SEC_COACH_hint_0284	"Lo stile di squadra del club '$c[FF6633FF]Che$c' di Valencia\n unisce $c[FF6633FF]Passa e muoviti$c e $c[FF6633FF]Difesa organizzata$c."
 COM_SEC_COACH_hint_0285	"Lo stile di squadra del club '$c[FF6633FF]Submarino Amarillo$c' di Villarreal\n unisce $c[FF6633FF]Difesa sicura$c e $c[FF6633FF]Cross anticipati$c."
-COM_SEC_COACH_hint_0286	"Lo stile di squadra nazionale '$c[FF6633FF]El Tri$c' di Messico\n unisce $c[FF6633FF]Gioco di sponda$c e $c[FF6633FF]Difesa organizzata$c."
+COM_SEC_COACH_hint_0286	"Lo stile di squadra nazionale '$c[FF6633FF]El Tri$c' del Messico\n unisce $c[FF6633FF]Gioco di sponda$c e $c[FF6633FF]Difesa organizzata$c."
 COM_SEC_COACH_hint_0287	"Lo stile di squadra nazionale '$c[FF6633FF]Pirates$c' di Grecia\n unisce $c[FF6633FF]Difesa a uomo$c e $c[FF6633FF]Lanci lunghi$c."
 COM_SEC_COACH_hint_0288	"Lo stile di squadra nazionale '$c[FF6633FF]Elephants$c' di Costa d'Avorio\n unisce $c[FF6633FF]Cross$c e $c[FF6633FF]Intercetto$c."
 COM_SEC_COACH_hint_0289	"Lo stile di squadra nazionale '$c[FF6633FF]Super Eagles$c' di Nigeria\n unisce $c[FF6633FF]Dribbling$c e $c[FF6633FF]Difesa individuale$c."
@@ -1520,7 +1521,7 @@ COM_SEC_COACH_answer_0029_05	"Eh... ecco... vengono anche i coach..."\nLa segret
 COM_SEC_COACH_question_0030	La segretaria ha parlato prima dell'allenatore.\n"Allenatore, cosa fa nei giorni liberi?"
 COM_SEC_COACH_choices_0030_00	Fare shopping in citta'
 COM_SEC_COACH_choices_0030_01	Poltrire a casa
-COM_SEC_COACH_choices_0030_02	Non dirlo
+COM_SEC_COACH_choices_0030_02	Non lo dico
 COM_SEC_COACH_answer_0030_00	"Davvero! Anch'io ci sono stata la settimana scorsa!"\nVi siete entusiasmati per il negozio in comune.
 COM_SEC_COACH_answer_0030_01	"Allenatore, uscire va bene, ma si riposi!"\nSembra che abbia fatto preoccupare la segretaria.
 COM_SEC_COACH_answer_0030_02	"Capisco! Ogni tanto stare tranquilli a casa e' bello"\nCondivide questo lato.
@@ -2974,7 +2975,7 @@ TRA_THEME_message_0012	Attenzione ai giocatori chiave avversari.
 TRA_THEME_message_0013	I giocatori chiave avversari potrebbero essere una minaccia.
 TRA_THEME_message_0014	I giocatori chiave avversari potrebbero decidere il risultato.
 TRA_THEME_message_0015	La $c[FF6633FF]squadra avversaria al completo$c mostrera' una forza incredibile.
-TRA_THEME_message_0016	Battere questa squadra potrebbe essere durissima.
+TRA_THEME_message_0016	Battere questa squadra potrebbe essere durissimo.
 TRA_THEME_message_0017	Sembra una partita equilibrata.
 TRA_THEME_message_0018	Con la squadra in questa forma hai $c[FF6633FF]buone possibilita' di vincere$c.
 TRA_THEME_message_0019	I nostri giocatori sembrano pronti a una $c[FF6633FF]grande prestazione$c.
@@ -3225,7 +3226,7 @@ COM_EVENT_answer_hint_0047	Ridona stamina e aumenta la fiducia. Successo: medio
 COM_EVENT_answer_hint_0048	Ridona stamina e aumenta molto la fiducia. Successo: basso
 COM_DISCONTENT_question_0002	%s, che $c[66CCFFFF]ha saltato l'allenamento$c, e' venuto da te.\nCosa fai?
 COM_DISCONTENT_question_0003	$c[66CCFFFF]%s$c arriva imbronciato.\nLa $c[66CCFFFF]frustrazione accumulata sta per esplodere$c. Come lo calmi?
-COM_DISCONTENT_question_0004	$c[66CCFFFF]%s$c arriva scontento.\nHa da dire sulla $c[66CCFFFF]tattica che non vince$c. Come rispondi?
+COM_DISCONTENT_question_0004	$c[66CCFFFF]%s$c arriva scontento.\nHa da ridire sulla $c[66CCFFFF]tattica che non vince$c. Come rispondi?
 COM_DISCONTENT_question_0005	$c[66CCFFFF]%s$c arriva scontento.\nPare insoddisfatto di $c[66CCFFFF]parole e azioni dell'allenatore$c. Come rispondi?
 COM_DISCONTENT_question_0006	$c[66CCFFFF]%s$c arriva scontento.\nChiede di $c[66CCFFFF]giocare$c. Come rispondi?
 COM_DISCONTENT_question_0007	$c[66CCFFFF]%s$c arriva scontento.\nPare $c[66CCFFFF]stanco per le troppe partite ravvicinate$c. Come rispondi?
@@ -3380,7 +3381,7 @@ MAN_FIRSTPLAY_message_0044	2. Tipi di stile di squadra
 MAN_FIRSTPLAY_message_0045	3. Crescita dello stile
 MAN_FIRSTPLAY_message_0046	Controlla lo stile di squadra di ogni giocatore\nin "Dati"!
 MAN_FIRSTPLAY_message_0047	Imposta uno ciascuno tra "Attacco", "Difesa"\ne "Supporto"!
-MAN_FIRSTPLAY_message_0048	Cresce quando salgono i parametri di squadra\ne i livelli dei Giocatore Chiave!
+MAN_FIRSTPLAY_message_0048	Cresce quando salgono i parametri di squadra\ne i livelli dei Giocatori Chiave!
 MAN_FIRSTPLAY_message_0049	Lo stile di squadra cambia i movimenti dei giocatori e l'andamento!\nFallo crescere e batti i rivali forti!
 MAN_FIRSTPLAY_message_0050	Mandato e trasferimento dei dati allenatore
 MAN_FIRSTPLAY_message_0051	1. Mandato dell'allenatore
@@ -3957,7 +3958,7 @@ GAM_KMISSION_name_0041	Tripletta di un giocatore con Super Sub attivo
 GAM_KMISSION_name_0042	Gol di un giocatore con scarpe
 GAM_KMISSION_name_0043	Doppia tripletta
 GAM_KMISSION_name_0044	Supera: cambia 5 volte il Giocatore Chiave in una partita
-GAM_KMISSION_name_0045	Perdi la partita dopo il 35' del secondo tempo
+GAM_KMISSION_name_0045	Perdi un vantaggio dopo il 35' del secondo tempo
 GAM_KMISSION_name_0046	Autogol della tua squadra
 GAM_KMISSION_name_0047	Tre o piu' falli avversari in una partita
 GAM_KMISSION_name_0048	Tre o piu' fuorigioco avversari in una partita
@@ -4267,15 +4268,15 @@ INF_090_TOPICS_FR_mission_0018	Missione: titoli di Champions Trophy
 INF_090_TOPICS_FR_mission_0019	Missione: titoli di Oceans Cup
 INF_090_TOPICS_FR_mission_0020	Missione: vittorie
 INF_090_TOPICS_FR_mission_0021	Missione: gol segnati
-INF_090_TOPICS_FR_mission_0022	Missione: vittorie con possesso almeno 10 percent
-INF_090_TOPICS_FR_mission_0023	Missione: vittorie con possesso almeno 20 percent
-INF_090_TOPICS_FR_mission_0024	Missione: vittorie con possesso almeno 30 percent
-INF_090_TOPICS_FR_mission_0025	Missione: vittorie con possesso almeno 40 percent
-INF_090_TOPICS_FR_mission_0026	Missione: vittorie con possesso almeno 50 percent
-INF_090_TOPICS_FR_mission_0027	Missione: vittorie con possesso almeno 55 percent
-INF_090_TOPICS_FR_mission_0028	Missione: vittorie con possesso almeno 60 percent
-INF_090_TOPICS_FR_mission_0029	Missione: vittorie con possesso almeno 65 percent
-INF_090_TOPICS_FR_mission_0030	Missione: vittorie con possesso almeno 70 percent
+INF_090_TOPICS_FR_mission_0022	Missione: vittorie con possesso almeno 10 per cento
+INF_090_TOPICS_FR_mission_0023	Missione: vittorie con possesso almeno 20 per cento
+INF_090_TOPICS_FR_mission_0024	Missione: vittorie con possesso almeno 30 per cento
+INF_090_TOPICS_FR_mission_0025	Missione: vittorie con possesso almeno 40 per cento
+INF_090_TOPICS_FR_mission_0026	Missione: vittorie con possesso almeno 50 per cento
+INF_090_TOPICS_FR_mission_0027	Missione: vittorie con possesso almeno 55 per cento
+INF_090_TOPICS_FR_mission_0028	Missione: vittorie con possesso almeno 60 per cento
+INF_090_TOPICS_FR_mission_0029	Missione: vittorie con possesso almeno 65 per cento
+INF_090_TOPICS_FR_mission_0030	Missione: vittorie con possesso almeno 70 per cento
 INF_090_TOPICS_FR_mission_0031	Missione: passaggi riusciti
 INF_090_TOPICS_FR_mission_0032	Missione: cross riusciti
 INF_090_TOPICS_FR_mission_0033	Missione: intercetti riusciti
@@ -4369,7 +4370,7 @@ GAM_HALF_order_0014	Corri piu' di loro
 GAM_HALF_order_0016	Credi in te stesso
 GAM_HALF_order_0020	Gioca semplice
 GAM_HALF_order_0022	Recupera e vai avanti
-GAM_HALF_order_0027	Usa i uno-due
+GAM_HALF_order_0027	Usa gli uno-due
 GAM_HALF_order_0028	Sfrutta i corner
 GAM_HALF_order_0029	Sfrutta le punizioni
 GAM_HALF_order_0030	Usa gli schemi
@@ -4747,7 +4748,7 @@ SYS_SYS_caution_0002	Inizio nuova partita\nPremi il tasto Start
 SYS_SYS_caution_0006	Ti restano %d partite di mandato.\nPremi Start per gestire questo club.
 SYS_SYS_caution_0009	Club a fine mandato salvato per i tornei.\nUsabile nella modalita' torneo "WCCF CUP".
 SYS_SYS_caution_0010	Premi Start per iscriverti alla WCCF CUP.
-SYS_SYS_warning_0023	Error 5106\nLa carta potrebbe essere danneggiata\nCarta club espulsa
+SYS_SYS_warning_0023	Errore 5106\nLa carta potrebbe essere danneggiata\nCarta club espulsa
 SYS_SYS_warning_0041	I dati del club e il registro di gioco contengono\nmolti record non terminati correttamente,\nquindi e' stata applicata una penalita' ad alcuni dati.
 SYS_SYS_warning_0043	Questa carta IC e il registro di gioco contengono\nmolti record non terminati correttamente,\nquindi e' stata applicata la penalita' di $c[FF6633FF]diritto di scambio revocato$c.
 SYS_SYS_warning_0044	Impossibile ottenere la lista club.\nRitorno alla schermata iniziale.
@@ -4938,7 +4939,7 @@ INF_SPO_itemcategory_0008	Rafforzamento intesa piu' efficace
 INF_SPO_itemcategory_0009	Piu' resistenza agli infortuni
 INF_SPO_itemcategory_0010	La segretaria aiuta con l'allenamento individuale
 INF_SPO_message_0000	%s$c[FF0000FF]%s$c ti ha regalato\nl'oggetto sponsor "$c[FF0000FF]%s$c".
-SYS_AIME_error_0000	Error 6501\nAime Card Reader Not Found
+SYS_AIME_error_0000	Errore 6501\nLettore Aime non trovato
 SYS_AIME_error_0001	Error 6502\nErrore sconosciuto.\nSe spegnere e riaccendere non basta, contatta l'assistenza.\nErrore imprevisto nella libreria. Possibile guasto.
 SYS_AIME_error_0002	Error 6503 \nLettura Aime non riuscita.\nRitorno alla schermata iniziale.
 SYS_AIME_error_0003	Error 6504\nCarta non supportata o Aime non riconosciuta.\nAppoggia bene l'Aime al lettore di carte.
@@ -5049,7 +5050,7 @@ SYS_TEAMLIST_warning_0011	Un club a fine mandato si puo' salvare\ncome club per 
 INF_COACH_message_0000	□Un $c[FF0000FF]noto coach di primo piano in %s$c verra' a osservarvi
 INF_COACH_message_0001	Per farti guidare da questo coach,\nscegli il $c[FF0000FF]menu speciale$c nell'allenamento di squadra.
 INF_COACH_choices_0000	Nomina coach
-INF_COACH_choices_0001	%s $c[FF6633FF]lascia l'incarico$c. Nomina un nuovo coach entro 40 secondi dal calcio d'inizio.
+INF_COACH_choices_0001	%s $c[FF6633FF]lascia l'incarico$c. Nomina un nuovo coach almeno 40 secondi prima del calcio d'inizio.
 INF_COACH_choices_0002	Terminare la nomina dei coach?\n* I coach nominati lasciano dopo alcune partite
 INF_COACH_choices_0003	Nomina
 INF_COACH_choices_0004	Rifai
@@ -5423,7 +5424,7 @@ SYS_REMATCH_message_0010	I 100 yen inseriti qui non vengono aggiunti al credito.
 SYS_REMATCH_message_0011	$c[FF0000FF]- Si accettano solo monete da 100 yen.$c
 SYS_REMATCH_message_0012	- Le monete oltre 100 yen vanno al $c[FF0000FF]credito$c
 SYS_REMATCH_message_0013	- Se $c[FF0000FF]scade il tempo$c durante l'inserimento, i 100 yen possono andare al credito
-SYS_REMATCH_message_0014	Rigioca accettato!
+SYS_REMATCH_message_0014	Rivincita accettata!
 SYS_REMATCH_message_0015	Comunicazione in corso. Attendi.
 SYS_REMATCH_message_0016	La partita appena giocata e' stata annullata.
 SYS_REMATCH_message_0017	Hai scelto di rigiocare: la partita e' stata $c[FFFF00FF]annullata$c.\nIl mandato da allenatore non diminuisce.
@@ -5580,7 +5581,7 @@ GAM_TUTORIAL_skip_0000	Premi Start per saltare
 GAM_TUTORIAL_SPcommand_0000	Quando la barra gialla a destra e' piena,\ntieni premuto Giocatore Chiave
 GAM_TUTORIAL_SPcommand_0001	Tieni premuto finche' la barra\ndiventa rossa e appare GO!
 GAM_TUTORIAL_SPcommand_0002	Alza lo stile di squadra\ndi un livello per un po'
-SYS_DATARETRY_message_0000	Error 3139\nInvio dati club non riuscito\n\nI dati potrebbero essere reinviabili\nChiama il personale
+SYS_DATARETRY_message_0000	Errore 3139\nInvio dati club non riuscito\n\nI dati potrebbero essere reinviabili\nChiama il personale
 SYS_DATARETRY_message_0001	I dati del club\npotrebbero non essere salvati bene\n\nPer reinviarli, chiama il personale\ne attiva la modalita' reinvio dati\ndalla schermata iniziale
 SYS_DATARETRY_message_0002	Modalita' reinvio dati
 SYS_DATARETRY_message_0003	Appoggia l'Aime per reinviare i dati\n\nPremi SW2 per tornare alla schermata iniziale
@@ -6684,9 +6685,9 @@ INF_INFO_title_0041	★★★  CLASSIFICA WORLD TROPHY  ★★★
 INF_INFO_title_0042	★★★  CLASSIFICA PREMI IN DENARO  ★★★
 INF_INFO_title_0043	★★★  RITORNO DELL'ERA D'ORO  ★★★
 INF_INFO_title_0044	★★★  TATTICA INTERVALLO OTTENUTA  ★★★
-INF_SPO_secure_0000	Contratto di sponsorizzazione firmato.\nOttenamo risultati degni del nome dello sponsor.
+INF_SPO_secure_0000	Contratto di sponsorizzazione firmato.\nOtteniamo risultati degni del nome dello sponsor.
 INF_SPO_secure_0001	Contratto di sponsorizzazione firmato.\nCresciamo in fretta grazie allo sponsor.
-INF_SPO_secure_0002	Contratto di sponsorizzazione firmato.\nOttenamo risultati all'altezza delle attese.
+INF_SPO_secure_0002	Contratto di sponsorizzazione firmato.\nOtteniamo risultati all'altezza delle attese.
 INF_SPO_secure_0003	Contratto di sponsorizzazione firmato.\nOra il nostro club entra tra i migliori.
 INF_SPO_secure_0004	Contratto di sponsorizzazione firmato.\nLe finanze del club ne trarranno beneficio.
 INF_SPO_secure_0005	Contratto di sponsorizzazione firmato.\nSperiamo di soddisfare le attese dello sponsor.
@@ -7017,8 +7018,8 @@ INF_073_message_0001	La tua fama ora si diffonde nel mondo.\nContinua a lottare 
 INF_062_message_0000	Ora si fidano dei tuoi metodi\ne vogliono un altro allenamento.
 INF_068_message_0000	Un giocatore in prestito a un altro club\ne' tornato nella nostra squadra.
 INF_080_contents_0000	Prec.
-INF_080_contents_0007	$c[FF0000FF]ULTIMI 4$c
-INF_080_contents_0008	$c[FF0000FF]ULTIMI 8$c
+INF_080_contents_0007	$c[FF0000FF]SEMIFINALE$c
+INF_080_contents_0008	$c[FF0000FF]QUARTI$c
 INF_080_contents_0009	$c[FF0000FF]OTTAVI$c
 INF_080_contents_0010	Eliminato al 1o turno
 INF_084_contents_0000	Prec.
@@ -7217,7 +7218,7 @@ MAN_TEAM_contents_0032	Classe %d
 MAN_TEAM_contents_0033	%d' posto
 MAN_TEAM_contents_0039	Campioni
 MAN_TEAM_contents_0040	Finalisti
-MAN_TEAM_contents_0041	Ultimi 4
+MAN_TEAM_contents_0041	Semifinale
 MAN_TEAM_contents_0042	Persa al 1o turno
 MAN_TEAM_contents_0043	(Completo)
 MAN_TEAM_contents_0044	%d partite
@@ -7870,21 +7871,21 @@ COM_MEETING_choices_0038	Lamentati
 COM_MEETING_answer_0000	Ha preso a cuore le tue parole.\nI compagni condividono il tuo giudizio netto.
 COM_MEETING_answer_0001	Accetta il tuo giudizio.\nI compagni sono d'accordo.
 COM_MEETING_answer_0002	Poca reazione, ma in parte accetta.\nGli altri hanno reazioni miste.
-COM_MEETING_answer_0003	Rifiuta il tuo giudizio e ora non si fida.\nSpero non influisca sugli altri...
+COM_MEETING_answer_0003	Rifiuta il tuo giudizio e ora non si fida di te.\nSpero non influisca sugli altri...
 COM_MEETING_answer_0004	%s rifiuta apertamente il tuo giudizio.\nLe tue parole avventate hanno cambiato il clima.
 COM_MEETING_answer_0005	Non saprei
 COM_MEETING_answer_0006	%s e' stato preso di mira di nuovo\ne ora tiene il muso.
-COM_MEETING_answer_0007	Sentire le speranze della squadra l'ha carica.\nOra dovrebbe ambientarsi presto.
+COM_MEETING_answer_0007	Sentire le speranze della squadra l'ha caricato.\nOra dovrebbe ambientarsi presto.
 COM_MEETING_answer_0008	Sembra che tu gli abbia messo pressione.\nE' in ansia per la nuova squadra.
 COM_MEETING_answer_0009	Il clima amichevole l'ha messo a suo agio.\nOra dovrebbe ambientarsi presto.
 COM_MEETING_answer_0010	Si aspettava un ambiente serio e rigoroso.\nIl tuo modo informale lo preoccupa.
 COM_MEETING_answer_0011	I compagni lo hanno accolto con sorrisi.\nOra dovrebbe ambientarsi presto.
 COM_MEETING_answer_0012	Prenderlo in giro subito e' stato scortese.\nSembra in ansia per la nuova squadra.
-COM_MEETING_answer_0013	Sara' bravo ad allenare i ragazzi.\nDa la nostra bandiera ci aspettiamo di piu'.
-COM_MEETING_answer_0014	Conquistera' il pubblico anche fuori dal campo.\nDa la nostra bandiera ci aspettiamo di piu'.
-COM_MEETING_answer_0015	Dovrebbe migliorare anche l'immagine della squadra.\nDa la nostra bandiera ci aspettiamo di piu'.
-COM_MEETING_answer_0016	Dovrebbe attirare molti tifosi.\nDa la nostra bandiera ci aspettiamo di piu'.
-COM_MEETING_answer_0017	Ovvio che aiutera' volentieri.\nDa la nostra bandiera ci aspettiamo di piu'.
+COM_MEETING_answer_0013	Sara' bravo ad allenare i ragazzi.\nDalla nostra bandiera ci aspettiamo di piu'.
+COM_MEETING_answer_0014	Conquistera' il pubblico anche fuori dal campo.\nDalla nostra bandiera ci aspettiamo di piu'.
+COM_MEETING_answer_0015	Dovrebbe migliorare anche l'immagine della squadra.\nDalla nostra bandiera ci aspettiamo di piu'.
+COM_MEETING_answer_0016	Dovrebbe attirare molti tifosi.\nDalla nostra bandiera ci aspettiamo di piu'.
+COM_MEETING_answer_0017	Ovvio che aiutera' volentieri.\nDalla nostra bandiera ci aspettiamo di piu'.
 COM_MEETING_answer_0018	Le sue parole gli hanno dato indizi su un nuovo stile.\nSento che trovera' il suo stile in partita.
 COM_MEETING_answer_0020	Le sue parole decise lo hanno convinto a seguirLa.\nI dubbi sulla tattica sono svaniti.
 COM_MEETING_answer_0021	E' stufo dei Suoi modi egoisti.\nOra e' ancora piu' incerto sulla tattica.
@@ -8261,9 +8262,9 @@ COM_COOPERATION_answer_0083	Per combinare piu' spesso,\ndevono leggere sempre i 
 COM_COOPERATION_answer_0084	Concentrarsi sull'altro\npotrebbe far trascurare il proprio gioco, temo.
 COM_COOPERATION_answer_0085	Per ampliare il gioco di squadra,\nconta anche la visione di tutta la squadra.
 COM_COOPERATION_answer_0086	Concentrarsi su tutta la squadra\npotrebbe impedire il loro stile, temo.
-COM_COOPERATION_answer_0088	Non sembravano voglia di cinese.\nSembrano delusi.
+COM_COOPERATION_answer_0088	Non sembravano aver voglia di cinese.\nSembrano delusi.
 COM_COOPERATION_answer_0089	Sembrava avessero voglia di cibo da pub.\nAvranno la forza per allenarsi duro.
-COM_COOPERATION_answer_0090	Non sembravano voglia di cibo da pub.\nSembrano delusi.
+COM_COOPERATION_answer_0090	Non sembravano aver voglia di cibo da pub.\nSembrano delusi.
 COM_COOPERATION_answer_0091	Sembrano d'accordo.\nIl cibo piccante li fara' parlare.
 COM_COOPERATION_answer_0092	Mangiare prima di una partita non e' l'ideale.\nFaccia attenzione al loro stomaco.
 COM_COOPERATION_answer_0093	Rispettano quanto tiene a loro.\nIspirati da Lei, anche la coppia si e' avvicinata.
@@ -8611,7 +8612,7 @@ COM_NEW_GROUND_choice_0008_01	Lusingalo
 COM_NEW_GROUND_choice_0008_02	Abbraccialo
 COM_NEW_GROUND_answer_0008_00	La tua sincerita'\nti ha fatto salire nella sua stima.
 COM_NEW_GROUND_answer_0008_01	Le scuse non sono bastate.\nNon chiamarlo per nulla.
-COM_NEW_GROUND_answer_0008_02	Il elogio gli ha risollevato l'umore.\nOra e' anche piu' carico.
+COM_NEW_GROUND_answer_0008_02	L'elogio gli ha risollevato l'umore.\nOra e' anche piu' carico.
 COM_NEW_GROUND_answer_0008_03	Ti ha letto dentro.\nForse dovevi scusarti.
 COM_NEW_GROUND_answer_0008_04	Ha sentito la tua passione!\nOra e' carichissimo.
 COM_NEW_GROUND_answer_0008_05	Che cos'era?!\nL'hai inquietato.
@@ -8944,7 +8945,7 @@ COM_NEW_LOUNGE_question_0002	La loro intesa e' ottima.\nVogliono una partita per
 COM_NEW_LOUNGE_choices_0002_00	Incoraggialo
 COM_NEW_LOUNGE_choices_0002_01	Calmalo
 COM_NEW_LOUNGE_choices_0002_02	Non dire nulla
-COM_NEW_LOUNGE_answer_0002_00	Le Sue parole li hanno carichi.\nOra miglioreranno nelle partite vere.
+COM_NEW_LOUNGE_answer_0002_00	Le Sue parole li hanno caricati.\nOra miglioreranno nelle partite vere.
 COM_NEW_LOUNGE_answer_0002_01	Incitare non serve senza occasioni.\nDiamo loro presto una partita vera.
 COM_NEW_LOUNGE_answer_0002_02	Calmarsi ha chiarito di nuovo l'obiettivo.\nOra miglioreranno nelle partite vere.
 COM_NEW_LOUNGE_answer_0002_03	Senza occasioni non riescono a calmarsi.\nDiamo loro presto una partita vera.
@@ -8985,7 +8986,7 @@ COM_NEW_LOUNGE_answer_0006_00	La pratica e' fondamentale.\nLa loro intesa e' cre
 COM_NEW_LOUNGE_answer_0006_01	Gli allenamenti non bastano.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0006_02	Divertirsi li aiuta a conoscersi.\nBel consiglio: l'intesa e' cresciuta.
 COM_NEW_LOUNGE_answer_0006_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_answer_0006_04	Invece li ha carichi.\nHanno parlato e si sono avvicinati.
+COM_NEW_LOUNGE_answer_0006_04	Invece li ha caricati.\nHanno parlato e si sono avvicinati.
 COM_NEW_LOUNGE_answer_0006_05	Mollare non porta a nulla.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_choices_0007_00	Falli allenare insieme
 COM_NEW_LOUNGE_choices_0007_01	Andate a divertirvi
@@ -8994,7 +8995,7 @@ COM_NEW_LOUNGE_answer_0007_00	La pratica e' fondamentale.\nLa loro intesa e' cre
 COM_NEW_LOUNGE_answer_0007_01	Gli allenamenti non bastano.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_answer_0007_02	Divertirsi li aiuta a conoscersi.\nBel consiglio: l'intesa e' cresciuta.
 COM_NEW_LOUNGE_answer_0007_03	Divertirsi non li fara' migliorare.\nEntrambi restano pensierosi.
-COM_NEW_LOUNGE_answer_0007_04	Invece li ha carichi.\nHanno parlato e si sono avvicinati.
+COM_NEW_LOUNGE_answer_0007_04	Invece li ha caricati.\nHanno parlato e si sono avvicinati.
 COM_NEW_LOUNGE_answer_0007_05	Mollare non porta a nulla.\nEntrambi restano pensierosi.
 COM_NEW_LOUNGE_question_0008	%s e %s.\nIn questa stanza accogliente, cosa guarderai?
 COM_NEW_LOUNGE_choices_0008_00	Video partita
@@ -9024,7 +9025,7 @@ COM_NEW_LOUNGE_answer_0010_00	Parlare di tecnica li ha avviati.\nOra l'intesa do
 COM_NEW_LOUNGE_answer_0010_01	I loro ideali sul gioco individuale cozzano.\nForse scegli un altro tema.
 COM_NEW_LOUNGE_answer_0010_02	Entrambi volevano parlare d'intesa.\nUn dialogo utile li fara' crescere.
 COM_NEW_LOUNGE_answer_0010_03	Non concordano sull'intesa.\nForse scegli un altro tema.
-COM_NEW_LOUNGE_answer_0010_04	Hanno la stessa opinione di te!\nOra in sintonia, l'intesa dovrebbe volare.
+COM_NEW_LOUNGE_answer_0010_04	Hanno la stessa opinione su di te!\nOra in sintonia, l'intesa dovrebbe volare.
 COM_NEW_LOUNGE_answer_0010_05	Parlare di te non li unisce...\nNon sanno cosa dire.
 COM_NEW_LOUNGE_question_0011	%s e %s.\nDi cosa parlerai con loro?
 COM_NEW_LOUNGE_choices_0011_00	Gioco individuale
@@ -9034,7 +9035,7 @@ COM_NEW_LOUNGE_answer_0011_00	Parlare di tecnica li ha avviati.\nOra l'intesa do
 COM_NEW_LOUNGE_answer_0011_01	I loro ideali sul gioco individuale cozzano.\nForse scegli un altro tema.
 COM_NEW_LOUNGE_answer_0011_02	Entrambi volevano parlare d'intesa.\nUn dialogo utile li fara' crescere.
 COM_NEW_LOUNGE_answer_0011_03	Non concordano sull'intesa.\nForse scegli un altro tema.
-COM_NEW_LOUNGE_answer_0011_04	Hanno la stessa opinione di te!\nOra in sintonia, l'intesa dovrebbe volare.
+COM_NEW_LOUNGE_answer_0011_04	Hanno la stessa opinione su di te!\nOra in sintonia, l'intesa dovrebbe volare.
 COM_NEW_LOUNGE_answer_0011_05	Parlare di te non li unisce...\nNon sanno cosa dire.
 COM_NEW_LOUNGE_question_0012	%s e %s.\nNon sono ancora vicini. Di cosa parlerai?
 COM_NEW_LOUNGE_choices_0012_02	Il tuo hobby
@@ -9147,7 +9148,7 @@ COM_MAX_MTG_choices_0000_01	Guida la riunione
 COM_MAX_MTG_choices_0000_02	Mandalo fuori
 COM_MAX_MTG_answer_0000_00	Il suo piano di allenamento e' stato un successo.\nGli schemi tattici aiuteranno tutta la squadra.
 COM_MAX_MTG_answer_0000_01	Pianificare gli esercizi ripassa anche la tattica.\nHa ammirato il Suo modo astuto di allenare.
-COM_MAX_MTG_answer_0000_02	Non capiva perche' dovesse pianificare l'allenamento.\nSi sente scaricato di un peso e fa il broncio.
+COM_MAX_MTG_answer_0000_02	Non capiva perche' dovesse pianificare l'allenamento.\nSi sente caricato di un peso e fa il broncio.
 COM_MAX_MTG_answer_0000_03	Ha guidato bene la riunione!\nTutto liscio: la tattica e' chiara a tutti.
 COM_MAX_MTG_answer_0000_04	Guidarla gli ha aperto la visuale.\nBella lezione per un Giocatore Chiave.
 COM_MAX_MTG_answer_0000_05	Non capiva perche' avesse avuto l'incarico.\nLa riunione e' finita in confusione.
@@ -9987,7 +9988,7 @@ PRO_PRO_seat_0002	Iscrizione in attesa
 PRO_PRO_seat_0003	Iscrizioni aperte
 PRO_PRO_seat_0004	Qualificato
 PRO_PRO_seat_0005	Perso
-PRO_PRO_seat_0006	Iscrizioni chiuse tra %ss
+PRO_PRO_seat_0006	Iscrizioni chiudono tra %ss
 PRO_PRO_seat_0007	Iscrizioni chiudono tra
 PRO_PRO_seat_0010	Iscrizioni chiuse
 PRO_PRO_round_0000	T. 1
@@ -10038,12 +10039,12 @@ PRO_PRO_battlelist_0033	Negozio:%s
 PRO_PRO_battlelist_0040	Nessuno
 PRO_PRO_game_0010	1o
 PRO_PRO_game_0012	PT
-PRO_PRO_game_0013	Primo tempo
+PRO_PRO_game_0013	Intervallo
 PRO_PRO_game_0015	2o
 PRO_PRO_game_0019	Recupero
 PRO_PRO_game_0030	1o
 PRO_PRO_game_0032	PT
-PRO_PRO_game_0033	Primo tempo
+PRO_PRO_game_0033	Intervallo
 PRO_PRO_game_0035	2o
 PRO_PRO_game_0039	Recupero
 PRO_PRO_game_0043	All.: %s
