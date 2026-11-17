@@ -43,6 +43,25 @@ pub fn append(file: &Path, line: &str) {
     }
 }
 
+/// The line [`session_log`] leaves between two sessions of one run (a cabinet restart): [`last_session`] reads what
+/// follows the last one, the session that is running.
+pub const RESTART: &str = "--- the cabinet restarted; the lines above are the session before ---";
+
+/// This session's log at `path`, made when it is not there: a log that is there is appended to, so a cabinet restart
+/// keeps the session before it (the logs a player then saves with SAVE LOGS), set off by [`RESTART`].
+pub fn session_log(path: &Path) -> io::Result<File> {
+    let mut f = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    if f.metadata()?.len() > 0 {
+        writeln!(f, "\n{RESTART}")?;
+    }
+    Ok(f)
+}
+
+/// `text` from after the last [`RESTART`] line: the session that is running (all of it when there is none).
+pub fn last_session(text: &str) -> &str {
+    text.rsplit_once(RESTART).map_or(text, |(_, running)| running)
+}
+
 /// Every file under `dir` in os.walk's order: a folder's files, then its folders one by one; none if it is missing.
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -252,7 +271,7 @@ impl<W: Write> Write for Stamped<W> {
 
 #[cfg(test)]
 mod tests {
-    use super::Stamped;
+    use super::{Stamped, last_session, session_log};
     use std::io::Write;
 
     #[test]
@@ -265,5 +284,25 @@ mod tests {
             String::from_utf8(s.out).unwrap(),
             "09:05:07.042   t+  1.0s process started\n09:05:07.042 a\n09:05:07.042 b\n"
         );
+    }
+
+    /// A cabinet restart reopens the run's logs: the session before it stays (SAVE LOGS sends all), and what the run
+    /// reads of a log (its seat's window, a crash) is the session that is running.
+    #[test]
+    fn a_restarted_cabinet_keeps_the_session_before_it() {
+        let d = crate::scratch();
+        let f = d.path().join("run_seat1.txt");
+        writeln!(Stamped::new(session_log(&f).unwrap()), "launched control pid 4242").unwrap();
+        writeln!(Stamped::new(session_log(&f).unwrap()), "launched control pid 5151").unwrap();
+        let text = std::fs::read_to_string(&f).unwrap();
+        assert!(
+            text.contains("launched control pid 4242"),
+            "the session before the restart is kept: {text}"
+        );
+        assert!(
+            !last_session(&text).contains("4242"),
+            "only the running session is read: {text}"
+        );
+        assert!(last_session(&text).contains("5151"), "{text}");
     }
 }
