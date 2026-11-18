@@ -2128,7 +2128,6 @@ fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
     (!f.is_empty()).then(|| f.join(" | "))
 }
 
-/// The staged kits must hold the built programs and the test programs.
 /// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (`build_all` removes it without).
 fn required_programs(e1011: bool) -> impl Iterator<Item = &'static str> {
     PROGRAMS
