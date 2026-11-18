@@ -3,8 +3,6 @@
 use crate::err::InstallError as E;
 use anyhow::{Result, ensure};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -126,18 +124,7 @@ pub fn latest(prefix: &str) -> Result<Package> {
     pick(&get_text(API)?, prefix)
 }
 
-pub fn sha256_of(path: &Path) -> std::io::Result<String> {
-    let mut f = std::fs::File::open(path)?;
-    let (mut h, mut buf) = (Sha256::new(), vec![0u8; 1 << 20]);
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(buf.get(..n).unwrap_or_default());
-    }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
-}
+pub use forza::apply::sha256_of;
 
 /// The file must hash to `want`; a mismatch deletes it.
 pub fn verify(path: &Path, want: &str) -> Result<()> {

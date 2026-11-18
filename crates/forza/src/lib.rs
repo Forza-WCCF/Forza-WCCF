@@ -95,6 +95,8 @@ impl Line {
 /// the line.
 pub type Say<'a> = &'a dyn Fn(&str, &Line);
 
+/// A package over a kit folder, with undo (the Launcher's UPDATE, the installer).
+pub mod apply;
 pub mod board;
 pub mod card;
 #[cfg(feature = "full")]
