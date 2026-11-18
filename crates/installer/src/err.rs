@@ -63,6 +63,12 @@ pub enum InstallError {
     NotNtfsVolume,
     ExtractIncomplete,
     KitUnsafePath,
+    KitFiles {
+        files: String,
+    },
+    ProgramRunning {
+        name: String,
+    },
     KitEdition {
         kit: &'static str,
         game: &'static str,
@@ -116,6 +122,8 @@ impl InstallError {
             NotNtfsVolume => "installer.err_volume_ntfs",
             ExtractIncomplete => "installer.err_extract_incomplete",
             KitUnsafePath => "installer.err_kit_unsafe",
+            KitFiles { .. } => "installer.err_kit_files",
+            ProgramRunning { .. } => "launcher.msg_close_game",
             KitEdition { .. } => "installer.err_kit_edition",
             Script { .. } => "installer.err_script",
             Other { .. } => "installer.err_other",
@@ -136,6 +144,8 @@ impl InstallError {
             KeyRead { detail } => vec![("e", detail.clone())],
             NoKeyEntry { id } => vec![("id", id.clone())],
             GameMissing { path } => vec![("path", path.clone())],
+            KitFiles { files } => vec![("files", files.clone())],
+            ProgramRunning { name } => vec![("name", name.clone())],
             KitEdition { kit, game } => vec![("kit", kit.to_string()), ("game", game.to_string())],
             Script { detail } | Other { detail } | Download { detail } => {
                 vec![("detail", detail.clone())]
@@ -158,6 +168,13 @@ impl std::fmt::Display for InstallError {
 }
 
 impl std::error::Error for InstallError {}
+
+/// OS or library text with no variant of its own (`forza::apply`'s).
+impl From<String> for InstallError {
+    fn from(detail: String) -> Self {
+        InstallError::Other { detail }
+    }
+}
 
 /// What the window shows for any error from the pipeline.
 pub fn localize(e: &anyhow::Error, lang: Lang) -> String {
@@ -226,6 +243,8 @@ mod tests {
             NotNtfsVolume,
             ExtractIncomplete,
             KitUnsafePath,
+            KitFiles { files: s() },
+            ProgramRunning { name: s() },
             KitEdition {
                 kit: "a",
                 game: "b",

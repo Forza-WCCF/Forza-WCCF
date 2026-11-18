@@ -4,6 +4,7 @@ use crate::err::{InstallError as E, path as shown};
 use crate::{disc, fetch};
 use anyhow::{Result, ensure};
 use forza::Edition;
+use forza::apply::Failed;
 use forza::text::{Lang, Mode};
 use forza_ui::installer::Step;
 use ntfs::{Ntfs, NtfsReadSeek, structured_values::NtfsFileNamespace};
@@ -213,6 +214,7 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
     };
     if let Some((kit, _)) = setup {
         check_setup(Some(id), check_kit_zip(kit)?)?;
+        refuse_running(&dest)?;
     }
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
@@ -274,6 +276,33 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         emit(Event::Log("Extraction only: not ready to play.".into()));
     }
     Ok(())
+}
+
+fn unpacked_size(zip: &mut zip::ZipArchive<File>) -> u64 {
+    (0..zip.len())
+        .filter_map(|i| zip.by_index(i).ok().map(|f| f.size()))
+        .sum()
+}
+
+/// No program runs from the install folder: its files cannot be replaced while one does.
+fn refuse_running(dest: &Path) -> Result<()> {
+    #[cfg(windows)]
+    if let Some(p) = forza::procs::running_from(dest) {
+        return Err(running(&p).into());
+    }
+    #[cfg(not(windows))]
+    let _ = dest;
+    Ok(())
+}
+
+fn running(program: &Path) -> E {
+    E::ProgramRunning {
+        name: program
+            .file_name()
+            .map_or(program.as_os_str(), |n| n)
+            .to_string_lossy()
+            .into_owned(),
+    }
 }
 
 /// The kit links the game's files with hard links and junctions: the drive must be NTFS. Fail now, not after 4 GB.
@@ -434,43 +463,76 @@ fn extract(
     })
 }
 
-/// Unpack the kit zip into dest (Launcher.exe, README, python, scripts ...); an existing data\ (club, keys) is kept.
+/// Unpack the kit zip beside the install (data\update, as the Launcher's UPDATE) and apply it over dest
+/// (Launcher.exe, README, python, scripts ...) with `forza::apply`: a failed write puts the old files back. An existing
+/// data\ (club, keys) is kept.
 fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> {
     let mut zip = zip::ZipArchive::new(File::open(zip_path)?).map_err(|_| E::NotZip)?;
     let (_, prefix) = kit_prefix(&mut zip)?;
     let keep_data = dest.join("data").exists();
-    let total: u64 = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|f| f.size()))
-        .sum();
-    let mut done = 0;
-    for i in 0..zip.len() {
-        let mut f = zip.by_index(i)?;
-        // enclosed_name rejects absolute paths and ".." (a crafted zip must stay inside dest)
-        let name = f.enclosed_name().ok_or(E::KitUnsafePath)?;
-        let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
-            continue;
-        };
-        // data\ is the player's in any capitals: Windows folder names ignore case (the Launcher's UPDATE skips it alike)
-        let player_data = rel
-            .components()
-            .next()
-            .is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("data"));
-        if rel.as_os_str().is_empty() || (keep_data && player_data) {
-            continue;
-        }
-        let out = dest.join(rel);
-        if f.is_dir() {
-            fs::create_dir_all(&out).map_err(write_err(&out))?;
-            continue;
-        }
-        if let Some(parent) = out.parent() {
-            fs::create_dir_all(parent).map_err(write_err(parent))?;
-        }
-        let mut file = File::create(&out).map_err(write_err(&out))?;
-        done += std::io::copy(&mut f, &mut file).map_err(write_err(&out))?;
-        emit(Event::Progress(done, total));
+    let work = dest.join("data").join("update");
+    let top = work.join("kit");
+    let total = unpacked_size(&mut zip);
+    if work.exists() {
+        fs::remove_dir_all(&work).map_err(write_err(&work))?;
     }
-    Ok(())
+    partial_tree(&top, || {
+        let mut done = 0;
+        for i in 0..zip.len() {
+            let mut f = zip.by_index(i)?;
+            // enclosed_name rejects absolute paths and ".." (a crafted zip must stay inside dest)
+            let name = f.enclosed_name().ok_or(E::KitUnsafePath)?;
+            let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
+                continue;
+            };
+            // data\ is the player's in any capitals: Windows folder names ignore case (the Launcher's UPDATE skips it alike)
+            let player_data = rel
+                .components()
+                .next()
+                .is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("data"));
+            if rel.as_os_str().is_empty() || (keep_data && player_data) {
+                continue;
+            }
+            let out = top.join(rel);
+            if f.is_dir() {
+                fs::create_dir_all(&out).map_err(write_err(&out))?;
+                continue;
+            }
+            if let Some(parent) = out.parent() {
+                fs::create_dir_all(parent).map_err(write_err(parent))?;
+            }
+            let mut file = File::create(&out).map_err(write_err(&out))?;
+            done += std::io::copy(&mut f, &mut file).map_err(write_err(&out))?;
+            emit(Event::Progress(done, total));
+        }
+        Ok(())
+    })
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&work);
+    })?;
+    let skip: &[&str] = if keep_data { &["data"] } else { &[] };
+    let log = |l: &str| emit(Event::Log(l.to_owned()));
+    let write_failed = |p: &Path, e: std::io::Error| write_err(p)(e);
+    forza::apply::apply(&top, dest, &work, skip, write_failed, || Ok(()), &log).map_err(|f| {
+        match f {
+            Failed::Running(p) => running(&p),
+            Failed::Damaged(bad) => E::KitFiles {
+                files: bad.join(", "),
+            },
+            Failed::RolledBack(e) => {
+                log("The files the package replaced were put back.");
+                e
+            }
+            Failed::Stuck(e) => {
+                log(&format!(
+                    "Some replaced files could not be put back: they are in {}",
+                    shown(&work.join("old"))
+                ));
+                e
+            }
+        }
+        .into()
+    })
 }
 
 /// One of the kit's steps (setup, the game's text) in this process, its lines into the log; a failure is its FAIL
@@ -965,8 +1027,8 @@ mod tests {
     }
 
     /// Updating the 2017-18 install from a package (reuse + setup) in a folder with a space and non-ASCII letters: the
-    /// 2010-11 tree and both saves stay byte-identical.  Setup fails here (no control_Release.exe), after the unpack:
-    /// what that leaves is the baseline for #276 (the package's files stay written, nothing is rolled back).
+    /// 2010-11 tree and both saves stay byte-identical.  Setup fails here (no control_Release.exe), after the package
+    /// was applied whole: its files stay.
     #[test]
     fn an_update_leaves_the_other_edition_identical() {
         let root = std::env::temp_dir()
@@ -1003,9 +1065,87 @@ mod tests {
             fs::read(dest.join("data/save/club.bin")).unwrap(),
             b"2017-18 save"
         );
-        // #276 baseline: the failed setup leaves the package's files in place
+        // the failed setup leaves the applied package's files in place
         assert!(dest.join("Launcher.exe").is_file() && dest.join("bin/x.dll").is_file());
         fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    }
+
+    /// A write that fails half way through a package over an existing install (a file stands where the package's
+    /// last folder goes): every file already replaced comes back byte for byte, the other edition untouched (#276).
+    #[test]
+    fn a_failed_write_puts_the_old_kit_back() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-rollback-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        fs::write(dest.join("Launcher.exe"), b"old launcher").unwrap();
+        fs::create_dir_all(dest.join("bin")).unwrap();
+        fs::write(dest.join("bin/x.dll"), b"old dll").unwrap();
+        fs::write(dest.join("zz"), b"a file, not a folder").unwrap();
+        let kit = kit_zip(
+            &root,
+            "k.zip",
+            &["Launcher.exe", "bin/x.dll", "bin/new.dll", "zz/last.txt"],
+        );
+        let before = tree(&root);
+        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::CannotWrite { .. })),
+            "{e:#}"
+        );
+        assert_eq!(tree(&root), before);
+        assert!(!dest.join("data/update").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A program running from the install (here this test binary, copied in as a game program) refuses the package
+    /// before anything is written (#276).
+    #[cfg(windows)]
+    #[test]
+    fn a_running_program_refuses_the_package() {
+        let root = std::env::temp_dir().join(format!("running-refuse-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let exe = dest.join("game/control_Release.exe");
+        fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+        let mut child = std::process::Command::new(&exe)
+            .args(["install::tests::a_program_that_waits", "--exact"])
+            .env("WCCF_TEST_WAIT", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll"]);
+        let before = tree(&root);
+        let plan = Plan {
+            dest: root.clone(),
+            iso: None,
+            key: None,
+            game_id: Some("SDDY"),
+            verify: false,
+            setup: true,
+            english: false,
+            shortcuts: false,
+            kit: Some(kit),
+            latest: false,
+        };
+        let r = run(&plan, &AtomicBool::new(false), &|_| {});
+        let _ = (child.kill(), child.wait());
+        let e = r.unwrap_err();
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::ProgramRunning { name }) if name.eq_ignore_ascii_case("control_Release.exe")),
+            "{e:#}"
+        );
+        assert_eq!(tree(&root), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The program `a_running_program_refuses_the_package` starts: this test binary, waiting when asked to.
+    #[test]
+    fn a_program_that_waits() {
+        if std::env::var_os("WCCF_TEST_WAIT").is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
     }
 
     #[test]
