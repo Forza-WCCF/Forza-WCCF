@@ -169,6 +169,8 @@ pub fn take(dir: &Path, data: &Path, step: &Step) -> io::Result<Vec<c::Entry>> {
 pub enum ResetRefused {
     /// A start between its checks and its game, a run, a server, or a SET UP holds the kit.
     Busy,
+    /// No game folder found: the seat's table would outlive the reset and come back at the next start.
+    NoSeat,
     Failed(io::Error),
 }
 
@@ -179,11 +181,12 @@ pub fn reset_kit(kit: &Kit) -> Result<PathBuf, ResetRefused> {
     let Some(_admitted) = run::admit(kit).filter(|_| !run::any_on(kit)) else {
         return Err(ResetRefused::Busy);
     };
-    reset(&kit.data(), run::seat_of(kit).as_deref()).map_err(ResetRefused::Failed)
+    let seat = run::seat_of(kit).ok_or(ResetRefused::NoSeat)?;
+    reset(&kit.data(), &seat).map_err(ResetRefused::Failed)
 }
 
 /// START OVER (`PLAN.md` 1.5): the profile's folder into its archive (`forza::profile::reset`) under this PC's time.
-pub fn reset(data: &Path, seat: Option<&Path>) -> io::Result<PathBuf> {
+pub fn reset(data: &Path, seat: &Path) -> io::Result<PathBuf> {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     let stamp = format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}",
@@ -194,7 +197,7 @@ pub fn reset(data: &Path, seat: Option<&Path>) -> io::Result<PathBuf> {
         t.minute(),
         t.second()
     );
-    forza::profile::reset(data, seat, &stamp)
+    forza::profile::reset(data, Some(seat), &stamp)
 }
 
 #[cfg(test)]
@@ -428,7 +431,7 @@ mod tests {
         let broken = std::fs::read(&log).unwrap();
         let mark = std::fs::read(data.join(c::WELCOME_MARK)).unwrap();
         assert!(view(&cat, &coll, None).unwrap().damaged);
-        let to = reset(&data, None).unwrap();
+        let to = reset(&data, &dir.path().join("seat1")).unwrap();
         assert_eq!(
             std::fs::read(to.join("collection").join("grants.jsonl")).unwrap(),
             broken
@@ -470,5 +473,18 @@ mod tests {
         start.join().unwrap();
         let r = reset_kit(&kit);
         assert!(!matches!(r, Err(ResetRefused::Busy)), "the start is done: {r:?}");
+    }
+
+    /// 1.5 review M2: START OVER is refused when no seat folder is found (no game folder recorded or beside the kit):
+    /// the seat's table would come back at the next start. The profile stays where it is.
+    #[test]
+    fn start_over_is_refused_without_a_seat() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        let (coll, _) = profile(&kit.data());
+        std::fs::create_dir_all(&coll).unwrap();
+        let r = reset_kit(&kit);
+        assert!(matches!(r, Err(ResetRefused::NoSeat)), "{r:?}");
+        assert!(coll.is_dir(), "the profile stays without a seat folder");
     }
 }
