@@ -236,7 +236,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BASE=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          # a test build (tag with a pre-release part, v0.9.0-cat.1) is never the base
+          BASE=$(gh release list --exclude-drafts --limit 50 --json tagName --jq '[.[].tagName | select(test("^v[0-9.]+$"))][0]')
           mkdir base
           gh release download "$BASE" -D base -p 'Forza-WCCF-2017-18-*.zip' -p 'Forza-WCCF-Installer-*.exe'
           .github/scripts/repro.sh hashes base > base.txt
