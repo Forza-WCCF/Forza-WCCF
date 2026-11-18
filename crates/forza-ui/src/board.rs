@@ -416,8 +416,9 @@ pub fn card_side(
     nearest: bool,
     lang: Lang,
 ) -> bool {
-    // nearest filtering only for a whole multiple of the picture's pixels: a smaller picture letterboxed in the slot
-    // stays smooth
+    // nearest filtering only when the slot's width is a whole multiple of the picture's pixels; any other picture
+    // stays smooth. A card-shaped picture fills the slot ([`picture_rect`]) up to 5 % off its own shape, so its
+    // height may not be whole pixels of the picture
     let ppp = p.pixels_per_point();
     // a NEAREST texture still loading: the LINEAR one, not the stand-in
     let got = card_picture_px(p.ctx(), card.number, back, nearest)
