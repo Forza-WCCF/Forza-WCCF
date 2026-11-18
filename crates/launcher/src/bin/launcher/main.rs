@@ -818,6 +818,8 @@ struct App {
     run_from_command: bool,
     /// The setup's card list, read the first time COLLECTION needs it.
     catalogue: Option<Vec<forza::board::Card>>,
+    /// The collection read's warnings last logged: a refresh logs them again only when they change.
+    collection_warnings: Vec<String>,
 }
 
 /// The LAN fold searches this often while it is open.
@@ -914,6 +916,7 @@ impl App {
             lan_at: None,
             run_from_command,
             catalogue: None,
+            collection_warnings: Vec::new(),
         };
         app.collection(kit);
         app
@@ -934,18 +937,23 @@ impl App {
         if self.catalogue.is_none() {
             self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
-        // what the read found (a damaged line, a pack cut from its cards) goes to DETAILS and launcher.txt
-        if let Ok(text) = forza::collection::Log::new(&dir).lines() {
-            for w in forza::collection::fold(&text).warnings {
+        let log_file = forza::collection::Log::new(&dir);
+        let read = log_file.lines().map(|text| forza::collection::fold(&text));
+        // what the read found (a damaged line, a pack cut from its cards) goes to DETAILS and launcher.txt, once
+        if let Ok(f) = &read
+            && f.warnings != self.collection_warnings
+        {
+            for w in &f.warnings {
                 log(&format!("collection: {w}"));
             }
+            self.collection_warnings.clone_from(&f.warnings);
         }
         let old = self.st.collection.take();
         // the reason, and whether it is the log (START OVER is its way out)
-        let made = match &self.catalogue {
-            None => Err((t("launcher.msg_no_catalogue"), false)),
-            Some(cat) => collection::view(cat, &dir, old.clone())
-                .map_err(|e| (read_failed(forza::collection::Log::new(&dir).path(), &e), true)),
+        let made = match (&self.catalogue, read) {
+            (None, _) => Err((t("launcher.msg_no_catalogue"), false)),
+            (Some(cat), Ok(f)) => Ok(collection::view_of(cat, &dir, f, old.clone())),
+            (Some(_), Err(e)) => Err((read_failed(log_file.path(), &e), true)),
         };
         self.st.collection = Some(
             made.unwrap_or_else(|(why, damaged)| forza_ui::collection::CollectionView {
