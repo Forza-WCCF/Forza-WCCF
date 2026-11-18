@@ -1833,6 +1833,32 @@ mod tests {
         assert_eq!(NATION_PACK, 200);
     }
 
+    /// The guarantee holds when the other two cards are REGULAR cards of every SPECIAL player: an earlier card makes
+    /// room (players 1 and 2 have a REGULAR and a SPECIAL card, player 3 only a REGULAR one).
+    #[test]
+    fn the_guarantee_holds_when_two_cards_hold_every_better_player() {
+        let mut pool = vec![
+            pool_card(1, Rarity::Regular, 80, Position::Mf),
+            pool_card(2, Rarity::Regular, 80, Position::Mf),
+            pool_card(3, Rarity::Regular, 80, Position::Mf),
+        ];
+        for (card_no, player) in [(11, 1), (12, 2)] {
+            pool.push(Card {
+                card_no,
+                ..pool_card(player, Rarity::Special, 85, Position::Mf)
+            });
+        }
+        let mut rng = Rng::new(0x2026_1118);
+        for _ in 0..1_000 {
+            let cards = pack(&mut rng, &pool, |_| true);
+            assert_eq!(cards.len(), PACK_CARDS);
+            assert!(
+                cards.iter().any(|c| c.rarity == Rarity::Special),
+                "{cards:?}"
+            );
+        }
+    }
+
     /// (e) PLAN 2.4: a season start is unbanded; All seasons and a league deal their 11 inside 80-82 with no secret
     /// card; a league start holds only that league's clubs; the table's names are the catalogue's (see the ignored
     /// test below).
