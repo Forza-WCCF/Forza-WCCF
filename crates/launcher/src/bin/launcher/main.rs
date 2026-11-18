@@ -824,11 +824,15 @@ struct App {
 }
 
 /// The collection read's warnings to log now, and the list the next refresh compares to (`said`): `None` is a log that
-/// could not be read, which leaves no list, so a damaged line still there after it is logged again.
+/// could not be read, which leaves no list, so a damaged line still there after it is logged again; the failed read
+/// that clears a list is logged once, so the repeat has its cause beside it.
 fn warnings_to_log(read: Option<&[String]>, said: &mut Vec<String>) -> Vec<String> {
     let Some(warnings) = read else {
+        if said.is_empty() {
+            return Vec::new();
+        }
         said.clear();
-        return Vec::new();
+        return vec!["collection: the log could not be read; its warnings are logged again once it can be".into()];
     };
     if warnings == said.as_slice() {
         return Vec::new();
@@ -2231,8 +2235,9 @@ mod tests {
         );
         assert_eq!(said, damaged);
         assert!(warnings_to_log(Some(&damaged), &mut said).is_empty(), "once");
-        assert!(warnings_to_log(None, &mut said).is_empty());
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "the failed read is logged");
         assert!(said.is_empty(), "a failed read leaves no list");
+        assert!(warnings_to_log(None, &mut said).is_empty(), "once");
         assert_eq!(
             warnings_to_log(Some(&damaged), &mut said),
             ["collection: line 12 does not parse"],
