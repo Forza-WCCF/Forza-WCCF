@@ -826,11 +826,15 @@ pub struct Folded {
 
 /// Fold a log into the state, counting the week's match tokens against `this_week`, a [`week`] label (YYYYWW) and never
 /// a [`day`] one (YYYYMMDD): both are `u32`, so a `day` argument compiles and the cap then never applies. A line that
-/// does not parse ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match
-/// that line are warnings, and the lines around them are kept.
+/// does not parse ends the fold (a last line cut off before its newline is only dropped, with a warning), a `seq` that
+/// is not one more than the line before it and a `prev` that does not match that line are warnings, and the lines
+/// around them are kept.
 #[must_use]
 pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut out = Folded::default();
+    // a last line cut short by an interrupted write is dropped here as the next append drops it, not read as a break
+    let cut = cut_off(lines);
+    let lines = cut.map_or(lines, |c| &lines[..c]);
     let mut before: Option<&str> = None;
     let mut seq = 0;
     let mut chain = true;
@@ -870,7 +874,21 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
         out.state.apply(&entry, this_week);
         before = Some(line);
     }
+    if cut.is_some() && !out.unreadable {
+        out.warnings.push(format!(
+            "line {} does not parse (cut off by an interrupted write) and is dropped",
+            lines.lines().count() + 1
+        ));
+    }
     out
+}
+
+/// Where a last line cut short by an interrupted write starts: the text after the last newline, when it does not
+/// parse. A whole last line that only lost its newline is no cut.
+fn cut_off(text: &str) -> Option<usize> {
+    let complete = text.rfind('\n').map_or(0, |i| i + 1);
+    (complete < text.len() && serde_json::from_str::<Entry>(&text[complete..]).is_err())
+        .then_some(complete)
 }
 
 impl State {
@@ -1046,11 +1064,7 @@ impl Log {
         let mut text = String::new();
         file.seek(io::SeekFrom::Start(0))?;
         file.read_to_string(&mut text)?;
-        // A last line cut short by an interrupted write is dropped; a whole one that only lost its newline is kept.
-        let complete = text.rfind('\n').map_or(0, |i| i + 1);
-        let cut = (complete < text.len()
-            && serde_json::from_str::<Entry>(&text[complete..]).is_err())
-        .then_some(complete);
+        let cut = cut_off(&text);
         if let Some(complete) = cut {
             text.truncate(complete);
         }
@@ -1292,6 +1306,10 @@ mod tests {
         torn.truncate(torn[..torn.len() - 1].rfind('\n').unwrap() + 1);
         torn.push_str("{\"seq\": 99, \"at\": \"2026-11-11T0");
         let folded = fold_at(&torn, this_week());
+        assert!(
+            !folded.unreadable,
+            "a cut-off last line is dropped, not a break"
+        );
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
             folded.warnings[0].starts_with("line 10 does not parse"),
