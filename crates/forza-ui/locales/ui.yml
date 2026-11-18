@@ -632,6 +632,7 @@ collection.value_secret: {en: "A SECRET card has one fixed price.", it: "Una car
 collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
 collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
 collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
+collection.damaged: {en: "Part of your collection file is damaged. The cards saved before it are shown, and new cards and tokens cannot be saved.", it: "Una parte del file della collezione è danneggiata. Sono mostrate le carte salvate prima del danno; nuove carte e gettoni non possono essere salvati.", ja: "コレクションのファイルの一部が壊れています。壊れた箇所より前に保存したカードを表示しています。新しいカードとトークンは保存できません。"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

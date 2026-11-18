@@ -57,12 +57,10 @@ pub fn starts(catalogue: &[Card]) -> Vec<StartRow> {
 }
 
 /// The view of the log in `dir` against the catalogue. `old` keeps the page's filter and open card, and a start being
-/// chosen or a deal not taken yet.
+/// chosen or a deal not taken yet. A line that cannot be read shows the cards before it, marked damaged, so a started
+/// collection still plays (reset, `PLAN.md` 1.5, is the way to a whole file again).
 pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::Result<CollectionView> {
     let folded = c::fold(&Log::new(dir).lines()?);
-    if folded.unreadable {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, folded.warnings.join("; ")));
-    }
     let s = folded.state;
     let started = s.cards.values().any(|k| k.starter > 0);
     let (filter, open, step) = match old {
@@ -99,6 +97,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         filter,
         open,
         problem: None,
+        damaged: folded.unreadable,
     })
 }
 
@@ -325,5 +324,30 @@ mod tests {
         let v = view(&cat, &coll, None).unwrap();
         assert!(matches!(v.step, Step::Page), "the page, not the picker");
         assert_eq!(v.cards.len(), 12);
+        assert!(!v.damaged);
+    }
+
+    /// #374 B1: a line in the middle that cannot be read shows the cards before it and the page, so PLAY starts; the
+    /// page says the file is damaged.
+    #[test]
+    fn a_broken_middle_line_shows_the_cards_before_it() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::Season(2013)).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let log = coll.join("grants.jsonl");
+        let text = std::fs::read_to_string(&log).unwrap();
+        let mut lines: Vec<&str> = text.lines().collect();
+        lines[5] = "not a line"; // the 6th of the 12 starter lines
+        std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(matches!(v.step, Step::Page), "the page, not the picker");
+        assert!(v.damaged);
+        assert_eq!(v.cards.len(), 5, "the cards before the break");
     }
 }
