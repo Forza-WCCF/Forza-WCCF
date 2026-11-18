@@ -766,7 +766,7 @@ fn band_height(rect: Rect) -> f32 {
 }
 
 /// A big face's club line, shrunk to its room, cut with "…" past it.
-fn club_galley(p: &Painter, rect: Rect, card: &Card, color: Color32) -> Arc<Galley> {
+pub fn club_galley(p: &Painter, rect: Rect, card: &Card, color: Color32) -> Arc<Galley> {
     fit_elided(
         p,
         &card.club,
