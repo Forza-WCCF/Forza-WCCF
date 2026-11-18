@@ -4320,9 +4320,9 @@ mod tests {
             c.get_program(),
             kit.join("source/build/test_dhcphook.exe").as_os_str()
         );
-        // fmt_clippy lints one pass per hooks(e1011) entry: the two 2010-11 ones come only with e1011
-        assert_eq!(hooks(false).count(), 2);
-        assert_eq!(hooks(true).count(), HOOKS.len());
+        // its argument is the point: the 2010-11 hook whose imports the test checks
+        let dll = kit.join("programs/wccfk.dll");
+        assert_eq!(c.get_args().collect::<Vec<_>>(), [dll.as_os_str()]);
     }
 
     #[test]
