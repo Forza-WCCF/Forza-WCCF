@@ -4,7 +4,9 @@
 //! asked for; Launcher.exe deals the cards and writes the log (`forza::collection`). From the page, PACKS opens the
 //! pack store (`PLAN.md` 2.1): the three packs with their odds after the step-down, and a bought pack's 3 cards turned
 //! over one by one. CRAFT lists the white and black cards not held yet and makes the one picked at its value
-//! (`PLAN.md` 2.2).
+//! (`PLAN.md` 2.2). MARKET opens the market page (`PLAN.md` 3.5): the opt-in until the installation joins, then its own
+//! list of the day, its listings and the other installations' listings, each with BUY or TAKE BACK; a card's detail
+//! lists an earned copy at a price inside its band.
 
 use super::Lang;
 use super::board::{self, Card, Look, Rarity};
@@ -170,7 +172,55 @@ pub enum Step {
     },
     /// CRAFT: the card picked from [`CollectionView::craftable`], by number.
     Craft { picked: Option<u32> },
+    /// The market page ([`CollectionView::market`]).
+    Market,
 }
+
+/// A card the market offers: a slot of the own list of the day or another installation's listing (`id`: the slot or
+/// the listing).
+#[derive(Clone, Debug)]
+pub struct Offered {
+    pub id: u64,
+    pub card: Card,
+    pub price: u32,
+    /// A slot of the own list bought today.
+    pub sold: bool,
+}
+
+/// One of this installation's listings still on the market.
+#[derive(Clone, Debug)]
+pub struct Mine {
+    pub id: u64,
+    pub card: Card,
+    pub price: u32,
+    /// Days until it comes back (7 after listing; 0: at the next visit).
+    pub days_left: i64,
+}
+
+/// The market page's state (`PLAN.md` 3.5); the Launcher fills it from the server's answers and the log.
+#[derive(Clone, Debug, Default)]
+pub struct MarketView {
+    /// In the market: the page shows the lists; else the opt-in.
+    pub joined: bool,
+    /// A request is on its way: the buttons wait.
+    pub busy: bool,
+    /// What the last request said, when worth a line (a refusal, no answer).
+    pub note: Option<String>,
+    /// The own list of the day, slot order.
+    pub stock: Vec<Offered>,
+    /// Purchases left today, under a server's daily limit.
+    pub left: Option<u32>,
+    /// Other installations' listings.
+    pub sale: Vec<Offered>,
+    pub mine: Vec<Mine>,
+    /// The offer picked, BUY under it: (a stock slot, its id).
+    pub picked: Option<(bool, u64)>,
+    /// LIST's price on the open card's detail, kept inside the card's band.
+    pub price: u32,
+}
+
+/// Open listings an installation may hold (`PLAN.md` 3.5).
+pub const OPEN_LISTINGS: usize = 5;
 
 /// The page's filters; `None` shows all.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -200,6 +250,7 @@ pub struct CollectionView {
     pub offers: Vec<Offer>,
     /// The cards CRAFT offers: the catalogue's white and black cards with no copy held, in catalogue order.
     pub craftable: Vec<Card>,
+    pub market: MarketView,
 }
 
 /// What the player asked for.
@@ -221,6 +272,20 @@ pub enum CollectionAction {
     Convert(u32),
     /// SAVE STATS: the anonymous stats file into the folder the player picks (`PLAN.md` 2.4).
     Stats,
+    /// MARKET opened, or asked again: the market's lists from the server (a COLLECT first).
+    Market,
+    /// JOIN THE MARKET on the opt-in.
+    MarketJoin,
+    /// LEAVE THE MARKET.
+    MarketLeave,
+    /// BUY a slot of the own list: slot, card, price.
+    StockBuy(u64, u32, u32),
+    /// BUY another installation's listing: listing, card, price.
+    MarketBuy(u64, u32, u32),
+    /// LIST an earned copy: card, price.
+    List(u32, u32),
+    /// TAKE BACK one of this installation's listings.
+    Unlist(u64),
 }
 
 /// Which screen a sample shows.
@@ -239,6 +304,10 @@ pub enum Scenario {
     Open,
     /// CRAFT with a black card picked.
     Craft,
+    /// The market page in the market: the own list (2 slots sold, one picked), 2 listings, 7 for sale.
+    Market,
+    /// The market page outside the market: the opt-in.
+    MarketOptIn,
 }
 
 impl CollectionView {
@@ -269,6 +338,7 @@ impl CollectionView {
             damaged: false,
             offers: sample_offers(),
             craftable: vec![],
+            market: MarketView::default(),
         };
         match s {
             Scenario::Choose => {
@@ -351,6 +421,48 @@ impl CollectionView {
                         .iter()
                         .find(|c| c.rarity == Rarity::Special)
                         .map(|c| c.number),
+                };
+            }
+            Scenario::Market | Scenario::MarketOptIn => {
+                v.step = Step::Market;
+                v.tokens = 640;
+                // priced as the server prices them: the list at 90 % of the value, listings at the band's floor
+                let value = |n: usize| {
+                    let card = &cards[n % cards.len()];
+                    collection::value(
+                        &forza::cards::collection_cards(std::slice::from_ref(card))[0],
+                    )
+                };
+                let offer = |n: usize, id: u64, price: u32, sold: bool| Offered {
+                    id,
+                    card: cards[n % cards.len()].clone(),
+                    price,
+                    sold,
+                };
+                v.market = MarketView {
+                    joined: s == Scenario::Market,
+                    stock: (0..10)
+                        .map(|i| {
+                            let price = collection::stock_value(value(30 + i));
+                            offer(30 + i, i as u64 + 1, price, i < 2)
+                        })
+                        .collect(),
+                    sale: (0..7)
+                        .map(|i| {
+                            let price = collection::floor_value(value(50 + i));
+                            offer(50 + i, 40 + i as u64, price, false)
+                        })
+                        .collect(),
+                    mine: (0..2)
+                        .map(|i| Mine {
+                            id: 20 + i as u64,
+                            card: cards[(15 + i) % cards.len()].clone(),
+                            price: collection::ceiling_value(value(15 + i)),
+                            days_left: 6 - 4 * i as i64,
+                        })
+                        .collect(),
+                    picked: Some((true, 3)),
+                    ..MarketView::default()
                 };
             }
         }
@@ -453,6 +565,11 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
             Step::Open { .. } => open(ui, &mut v.step, lang),
             Step::Craft { .. } => {
                 if craft(ui, v, lang, &mut act) {
+                    v.step = Step::Page;
+                }
+            }
+            Step::Market => {
+                if market(ui, v, lang, &mut act) {
                     v.step = Step::Page;
                 }
             }
@@ -698,11 +815,15 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
         if widgets::action(ui, &tr!(lang, "collection.craft")).clicked() {
             v.step = Step::Craft { picked: None };
         }
+        if widgets::action(ui, &tr!(lang, "collection.market")).clicked() {
+            v.step = Step::Market;
+            *act = Some(CollectionAction::Market);
+        }
     });
     filters(ui, v.cards.iter().map(|(c, _)| c), &mut v.filter, lang);
     if let Some(no) = v.open
         && let Some((card, copies)) = v.cards.iter().find(|(c, _)| c.number == no)
-        && detail(ui, card, copies, lang, act)
+        && detail(ui, card, copies, &mut v.market, lang, act)
     {
         v.open = None;
     }
@@ -830,12 +951,14 @@ fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filte
 }
 
 /// A card's detail: its value and how it is made, its market price while an earned copy is held, its copies by source
-/// and its mark, and CONVERT while a spare earned copy is held (`forza::collection::convert`'s rule). No SELL here: selling comes with the market (4.1). `true`: CLOSE
+/// and its mark, CONVERT while a spare earned copy is held (`forza::collection::convert`'s rule), and in the market LIST
+/// at a price inside the band while an earned copy is off the market (a listed copy never counts). `true`: CLOSE
 /// pressed.
 fn detail(
     ui: &mut Ui,
     card: &Card,
     copies: &Copies,
+    market: &mut MarketView,
     lang: Lang,
     act: &mut Option<CollectionAction>,
 ) -> bool {
@@ -900,6 +1023,9 @@ fn detail(
                     if copies.earned > copies.listed {
                         let floor = collection::floor_value(collection::value(row)).to_string();
                         hint(ui, &tr!(lang, "deal.sell_from", n = floor.as_str()));
+                        if market.joined {
+                            list(ui, card.number, collection::value(row), market, lang, act);
+                        }
                     }
                     let n = |x: u32| x.to_string();
                     let (e, s, i, l) = (
@@ -1289,6 +1415,243 @@ fn open(ui: &mut Ui, step: &mut Step, lang: Lang) {
     }
     if skip {
         *all = true;
+    }
+}
+
+/// LIST on a card's detail: the price inside the card's band (80-95 % of `value`), and the button.
+fn list(
+    ui: &mut Ui,
+    no: u32,
+    value: u32,
+    m: &mut MarketView,
+    lang: Lang,
+    act: &mut Option<CollectionAction>,
+) {
+    let (lo, hi) = (
+        collection::floor_value(value),
+        collection::ceiling_value(value),
+    );
+    m.price = m.price.clamp(lo, hi);
+    let (a, b) = (lo.to_string(), hi.to_string());
+    let band = tr!(
+        lang,
+        "collection.market_band",
+        lo = a.as_str(),
+        hi = b.as_str()
+    );
+    hint(ui, &band);
+    ui.horizontal(|ui| {
+        let price = f64::from(m.price);
+        ui.add_enabled(
+            !m.busy,
+            egui::Slider::new(&mut m.price, lo..=hi).show_value(false),
+        )
+        .widget_info(|| WidgetInfo::slider(!m.busy, price, &band));
+        let n = m.price.to_string();
+        if ui
+            .add_enabled_ui(!m.busy, |ui| {
+                widgets::action(ui, &tr!(lang, "collection.market_list", n = n.as_str()))
+            })
+            .inner
+            .clicked()
+            && !m.busy
+        {
+            *act = Some(CollectionAction::List(no, m.price));
+        }
+    });
+}
+
+/// The market page (`PLAN.md` 3.5): outside the market the opt-in and JOIN; in it the picked offer with BUY, the own
+/// list of the day, this installation's listings with TAKE BACK, the other installations' listings, and LEAVE. `true`:
+/// back to the page.
+fn market(
+    ui: &mut Ui,
+    v: &mut CollectionView,
+    lang: Lang,
+    act: &mut Option<CollectionAction>,
+) -> bool {
+    let mut back = false;
+    let m = &mut v.market;
+    ui.horizontal(|ui| {
+        back = widgets::action(ui, &tr!(lang, "collection.to_page")).clicked();
+        ui.add_space(8.0);
+        title(ui, &tr!(lang, "collection.market"));
+        ui.add_space(12.0);
+        let n = v.tokens.to_string();
+        ui.label(
+            egui::RichText::new(tr!(lang, "collection.tokens", n = n.as_str()))
+                .font(theme::display(18.0))
+                .color(theme::AMBER),
+        );
+    });
+    if let Some(n) = &m.note {
+        widgets::status_line(ui, widgets::Tone::Notice, n);
+    }
+    if m.busy {
+        hint(ui, &tr!(lang, "collection.market_busy"));
+    }
+    let busy = m.busy;
+    let button = |ui: &mut Ui, key: &str| {
+        ui.add_enabled_ui(!busy, |ui| widgets::action(ui, &tr!(lang, key)))
+            .inner
+            .clicked()
+            && !busy
+    };
+    if !m.joined {
+        title(ui, &tr!(lang, "collection.market_optin_title"));
+        hint(ui, &tr!(lang, "collection.market_optin"));
+        ui.add_space(8.0);
+        if button(ui, "collection.market_join") {
+            *act = Some(CollectionAction::MarketJoin);
+        }
+        return back;
+    }
+    let picked = m.picked.and_then(|(stock, id)| {
+        let from = if stock { &m.stock } else { &m.sale };
+        from.iter().find(|o| o.id == id).map(|o| (stock, o.clone()))
+    });
+    if let Some((stock, o)) = picked {
+        let can = !busy && !o.sold && !v.damaged && v.tokens >= i64::from(o.price);
+        ui.horizontal(|ui| {
+            let (r, resp) = ui.allocate_exact_size(card_size(84.0), Sense::hover());
+            resp.widget_info(|| WidgetInfo::labeled(Role::Image, true, &o.card.name));
+            board::card_face(ui.painter(), r, &o.card, Look::default());
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(&o.card.name)
+                        .font(theme::bold(16.0))
+                        .color(theme::TEXT),
+                );
+                hint(
+                    ui,
+                    &format!("{} · {} · {}", o.card.season, o.card.club, o.card.country),
+                );
+                let row = &forza::cards::collection_cards(std::slice::from_ref(&o.card))[0];
+                let value = collection::value(row).to_string();
+                hint(ui, &tr!(lang, "collection.value", n = value.as_str()));
+                let n = o.price.to_string();
+                let w = ui.available_width();
+                let label = if o.sold {
+                    tr!(lang, "collection.market_bought")
+                } else {
+                    tr!(lang, "collection.buy", n = n.as_str())
+                };
+                if ui
+                    .add_enabled_ui(can, |ui| {
+                        widgets::cabinet(ui, vec2(w, 40.0), &label, Cab::Go, can)
+                    })
+                    .inner
+                    .clicked()
+                    && can
+                {
+                    let (no, price) = (o.card.number, o.price);
+                    *act = Some(if stock {
+                        CollectionAction::StockBuy(o.id, no, price)
+                    } else {
+                        CollectionAction::MarketBuy(o.id, no, price)
+                    });
+                }
+                if !o.sold && v.tokens < i64::from(o.price) {
+                    hint(ui, &tr!(lang, "collection.craft_short", n = n.as_str()));
+                }
+            });
+        });
+    }
+    title(ui, &tr!(lang, "collection.market_stock_title"));
+    hint(ui, &tr!(lang, "collection.market_stock_hint"));
+    if let Some(n) = m.left {
+        let n = n.to_string();
+        hint(ui, &tr!(lang, "collection.market_left", n = n.as_str()));
+    }
+    offers(ui, &m.stock, true, &mut m.picked, lang);
+    let (n, max) = (m.mine.len().to_string(), OPEN_LISTINGS.to_string());
+    title(
+        ui,
+        &tr!(
+            lang,
+            "collection.market_mine_title",
+            n = n.as_str(),
+            max = max.as_str()
+        ),
+    );
+    if m.mine.is_empty() {
+        hint(ui, &tr!(lang, "collection.market_mine_none"));
+    }
+    for l in &m.mine {
+        ui.horizontal(|ui| {
+            if button(ui, "collection.market_unlist") {
+                *act = Some(CollectionAction::Unlist(l.id));
+            }
+            ui.label(
+                egui::RichText::new(&l.card.name)
+                    .font(theme::bold(14.0))
+                    .color(theme::TEXT),
+            );
+            let (p, d) = (l.price.to_string(), l.days_left.max(0).to_string());
+            hint(
+                ui,
+                &tr!(
+                    lang,
+                    "collection.market_listed",
+                    n = p.as_str(),
+                    d = d.as_str()
+                ),
+            );
+        });
+    }
+    title(ui, &tr!(lang, "collection.market_sale_title"));
+    if m.sale.is_empty() {
+        hint(ui, &tr!(lang, "collection.market_sale_none"));
+    }
+    offers(ui, &m.sale, false, &mut m.picked, lang);
+    ui.add_space(12.0);
+    ui.horizontal(|ui| {
+        if button(ui, "collection.market_refresh") {
+            *act = Some(CollectionAction::Market);
+        }
+        if button(ui, "collection.market_leave") {
+            *act = Some(CollectionAction::MarketLeave);
+        }
+    });
+    hint(ui, &tr!(lang, "collection.market_leave_hint"));
+    back
+}
+
+/// A grid of offers, each card with its price under it (BOUGHT for a slot bought today); a click picks it.
+fn offers(
+    ui: &mut Ui,
+    list: &[Offered],
+    stock: bool,
+    picked: &mut Option<(bool, u64)>,
+    lang: Lang,
+) {
+    let gap = ui.spacing().item_spacing.x;
+    let w = ((ui.available_width() - gap * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
+    let bought = tr!(lang, "collection.market_bought");
+    for row in list.chunks(COLUMNS) {
+        ui.horizontal(|ui| {
+            for o in row {
+                let on = *picked == Some((stock, o.id));
+                let mark = o.sold.then_some(bought.as_str());
+                let resp = board::catalogue_card(ui, &o.card, card_size(w), on, false, mark);
+                resp.widget_info(|| WidgetInfo::labeled(Role::Button, true, &o.card.name));
+                let r = resp.rect;
+                // mid-card, clear of the name strip and of the BOUGHT mark under it
+                let at = Rect::from_center_size(r.center(), vec2(r.width() * 0.6, 16.0));
+                ui.painter()
+                    .rect_filled(at, 3, theme::NIGHT.gamma_multiply(0.85));
+                ui.painter().text(
+                    at.center(),
+                    egui::Align2::CENTER_CENTER,
+                    o.price.to_string(),
+                    theme::bold(12.0),
+                    theme::AMBER,
+                );
+                if resp.clicked() {
+                    *picked = Some((stock, o.id));
+                }
+            }
+        });
     }
 }
 
