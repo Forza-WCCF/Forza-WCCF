@@ -146,7 +146,15 @@ pub fn check_kit_zip(path: &Path) -> Result<Edition> {
     kit_prefix(&mut zip).map(|(e, _)| e)
 }
 
+// tests set the free space a run sees
+#[cfg(test)]
+thread_local!(static FREE: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) });
+
 pub fn free_space(path: &Path) -> Option<u64> {
+    #[cfg(test)]
+    if let Some(free) = FREE.get() {
+        return Some(free);
+    }
     path.ancestors()
         .find(|p| p.exists())
         .and_then(|p| fs4::available_space(p).ok())
@@ -163,7 +171,22 @@ fn check(cancel: &AtomicBool) -> Result<()> {
     Ok(())
 }
 
+/// What [`apply`] does, decided by [`resolve`] before anything is written.
+struct Resolved {
+    dest: PathBuf,
+    game: PathBuf,
+    vol: Option<disc::Volume>,
+    setup: Option<(PathBuf, Edition)>, // the package to set up and its edition
+}
+
 pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()> {
+    let r = resolve(plan, cancel, emit)?;
+    apply(plan, r, cancel, emit)
+}
+
+/// Every refusal, and nothing written to the install: the edition, the package, a program running from the install,
+/// the free space; then the slow reads (the disc opened, the package downloaded, the disc's verify pass).
+fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Resolved> {
     check(cancel)?;
     let detected = plan
         .iso
@@ -181,41 +204,98 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         .ok_or(E::NeedGame)?;
     let (dest, game) = version_paths(&plan.dest, id)?;
     ensure!(plan.iso.is_none() || !game.exists(), E::GameFolderExists);
-    let mut kit = plan.kit.clone();
-    if plan.latest && kit.is_none() && plan.setup {
-        ensure!(id == forza::Edition::E1718.game_id(), E::NoDownload);
+    let download = plan.latest && plan.kit.is_none() && plan.setup;
+    ensure!(!download || id == Edition::E1718.game_id(), E::NoDownload);
+    let edition = if plan.setup && (plan.kit.is_some() || download) {
+        Some(edition_of(id).ok_or(E::UnknownEdition)?)
+    } else {
+        None
+    };
+    ensure!(!plan.english || edition.is_some(), E::EnglishNeedsSetup);
+    let key = match &plan.iso {
+        Some(_) => Some(
+            fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
+                detail: e.to_string(),
+            })?,
+        ),
+        None => {
+            ensure!(
+                game_present(&plan.dest, id),
+                E::GameMissing {
+                    path: shown(&plan.dest)
+                }
+            );
+            None
+        }
+    };
+    let kit = plan.kit.as_ref().filter(|_| edition.is_some());
+    if let Some(kit) = kit {
+        check_setup(Some(id), check_kit_zip(kit)?)?;
+    }
+    if edition.is_some() {
+        refuse_running(&dest)?;
+    }
+    // the game takes at most its slot of the disc
+    let extract = disc::DISCS
+        .iter()
+        .find(|d| d.game_id == id)
+        .filter(|_| plan.iso.is_some())
+        .map_or(0, |d| d.slot_end - d.slot_start);
+    if plan.iso.is_some() || edition.is_some() {
+        room(&dest, extract + kit.map_or(0, |k| kit_room(k)))?;
+    }
+    let vol = match (&plan.iso, key) {
+        (Some(iso), Some(key)) => Some((iso, disc::open(iso, &key)?)),
+        _ => None,
+    };
+    if let Some((_, (vol, _))) = &vol {
+        emit(Event::Log(format!(
+            "Detected {} ({})",
+            vol.disc.name, vol.disc.game_id
+        )));
+    }
+    let mut kit = kit.cloned();
+    if download {
         emit(Event::Stage(Step::Download));
         let p = fetch::latest(fetch::PREFIX_1718)?;
         emit(Event::Log(format!("Downloading {}", p.zip_name)));
-        kit = Some(fetch::download(&p, cancel, &|d, t| {
-            emit(Event::Progress(d, t))
-        })?);
+        let got = fetch::download(&p, cancel, &|d, t| emit(Event::Progress(d, t)))?;
         emit(Event::Log("Package checked against its SHA-256".into()));
+        check_setup(Some(id), check_kit_zip(&got)?)?;
+        room(&dest, extract + kit_room(&got))?;
+        kit = Some(got);
     }
-    // the package to set up and its edition, both known before anything is written
-    let setup = match kit.as_ref().filter(|_| plan.setup) {
-        Some(k) => Some((k, edition_of(id).ok_or(E::UnknownEdition)?)),
-        None => None,
-    };
-    ensure!(!plan.english || setup.is_some(), E::EnglishNeedsSetup);
-    let opened = if let Some(iso) = &plan.iso {
-        let key = fs::read(plan.key.as_ref().ok_or(E::NoKey)?).map_err(|e| E::KeyRead {
-            detail: e.to_string(),
-        })?;
-        Some((iso, disc::open(iso, &key)?))
-    } else {
-        ensure!(
-            game_present(&plan.dest, id),
-            E::GameMissing {
-                path: shown(&plan.dest)
-            }
-        );
-        None
-    };
-    if let Some((kit, _)) = setup {
-        check_setup(Some(id), check_kit_zip(kit)?)?;
-        refuse_running(&dest)?;
+    if let Some((iso, (vol, table))) = &vol
+        && plan.verify
+    {
+        emit(Event::Stage(Step::Verify));
+        let total = (table.len() - 1) as u64 * 0x40000;
+        disc::verify_blocks(
+            iso,
+            vol.disc,
+            table,
+            |d| {
+                emit(Event::Progress(d, total));
+            },
+            || check(cancel),
+        )?;
     }
+    Ok(Resolved {
+        dest,
+        game,
+        vol: vol.map(|(_, (vol, _))| vol),
+        setup: kit.zip(edition),
+    })
+}
+
+/// Writes what [`resolve`] decided: the game extracted, the package over the install, setup, English, pictures, shortcuts.
+fn apply(plan: &Plan, r: Resolved, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()> {
+    let Resolved {
+        dest,
+        game,
+        vol,
+        setup,
+    } = r;
     fs::create_dir_all(&dest).map_err(|e| E::CannotCreate {
         path: shown(&dest),
         detail: e.to_string(),
@@ -223,33 +303,12 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
     if setup.is_some() {
         probe_links(&dest)?;
     }
-    if let Some((iso, (mut vol, table))) = opened {
-        emit(Event::Log(format!(
-            "Detected {} ({})",
-            vol.disc.name, vol.disc.game_id
-        )));
-        if plan.verify {
-            emit(Event::Stage(Step::Verify));
-            let total = (table.len() - 1) as u64 * 0x40000;
-            disc::verify_blocks(
-                iso,
-                vol.disc,
-                &table,
-                |d| {
-                    emit(Event::Progress(d, total));
-                },
-                || check(cancel),
-            )?;
-        }
-        ensure!(
-            free_space(&dest).is_none_or(|f| f > vol.size + HEADROOM),
-            E::NoSpace
-        );
-        extract(&mut vol, &dest, cancel, emit)?;
+    if let Some(mut vol) = vol {
+        extract(&mut vol, &game, cancel, emit)?;
     }
     if let Some((kit, edition)) = setup {
         emit(Event::Stage(Step::Setup));
-        unpack_kit(kit, &dest, emit)?;
+        unpack_kit(&kit, &dest, emit)?;
         check(cancel)?;
         let folder = game.to_string_lossy();
         kit_step(emit, |say| {
@@ -276,6 +335,23 @@ pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()>
         emit(Event::Log("Extraction only: not ready to play.".into()));
     }
     Ok(())
+}
+
+/// The drive holds `need` bytes and the headroom setup takes (card pictures, the seat folders).
+fn room(dest: &Path, need: u64) -> Result<()> {
+    ensure!(
+        free_space(dest).is_none_or(|f| f > need + HEADROOM),
+        E::NoSpace
+    );
+    Ok(())
+}
+
+/// The bytes a package takes on the install's drive: unpacked once beside the install, then copied over it.
+fn kit_room(kit: &Path) -> u64 {
+    File::open(kit)
+        .ok()
+        .and_then(|f| zip::ZipArchive::new(f).ok())
+        .map_or(0, |mut z| 2 * unpacked_size(&mut z))
 }
 
 fn unpacked_size(zip: &mut zip::ZipArchive<File>) -> u64 {
@@ -402,10 +478,10 @@ fn partial_tree(partial: &Path, fill: impl FnOnce() -> Result<()>) -> Result<()>
     done
 }
 
-/// Extract into <dest>/game.partial, then rename: a cancelled run never leaves a half game folder.
+/// Extract into `game`.partial beside it, then rename: a cancelled run never leaves a half game folder.
 fn extract(
     vol: &mut disc::Volume,
-    dest: &Path,
+    game: &Path,
     cancel: &AtomicBool,
     emit: &dyn Fn(Event),
 ) -> Result<()> {
@@ -414,10 +490,7 @@ fn extract(
     let ntfs = Ntfs::new(vol).map_err(|_| E::NotNtfsVolume)?;
     let items = scan(&ntfs, vol)?;
     let total: u64 = items.iter().map(|i| i.size).sum();
-    let (game, partial) = (
-        dest.join(GAME_DIR),
-        dest.join(format!("{GAME_DIR}.partial")),
-    );
+    let partial = game.with_extension("partial");
     if partial.exists() {
         fs::remove_dir_all(&partial).map_err(write_err(&partial))?;
     }
@@ -458,7 +531,7 @@ fn extract(
         );
         check(cancel)?;
         ensure!(!game.exists(), E::GameFolderExists);
-        fs::rename(&partial, &game).map_err(write_err(&game))?;
+        fs::rename(&partial, game).map_err(write_err(game))?;
         Ok(())
     })
 }
@@ -1146,6 +1219,69 @@ mod tests {
         if std::env::var_os("WCCF_TEST_WAIT").is_some() {
             std::thread::sleep(std::time::Duration::from_secs(60));
         }
+    }
+
+    /// Too little free space for the game is refused before the disc is read: no verify pass, nothing written (#277).
+    #[test]
+    fn too_little_space_is_refused_before_the_verify_pass() {
+        let root = std::env::temp_dir().join(format!("space-extract-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let (iso, key) = (root.join("disc.iso"), root.join("keys.bin"));
+        fs::write(&iso, b"never read").unwrap();
+        fs::write(&key, b"never read").unwrap();
+        FREE.set(Some(1 << 30)); // 1 GB: less than the 2017-18 game
+        let plan = Plan {
+            dest: root.clone(),
+            iso: Some(iso),
+            key: Some(key),
+            game_id: Some("SDDY"),
+            verify: true,
+            setup: false,
+            english: false,
+            shortcuts: false,
+            kit: None,
+            latest: false,
+        };
+        let steps = std::cell::Cell::new(0);
+        let e = run(&plan, &AtomicBool::new(false), &|e| {
+            if !matches!(e, Event::Log(_)) {
+                steps.set(steps.get() + 1); // a stage or the verify pass's progress
+            }
+        })
+        .unwrap_err();
+        assert_eq!(e.downcast_ref::<E>(), Some(&E::NoSpace), "{e:#}");
+        assert_eq!(steps.get(), 0);
+        assert!(!root.join("2017-2018").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Reusing an install with setup checks the free space too: the package and setup's headroom (#277).
+    #[test]
+    fn reuse_and_setup_with_too_little_space_is_refused() {
+        let root = std::env::temp_dir().join(format!("space-reuse-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll"]);
+        let before = tree(&root);
+        FREE.set(Some(HEADROOM));
+        let plan = Plan {
+            dest: root.clone(),
+            iso: None,
+            key: None,
+            game_id: Some("SDDY"),
+            verify: false,
+            setup: true,
+            english: false,
+            shortcuts: false,
+            kit: Some(kit),
+            latest: false,
+        };
+        let e = run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err();
+        assert_eq!(e.downcast_ref::<E>(), Some(&E::NoSpace), "{e:#}");
+        assert_eq!(tree(&root), before);
+        assert!(!dest.join("Launcher.exe").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
