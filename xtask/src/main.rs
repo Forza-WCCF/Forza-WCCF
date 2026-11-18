@@ -538,9 +538,11 @@ fn hook_feature(e1011: bool) -> &'static str {
 /// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
 /// winmm.dll) only when a change touches one of these, and so does `check ci --base` ([`ci_builds_1011`]); the full
-/// check, `check ci` without `--base` or with `--release` (the weekly run, releases), `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
-/// code), and so do the toolchain and the locked crates. Package-less 2010-11 files (README, deploy scripts) are only
-/// staged or linted, by `check ci` and the lint job alike.
+/// check, `check ci` without `--base` or with `--release` (the weekly run, releases), `build` and `package` always do.
+/// The hook crate and its dependency count whole (both editions' hooks share their code), and so do the toolchain, the
+/// locked crates and the settings that profile or lint every crate: a break in those that only the 2010-11 hooks meet
+/// must not wait for the weekly `--release` run. Package-less 2010-11 files (README, deploy scripts) are only staged or
+/// linted, by `check ci` and the lint job alike.
 const PATHS_1011: &[&str] = &[
     "editions/2010-11/",
     "legacy/2010-11/",
@@ -552,6 +554,9 @@ const PATHS_1011: &[&str] = &[
     "crates/forza/src/setup/e1011.rs",
     "crates/forza/examples/setup1011.rs",
     "deploy/linux/wccf-1011",
+    // the root manifest (profiles, workspace lints) and native/'s clippy settings: the hooks are built and linted by them
+    "cargo.toml",
+    "native/clippy.toml",
     "cargo.lock",
     "rust-toolchain.toml",
     ".cargo/",
@@ -569,6 +574,19 @@ fn touches_1011(files: &str) -> bool {
         .lines()
         .map(str::to_lowercase)
         .any(|f| PATHS_1011.iter().any(|p| f.starts_with(p)))
+}
+
+/// The log line for [`ci_builds_1011`]: why `check ci` built or skipped the 2010-11 hooks. `--base` is a manual run's
+/// (CI's `check ci` passes none: no base, everything); one the clone does not have (a force-push, a shallow clone)
+/// says so, and must not read as a run with `--base` whose diff was empty: without it the skip is off.
+fn ci_1011_reason(release: bool, base: Option<&str>, files: Option<&str>) -> String {
+    match (release, base, files) {
+        (true, _, _) => "in (--release: what players get)".to_owned(),
+        (false, None, _) => "in (no --base: everything)".to_owned(),
+        (false, Some(b), None) => format!("in (no merge base with {b}: not fetched?)"),
+        (false, Some(_), Some(f)) if touches_1011(f) => "in (a 2010-11 path changed)".to_owned(),
+        (false, Some(b), Some(_)) => format!("skipped (no 2010-11 path changed since {b})"),
+    }
 }
 
 /// The 32-bit crates besides the panel, as `build`, clippy and the tests take them (the hook gets its feature apart).
@@ -692,11 +710,7 @@ fn run(task: Task, root: &Path) -> Result<()> {
             if ci {
                 println!(
                     "ci: 2010-11 hooks {}",
-                    if e1011 {
-                        "in (no --base, --release or a 2010-11 path changed)"
-                    } else {
-                        "skipped (no 2010-11 path changed since --base)"
-                    }
+                    ci_1011_reason(release, base.as_deref(), files.as_deref())
                 );
             }
             build_all(&root, &kit, &kit_1718, e1011)
@@ -1869,6 +1883,15 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
         if f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
+        // native/clippy.toml: clippy reads the nearest file above a crate, so every crate under native/ is a reader
+        if f == "native/clippy.toml" {
+            hit.extend(
+                info.iter()
+                    .filter(|(_, d, _)| d.starts_with("native/"))
+                    .map(|(n, _, _)| n.clone()),
+            );
+            continue;
+        }
         // the owning package: the longest package dir that prefixes the file
         if let Some((n, _, _)) = info
             .iter()
@@ -1962,7 +1985,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         Some(f) => changed_packages(root, f)?,
         None => None,
     };
-    let e1011 = files.as_deref().is_none_or(touches_1011);
+    let e1011 = ci_builds_1011(false, files.as_deref());
     let scope: Vec<String> = match &pkgs {
         None => {
             println!("quick: Cargo.lock, the toolchain or a manifest changed: whole workspace");
@@ -1984,11 +2007,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     };
     println!(
         "quick: 2010-11 hooks {}",
-        if e1011 {
-            "in (a 2010-11 path changed)"
-        } else {
-            "skipped (no 2010-11 path changed)"
-        }
+        ci_1011_reason(false, Some(base), files.as_deref())
     );
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
@@ -2109,19 +2128,23 @@ fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
     (!f.is_empty()).then(|| f.join(" | "))
 }
 
-/// The staged kits must hold the built programs and the test programs.
-/// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (build_all removes it without).
-fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
-    for p in PROGRAMS
+/// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (`build_all` removes it without).
+fn required_programs(e1011: bool) -> impl Iterator<Item = &'static str> {
+    PROGRAMS
         .iter()
-        .filter(|p| e1011 || **p != "programs/wccfk.dll")
-        .chain(&[
+        .copied()
+        .filter(move |p| e1011 || *p != "programs/wccfk.dll")
+        .chain([
             "source/build/fakegame.exe",
             "source/build/fakegame_iphlp.exe",
             "source/build/test_dhcphook.exe",
             "source/build/crashme.exe",
         ])
-    {
+}
+
+/// The staged kits must hold the built programs and the test programs.
+fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    for p in required_programs(e1011) {
         ensure!(
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
@@ -2149,16 +2172,22 @@ fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
     Ok(())
 }
 
-/// The checks that start Windows programs from the staged kits; the 2010-11 hook's only with `e1011`.
-fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
-    if e1011 {
+/// The 2010-11 hook's kit test, only with `e1011`: without the hooks there is no wccfk.dll to point the imports at.
+fn hook_test(kit: &Path, e1011: bool) -> Option<(&'static str, Command)> {
+    e1011.then(|| {
         let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
         c.arg(kit.join("programs/wccfk.dll"));
-        ck.run(
+        (
             "2010-11 hook: the IpReleaseAddress and IpRenewAddress imports now point into wccfk.dll",
             c,
-            false,
-        );
+        )
+    })
+}
+
+/// The checks that start Windows programs from the staged kits; the 2010-11 hook's only with `e1011`.
+fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    if let Some((what, c)) = hook_test(kit, e1011) {
+        ck.run(what, c, false);
     }
     panel_selftests(ck)?;
     guard_tests(ck, kit_1718)
@@ -4131,6 +4160,22 @@ mod tests {
         // the launcher embeds the panel's files
         let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
         assert_eq!(panel, set(&["forza-panel", "launcher"]));
+        // native/clippy.toml is the clippy config of every crate under native/ (the nearest file above a crate)
+        let native = || {
+            let rows: [(&str, &str, &[&str]); 2] = [
+                ("forza-native", "native/common", &[]),
+                ("forza-panel", "native/panel", &[]),
+            ];
+            rows.map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        assert_eq!(
+            affected(native(), "native/clippy.toml\n"),
+            Some(set(&["forza-native", "forza-panel"]))
+        );
         assert_eq!(affected(info(), "Cargo.lock\n"), None);
         // xtask's own crate: its tests and lints, not the workspace's
         assert_eq!(
@@ -4213,6 +4258,11 @@ mod tests {
         assert!(touches_1011("crates/forza/src/setup/e1011.rs\n"));
         assert!(touches_1011("native/hook/src/lib.rs\n"));
         assert!(touches_1011("Cargo.lock\n"));
+        // the files that profile or lint every crate reach the 2010-11 hooks, so a break only they meet cannot wait
+        // for the weekly --release run; a crate's own manifest is that crate's
+        assert!(touches_1011("Cargo.toml\n"));
+        assert!(touches_1011("native/clippy.toml\n"));
+        assert!(!touches_1011("crates/forza/Cargo.toml\n"));
         assert_eq!(hooks(false).count(), 2);
         assert!(hooks(false).all(|(f, _, _)| f.contains("e1718")));
         assert_eq!(hooks(true).count(), HOOKS.len());
@@ -4226,6 +4276,78 @@ mod tests {
         // no --base (the weekly run) or no merge base: everything; --release: what players get
         assert!(ci_builds_1011(false, None));
         assert!(ci_builds_1011(true, only_1718));
+    }
+
+    #[test]
+    fn check_ci_builds_the_2010_11_hooks_where_its_line_says_in() {
+        // the line and what is built must agree, on a manual run's `--base`, over what `changed_files` returns: a base
+        // the clone does not have gives no list, a known one the changed files
+        for (release, files) in [
+            (false, None),
+            (false, Some("crates/launcher/src/lib.rs\n")),
+            (false, Some("native/hook/src/lib.rs\n")),
+            (true, None),
+            (true, Some("crates/launcher/src/lib.rs\n")),
+        ] {
+            let reason = ci_1011_reason(release, Some("origin/main"), files);
+            assert_eq!(
+                ci_builds_1011(release, files),
+                reason.starts_with("in ("),
+                "{reason}"
+            );
+        }
+        // CI's `check ci` has no `--base`: everything, as its line says
+        assert!(ci_builds_1011(false, None));
+        assert!(ci_1011_reason(false, None, None).starts_with("in ("));
+    }
+
+    #[test]
+    fn a_run_without_the_2010_11_hooks_demands_no_wccfk_dll() {
+        // ensure_built's list: a skipped run has no wccfk.dll (build_all removed it) and must not fail for it
+        assert!(!required_programs(false).any(|p| p == "programs/wccfk.dll"));
+        assert!(required_programs(true).any(|p| p == "programs/wccfk.dll"));
+        assert_eq!(
+            required_programs(true).count(),
+            required_programs(false).count() + 1
+        );
+        // windows_tests starts the hook's kit test only with e1011
+        let kit = Path::new("kit/2010-11");
+        assert!(hook_test(kit, false).is_none());
+        let (what, c) = hook_test(kit, true).expect("the 2010-11 hook's kit test");
+        assert!(what.starts_with("2010-11 hook"), "{what}");
+        assert_eq!(
+            c.get_program(),
+            kit.join("source/build/test_dhcphook.exe").as_os_str()
+        );
+        // its argument is the point: the 2010-11 hook whose imports the test checks
+        let dll = kit.join("programs/wccfk.dll");
+        assert_eq!(c.get_args().collect::<Vec<_>>(), [dll.as_os_str()]);
+    }
+
+    #[test]
+    fn check_ci_says_why_a_base_is_missing() {
+        let only_1718 = Some("crates/launcher/src/lib.rs\n");
+        assert_eq!(
+            ci_1011_reason(false, Some("origin/main"), only_1718),
+            "skipped (no 2010-11 path changed since origin/main)"
+        );
+        assert_eq!(
+            ci_1011_reason(false, Some("origin/main"), Some("native/hook/src/lib.rs\n")),
+            "in (a 2010-11 path changed)"
+        );
+        assert_eq!(
+            ci_1011_reason(false, None, None),
+            "in (no --base: everything)"
+        );
+        // a base the clone does not have (a force-push, a shallow clone): its own line, not the no-`--base` one
+        assert_eq!(
+            ci_1011_reason(false, Some("0f00ba5"), None),
+            "in (no merge base with 0f00ba5: not fetched?)"
+        );
+        assert_eq!(
+            ci_1011_reason(true, Some("origin/main"), only_1718),
+            "in (--release: what players get)"
+        );
     }
 
     #[test]
