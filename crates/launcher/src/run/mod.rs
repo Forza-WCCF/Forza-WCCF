@@ -761,6 +761,11 @@ fn championship_notice(opens: SystemTime) -> Text {
 
 /// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
 /// (the 2017-18 setup's runtime: `kit\`, `game\`, `seat1\`).
+/// The seat folder of the game setup recorded (START OVER parks Create-a-Team's table from it), if one is set up.
+pub fn seat_of(kit: &Kit) -> Option<PathBuf> {
+    game_folder(kit, &Params::of(kit)).map(|g| seat_dir(&g))
+}
+
 fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
     let set = kit.settings().get("game").and_then(|g| g.as_str().map(str::to_owned));
     let set = set.or_else(|| match kit.edition() {
