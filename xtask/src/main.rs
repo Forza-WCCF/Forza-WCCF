@@ -1985,7 +1985,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
         Some(f) => changed_packages(root, f)?,
         None => None,
     };
-    let e1011 = files.as_deref().is_none_or(touches_1011);
+    let e1011 = ci_builds_1011(false, files.as_deref());
     let scope: Vec<String> = match &pkgs {
         None => {
             println!("quick: Cargo.lock, the toolchain or a manifest changed: whole workspace");
@@ -2007,11 +2007,7 @@ fn quick(root: &Path, stage_root: &Path, kit: &Path, kit_1718: &Path, base: &str
     };
     println!(
         "quick: 2010-11 hooks {}",
-        if e1011 {
-            "in (a 2010-11 path changed)"
-        } else {
-            "skipped (no 2010-11 path changed)"
-        }
+        ci_1011_reason(false, Some(base), files.as_deref())
     );
     let has = |p: &str| pkgs.as_ref().is_none_or(|s| s.contains(p));
     let native = NATIVE_PKGS.iter().any(|p| has(p));
