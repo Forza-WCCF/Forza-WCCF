@@ -7,7 +7,8 @@
 //! sales a week per key, 7 days on the market, proceeds held until the seller's COLLECT. LIST and BUY carry the log:
 //! LIST needs an earned copy that neither the log nor the ledger has on the market (a starter or imported copy never
 //! lists), BUY needs the log's balance less this key's purchases its log does not hold yet. No answer names a seller,
-//! a buyer or a key.
+//! a buyer or a key. A ledger word's answer is kept with its key until the next request, so the same request sent
+//! again (its answer lost) answers it again and changes nothing.
 //!
 //! Trust first (PLAN.md 3.4): the check refuses a log that cannot come from an honest Launcher and says why in one
 //! line; nothing is banned. The server keeps the last accepted log per key, so a log that drops accepted lines is a
@@ -651,7 +652,9 @@ CREATE TABLE IF NOT EXISTS keys (
     sales      INTEGER NOT NULL DEFAULT 0, -- the sales of the week `sales_week` (YYYYWW), kept by RESET and LEAVE
     sales_week INTEGER NOT NULL DEFAULT 0,
     forks      INTEGER NOT NULL DEFAULT 0, -- logs refused for dropping accepted lines (for the operator)
-    left_at    INTEGER                     -- LEAVE's time (Unix ms); the row goes 7 days later once no sale waits
+    left_at    INTEGER,                    -- LEAVE's time (Unix ms); the row goes 7 days later once no sale waits
+    asked      TEXT,                       -- the last request's verb and numbers, a ledger word's only, and
+    answer     TEXT                        -- its answer: that request sent again answers it once more
 );
 -- listings, sales and purchases by key (steps 3.2, 3.3 fill it). state: open (listed at `at`), sold (sold, the
 -- proceeds wait for the seller's COLLECT), paid (collected), bought (this key's purchase of a listing: one
@@ -748,6 +751,16 @@ impl Market {
                 )?;
             }
             c.execute_batch(SCHEMA)?;
+            let answers: i64 = c.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('keys') WHERE name = 'answer'",
+                [],
+                |r| r.get(0),
+            )?;
+            if answers == 0 {
+                c.execute_batch(
+                    "ALTER TABLE keys ADD COLUMN asked TEXT; ALTER TABLE keys ADD COLUMN answer TEXT;",
+                )?;
+            }
             if old {
                 c.execute_batch(
                     "INSERT INTO ledger (id, key_hash, card, price, state, at)
@@ -802,19 +815,36 @@ impl Market {
         }
         let tx = db.transaction().map_err(store_err)?;
         type Stored = (i64, Option<String>, Option<i64>, Option<String>);
-        let row: Option<Stored> = tx
+        let row: Option<(Stored, Option<String>, Option<String>)> = tx
             .query_row(
-                "SELECT last_at, log, left_at, welcome FROM keys WHERE key_hash = ?1",
+                "SELECT last_at, log, left_at, welcome, asked, answer FROM keys WHERE key_hash = ?1",
                 params![kh],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| {
+                    Ok((
+                        (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?),
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
             )
             .optional()
             .map_err(store_err)?;
         let at = i64::try_from(req.at).map_err(|_| OLD.to_string())?;
+        // a ledger word's verb and numbers: sent again at the same time (its answer lost on the way), it answers as the
+        // first time and does nothing twice; JOIN, LEAVE and RESET answer OLD as before
+        let asked = (!matches!(req.verb, Verb::Join | Verb::Leave | Verb::Reset)).then(|| {
+            req.args
+                .iter()
+                .fold(req.verb.word().to_owned(), |s, a| format!("{s} {a}"))
+        });
+        let (row, first) = row.map_or((None, None), |(r, a, said)| (Some(r), a.zip(said)));
         if let Some((last, ..)) = &row
             && at <= *last
         {
-            return Err(format!("{OLD}, the last at {last}"));
+            return match first {
+                Some((a, said)) if at == *last && asked.as_ref() == Some(&a) => Ok(said),
+                _ => Err(format!("{OLD}, the last at {last}")),
+            };
         }
         let joined = row.as_ref().is_some_and(|(_, _, left, _)| left.is_none());
         // COLLECT also after LEAVE, while the key's row waits for it
@@ -1036,8 +1066,8 @@ impl Market {
             }
         };
         tx.execute(
-            "UPDATE keys SET last_at = ?2 WHERE key_hash = ?1",
-            params![kh, at],
+            "UPDATE keys SET last_at = ?2, asked = ?3, answer = ?4 WHERE key_hash = ?1",
+            params![kh, at, asked, asked.as_ref().map(|_| &answer)],
         )
         .map_err(store_err)?;
         tx.commit().map_err(store_err)?;
@@ -2028,6 +2058,67 @@ mod tests {
             ),
             [[s("1")]]
         );
+    }
+
+    /// M1: the answers to LIST, BUY and COLLECT are lost and each request is sent again as it was: it answers as the
+    /// first time and does nothing twice (one listing, one purchase and one sale, one payout); a later request is new.
+    #[test]
+    fn a_ledger_word_sent_again_answers_the_same_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57, 57]);
+        let funds = earned(&[20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 2, Verb::Join, NOW, &[], &funds).unwrap();
+        let twice = |k, verb, at, args: &[u64], log: &str| {
+            let first = ask(&m, k, verb, at, args, log);
+            assert_eq!(ask(&m, k, verb, at, args, log), first, "{verb:?}");
+            first.unwrap()
+        };
+        assert_eq!(
+            twice(1, Verb::List, NOW + 1, &[57, 228], &seller),
+            "listed 1:57:228"
+        );
+        assert_eq!(
+            twice(2, Verb::Buy, NOW + 2, &[1, 57, 228], &funds),
+            "bought 1:57:228"
+        );
+        assert_eq!(
+            twice(1, Verb::Collect, NOW + 3, &[], ""),
+            "collected sold 1:57:228"
+        );
+        let ledger = "SELECT key_hash = ?1, card, price, state FROM ledger ORDER BY id";
+        let ledger = ledger.replace("?1", &format!("'{}'", key_hash(&[1; 32])));
+        assert_eq!(
+            row(dir.path(), &ledger),
+            [
+                [s("1"), s("57"), s("228"), s("paid")],
+                [s("0"), s("57"), s("228"), s("bought")]
+            ]
+        );
+        let sales = format!(
+            "SELECT sales FROM keys WHERE key_hash = '{}'",
+            key_hash(&[1; 32])
+        );
+        assert_eq!(row(dir.path(), &sales), [[s("1")]]);
+        assert_eq!(
+            ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap(),
+            "collected"
+        );
+        // the buyer's 250 tokens hold the one purchase once, its line not written yet
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 5, &[57, 192], &seller).unwrap(),
+            "listed 3:57:192"
+        );
+        assert_eq!(
+            ask(&m, 2, Verb::Buy, NOW + 6, &[3, 57, 192], &funds).unwrap_err(),
+            "22 tokens to spend, the listing costs 192"
+        );
+        // a request sent again after a later one is old, and another word at the same time is not the same request
+        let why = ask(&m, 1, Verb::Collect, NOW + 3, &[], "").unwrap_err();
+        assert!(why.starts_with(OLD), "{why}");
+        let why = ask(&m, 1, Verb::Browse, NOW + 5, &[0], "").unwrap_err();
+        assert!(why.starts_with(OLD), "{why}");
     }
 
     /// m1: the seller's CANCEL races a BUY of the same listing: exactly one goes through, and the ledger agrees with it

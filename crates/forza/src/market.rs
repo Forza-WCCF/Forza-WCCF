@@ -8,7 +8,10 @@
 //! numbers ([`Verb::args`]), then on JOIN, LIST and BUY the grant log `grants.jsonl` as it is on disk. No name is sent:
 //! listings never show the seller (PLAN.md 3.5). `sig` is the ed25519 signature of the whole body in hex. Answers:
 //! `OK ...` or `NO reason`, one line. A request whose `at` is not after the key's last one answers [`OLD`] with the
-//! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out). LEAVE answers
+//! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out); a ledger word
+//! (below) sent again byte for byte, before any other request of its key, answers what it answered the first time and
+//! changes nothing, so a Launcher whose answer was lost (a reset connection, a timeout) sends the same bytes again
+//! until one comes, and only then signs anything new. LEAVE answers
 //! `OK left`, then `returned` and the card numbers of the open listings it closed (the Launcher writes their `unlist`
 //! lines), then `waiting n` when n sales wait for COLLECT.
 //!
@@ -42,7 +45,8 @@ pub const MAX_BODY: usize = 8 << 20;
 pub const MAX_HEAD: usize = 256;
 /// What every `MARKET` word answers on a desk without the market's value table.
 pub const NOT_SET_UP: &str = "the market is not set up on this server";
-/// How a refusal of a request not later than the key's last one starts; the server adds `, the last at <ms>`.
+/// How a refusal of a request not later than the key's last one starts; the server adds `, the last at <ms>`. The
+/// key's last request itself, a ledger word sent again, answers as the first time instead.
 pub const OLD: &str = "an old request (sent twice?)";
 /// Listings in one `BROWSE` answer at most: about 900 bytes, under [`send`]'s 1 KiB read.
 pub const BROWSE_PAGE: usize = 40;
