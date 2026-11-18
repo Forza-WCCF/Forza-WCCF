@@ -820,8 +820,8 @@ fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filte
     });
 }
 
-/// A card's detail: its value and how it is made, its copies by source and its mark, and CONVERT while a spare earned
-/// copy is held (`forza::collection::convert`'s rule). No SELL here: selling comes with the market (4.1). `true`: CLOSE
+/// A card's detail: its value and how it is made, its market price while an earned copy is held, its copies by source
+/// and its mark, and CONVERT while a spare earned copy is held (`forza::collection::convert`'s rule). No SELL here: selling comes with the market (4.1). `true`: CLOSE
 /// pressed.
 fn detail(
     ui: &mut Ui,
@@ -885,6 +885,11 @@ fn detail(
                                 factor = factor.as_str()
                             ),
                         );
+                    }
+                    // the market floor, as the deal window prints it: only an earned copy ever sells
+                    if copies.earned > 0 {
+                        let floor = collection::floor_value(collection::value(row)).to_string();
+                        hint(ui, &tr!(lang, "deal.sell_from", n = floor.as_str()));
                     }
                     let n = |x: u32| x.to_string();
                     let (e, s, i, l) = (
