@@ -1565,13 +1565,16 @@ fn checked_lineup(st: &mut PanelState, text: &str, in_match: bool) -> Option<lin
         }
     };
     let mut l = l;
-    // Create-a-Team: a card the collection does not hold (or holds only on the market) is skipped and named
+    // Create-a-Team: a card the collection does not hold (or holds only on the market) is skipped and named. While the
+    // collection is unknown every card is, so the import is refused: a granted card alone must not become the table.
     for list in [&mut l.pitch, &mut l.bench] {
         list.retain(|e| {
-            let keep = st.owns(e.no) || !st.cards.iter().any(|c| c.number == e.no);
+            let owned = !st.collection_unknown && st.owns(e.no);
+            let keep = owned || !st.cards.iter().any(|c| c.number == e.no);
             if !keep {
                 // held, every copy on the market: the card is in the collection, so say that instead
-                let listed = st.owned.as_deref().is_some_and(|o| o.contains_key(&e.no));
+                let listed = !st.collection_unknown
+                    && st.owned.as_deref().is_some_and(|o| o.contains_key(&e.no));
                 l.skipped.push(Skipped {
                     label: e.label.clone(),
                     why: if listed { Skip::Listed } else { Skip::NotOwned },
@@ -7941,6 +7944,20 @@ mod tests {
             m.ends_with("Cards not imported: 210 (all copies are on the market)"),
             "{m}"
         );
+    }
+
+    /// #378 review 5: with the collection unknown, a lineup holding a card granted this run is refused, not imported
+    /// as a one-card table (IMPORT LINEUP and FORMATIONS both go through `checked_lineup`).
+    #[test]
+    fn import_is_refused_while_the_collection_is_unknown() {
+        let (mut st, old) = importer();
+        st.set_owned(starters([10]));
+        st.collection_unknown = true;
+        let text = "game 1011\nP 10 50 90\nP 101 60 80\n";
+        assert!(!ask_import(&mut st, text, false));
+        assert_eq!(import_lineup(&mut st, &old, text, false, 0.0), None);
+        let m = &st.message.as_ref().unwrap().text;
+        assert!(m.contains("10 (not in your collection)"), "{m}");
     }
 
     fn importer() -> (PanelState, Vec<Placed>) {
