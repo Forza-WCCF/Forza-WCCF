@@ -2468,13 +2468,13 @@ fn the_store_and_the_opened_pack_fit_the_page() {
                     .filter(|r| r.top() > buy.bottom() && r.bottom() <= size.y)
                     .collect();
                 apart(&tiles, &tag);
-                if lang == Lang::Ja {
-                    assert!(
-                        forza::collection::NATIONS
-                            .iter()
-                            .all(|n| nation(n, lang) != *n),
-                        "every nation has its Japanese name"
-                    );
+                if lang != Lang::En {
+                    // every nation in Japanese; in Italian the 18 the game names differently (Argentina stays)
+                    let named = forza::collection::NATIONS
+                        .iter()
+                        .filter(|n| nation(n, lang) != **n)
+                        .count();
+                    assert_eq!(named, if lang == Lang::Ja { 24 } else { 18 }, "{tag}");
                     assert!(h.query_by_label(korea).is_some(), "{tag}: {korea}");
                 }
             } else {
