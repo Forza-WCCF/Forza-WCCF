@@ -588,9 +588,14 @@ mod tests {
         let o = offers(&cat);
         assert_eq!((o[0].pack, o[0].cards), (PackChoice::Standard, cat.len() as u32));
         assert!(o[0].fills);
+        let pool = collection_cards(&cat);
         assert!(
-            o.iter().filter(|x| x.cards < 6).all(|x| !x.fills),
+            o.iter().all(|x| x.fills == c::pack_fills(&pool, x.pack.pack())),
             "BUY waits for a pool that fills a pack"
+        );
+        assert!(
+            o.iter().any(|x| !x.fills),
+            "a pool too small for a pack is offered without BUY"
         );
         assert_eq!(
             o.iter()
