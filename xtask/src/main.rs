@@ -1883,6 +1883,15 @@ fn affected(mut info: Vec<(String, String, Vec<String>)>, files: &str) -> Option
         if f == "cargo.lock" || f == "rust-toolchain.toml" || f.starts_with(".cargo/") {
             return None;
         }
+        // native/clippy.toml: clippy reads the nearest file above a crate, so every crate under native/ is a reader
+        if f == "native/clippy.toml" {
+            hit.extend(
+                info.iter()
+                    .filter(|(_, d, _)| d.starts_with("native/"))
+                    .map(|(n, _, _)| n.clone()),
+            );
+            continue;
+        }
         // the owning package: the longest package dir that prefixes the file
         if let Some((n, _, _)) = info
             .iter()
@@ -4156,6 +4165,22 @@ mod tests {
         // the launcher embeds the panel's files
         let panel = affected(info(), "native/panel/src/lib.rs\n").unwrap();
         assert_eq!(panel, set(&["forza-panel", "launcher"]));
+        // native/clippy.toml is the clippy config of every crate under native/ (the nearest file above a crate)
+        let native = || {
+            let rows: [(&str, &str, &[&str]); 2] = [
+                ("forza-native", "native/common", &[]),
+                ("forza-panel", "native/panel", &[]),
+            ];
+            rows.map(|(n, d, deps)| {
+                let deps = deps.iter().map(ToString::to_string).collect();
+                (n.to_owned(), d.to_owned(), deps)
+            })
+            .to_vec()
+        };
+        assert_eq!(
+            affected(native(), "native/clippy.toml\n"),
+            Some(set(&["forza-native", "forza-panel"]))
+        );
         assert_eq!(affected(info(), "Cargo.lock\n"), None);
         // xtask's own crate: its tests and lints, not the workspace's
         assert_eq!(
