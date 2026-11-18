@@ -464,17 +464,19 @@ mod tests {
 
     /// The words released before the ledger send the same bytes: no number after `rules`, the log as it is.
     #[test]
-    fn join_and_leave_bytes_are_unchanged() {
+    fn join_leave_and_reset_bytes_are_unchanged() {
         let k = key(7);
         let pk = hex(k.verifying_key().as_bytes());
-        let mut leave = join();
+        let [mut leave, mut reset] = [join(), join()];
         (leave.verb, leave.log) = (Verb::Leave, String::new());
+        (reset.verb, reset.log) = (Verb::Reset, String::new());
         for (r, body) in [
             (
                 join(),
                 format!("JOIN {pk} 1762000000000 1\n{{\"seq\":1}}\n{{\"seq\":2}}\n"),
             ),
             (leave, format!("LEAVE {pk} 1762000000000 1\n")),
+            (reset, format!("RESET {pk} 1762000000000 1\n")),
         ] {
             let sig = hex(&k.sign(body.as_bytes()).to_bytes());
             let want = format!("MARKET {} {} {sig}\n{body}", r.verb.word(), body.len());
