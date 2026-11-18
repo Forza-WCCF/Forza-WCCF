@@ -576,9 +576,9 @@ fn touches_1011(files: &str) -> bool {
         .any(|f| PATHS_1011.iter().any(|p| f.starts_with(p)))
 }
 
-/// The log line for [`ci_builds_1011`]: why `check ci` built or skipped the 2010-11 hooks. A base the clone does not
-/// have (a force-push left `before` unfetched, `fetch-depth: 2`) says so, instead of reading as a run without
-/// `--base`: there the skip is off, and the line must not look as if it were on.
+/// The log line for [`ci_builds_1011`]: why `check ci` built or skipped the 2010-11 hooks. `--base` is a manual run's
+/// (CI's `check ci` passes none: no base, everything); one the clone does not have (a force-push, a shallow clone)
+/// says so, and must not read as a run with `--base` whose diff was empty: without it the skip is off.
 fn ci_1011_reason(release: bool, base: Option<&str>, files: Option<&str>) -> String {
     match (release, base, files) {
         (true, _, _) => "in (--release: what players get)".to_owned(),
@@ -4341,7 +4341,7 @@ mod tests {
             ci_1011_reason(false, None, None),
             "in (no --base: everything)"
         );
-        // a force-push leaves `before` unfetched (fetch-depth: 2): its own line, not the no-`--base` one
+        // a base the clone does not have (a force-push, a shallow clone): its own line, not the no-`--base` one
         assert_eq!(
             ci_1011_reason(false, Some("0f00ba5"), None),
             "in (no merge base with 0f00ba5: not fetched?)"
