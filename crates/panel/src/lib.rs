@@ -789,6 +789,12 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
     for w in &folded.warnings {
         log(&format!("collection: {w}"));
     }
+    if folded.unreadable {
+        // the cards granted after the break would count as not owned and leave the table file for good
+        log("collection: a line cannot be read - no card listed, the table kept");
+        collection_unread(st, placed);
+        return;
+    }
     log(&format!(
         "collection: {} card(s) owned",
         folded.state.cards.values().filter(|c| c.owned()).count()
@@ -5209,6 +5215,45 @@ mod tests {
             m.text.starts_with("The collection could not be read"),
             "{}",
             m.text
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #374 M1: a log with a line in the middle that cannot be read is unreadable as a whole: the cards granted after
+    /// the break would count as not owned, so the table file is left as it is.
+    #[test]
+    fn a_log_broken_in_the_middle_keeps_the_table_file() {
+        let dir =
+            std::env::temp_dir().join(format!("forza_collection_broken_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = forza::collection::Log::new(&dir);
+        for no in [7, 8, 9] {
+            log.append(forza::collection::Kind::Starter, Some(no), 0, "starter")
+                .unwrap();
+        }
+        let text = std::fs::read_to_string(log.path()).unwrap();
+        let mut lines: Vec<&str> = text.lines().collect();
+        lines[1] = "not a line";
+        std::fs::write(log.path(), lines.join("\n") + "\n").unwrap();
+        let at = |no| cards::Placed {
+            slot: no as i32,
+            no,
+            x: 0.5,
+            y: 0.5,
+        };
+        let mut table = forza::cards::TableFile::in_dir(&dir);
+        table.write(&[at(7), at(9)]).unwrap();
+        let mut placed = table.read().unwrap();
+        let mut st = cat_state();
+        owned_only(&mut st, &mut table, &mut placed, &dir);
+        let disk = cards::parse_table(&std::fs::read(&table.table).unwrap());
+        assert_eq!(disk.len(), 2, "card 9, after the break, stays in the file");
+        assert!(
+            st.message
+                .as_ref()
+                .is_some_and(|m| m.text.starts_with("The collection could not be read")),
+            "{:?}",
+            st.message.as_ref().map(|m| &m.text)
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
