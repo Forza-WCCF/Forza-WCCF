@@ -529,7 +529,8 @@ impl Scrub {
         all.extend(
             forms
                 .iter()
-                .filter_map(|f| Needle::new(f, cp932_char, false)),
+                .filter_map(|f| Needle::new(f, cp932_char, false))
+                .map(|n| Needle { cp932: true, ..n }),
         );
         if utf16 {
             all.extend(
@@ -589,10 +590,11 @@ impl Scrub {
     fn scrub_part(&self, mut data: Vec<u8>, aligned: bool) -> Vec<u8> {
         // this project writes UTF-8, where a Latin-1 or CP932 form's one byte cuts a character in half (`0xE7` leads
         // 火 and 田, `0xB1` sits inside 米), so those forms run only on data that is not text. A log read while it is
-        // written ends inside a character, and is still text.
+        // written ends inside a character, and is still text; but ASCII with a cut character only at its end is as
+        // likely CP932 ending in a kanji (辮 is E3 90), so it takes every form.
         let text = match std::str::from_utf8(&data) {
             Ok(_) => true,
-            Err(e) => e.error_len().is_none(),
+            Err(e) => e.error_len().is_none() && !data[..e.valid_up_to()].is_ascii(),
         };
         // the CP932 character starts are known only where the data is CP932 from its first byte: a name must never go
         // unscubbed because a byte was read as the middle of a character when it was not
@@ -606,8 +608,20 @@ impl Scrub {
             false if aligned && clean_cp932() => Chars::Cp932,
             false => Chars::Unknown,
         };
-        for (needle, new, ends) in self.text_pairs() {
-            if text && !needle.utf8 {
+        // in CP932 the CP932 forms go first, while every character start is known: another form may end inside a
+        // character (あ's UTF-8 E3 81 82 is 縺 and a lead byte), and the byte it leaves can misread the starts after it
+        // in a later pass (#381).
+        //
+        // shortcut: a later non-CP932 form (UTF-8, Latin-1) can still be refused right after such a byte; mixed files
+        // holding two such names side by side are not known, track starts across passes if one turns up
+        let (first, rest): (Vec<_>, Vec<_>) = self
+            .text_pairs()
+            .into_iter()
+            .partition(|(n, ..)| chars != Chars::Cp932 || n.cp932);
+        for (needle, new, ends) in first.into_iter().chain(rest) {
+            // a form that is itself UTF-8 matches only whole characters of text: CP932 辮田 is E3 90 93 63, and a
+            // mojibake name's Latin-1 form ("Ã©") takes every é too, a cost a log can take over a leak
+            if text && !needle.utf8 && std::str::from_utf8(&needle.bytes).is_err() {
                 continue;
             }
             let ends = match ends {
@@ -626,6 +640,9 @@ impl Scrub {
     }
 
     /// A binary file: each match turned into as many underscores, nothing moves, so a snapshot stays a valid file.
+    ///
+    /// shortcut: [`Self::short`] at 3 skips a one-character non-ASCII name (辮) and a 2-letter ASCII one in a dump,
+    /// to keep a blank rare; take them once a dump is known to hold one
     pub fn blank(&self, mut data: Vec<u8>) -> Vec<u8> {
         for old in [&self.home, &self.user, &self.pc] {
             for n in Self::encodings(old, true, 3) {
@@ -658,13 +675,15 @@ enum Chars {
 
 /// A name in one encoding: its bytes, which of them may match in either ASCII case (only those of an ASCII
 /// character: a CP932 or UTF-16 byte of a kanji is often an ASCII letter, and 人 is not 伸), whether the form is
-/// ASCII (then it goes as a whole word), and whether it is the UTF-8 form (the only one this project's text takes).
+/// ASCII (then it goes as a whole word), whether it is the UTF-8 form (the only one this project's text takes), and
+/// whether it is the CP932 form (an ASCII one is every form).
 #[derive(Clone, Debug)]
 struct Needle {
     bytes: Vec<u8>,
     fold: Vec<bool>,
     ascii: bool,
     utf8: bool,
+    cp932: bool,
 }
 
 impl Needle {
@@ -681,6 +700,7 @@ impl Needle {
             fold,
             ascii: form.is_ascii(),
             utf8,
+            cp932: form.is_ascii(),
         })
     }
 
@@ -770,6 +790,7 @@ fn replace(
     chars: Chars,
     with: impl Fn(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
+    let lead = |b: u8| matches!(b, 0x81..=0x9F | 0xE0..=0xFC);
     if needle.is_empty() {
         return data.to_vec();
     }
@@ -788,9 +809,7 @@ fn replace(
             Chars::Text => before,
             Chars::Cp932 => before && !trail,
             // the byte before the match may be the second byte of a kanji whose first is two back
-            Chars::Unknown => {
-                before && !(i >= 2 && matches!(data[i - 2], 0x81..=0x9F | 0xE0..=0xFC))
-            }
+            Chars::Unknown => before && !(i >= 2 && lead(data[i - 2])),
         };
         let hit = end <= data.len()
             && data[i..end]
@@ -808,14 +827,21 @@ fn replace(
             };
         if hit {
             out.extend(with(&data[i..end]));
+            if chars == Chars::Cp932 {
+                // a form of another encoding may end inside a character: the next start follows from its bytes
+                (start, trail) = data[i..end]
+                    .iter()
+                    .fold((true, false), |(s, _), &b| (!(s && lead(b)), !s));
+            } else {
+                trail = false;
+            }
             i = end;
-            trail = false;
         } else {
             let (b, was) = (data[i], start);
             out.push(b);
             i += 1;
             if chars == Chars::Cp932 {
-                start = !(was && matches!(b, 0x81..=0x9F | 0xE0..=0xFC));
+                start = !(was && lead(b));
                 trail = !was;
             }
         }
@@ -1092,12 +1118,16 @@ mod tests {
             })
     }
 
-    /// `data` without every one of `cuts`.
+    /// `data` with each of `cuts` turned into a NUL, which no name holds: dropping a cut would join the text on its
+    /// two sides into a name that was never in it (#381: `あPCあ` read as the user `ああ`).
     fn without(data: &[u8], cuts: [&[u8]; 3]) -> Vec<u8> {
         let (mut out, mut i) = (vec![], 0);
         while i < data.len() {
             match cuts.iter().find(|c| data[i..].starts_with(c)) {
-                Some(c) => i += c.len(),
+                Some(c) => {
+                    out.push(0);
+                    i += c.len();
+                }
                 None => {
                     out.push(data[i]);
                     i += 1;
@@ -1171,59 +1201,114 @@ mod tests {
         holds(b"USER %USERPROFILE% PC", n, utf8)
     }
 
-    // The scrub's promise, stated as a rule for what these generators make: the user name, the PC name and the home
-    // path (with `\` and with `/`), each in any case, sit at any offset of the text, in every encoding it comes in
-    // (UTF-8, Latin-1, CP932), and none of them survives; the home goes as one `%USERPROFILE%`, with or without
-    // `folders`. A non-ASCII name may touch letters, digits and kana ("glue"), as in Japanese; an ASCII one is
-    // generated alone, as the whole-word rule spares a letter beside it. The case of a name is spelled out whole, so
-    // the mixed-case `shortcut` above is not exercised here; the UTF-8 text stays UTF-8.
+    /// The scrub's promise, stated as a rule for what these generators make: the user name, the PC name and the home
+    /// path (with `\` and with `/`), each in any case, sit at any offset of the text, in every encoding it comes in
+    /// (UTF-8, Latin-1, CP932), and none of them survives; the home goes as one `%USERPROFILE%`, with or without
+    /// `folders`. A non-ASCII name may touch letters, digits and kana ("glue"), as in Japanese; an ASCII one is
+    /// generated alone, as the whole-word rule spares a letter beside it. The case of a name is spelled out whole, so
+    /// the mixed-case `shortcut` above is not exercised here; the UTF-8 text stays UTF-8.
+    fn no_name_behind(
+        (user, pc, drive): (&str, &str, &str),
+        (cu, cp, ch): (u8, u8, u8),
+        (ends, cores, glue): (&[String; 2], &[String; 3], &[String; 4]),
+        folders: bool,
+    ) -> Result<(), TestCaseError> {
+        prop_assume!(!in_placeholder(user) && !in_placeholder(pc));
+        prop_assume!(
+            glue.iter()
+                .all(|g| [user, pc].iter().all(|n| !holds(g.as_bytes(), n, utf8)))
+        );
+        let home = format!("{drive}:\\Users\\{user}");
+        let scrub = Scrub {
+            home: home.clone(),
+            user: user.to_owned(),
+            pc: pc.to_owned(),
+            folders,
+        };
+        let g = |name: &str, i: usize| {
+            if name.is_ascii() {
+                ""
+            } else {
+                glue[i].as_str()
+            }
+        };
+        let (u, p, h) = (vary(user, cu), vary(pc, cp), vary(&home, ch));
+        let f = h.replace('\\', "/");
+        let text = format!(
+            "{}{}{u}{}{}{}{p}{}{}{h}{}{f}{}",
+            ends[0],
+            g(user, 0),
+            g(user, 1),
+            cores[0],
+            g(pc, 2),
+            g(pc, 3),
+            cores[1],
+            cores[2],
+            ends[1]
+        );
+        for (enc, text_enc) in [(utf8 as Enc, true), (latin1, false), (sjis, false)] {
+            // only text the encoding can hold is checked in it
+            let Some(data) = enc(&text) else { continue };
+            let out = scrub.scrub(data.clone());
+            // what this project wrote as UTF-8 stays valid UTF-8
+            if text_enc {
+                prop_assert!(
+                    std::str::from_utf8(&out).is_ok(),
+                    "{:?}",
+                    String::from_utf8_lossy(&out)
+                );
+            }
+            let shown = String::from_utf8_lossy(&out);
+            // a name can be spelled by a letter of the text beside a placeholder ("E" before "USER"): the
+            // placeholders are no player's text, so each becomes a NUL before a name is looked for
+            let rest = without(&out, [b"USER", b"%USERPROFILE%", b"PC"]);
+            for needle in [&u, &p, &h, &f] {
+                prop_assert!(
+                    holds(&data, needle, enc),
+                    "{needle:?} was never in the text"
+                );
+                prop_assert!(
+                    !holds(&rest, needle, enc),
+                    "{needle:?} survived in {shown:?}"
+                );
+            }
+            let homes = out.windows(13).filter(|w| w == b"%USERPROFILE%").count();
+            prop_assert_eq!(homes, 2, "{:?}", shown);
+        }
+        Ok(())
+    }
+
+    /// #381: proptest's shrunk case, a kana user name with kana on both sides of the PC name ([`without`]).
+    #[test]
+    fn a_kana_name_beside_kana_glue_goes() {
+        let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+        let (ends, cores, glue) = (s(&["", ""]), s(&["\\", " ", "_"]), s(&["", "", "あ", "あ"]));
+        no_name_behind(
+            ("ああ", "郎花", "A"),
+            (0, 0, 0),
+            (
+                &ends.try_into().unwrap(),
+                &cores.try_into().unwrap(),
+                &glue.try_into().unwrap(),
+            ),
+            false,
+        )
+        .unwrap();
+    }
+
     proptest! {
         #[test]
         fn scrub_leaves_no_name_behind(
             user in user_name(),
             pc in pc_name(),
             drive in "[A-Za-z]",
-            (cu, cp, ch) in (0..4u8, 0..4u8, 0..4u8),
+            case in (0..4u8, 0..4u8, 0..4u8),
             ends in ["[ ._\\\\/:,;()#!\n-]{0,3}"; 2],
             cores in ["[ ._\\\\/:,;()#!\n-]{1,3}"; 3],
             glue in ["[a-zA-Z0-9あ日本]{0,3}"; 4],
             folders in any::<bool>(),
         ) {
-            prop_assume!(!in_placeholder(&user) && !in_placeholder(&pc));
-            prop_assume!(glue.iter().all(|g| [&user, &pc].iter().all(|n| !holds(g.as_bytes(), n, utf8))));
-            let home = format!("{drive}:\\Users\\{user}");
-            let scrub = Scrub {
-                home: home.clone(),
-                user: user.clone(),
-                pc: pc.clone(),
-                folders,
-            };
-            let g = |name: &str, i: usize| if name.is_ascii() { "" } else { glue[i].as_str() };
-            let (u, p, h) = (vary(&user, cu), vary(&pc, cp), vary(&home, ch));
-            let f = h.replace('\\', "/");
-            let text = format!(
-                "{}{}{u}{}{}{}{p}{}{}{h}{}{f}{}",
-                ends[0], g(&user, 0), g(&user, 1), cores[0], g(&pc, 2), g(&pc, 3), cores[1], cores[2], ends[1]
-            );
-            for (enc, text_enc) in [(utf8 as Enc, true), (latin1, false), (sjis, false)] {
-                // only text the encoding can hold is checked in it
-                let Some(data) = enc(&text) else { continue };
-                let out = scrub.scrub(data.clone());
-                // what this project wrote as UTF-8 stays valid UTF-8
-                if text_enc {
-                    prop_assert!(std::str::from_utf8(&out).is_ok(), "{:?}", String::from_utf8_lossy(&out));
-                }
-                let shown = String::from_utf8_lossy(&out);
-                // a name can be spelled by a letter of the text beside a placeholder ("E" before "USER"): the
-                // placeholders are no player's text, so they come out before a name is looked for
-                let rest = without(&out, [b"USER", b"%USERPROFILE%", b"PC"]);
-                for needle in [&u, &p, &h, &f] {
-                    prop_assert!(holds(&data, needle, enc), "{needle:?} was never in the text");
-                    prop_assert!(!holds(&rest, needle, enc), "{needle:?} survived in {shown:?}");
-                }
-                let homes = out.windows(13).filter(|w| w == b"%USERPROFILE%").count();
-                prop_assert_eq!(homes, 2, "{:?}", shown);
-            }
+            no_name_behind((&user, &pc, &drive), case, (&ends, &cores, &glue), folders)?;
         }
 
         // A binary file (`blank`): every encoding, UTF-16LE and upper case included, and nothing moves, so a snapshot
@@ -1391,6 +1476,90 @@ mod tests {
             ..Scrub::default()
         };
         assert_eq!(lo.scrub(sjis("伸o").unwrap()), sjis("伸o").unwrap());
+    }
+
+    #[test]
+    fn japanese_names_beside_kana_go_in_every_encoding() {
+        let scrub = Scrub {
+            home: r"C:\Users\さくら".into(),
+            user: "さくら".into(),
+            pc: "郎花".into(),
+            folders: false,
+        };
+        let text = r"ああさくらさん\あ郎花あ C:\Users\さくら\x";
+        let want = r"ああUSERさん\あPCあ %USERPROFILE%\x";
+        assert_eq!(scrub.scrub(text.as_bytes().to_vec()), want.as_bytes());
+        assert_eq!(scrub.scrub(sjis(text).unwrap()), sjis(want).unwrap());
+        // a binary file: UTF-16LE and the rest, each name blanked where it sits
+        let dump = [utf8(text), sjis(text), utf16(text)]
+            .map(Option::unwrap)
+            .concat();
+        let out = scrub.blank(dump.clone());
+        assert_eq!(out.len(), dump.len());
+        for name in ["さくら", "郎花"] {
+            let encs: [Enc; 3] = [utf8, sjis, utf16];
+            for enc in encs {
+                assert!(holds(&dump, name, enc) && !holds(&out, name, enc), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_utf8_form_inside_cp932_keeps_the_names_after_it() {
+        // E3 81 82 is あ in UTF-8, and in CP932 縺 plus the lead byte of ぁ (82 9F): the CP932 あ (82 A0) after it
+        // must still go
+        let scrub = Scrub {
+            user: "あ".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("縺ぁあ").unwrap();
+        assert_eq!(data, [0xE3, 0x81, 0x82, 0x9F, 0x82, 0xA0]);
+        // the UTF-8 form goes too: a log may hold UTF-8 lines among CP932 ones
+        assert_eq!(scrub.scrub(data), b"USER\x9FUSER");
+    }
+
+    #[test]
+    fn a_latin1_form_never_starts_inside_a_cp932_character() {
+        // に is 82 C9, and C9 is É in Latin-1 (the upper form of "é")
+        let scrub = Scrub {
+            user: "é".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("ここに").unwrap();
+        assert_eq!(scrub.scrub(data.clone()), data);
+    }
+
+    #[test]
+    fn a_latin1_name_that_reads_as_cp932_goes() {
+        // E8 6B is è before a "k" in Latin-1, and 鑢 in CP932
+        let scrub = Scrub {
+            user: "soyabè".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            scrub.scrub(b"login soyab\xE8k ok".to_vec()),
+            b"login USERk ok"
+        );
+    }
+
+    #[test]
+    fn a_cp932_name_ending_an_ascii_log_goes() {
+        // 辮 is E3 90 in CP932, which reads as a UTF-8 character cut short at the end of the file
+        let scrub = Scrub {
+            pc: "辮".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("host 辮").unwrap();
+        assert_eq!(data[5..], [0xE3, 0x90]);
+        assert_eq!(scrub.scrub(data), sjis("host PC").unwrap());
+        // 辮田 is E3 90 93 63, whole UTF-8 (㐓c): the file is text, and the CP932 form still goes
+        let scrub = Scrub {
+            pc: "辮田".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("host 辮田").unwrap();
+        assert!(std::str::from_utf8(&data).is_ok());
+        assert_eq!(scrub.scrub(data), b"host PC");
     }
 
     #[test]
