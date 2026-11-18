@@ -110,8 +110,10 @@ pub struct CollectionView {
     pub filter: Filter,
     /// The card whose detail is open.
     pub open: Option<u32>,
-    /// Why the tab cannot work (no catalogue, an unreadable log): shown instead.
+    /// Why the tab cannot work (no catalogue, a log that cannot be opened): shown instead.
     pub problem: Option<String>,
+    /// A line in the log cannot be read: the cards are the ones before it, and nothing new can be saved.
+    pub damaged: bool,
 }
 
 /// What the player asked for.
@@ -158,6 +160,7 @@ impl CollectionView {
             filter: Filter::default(),
             open: None,
             problem: None,
+            damaged: false,
         };
         match s {
             Scenario::Choose => {
@@ -211,6 +214,9 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
     if let Some(p) = &v.problem {
         widgets::status_line(ui, widgets::Tone::Refused, p);
         return None;
+    }
+    if v.damaged {
+        widgets::status_line(ui, widgets::Tone::Refused, &tr!(lang, "collection.damaged"));
     }
     let mut act = None;
     egui::ScrollArea::vertical()

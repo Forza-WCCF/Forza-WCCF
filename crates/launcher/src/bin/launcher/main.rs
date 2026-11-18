@@ -950,6 +950,7 @@ impl App {
             filter: Default::default(),
             open: None,
             problem: Some(why),
+            damaged: false,
         }));
     }
 
