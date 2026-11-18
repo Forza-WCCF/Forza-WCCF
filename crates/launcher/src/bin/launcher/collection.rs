@@ -101,11 +101,14 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
     })
 }
 
-/// The deal on disk as catalogue cards: `None` when there is none, or the catalogue no longer holds one of its numbers
-/// (a rebuild).
+/// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
+/// (a rebuild), or an edited file names a league past [`LEAGUES`] (its name would index past the list).
 fn pending(catalogue: &[Card], dir: &Path) -> Option<(Choice, Vec<Card>, Vec<Card>)> {
     let text = std::fs::read_to_string(dir.join(PENDING)).ok()?;
     let deal: Pending = serde_json::from_str(&text).ok()?;
+    if matches!(deal.choice, Choice::League(i) if i >= LEAGUES.len()) {
+        return None;
+    }
     let back = |nos: &[u32]| -> Option<Vec<Card>> {
         nos.iter()
             .map(|n| catalogue.iter().find(|k| k.number == *n).cloned())
@@ -302,6 +305,21 @@ mod tests {
         std::fs::remove_dir_all(&coll).unwrap();
         let v = view(&cat, &coll, None).unwrap();
         assert!(matches!(v.step, Step::Choose { .. }));
+    }
+
+    /// #374: an edited deal file whose league is past the list is no deal: the picker comes back instead of a crash on
+    /// the league's name.
+    #[test]
+    fn an_edited_deal_out_of_range_is_dropped() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, _) = profile(dir.path());
+        deal(&cat, &coll, Choice::League(0)).unwrap();
+        let file = coll.join(PENDING);
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.replace("{\"League\":0}", "{\"League\":99}")).unwrap();
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(matches!(v.step, Step::Choose { .. }), "{:?}", v.step);
     }
 
     /// #374 B1: a last line cut off by an interrupted write is dropped as the next write drops it, so the page opens
