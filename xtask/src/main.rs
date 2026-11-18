@@ -571,6 +571,19 @@ fn touches_1011(files: &str) -> bool {
         .any(|f| PATHS_1011.iter().any(|p| f.starts_with(p)))
 }
 
+/// The log line for [`ci_builds_1011`]: why `check ci` built or skipped the 2010-11 hooks. A base the clone does not
+/// have (a force-push left `before` unfetched, `fetch-depth: 2`) says so, instead of reading as a run without
+/// `--base`: there the skip is off, and the line must not look as if it were on.
+fn ci_1011_reason(release: bool, base: Option<&str>, files: Option<&str>) -> String {
+    match (release, base, files) {
+        (true, _, _) => "in (--release: what players get)".to_owned(),
+        (false, None, _) => "in (no --base: everything)".to_owned(),
+        (false, Some(b), None) => format!("in (no merge base with {b}: not fetched?)"),
+        (false, Some(_), Some(f)) if touches_1011(f) => "in (a 2010-11 path changed)".to_owned(),
+        (false, Some(b), Some(_)) => format!("skipped (no 2010-11 path changed since {b})"),
+    }
+}
+
 /// The 32-bit crates besides the panel, as `build`, clippy and the tests take them (the hook gets its feature apart).
 const NATIVE_CRATES: &[&str] = &[
     "-p",
@@ -692,11 +705,7 @@ fn run(task: Task, root: &Path) -> Result<()> {
             if ci {
                 println!(
                     "ci: 2010-11 hooks {}",
-                    if e1011 {
-                        "in (no --base, --release or a 2010-11 path changed)"
-                    } else {
-                        "skipped (no 2010-11 path changed since --base)"
-                    }
+                    ci_1011_reason(release, base.as_deref(), files.as_deref())
                 );
             }
             build_all(&root, &kit, &kit_1718, e1011)
@@ -4226,6 +4235,29 @@ mod tests {
         // no --base (the weekly run) or no merge base: everything; --release: what players get
         assert!(ci_builds_1011(false, None));
         assert!(ci_builds_1011(true, only_1718));
+    }
+
+    #[test]
+    fn check_ci_says_why_a_base_is_missing() {
+        let only_1718 = Some("crates/launcher/src/lib.rs\n");
+        assert_eq!(
+            ci_1011_reason(false, Some("origin/main"), only_1718),
+            "skipped (no 2010-11 path changed since origin/main)"
+        );
+        assert_eq!(
+            ci_1011_reason(false, Some("origin/main"), Some("native/hook/src/lib.rs\n")),
+            "in (a 2010-11 path changed)"
+        );
+        assert_eq!(ci_1011_reason(false, None, None), "in (no --base: everything)");
+        // a force-push leaves `before` unfetched (fetch-depth: 2): its own line, not the no-`--base` one
+        assert_eq!(
+            ci_1011_reason(false, Some("0f00ba5"), None),
+            "in (no merge base with 0f00ba5: not fetched?)"
+        );
+        assert_eq!(
+            ci_1011_reason(true, Some("origin/main"), only_1718),
+            "in (--release: what players get)"
+        );
     }
 
     #[test]
