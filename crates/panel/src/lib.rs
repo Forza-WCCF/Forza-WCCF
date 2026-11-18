@@ -5004,7 +5004,7 @@ mod tests {
         let text = vs_banner(&mut done, Some("cat,free"), Lang::En);
         assert_eq!(
             text.as_deref(),
-            Some("This VS match: you play CREATE-A-TEAM, your opponent plays FREE.")
+            Some("This VS match: you play in CREATE-A-TEAM mode, your opponent in FREE mode.")
         );
         assert_eq!(
             vs_banner(&mut done, Some("cat,free"), Lang::En),

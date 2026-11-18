@@ -297,7 +297,7 @@ panel.close: {en: "CLOSE (Esc)", it: "CHIUDI (Esc)", ja: "閉じる (Esc)"}
 panel.msg_added: {en: "Added to the table: Lucà Ferrè.", it: "Aggiunta al tavolo: Lucà Ferrè.", ja: "テーブルに追加しました：Lucà Ferrè"}
 panel.msg_saved: {en: "Club saved at 15:04.", it: "Club salvato alle 15:04.", ja: "15:04 にクラブを保存しました。"}
 panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: "試合中です。"}
-panel.vs_mixed: {en: "This VS match: you play %{mine}, your opponent plays %{theirs}.", it: "Questa sfida VS: tu giochi %{mine}, l'avversario gioca %{theirs}.", ja: "この対戦：あなたは%{mine}、相手は%{theirs}でプレイします。"}
+panel.vs_mixed: {en: "This VS match: you play in %{mine} mode, your opponent in %{theirs} mode.", it: "Questa sfida VS: tu giochi in modalità %{mine}, l'avversario in modalità %{theirs}.", ja: "この対戦：あなたは%{mine}モード、相手は%{theirs}モードでプレイします。"}
 
 # ---- formation board ----
 board.hint: {en: "Drag cards onto the table. Drop one on a card to swap them; drag it off to remove it.", it: "Trascina le carte sul tavolo. Su una carta si scambiano; fuori dal tavolo si tolgono.", ja: "カードをテーブルへドラッグ。重ねると入れ替わり、外へドラッグすると外れます。"}
