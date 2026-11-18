@@ -90,14 +90,30 @@ fn held(seat: &Path) -> io::Result<Option<Profile>> {
     }
 }
 
-/// [`BOARD`]'s files from `from` to `to`, a file `from` lacks removed from `to`. With `keep`, a file of `to` that this
-/// replaces or removes and that differs is kept as `<name>.prev` first.
-fn mirror(from: &Path, to: &Path, keep: bool) -> io::Result<()> {
+/// What [`mirror`] keeps of a file it replaces or removes in `to`, when that file differs.
+#[derive(Clone, Copy, PartialEq)]
+enum Keep {
+    /// Nothing: the seat folder, whose table was already copied to its profile.
+    Nothing,
+    /// A table with cards that an empty or missing one replaces (a half-written or lost seat table at a run's end).
+    Cards,
+    /// Every file (a switch: the table may be another profile's, a lost marker).
+    All,
+}
+
+/// [`BOARD`]'s files from `from` to `to`, a file `from` lacks removed from `to`; what it replaces is kept first as
+/// [`Keep`] says ([`keep_aside`]).
+fn mirror(from: &Path, to: &Path, keep: Keep) -> io::Result<()> {
     fs::create_dir_all(to)?;
+    let blank = |f: &[u8]| f.iter().all(u8::is_ascii_whitespace);
     for n in BOARD {
         let (a, b) = (from.join(n), to.join(n));
-        if keep && b.is_file() && (!a.is_file() || fs::read(&a)? != fs::read(&b)?) {
-            fs::rename(&b, to.join(format!("{n}.prev")))?;
+        if keep != Keep::Nothing && b.is_file() {
+            let (new, old) = (fs::read(&a).ok(), fs::read(&b)?);
+            let emptied = n == BOARD[0] && !blank(&old) && new.as_deref().is_none_or(blank);
+            if new.as_ref() != Some(&old) && (keep == Keep::All || emptied) {
+                keep_aside(to, n)?;
+            }
         }
         if a.is_file() {
             fs::copy(&a, &b)?;
@@ -106,6 +122,19 @@ fn mirror(from: &Path, to: &Path, keep: bool) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// `dir`'s file `n` moved to `<n>.prev`, or `<n>.prev2`, `<n>.prev3`... when those are taken: a kept copy never
+/// replaces an older one. They come only from a lost marker, a crash before the copy back or an emptied table, so few.
+fn keep_aside(dir: &Path, n: &str) -> io::Result<()> {
+    let free = (1..)
+        .map(|i| match i {
+            1 => dir.join(format!("{n}.prev")),
+            i => dir.join(format!("{n}.prev{i}")),
+        })
+        .find(|p| !p.exists())
+        .expect("a free name");
+    fs::rename(dir.join(n), free)
 }
 
 /// The marker through a temporary file and one rename: a power cut never leaves a torn name that refuses every start.
@@ -123,7 +152,7 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     if held == Some(p) {
         // free play that never switched has no board folder: nothing moves, nothing new on disk
         if empty && p.board(data).join(BOARD[0]).is_file() {
-            mirror(&p.board(data), seat, false)?;
+            mirror(&p.board(data), seat, Keep::Nothing)?;
             mark(seat, p.code())?;
         }
         return Ok(());
@@ -131,11 +160,11 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     if let Some(h) = held {
         if !empty {
             // a lost marker names free play for another profile's table: free play's own table stays as `.prev`
-            mirror(seat, &h.board(data), true)?;
+            mirror(seat, &h.board(data), Keep::All)?;
         }
         mark(seat, "")?;
     }
-    mirror(&p.board(data), seat, false)?;
+    mirror(&p.board(data), seat, Keep::Nothing)?;
     mark(seat, p.code())
 }
 
@@ -143,7 +172,7 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
 /// copied while no switch was ever made (no marker): it stays in the seat folder only, as before profiles.
 pub fn board_out(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     if seat.join(MARKER).is_file() && held(seat)? == Some(p) {
-        mirror(seat, &p.board(data), false)?;
+        mirror(seat, &p.board(data), Keep::Cards)?;
     }
     Ok(())
 }
@@ -366,5 +395,58 @@ mod tests {
         board_in(&data, &seat, Profile::Free).unwrap();
         board_in(&data, &seat, Profile::CreateATeam).unwrap();
         assert!(!free.join("fpr_table0.txt.prev").exists());
+    }
+
+    /// #234 review: a second lost marker keeps its own copy beside the first; neither replaces the other.
+    #[test]
+    fn a_second_lost_marker_keeps_the_first_prev() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        let free = Profile::Free.board(&data);
+        fs::create_dir_all(&seat).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "free").unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        for cat in ["cat 1", "cat 2"] {
+            fs::write(seat.join("fpr_table0.txt"), cat).unwrap();
+            fs::remove_file(seat.join(MARKER)).unwrap();
+            board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        }
+        let read = |n: &str| fs::read_to_string(free.join(n)).unwrap();
+        assert_eq!(read("fpr_table0.txt"), "cat 2");
+        assert_eq!(read("fpr_table0.txt.prev"), "free", "the first copy stays");
+        assert_eq!(read("fpr_table0.txt.prev2"), "cat 1");
+    }
+
+    /// #234 review: a run that ends with the seat table emptied or gone (a half-written file, a hand deletion) copies it
+    /// back, and the board's table with cards is kept as `.prev`; a table replaced by another with cards keeps nothing.
+    #[test]
+    fn an_emptied_seat_table_keeps_the_boards_cards() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        let cat = Profile::CreateATeam.board(&data);
+        fs::create_dir_all(&cat).unwrap();
+        fs::write(cat.join("fpr_table0.txt"), "1 200 0 0\r\n").unwrap();
+        fs::create_dir_all(&seat).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "1 201 0 0\r\n").unwrap();
+        board_out(&data, &seat, Profile::CreateATeam).unwrap();
+        assert!(
+            !cat.join("fpr_table0.txt.prev").exists(),
+            "a table with cards keeps nothing"
+        );
+        fs::write(seat.join("fpr_table0.txt"), "\r\n").unwrap();
+        board_out(&data, &seat, Profile::CreateATeam).unwrap();
+        assert_eq!(
+            fs::read_to_string(cat.join("fpr_table0.txt.prev")).unwrap(),
+            "1 201 0 0\r\n"
+        );
+        fs::remove_file(seat.join("fpr_table0.txt")).unwrap();
+        fs::write(cat.join("fpr_table0.txt"), "1 202 0 0\r\n").unwrap();
+        board_out(&data, &seat, Profile::CreateATeam).unwrap();
+        assert!(!cat.join("fpr_table0.txt").exists());
+        assert_eq!(
+            fs::read_to_string(cat.join("fpr_table0.txt.prev2")).unwrap(),
+            "1 202 0 0\r\n"
+        );
     }
 }
