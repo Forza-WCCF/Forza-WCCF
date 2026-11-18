@@ -660,4 +660,27 @@ mod tests {
             "a view made again keeps the pack open"
         );
     }
+
+    /// #374 review 3: a pool that holds cards whose lowest tier has two players cannot fill a pack (the step-down has
+    /// nowhere to go), where an empty pool only meets the same rule trivially; three players can.
+    #[test]
+    fn a_pool_of_two_players_does_not_fill_a_pack() {
+        let card = |player, number| c::Card {
+            card_no: number,
+            player,
+            rarity: c::Rarity::Regular,
+            total: 80,
+            series: "",
+            secret: false,
+            season: 2017,
+            nation: "Italy",
+            club: "",
+            position: c::Position::Mf,
+        };
+        let two = [card(1, 7001), card(1, 7002), card(2, 7003)];
+        assert!(two.iter().all(|k| c::Pack::Standard.has(k)), "cards, not an empty pool");
+        assert!(!c::pack_fills(&two, c::Pack::Standard), "two players cannot fill 3");
+        let three = [card(1, 7001), card(2, 7002), card(3, 7003)];
+        assert!(c::pack_fills(&three, c::Pack::Standard));
+    }
 }
