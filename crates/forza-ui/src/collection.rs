@@ -219,6 +219,8 @@ pub enum CollectionAction {
     Craft(u32),
     /// CONVERT one spare earned copy of the card with this number into tokens.
     Convert(u32),
+    /// SAVE STATS: the anonymous stats file into the folder the player picks (`PLAN.md` 2.4).
+    Stats,
 }
 
 /// Which screen a sample shows.
@@ -744,9 +746,16 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
     }
     if !v.damaged {
         ui.add_space(12.0);
-        if widgets::action(ui, &tr!(lang, "collection.reset")).clicked() {
-            *act = Some(CollectionAction::ResetAsk);
-        }
+        ui.horizontal(|ui| {
+            if widgets::action(ui, &tr!(lang, "collection.reset")).clicked() {
+                *act = Some(CollectionAction::ResetAsk);
+            }
+            // the anonymous stats file: written where the player picks, sent by hand, never uploaded
+            if widgets::action(ui, &tr!(lang, "collection.stats")).clicked() {
+                *act = Some(CollectionAction::Stats);
+            }
+        });
+        hint(ui, &tr!(lang, "collection.stats_what"));
     }
 }
 

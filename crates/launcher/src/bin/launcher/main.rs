@@ -1524,6 +1524,29 @@ impl App {
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
+            Action::Collection(CollectionAction::Stats) => {
+                // the log is only read; the file goes where the player picks, and they send it by hand
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                let Some(folder) = rfd::FileDialog::new()
+                    .set_title(t("collection.stats"))
+                    .set_parent(frame)
+                    .pick_folder()
+                else {
+                    return;
+                };
+                match collection::stats(cat, &dir, &folder) {
+                    Ok(file) => {
+                        log(&format!("collection: stats written to {}", file.display()));
+                        let to = folder.display().to_string();
+                        say(tf("launcher.msg_stats_saved", &[("folder", &to)]), 0);
+                        show_in_explorer(&file);
+                    }
+                    Err(e) => refuse(write_failed(&folder, &e)),
+                }
+            }
             Action::VsLink => {
                 // data\settings.json "vs_link" (default on), which run::start_vslink reads
                 let file = kit.settings_file();
