@@ -1361,6 +1361,35 @@ pub fn convert(copies: &Copies, card: &Card) -> Result<u32, NoConvert> {
     Ok(value(card) * CONVERT_SHARE / 100)
 }
 
+/// The refusal [`craft_card`] gives for a tier the release does not craft ([`CRAFT`]).
+pub const NOT_CRAFTED: &str = "this tier is not crafted";
+/// The refusal [`craft_card`] gives for a card the log already holds a copy of: crafting picks an unowned card.
+pub const ALREADY_HELD: &str = "card already held";
+
+/// CRAFT (`PLAN.md` 2.2): one `craft` line that adds `card` and pays its [`craft`] price, under the log's lock. The
+/// spend and the card are one line, so a write cut off inside it loses both or neither. Refused for a tier the release
+/// does not craft ([`NOT_CRAFTED`]), a card already held ([`ALREADY_HELD`]), under its price ([`NOT_ENOUGH_TOKENS`])
+/// and, as every write, on a log the fold cannot read (`InvalidData`).
+pub fn craft_card(log: &Log, at: OffsetDateTime, card: &Card) -> io::Result<Entry> {
+    let price = i64::from(craft(card).ok_or_else(|| io::Error::other(NOT_CRAFTED))?);
+    let mut out = log.append_lines_at(at, |state| {
+        let held = state.copies(card.card_no);
+        if held.earned + held.starter + held.imported > 0 {
+            return Err(io::Error::other(ALREADY_HELD));
+        }
+        if state.tokens < price {
+            return Err(io::Error::other(NOT_ENOUGH_TOKENS));
+        }
+        Ok(vec![Line {
+            kind: Kind::Craft,
+            card: Some(card.card_no),
+            tokens: -price,
+            why: "craft".to_owned(),
+        }])
+    })?;
+    Ok(out.remove(0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3052,5 +3081,140 @@ mod tests {
         let out = first_start(&Log::new(&col), &mark, at, &cards, "starter All seasons").unwrap();
         assert_eq!(out.len(), 13);
         assert!(mark.is_file());
+    }
+
+    /// 2.2 (a), (d): a craft pays the card's value and adds one earned copy in one `craft` line: a black at TOTAL 95
+    /// costs 640, a white at 85 60, a secret white 40.
+    #[test]
+    fn a_craft_pays_the_value_and_adds_one_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 740, "welcome")
+            .unwrap();
+        let secret_white = Card {
+            card_no: 3,
+            secret: true,
+            ..card(Rarity::Regular, 100)
+        };
+        for (c, price) in [
+            (
+                Card {
+                    card_no: 1,
+                    ..card(Rarity::Special, 95)
+                },
+                640,
+            ),
+            (
+                Card {
+                    card_no: 2,
+                    ..card(Rarity::Regular, 85)
+                },
+                60,
+            ),
+            (secret_white, 40),
+        ] {
+            let before = fold_at(&log.lines().unwrap(), this_week()).state;
+            let e = craft_card(&log, at, &c).unwrap();
+            assert_eq!(
+                (e.kind, e.card, e.tokens),
+                (Kind::Craft, Some(c.card_no), -price)
+            );
+            let after = fold_at(&log.lines().unwrap(), this_week()).state;
+            assert_eq!(after.tokens, before.tokens - price);
+            assert_eq!(
+                after.copies(c.card_no),
+                Copies {
+                    earned: 1,
+                    ..Copies::default()
+                }
+            );
+            assert_eq!(after.seq, before.seq + 1, "one line");
+        }
+        assert_eq!(fold_at(&log.lines().unwrap(), this_week()).state.tokens, 0);
+    }
+
+    /// 2.2 (a): a write cut off inside the craft line loses the spend and the card together, and the next write goes on.
+    #[test]
+    fn a_craft_cut_off_keeps_the_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 200, "welcome")
+            .unwrap();
+        let before = log.lines().unwrap();
+        let black = Card {
+            card_no: 7,
+            ..card(Rarity::Special, 84)
+        };
+        craft_card(&log, at, &black).unwrap();
+        let whole = log.lines().unwrap();
+        let line = &whole[before.len()..];
+        for cut in [1, line.len() / 2, line.len() - 2] {
+            std::fs::write(log.path(), format!("{before}{}", &line[..cut])).unwrap();
+            let folded = fold_at(&log.lines().unwrap(), this_week());
+            assert!(!folded.unreadable, "cut at {cut}");
+            assert_eq!(folded.state.tokens, 200, "cut at {cut}: no token lost");
+            assert!(
+                !folded.state.copies(7).owned(),
+                "cut at {cut}: no card either"
+            );
+        }
+        craft_card(&log, at, &black).unwrap();
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(7).earned),
+            (40, 1)
+        );
+    }
+
+    /// 2.2 (b), (c): one token short, a card already held, a RARE or a legend-class card, or an unreadable log: refused
+    /// with its own error, and the log stays as it was.
+    #[test]
+    fn a_craft_is_refused_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 159, "welcome")
+            .unwrap();
+        log.append_at(at, Kind::Starter, Some(5), 0, "starter")
+            .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let black = Card {
+            card_no: 4,
+            ..card(Rarity::Special, 80)
+        };
+        let refused = |c: &Card| craft_card(&log, at, c).unwrap_err().to_string();
+        assert_eq!(refused(&black), NOT_ENOUGH_TOKENS, "one token short");
+        assert_eq!(
+            refused(&Card {
+                card_no: 5,
+                ..card(Rarity::Regular, 70)
+            }),
+            ALREADY_HELD
+        );
+        for rarity in [Rarity::Rare, Rarity::Legend, Rarity::AllTimeLegend] {
+            assert_eq!(
+                refused(&Card {
+                    card_no: 6,
+                    ..card(rarity, 70)
+                }),
+                NOT_CRAFTED,
+                "{rarity:?}"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        std::fs::write(log.path(), format!("not a line\n{before}")).unwrap();
+        let e = craft_card(
+            &log,
+            at,
+            &Card {
+                card_no: 8,
+                ..card(Rarity::Regular, 70)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
     }
 }
