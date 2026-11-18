@@ -2764,4 +2764,42 @@ fn craft_fits_the_page() {
     }
 }
 
+/// Step 2.4: the collection page carries SAVE STATS and the text on what the file holds, inside the page in every
+/// language.
+#[test]
+fn the_page_shows_save_stats_and_what_the_file_holds() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let mut view = CollectionView::sample(Scenario::Page);
+        // a short page, so its foot (the buttons) is inside the window
+        view.cards.truncate(2);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let tag = format!("{lang:?}");
+        let save = h
+            .query_by_label(&t("collection.stats"))
+            .unwrap_or_else(|| panic!("{tag}: SAVE STATS"))
+            .rect();
+        assert!(
+            save.left() >= 16.0 && save.right() <= size.x - 16.0,
+            "{tag}: SAVE STATS inside the page: {save:?}"
+        );
+        let head: String = t("collection.stats_what").chars().take(12).collect();
+        assert_eq!(
+            h.query_all_by_label_contains(&head).count(),
+            1,
+            "{tag}: what the file holds, once"
+        );
+    }
+}
+
 const COLLECTION_COLUMNS: usize = forza_ui::collection::COLUMNS;

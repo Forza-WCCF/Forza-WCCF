@@ -183,6 +183,12 @@ pub fn convert(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> 
     )
 }
 
+/// SAVE STATS (`PLAN.md` 2.4): the log folded into counts into `folder`, as `create-a-team-stats.json`. The log is
+/// only read, and the file holds no name, key, id, card number, date or path.
+pub fn stats(catalogue: &[Card], dir: &Path, folder: &Path) -> io::Result<PathBuf> {
+    c::write_stats(&Log::new(dir), &collection_cards(catalogue), folder)
+}
+
 /// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
 /// (a rebuild), or an edited file names a league past [`LEAGUES`] (its name would index past the list).
 fn pending(catalogue: &[Card], dir: &Path) -> Option<(Choice, Vec<Card>, Vec<Card>)> {
@@ -861,6 +867,41 @@ mod tests {
             convert(&cat, &coll, held[0]).unwrap_err().to_string(),
             c::NO_SPARE,
             "a starter copy"
+        );
+    }
+    /// 2.4: SAVE STATS writes the file into the folder the player picks from the profile's log, and the log is only
+    /// read: the same bytes before and after, and no path in the file.
+    #[test]
+    fn the_stats_file_goes_to_the_picked_folder_and_the_log_stays() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let log = Log::new(&coll);
+        let before = log.lines().unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let file = stats(&cat, &coll, picked.path()).unwrap();
+        assert_eq!(file.file_name().unwrap(), c::STATS_FILE);
+        assert_eq!(log.lines().unwrap(), before, "the log is only read");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains(&coll.display().to_string()),
+            "no folder path in the file"
+        );
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["balance"], c::WELCOME);
+        assert_eq!(v["weeks"].as_array().unwrap().len(), 1);
+        let tiers = ["regular", "special", "rare", "legend", "all_time_legend"];
+        let cards: i64 = tiers.iter().map(|t| v["cards"][t].as_i64().unwrap()).sum();
+        assert_eq!(cards, 12, "the first start's 12 cards");
+        assert!(
+            tiers.iter().all(|t| v["spares"][t].as_i64() == Some(0)),
+            "no spare copy yet"
         );
     }
 }

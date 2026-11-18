@@ -1411,6 +1411,173 @@ pub fn craft_card(log: &Log, at: OffsetDateTime, card: &Card) -> io::Result<Entr
     Ok(out.remove(0))
 }
 
+/// The stats file's name, written where the player picks it (`PLAN.md` 2.4).
+pub const STATS_FILE: &str = "create-a-team-stats.json";
+
+/// Counters by tier: what the stats file holds per rarity (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ByTier {
+    pub regular: u32,
+    pub special: u32,
+    pub rare: u32,
+    pub legend: u32,
+    pub all_time_legend: u32,
+}
+
+impl ByTier {
+    fn add(&mut self, rarity: Rarity, n: u32) {
+        let slot = match rarity {
+            Rarity::Regular => &mut self.regular,
+            Rarity::Special => &mut self.special,
+            Rarity::Rare => &mut self.rare,
+            Rarity::Legend => &mut self.legend,
+            Rarity::AllTimeLegend => &mut self.all_time_legend,
+        };
+        *slot += n;
+    }
+}
+
+/// Packs opened, by kind (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Packs {
+    pub standard: u32,
+    pub season: u32,
+    pub nation: u32,
+}
+
+/// One week of the stats file: numbered from 1 at the log's first line, so the file holds no date (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Week {
+    pub week: u32,
+    pub matches: u32,
+    pub match_tokens: i64,
+    pub packs: Packs,
+    pub crafts: ByTier,
+    pub conversions: u32,
+    pub conversion_tokens: i64,
+    pub stock_buys: ByTier,
+    pub listings: u32,
+    pub sales: u32,
+}
+
+/// The anonymous stats file (`PLAN.md` 2.4): the log's counts only, with no name, key, Aime id, card number, timestamp
+/// or path in it. The player sends it by hand and nothing uploads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Stats {
+    /// The `rules` versions the log's lines name, cheapest first.
+    pub rules: Vec<u32>,
+    pub weeks: Vec<Week>,
+    /// Copies held at the log's end, by tier: a copy out on the market is not held.
+    pub cards: ByTier,
+    /// Spare copies by tier, the copies [`convert`] would take.
+    pub spares: ByTier,
+    pub balance: i64,
+}
+
+/// [`Stats`] of a log read against the catalogue's tiers, in one pass over the lines. It reads and takes nothing but
+/// the log's text and the cards: no name, key, id, date or path reaches its answer. A line that does not parse ends the
+/// log, as it does in the fold.
+#[must_use]
+pub fn stats(lines: &str, cards: &[Card]) -> Stats {
+    let mut out = Stats::default();
+    let mut state = State::default();
+    let mut weeks: Vec<(u32, Week)> = Vec::new();
+    for line in lines.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(entry) = serde_json::from_str::<Entry>(line) else {
+            break;
+        };
+        state.apply(&entry, 0);
+        if !out.rules.contains(&entry.rules) {
+            out.rules.push(entry.rules);
+        }
+        let label = week(entry.at);
+        let at = match weeks.iter().position(|(w, _)| *w == label) {
+            Some(i) => i,
+            None => {
+                let n = weeks.len() as u32 + 1;
+                weeks.push((
+                    label,
+                    Week {
+                        week: n,
+                        ..Week::default()
+                    },
+                ));
+                weeks.len() - 1
+            }
+        };
+        let w = &mut weeks[at].1;
+        // the catalogue's tier of the line's card; a number the catalogue no longer holds counts in no tier
+        let tier = entry
+            .card
+            .and_then(|no| cards.iter().find(|c| c.card_no == no))
+            .map(|c| c.rarity);
+        match entry.kind {
+            Kind::Match => {
+                w.matches += 1;
+                w.match_tokens += entry.tokens;
+            }
+            // a pack's own line carries the price; the card lines after it are its cards, not packs
+            Kind::Pack if entry.card.is_none() => match entry.why.split_whitespace().nth(1) {
+                Some("standard") => w.packs.standard += 1,
+                Some("season") => w.packs.season += 1,
+                Some("nation") => w.packs.nation += 1,
+                _ => {}
+            },
+            Kind::Craft => {
+                if let Some(r) = tier {
+                    w.crafts.add(r, 1);
+                }
+            }
+            Kind::Convert => {
+                w.conversions += 1;
+                w.conversion_tokens += entry.tokens;
+            }
+            Kind::StockBuy => {
+                if let Some(r) = tier {
+                    w.stock_buys.add(r, 1);
+                }
+            }
+            Kind::List => w.listings += 1,
+            Kind::MarketSell => w.sales += 1,
+            _ => {}
+        }
+    }
+    out.weeks = weeks.into_iter().map(|(_, w)| w).collect();
+    out.rules.sort_unstable();
+    for (no, copies) in &state.cards {
+        let Some(card) = cards.iter().find(|c| c.card_no == *no) else {
+            continue;
+        };
+        let held = copies.earned + copies.starter + copies.imported;
+        out.cards
+            .add(card.rarity, held.saturating_sub(copies.listed));
+        out.spares.add(
+            card.rarity,
+            copies
+                .earned
+                .saturating_sub(copies.listed)
+                .saturating_sub(1),
+        );
+    }
+    out.balance = state.tokens;
+    out
+}
+
+/// Write the stats file (`PLAN.md` 2.4) into `folder` and give its path back: the log is read under its shared lock
+/// and never appended to, and the file is the only thing written.
+pub fn write_stats(
+    log: &Log,
+    cards: &[Card],
+    folder: &std::path::Path,
+) -> io::Result<std::path::PathBuf> {
+    let mut text =
+        serde_json::to_string_pretty(&stats(&log.lines()?, cards)).map_err(io::Error::other)?;
+    text.push('\n');
+    let file = folder.join(STATS_FILE);
+    std::fs::write(&file, text)?;
+    Ok(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1450,6 +1617,18 @@ mod tests {
 
     impl Fixture {
         fn add(&mut self, at: &str, kind: Kind, card: Option<u32>, tokens: i64) -> &mut Self {
+            self.add_why(at, kind, card, tokens, &format!("{kind:?} {card:?}"))
+        }
+
+        /// The same line with its own "why", as a pack's or the start's line carries it.
+        fn add_why(
+            &mut self,
+            at: &str,
+            kind: Kind,
+            card: Option<u32>,
+            tokens: i64,
+            why: &str,
+        ) -> &mut Self {
             self.seq += 1;
             let entry = Entry {
                 seq: self.seq,
@@ -1458,7 +1637,7 @@ mod tests {
                 kind,
                 card,
                 tokens,
-                why: format!("{kind:?} {card:?}"),
+                why: why.to_owned(),
                 prev: self.text.lines().next_back().map(hash).unwrap_or_default(),
             };
             self.text.push_str(&entry.line());
@@ -1488,6 +1667,310 @@ mod tests {
             .add("2026-11-11T12:06:00+01:00", Kind::List, Some(2), 0)
             .add("2026-11-11T12:07:00+01:00", Kind::Unlist, Some(2), 0);
         f
+    }
+
+    /// What the fixture's lines say about the player, club and machine: none of it may reach the stats file.
+    const CLUB: &str = r"AC Milan, Aime A69E-01, key 7f3a9c, E:\wccf\profiles\club-one";
+
+    /// The stats fixture's catalogue: the cards its log names, one row each, on numbers a reader could pick out of a
+    /// file.
+    fn stats_cards() -> Vec<Card<'static>> {
+        let row = |card_no: u32, rarity: Rarity| Card {
+            card_no,
+            rarity,
+            ..card(rarity, 90)
+        };
+        vec![
+            row(91734, Rarity::Regular),
+            row(91735, Rarity::Regular),
+            row(91736, Rarity::Special),
+            row(91737, Rarity::Rare),
+            row(91738, Rarity::Legend),
+            row(91739, Rarity::Regular),
+            row(91740, Rarity::Special),
+        ]
+    }
+
+    /// A log of 3 weeks for the stats file (step 2.4): a pack of each kind, two crafts in different tiers, two
+    /// conversions, a listing sold and a stock bought, and the club, key, Aime id and folder path in its lines.
+    fn three_weeks() -> Fixture {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Starter,
+            Some(91734),
+            0,
+            CLUB,
+        )
+        .add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        );
+        for _ in 0..7 {
+            f.add(
+                "2026-11-03T12:00:00+01:00",
+                Kind::Match,
+                Some(91734),
+                MATCH_TOKENS,
+            );
+        }
+        f.add_why(
+            "2026-11-04T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -STANDARD_PACK,
+            "pack standard",
+        )
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91736), 0)
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add_why(
+            "2026-11-05T12:00:00+01:00",
+            Kind::Craft,
+            Some(91739),
+            -40,
+            "craft",
+        )
+        // week 2
+        .add(
+            "2026-11-09T12:00:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add_why(
+            "2026-11-10T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -SEASON_PACK,
+            "pack season 2014",
+        )
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91737), 0)
+        .add("2026-11-11T12:00:00+01:00", Kind::Convert, Some(91734), 48)
+        .add("2026-11-12T12:00:00+01:00", Kind::List, Some(91735), 0)
+        .add(
+            "2026-11-12T13:00:00+01:00",
+            Kind::MarketSell,
+            Some(91735),
+            0,
+        )
+        // week 3
+        .add(
+            "2026-11-16T12:00:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add(
+            "2026-11-16T12:05:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add_why(
+            "2026-11-17T12:00:00+01:00",
+            Kind::Craft,
+            Some(91740),
+            -160,
+            "craft",
+        )
+        .add_why(
+            "2026-11-18T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -NATION_PACK,
+            "pack nation Italy",
+        )
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91740), 0)
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91738), 0)
+        .add(
+            "2026-11-18T13:00:00+01:00",
+            Kind::StockBuy,
+            Some(91737),
+            -90,
+        )
+        .add("2026-11-19T12:00:00+01:00", Kind::Convert, Some(91735), 48);
+        f
+    }
+
+    /// (a) step 2.4: a log of 3 weeks gives the counts the file holds, week by week from 1.
+    #[test]
+    fn the_stats_count_three_weeks() {
+        let s = stats(&three_weeks().text, &stats_cards());
+        assert_eq!(s.rules, [RULES]);
+        assert_eq!(
+            s.weeks.iter().map(|w| w.week).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        let (w1, w2, w3) = (&s.weeks[0], &s.weeks[1], &s.weeks[2]);
+        assert_eq!((w1.matches, w1.match_tokens), (7, 350));
+        assert_eq!(
+            w1.packs,
+            Packs {
+                standard: 1,
+                season: 0,
+                nation: 0
+            }
+        );
+        assert_eq!(
+            w1.crafts,
+            ByTier {
+                regular: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!((w1.conversions, w1.conversion_tokens), (0, 0));
+        assert_eq!((w1.listings, w1.sales), (0, 0));
+        assert_eq!((w2.matches, w2.match_tokens), (1, 50));
+        assert_eq!(
+            w2.packs,
+            Packs {
+                standard: 0,
+                season: 1,
+                nation: 0
+            }
+        );
+        assert_eq!((w2.conversions, w2.conversion_tokens), (1, 48));
+        assert_eq!((w2.listings, w2.sales), (1, 1));
+        assert_eq!((w3.matches, w3.match_tokens), (2, 100));
+        assert_eq!(
+            w3.packs,
+            Packs {
+                standard: 0,
+                season: 0,
+                nation: 1
+            }
+        );
+        assert_eq!(
+            w3.crafts,
+            ByTier {
+                special: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!(
+            w3.stock_buys,
+            ByTier {
+                rare: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!((w3.conversions, w3.conversion_tokens), (1, 48));
+        // the cards and the spare copies at the log's end, by the catalogue's tiers, and the balance: every match
+        // and pack line grants a copy, so the ten matches on 91734 leave ten spare REGULAR copies
+        assert_eq!(
+            s.cards,
+            ByTier {
+                regular: 14,
+                special: 3,
+                rare: 2,
+                legend: 1,
+                all_time_legend: 0
+            }
+        );
+        assert_eq!(
+            s.spares,
+            ByTier {
+                regular: 10,
+                special: 1,
+                rare: 1,
+                legend: 0,
+                all_time_legend: 0
+            }
+        );
+        assert_eq!(s.balance, 360 - 52 - 302);
+    }
+
+    /// (b) step 2.4: the file holds none of the club name, key, Aime id, card numbers, timestamps or the folder path,
+    /// and only the documented fields.
+    #[test]
+    fn the_stats_file_holds_its_fields_and_no_identity() {
+        let f = three_weeks();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(Log::new(dir.path()).path(), &f.text).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let file = write_stats(&Log::new(dir.path()), &stats_cards(), out.path()).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        for secret in [
+            "AC Milan", "A69E-01", "7f3a9c", r"E:\wccf", "club-one", "2026", "91734", "91735",
+            "91736", "91737", "91738", "91739", "91740",
+        ] {
+            assert!(!text.contains(secret), "{secret:?} is in the file:\n{text}");
+        }
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        /// The object's keys, sorted: the file's fields are compared as a set.
+        fn keys(v: &serde_json::Value) -> Vec<&str> {
+            let mut out: Vec<&str> = v
+                .as_object()
+                .unwrap_or_else(|| panic!("not an object: {v}"))
+                .keys()
+                .map(String::as_str)
+                .collect();
+            out.sort_unstable();
+            out
+        }
+        assert_eq!(keys(&v), ["balance", "cards", "rules", "spares", "weeks"]);
+        let tier = ["all_time_legend", "legend", "rare", "regular", "special"];
+        assert_eq!(keys(&v["cards"]), tier);
+        assert_eq!(keys(&v["spares"]), tier);
+        assert_eq!(
+            keys(&v["weeks"][0]),
+            [
+                "conversion_tokens",
+                "conversions",
+                "crafts",
+                "listings",
+                "match_tokens",
+                "matches",
+                "packs",
+                "sales",
+                "stock_buys",
+                "week"
+            ]
+        );
+        assert_eq!(
+            keys(&v["weeks"][0]["packs"]),
+            ["nation", "season", "standard"]
+        );
+        assert_eq!(keys(&v["weeks"][0]["crafts"]), tier);
+        assert_eq!(keys(&v["weeks"][0]["stock_buys"]), tier);
+    }
+
+    /// (c) step 2.4: writing the file appends nothing to the log, and the count takes no network type.
+    #[test]
+    fn the_stats_write_reads_the_log_only() {
+        let f = three_weeks();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        std::fs::write(log.path(), &f.text).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let file = write_stats(&log, &stats_cards(), out.path()).unwrap();
+        assert_eq!(file.file_name().unwrap(), STATS_FILE);
+        assert_eq!(std::fs::read(log.path()).unwrap(), f.text.as_bytes());
+        // twice running: the same file, and the log still as it was
+        let again = write_stats(&log, &stats_cards(), out.path()).unwrap();
+        assert_eq!(
+            std::fs::read(&again).unwrap(),
+            std::fs::read(&file).unwrap()
+        );
+        assert_eq!(std::fs::read(log.path()).unwrap(), f.text.as_bytes());
+        // the count takes the log's text and the cards and nothing else: its own source names no network type
+        // the path in two pieces: a whole file name in quotes reads as a text key to the text test's scan
+        let src = include_str!(concat!("collection", ".rs"));
+        let head = "pub fn stats(lines: &str, cards: &[Card]) -> Stats";
+        let start = src.find(head).expect("the count's signature");
+        let body = &src[start..start + src[start..].find("\n}\n").expect("the count's end")];
+        for word in [
+            "online", "http", "Http", "Tcp", "socket", "Socket", "reqwest", "curl", "Server",
+        ] {
+            assert!(!body.contains(word), "the count names {word}");
+        }
     }
 
     /// (3.1) the fold's copies per source, the balance and the week's match tokens; a torn last line dropped.
