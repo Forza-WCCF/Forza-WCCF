@@ -251,6 +251,7 @@ mod tests {
         let data = t.path().join("data");
         let store = data.join(r"profiles\create-a-team\save\gamesvr");
         fs::create_dir_all(&store).unwrap();
+        fs::create_dir_all(t.path().join(forza::Edition::E1718.layout().bin)).unwrap(); // profiles are 2017-18's
         fs::write(data.join("settings.json"), r#"{"profile": "create-a-team"}"#).unwrap();
         fs::write(store.join("gamesvr.db"), b"new club").unwrap();
         fs::write(store.join("club_out.json"), b"{}").unwrap();

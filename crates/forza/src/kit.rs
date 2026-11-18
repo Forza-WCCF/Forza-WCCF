@@ -69,7 +69,7 @@ impl Kit {
     /// A kit in `dir` (tests, tools).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
-        let profile = Profile::of(&read_settings(&dir.join("data").join("settings.json")));
+        let profile = profile_of(&dir);
         Self { dir, profile }
     }
 
@@ -239,7 +239,17 @@ pub fn misc_dir(game: &Path) -> PathBuf {
 
 /// The active profile's save for a kit's `data` folder (callers that know only that folder: the panel, the card steps).
 pub fn save_in(data: &Path) -> PathBuf {
-    Profile::of(&read_settings(&data.join("settings.json"))).save(data)
+    profile_of(data.parent().unwrap_or(data)).save(data)
+}
+
+/// settings.json "profile" of the kit in `dir` on 2017-18 only: a settings file copied into a 2010-11 kit never moves
+/// its save into a profile folder.
+fn profile_of(dir: &Path) -> Profile {
+    if Kit::layout(dir) == Some(Edition::E1718) {
+        Profile::of(&read_settings(&dir.join("data").join("settings.json")))
+    } else {
+        Profile::Free
+    }
 }
 
 /// Writes `bytes` to `path` through a temporary file beside it (`path` with the extension `tmp`) and one rename: a crash
@@ -411,6 +421,7 @@ mod tests {
     fn the_save_follows_the_profile() {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
+        fs::create_dir_all(dir.path().join(Edition::E1718.layout().bin)).unwrap();
         assert_eq!(Kit::at(dir.path()).profile(), Profile::Free);
         assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
         fs::create_dir_all(&data).unwrap();
@@ -426,5 +437,24 @@ mod tests {
         assert_eq!(kit.profile(), Profile::CreateATeam);
         assert_eq!(kit.save(), data.join(r"profiles\create-a-team\save"));
         assert_eq!(save_in(&data), kit.save());
+    }
+
+    /// 2010-11 reads no profile: a settings file copied from 2017-18 leaves its save in data\save.
+    #[test]
+    fn a_2010_11_kit_keeps_its_save_whatever_the_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(dir.path().join(Edition::E1011.layout().bin)).unwrap();
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.edition(), Edition::E1011);
+        assert_eq!(kit.profile(), Profile::Free);
+        assert_eq!(kit.save(), data.join("save"));
+        assert_eq!(save_in(&data), data.join("save"));
     }
 }
