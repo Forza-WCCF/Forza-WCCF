@@ -178,16 +178,16 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
 /// RESET PROFILE (`PLAN.md` 1.5): Create-a-Team's whole folder (collection, save, table) moved in one rename to
 /// `data\profiles\archive\create-a-team-<stamp>` (`-2`, `-3`... when taken), the archive returned. Nothing is deleted
 /// and free play's save and table are never touched. The seat folder's table, when it is Create-a-Team's, goes to
-/// its board first (the old profile is whole after that step too), so the rename is the one step that changes the
+/// its board first (the old profile is whole after that step too) and leaves the seat folder empty, so the rename is the one step that changes the
 /// profile: a reset stopped anywhere leaves the old profile whole or the new one empty. The next start makes a new
-/// access code (a new club) and an empty table; the next look at the collection offers the first start.
+/// access code (a new club) and finds the table empty; the next look at the collection offers the first start.
 /// `data\market.key` and the welcome mark live outside the folder and stay.
 pub fn reset(data: &Path, seat: Option<&Path>, stamp: &str) -> io::Result<PathBuf> {
     reset_with(data, seat, stamp, &mut |_| Ok(()))
 }
 
-/// [`reset`] with `step` called before each of its steps (0: park the seat's table, 1: empty the marker, 2: make the
-/// archive folder, 3: the rename): a test makes one fail.
+/// [`reset`] with `step` called before each of its steps (0: park the seat's table, 1: empty the marker, 2: empty the
+/// seat's table, 3: make the archive folder, 4: the rename): a test makes one fail.
 fn reset_with(
     data: &Path,
     seat: Option<&Path>,
@@ -212,8 +212,16 @@ fn reset_with(
         }
         step(1)?;
         mark(seat, "")?;
+        // the seat empty too: a game started without Launcher must not read the archived club's table
+        step(2)?;
+        for n in BOARD {
+            let f = seat.join(n);
+            if f.is_file() {
+                fs::remove_file(f)?;
+            }
+        }
     }
-    step(2)?;
+    step(3)?;
     let archive = data.join("profiles").join("archive");
     fs::create_dir_all(&archive)?;
     let to = (1..)
@@ -223,7 +231,7 @@ fn reset_with(
         })
         .find(|p| !p.exists())
         .expect("a free name");
-    step(3)?;
+    step(4)?;
     fs::rename(&from, &to)?;
     Ok(to)
 }
@@ -616,6 +624,8 @@ mod tests {
         let old = tree(&home);
         let free = outside(&data);
         let to = reset(&data, Some(&seat), "20261118-120000").unwrap();
+        // the seat holds no table of the archived club, even for a game started without Launcher
+        assert!(BOARD.iter().all(|n| !seat.join(n).exists()), "seat emptied");
         assert_eq!(
             to,
             data.join("profiles")
@@ -667,7 +677,7 @@ mod tests {
     #[test]
     fn a_reset_stopped_at_any_step_leaves_the_old_profile_whole() {
         let cat = Profile::CreateATeam;
-        for fail in 0..4u8 {
+        for fail in 0..5u8 {
             let d = tempfile::tempdir().unwrap();
             let (data, seat) = played(d.path());
             let home = data.join("profiles").join(cat.code());
