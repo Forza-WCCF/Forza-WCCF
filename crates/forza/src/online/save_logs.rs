@@ -589,10 +589,11 @@ impl Scrub {
     fn scrub_part(&self, mut data: Vec<u8>, aligned: bool) -> Vec<u8> {
         // this project writes UTF-8, where a Latin-1 or CP932 form's one byte cuts a character in half (`0xE7` leads
         // 火 and 田, `0xB1` sits inside 米), so those forms run only on data that is not text. A log read while it is
-        // written ends inside a character, and is still text.
+        // written ends inside a character, and is still text; but ASCII with a cut character only at its end is as
+        // likely CP932 ending in a kanji (辮 is E3 90), so it takes every form.
         let text = match std::str::from_utf8(&data) {
             Ok(_) => true,
-            Err(e) => e.error_len().is_none(),
+            Err(e) => e.error_len().is_none() && !data[..e.valid_up_to()].is_ascii(),
         };
         // the CP932 character starts are known only where the data is CP932 from its first byte: a name must never go
         // unscubbed because a byte was read as the middle of a character when it was not
@@ -770,7 +771,11 @@ fn replace(
     chars: Chars,
     with: impl Fn(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
-    if needle.is_empty() {
+    let lead = |b: u8| matches!(b, 0x81..=0x9F | 0xE0..=0xFC);
+    // in CP932 a match must end where a character does, or every start after it is misread and a name there stays
+    // (あ's UTF-8 E3 81 82 is 縺 and the lead byte of a second character)
+    let whole = needle.iter().fold(true, |start, &b| !(start && lead(b)));
+    if needle.is_empty() || (chars == Chars::Cp932 && !whole) {
         return data.to_vec();
     }
     let alnum = |b: Option<&u8>| b.is_some_and(u8::is_ascii_alphanumeric);
@@ -788,9 +793,7 @@ fn replace(
             Chars::Text => before,
             Chars::Cp932 => before && !trail,
             // the byte before the match may be the second byte of a kanji whose first is two back
-            Chars::Unknown => {
-                before && !(i >= 2 && matches!(data[i - 2], 0x81..=0x9F | 0xE0..=0xFC))
-            }
+            Chars::Unknown => before && !(i >= 2 && lead(data[i - 2])),
         };
         let hit = end <= data.len()
             && data[i..end]
@@ -815,7 +818,7 @@ fn replace(
             out.push(b);
             i += 1;
             if chars == Chars::Cp932 {
-                start = !(was && matches!(b, 0x81..=0x9F | 0xE0..=0xFC));
+                start = !(was && lead(b));
                 trail = !was;
             }
         }
@@ -1476,6 +1479,31 @@ mod tests {
                 assert!(holds(&dump, name, enc) && !holds(&out, name, enc), "{name}");
             }
         }
+    }
+
+    #[test]
+    fn a_utf8_form_inside_cp932_keeps_the_names_after_it() {
+        // E3 81 82 is あ in UTF-8, and in CP932 縺 plus the lead byte of ぁ (82 9F): the CP932 あ (82 A0) after it
+        // must still go
+        let scrub = Scrub {
+            user: "あ".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("縺ぁあ").unwrap();
+        assert_eq!(data, [0xE3, 0x81, 0x82, 0x9F, 0x82, 0xA0]);
+        assert_eq!(scrub.scrub(data), sjis("縺ぁUSER").unwrap());
+    }
+
+    #[test]
+    fn a_cp932_name_ending_an_ascii_log_goes() {
+        // 辮 is E3 90 in CP932, which reads as a UTF-8 character cut short at the end of the file
+        let scrub = Scrub {
+            pc: "辮".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("host 辮").unwrap();
+        assert_eq!(data[5..], [0xE3, 0x90]);
+        assert_eq!(scrub.scrub(data), sjis("host PC").unwrap());
     }
 
     #[test]
