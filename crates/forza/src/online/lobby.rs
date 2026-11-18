@@ -217,9 +217,11 @@ impl Mode {
             .find(|m| m.word() == word)
     }
 
-    /// A word this build does not know reads as free: a later desk's mode must not cost the whole lobby answer.
+    /// A word this build does not know, or a value that is no word at all, reads as free: a later desk's mode must not
+    /// cost the whole lobby answer.
     fn lenient<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Mode, D::Error> {
-        Ok(Mode::parse(&String::deserialize(d)?).unwrap_or_default())
+        let v = serde_json::Value::deserialize(d)?;
+        Ok(v.as_str().and_then(Mode::parse).unwrap_or_default())
     }
 }
 
@@ -940,6 +942,20 @@ mod tests {
         // a later desk's mode word reads as free, the seat still listed
         let later: Occupant = serde_json::from_str(&line.replace("cat", "xyz")).unwrap();
         assert_eq!(later.mode, Mode::Free);
+        // so does a mode of another shape, and the lobby around it still parses
+        for shape in ["7", "null", "true", r#"["cat"]"#, r#"{"word":"cat"}"#] {
+            let odd = line.replace(r#""cat""#, shape);
+            let o: Occupant = serde_json::from_str(&odd).unwrap_or_else(|e| panic!("{shape}: {e}"));
+            assert_eq!(o.mode, Mode::Free, "{shape}");
+            let j = format!(
+                r#"{{"v":1,"edition":"2017-18","at":1,"vs":[{{"id":"r","code":"K7QM","players":1,"max":2,"kind":2,"occupants":[{odd}]}}]}}"#
+            );
+            assert_eq!(
+                Lobby::parse(&j).unwrap().vs[0].occupants[0].club,
+                "A7K2",
+                "{shape}"
+            );
+        }
         assert_eq!(VERSION, 1);
         let j = format!(
             r#"{{"v":1,"edition":"2017-18","at":1,"vs":[{{"id":"r","code":"K7QM","players":1,"max":2,"kind":2,"occupants":[{line}]}}]}}"#
