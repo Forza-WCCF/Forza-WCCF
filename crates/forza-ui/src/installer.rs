@@ -209,6 +209,8 @@ pub struct InstallerState {
     /// The finished install's folder, and what was done: extract, set up, English, shortcuts.
     pub done_path: String,
     pub did: [bool; 4],
+    /// The steps that failed without stopping the install, each its line in the person's language.
+    pub missed: Vec<String>,
 }
 
 impl InstallerState {
@@ -245,6 +247,7 @@ impl InstallerState {
             log: vec![],
             done_path: String::new(),
             did: [false; 4],
+            missed: vec![],
         }
     }
 
@@ -1122,6 +1125,9 @@ fn done_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<
                 }),
             );
         });
+    }
+    for line in &st.missed {
+        status_line(ui, Tone::Notice, line);
     }
     if !st.did[1] {
         status_line(ui, Tone::Notice, &tr!(lang, "installer.extract_only_note"));

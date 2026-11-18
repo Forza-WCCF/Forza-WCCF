@@ -210,7 +210,7 @@ installer.drop_hint: {en: "Dropping the files on this window works too: each one
 installer.done_body_extract: {en: "The original files are extracted.", it: "I file originali sono stati estratti.", ja: "元のファイルを展開しました。"}
 installer.not_setup: {en: "Game not set up (no package)", it: "Gioco non configurato (nessun pacchetto)", ja: "ゲームは未設定（パッケージなし）"}
 installer.did_shortcuts: {en: "Desktop shortcuts added", it: "Collegamenti sul desktop aggiunti", ja: "デスクトップにショートカットを追加しました"}
-installer.extract_only_note: {en: "Original files only. Not playable on their own.", it: "Solo file originali. Non giocabili da soli.", ja: "元のファイルのみ。単体ではプレイできません。"}
+installer.extract_only_note: {en: "Original files only. Not playable on their own: run the installer again with a Forza-WCCF package.", it: "Solo file originali. Non giocabili da soli: esegui di nuovo l'installer con un pacchetto Forza-WCCF.", ja: "元のファイルのみ。単体ではプレイできません。Forza-WCCF のパッケージを指定してインストーラーをもう一度実行してください。"}
 installer.done_guard: {en: "Always start from Launcher.exe.", it: "Avvia sempre da Launcher.exe.", ja: "必ず Launcher.exe から起動してください。"}
 installer.done_dx: {en: "If the game does not start, install DirectX 9 (June 2010 runtime).", it: "Se il gioco non si avvia, installa DirectX 9 (runtime di giugno 2010).", ja: "起動しない場合は DirectX 9（2010年6月版ランタイム）を入れてください。"}
 installer.err_truecrypt_new: {en: "This disc image uses a newer encryption format than the installer supports. Download the latest installer.", it: "Questa immagine del disco usa una cifratura più recente di quelle supportate dall'installer. Scarica l'installer più recente.", ja: "このディスクイメージは、インストーラーが対応していない新しい暗号形式です。最新のインストーラーをダウンロードしてください。"}
@@ -263,6 +263,10 @@ installer.latest_failed: {en: "Cannot check for the newest package. Check your c
 installer.stage_download: {en: "Downloading the package", it: "Download del pacchetto", ja: "パッケージをダウンロード中"}
 installer.cancelled: {en: "Installation cancelled.", it: "Installazione annullata.", ja: "インストールを中止しました。"}
 installer.stopped: {en: "The installation stopped.", it: "L'installazione si è fermata.", ja: "インストールが停止しました。"}
+installer.log_extract_only: {en: "Extraction only: not ready to play. Run the installer again with a Forza-WCCF package to finish.", it: "Solo estrazione: non ancora pronto per giocare. Esegui di nuovo l'installer con un pacchetto Forza-WCCF per completare.", ja: "展開のみ: まだプレイできません。仕上げるには、Forza-WCCF のパッケージを指定してインストーラーをもう一度実行してください。"}
+installer.log_pictures_no_game: {en: "Card pictures failed: game folder not found. The board shows placeholders.", it: "Immagini delle carte non riuscite: cartella del gioco non trovata. Il tabellone mostra segnaposto.", ja: "カード画像の作成に失敗しました: ゲームのフォルダーが見つかりません。ボードには代わりの画像が表示されます。"}
+installer.log_stuck: {en: "Some replaced files could not be put back: they are in %{path}", it: "Alcuni file sostituiti non sono stati ripristinati: si trovano in %{path}", ja: "置き換えたファイルの一部を元に戻せませんでした: %{path} にあります"}
+installer.log_shortcut_failed: {en: "Could not create the desktop shortcut. Use Launcher.exe in the install folder.", it: "Non è stato possibile creare il collegamento sul desktop. Usa Launcher.exe nella cartella di installazione.", ja: "デスクトップのショートカットを作成できませんでした。インストール先の Launcher.exe を使ってください。"}
 
 # ---- cabinet buttons ----
 cab.central: {en: "CENTRAL", it: "CENTRALE", ja: "センター"}

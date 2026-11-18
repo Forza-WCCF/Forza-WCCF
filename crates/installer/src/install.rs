@@ -33,7 +33,15 @@ pub struct Plan {
 pub enum Event {
     Stage(Step),
     Progress(u64, u64), // done, total (0 total = unknown)
+    /// A line of the log, which is English (support reads it). A line the player must act on is `ui.yml` text in the
+    /// run's language instead, as the error messages are.
     Log(String),
+    /// A step that failed without stopping the install (the card pictures), in the run's language: the Done page
+    /// shows it under its rows, the log too.
+    Missed(String),
+    /// The desktop shortcut was not made, in the run's language: as [`Event::Missed`], and the Done page's shortcut
+    /// row reads not made.
+    NoShortcut(String),
 }
 
 fn game_id_in(game: &Path) -> Option<&'static str> {
@@ -179,9 +187,14 @@ struct Resolved {
     setup: Option<(PathBuf, Edition)>, // the package to set up and its edition
 }
 
-pub fn run(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()> {
+pub fn run(
+    plan: &Plan,
+    cancel: &AtomicBool,
+    lang: forza_ui::Lang,
+    emit: &dyn Fn(Event),
+) -> Result<()> {
     let r = resolve(plan, cancel, emit)?;
-    apply(plan, r, cancel, emit)
+    apply(plan, r, cancel, lang, emit)
 }
 
 /// Every refusal, and nothing written to the install: the edition, the package, a program running from the install,
@@ -298,7 +311,13 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
 }
 
 /// Writes what [`resolve`] decided: the game extracted, the package over the install, setup, English, pictures, shortcuts.
-fn apply(plan: &Plan, r: Resolved, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<()> {
+fn apply(
+    plan: &Plan,
+    r: Resolved,
+    cancel: &AtomicBool,
+    lang: forza_ui::Lang,
+    emit: &dyn Fn(Event),
+) -> Result<()> {
     let Resolved {
         dest,
         game,
@@ -317,7 +336,7 @@ fn apply(plan: &Plan, r: Resolved, cancel: &AtomicBool, emit: &dyn Fn(Event)) ->
     }
     if let Some((kit, edition)) = setup {
         emit(Event::Stage(Step::Setup));
-        unpack_kit(&kit, &dest, emit)?;
+        unpack_kit(&kit, &dest, lang, emit)?;
         check(cancel)?;
         let folder = game.to_string_lossy();
         kit_step(emit, |say| {
@@ -336,12 +355,16 @@ fn apply(plan: &Plan, r: Resolved, cancel: &AtomicBool, emit: &dyn Fn(Event)) ->
                 }
             })?;
         }
-        pictures(&dest, edition, &folder, emit);
+        pictures(&dest, edition, &folder, lang, emit);
         if plan.shortcuts {
-            shortcuts(&dest, edition, emit);
+            shortcuts(&dest, edition, lang, emit);
         }
     } else {
-        emit(Event::Log("Extraction only: not ready to play.".into()));
+        emit(Event::Log(forza_ui::text(
+            lang,
+            "installer.log_extract_only",
+            &[],
+        )));
     }
     Ok(())
 }
@@ -545,7 +568,12 @@ fn extract(
 /// Unpack the kit zip beside the install (data\update, as the Launcher's UPDATE) and apply it over dest
 /// (Launcher.exe, README, python, scripts ...) with `forza::apply`: a failed write puts the old files back. An existing
 /// data\ (club, keys) is kept.
-fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> {
+fn unpack_kit(
+    zip_path: &Path,
+    dest: &Path,
+    lang: forza_ui::Lang,
+    emit: &dyn Fn(Event),
+) -> Result<()> {
     let mut zip = zip::ZipArchive::new(File::open(zip_path)?).map_err(|_| E::NotZip)?;
     let (_, prefix) = kit_prefix(&mut zip)?;
     let keep_data = dest.join("data").exists();
@@ -600,9 +628,10 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
                 e
             }
             Failed::Stuck(e) => {
-                log(&format!(
-                    "Some replaced files could not be put back: they are in {}",
-                    shown(&work.join("old"))
+                log(&forza_ui::text(
+                    lang,
+                    "installer.log_stuck",
+                    &[("path", &shown(&work.join("old")))],
                 ));
                 e
             }
@@ -635,10 +664,17 @@ fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(forza::Say) -> i32) -> Resul
 }
 
 /// The board's card pictures, as Launcher's Setup makes them. A failure is logged; the install stands.
-fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
+fn pictures(
+    dest: &Path,
+    edition: Edition,
+    folder: &str,
+    lang: forza_ui::Lang,
+    emit: &dyn Fn(Event),
+) {
     let say = |l: &str| emit(Event::Log(l.to_owned()));
     let Some(game) = forza::setup::find_edition_game(edition, folder) else {
-        return say("Card pictures failed: game folder not found. The board shows placeholders.");
+        let line = forza_ui::text(lang, "installer.log_pictures_no_game", &[]);
+        return emit(Event::Missed(line));
     };
     let ed = if edition == Edition::E1011 {
         "1011"
@@ -650,29 +686,26 @@ fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
         say(&format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l)))
     };
     if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &lines) {
-        say(&format!(
-            "Card pictures failed: {e}. The board shows placeholders."
-        ));
+        let e = e.to_string();
+        let line = forza_ui::text(lang, "launcher.run_pictures_failed", &[("error", &e)]);
+        emit(Event::Missed(line));
     }
 }
 
-fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
+fn shortcuts(dest: &Path, edition: Edition, lang: forza_ui::Lang, emit: &dyn Fn(Event)) {
     #[cfg(windows)]
     {
         let made = lnk::desktop().and_then(|d| {
             let link = d.join(format!("Forza-WCCF {}.lnk", edition.label()));
             lnk::write(&link, &dest.join("Launcher.exe"), dest)
         });
-        emit(Event::Log(match made {
-            Ok(()) => "Desktop shortcut created.".into(),
-            Err(_) => {
-                "Could not create the desktop shortcut. Use Launcher.exe in the install folder."
-                    .into()
-            }
-        }));
+        emit(match made {
+            Ok(()) => Event::Log("Desktop shortcut created.".into()),
+            Err(_) => Event::NoShortcut(forza_ui::text(lang, "installer.log_shortcut_failed", &[])),
+        });
     }
     #[cfg(not(windows))]
-    let _ = (dest, edition, emit);
+    let _ = (dest, edition, lang, emit);
 }
 
 /// The desktop shortcut made with the shell's IShellLinkW (2026-10-29: a PowerShell child made by an unsigned installer
@@ -807,12 +840,18 @@ mod tests {
         fs::create_dir_all(&game).unwrap();
         let lines = std::cell::RefCell::new(Vec::new());
         let emit = |e: Event| {
-            if let Event::Log(l) = e {
+            if let Event::Missed(l) = e {
                 lines.borrow_mut().push(l);
             }
         };
         // no game files: the step reports and returns instead of failing the install
-        pictures(&dir, Edition::E1718, &game.to_string_lossy(), &emit);
+        pictures(
+            &dir,
+            Edition::E1718,
+            &game.to_string_lossy(),
+            forza_ui::Lang::En,
+            &emit,
+        );
         assert!(
             lines
                 .borrow()
@@ -820,6 +859,94 @@ mod tests {
                 .any(|l| l.contains("Card pictures failed"))
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The lines a player must act on read in each language, none of them a bare key (a typo or a missing language).
+    #[test]
+    fn the_lines_a_player_must_act_on_are_in_three_languages() {
+        let root = std::env::temp_dir().join(format!("player-lines-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let game = version_paths(&root, "SDDY").unwrap().1;
+        fs::create_dir_all(game.join("local")).unwrap();
+        fs::write(game.join("client_Release.exe"), b"").unwrap();
+        fs::write(game.join("local/SDDY_Table.dat"), b"SDDY").unwrap();
+        let plan = Plan {
+            dest: root.clone(),
+            iso: None,
+            key: None,
+            game_id: Some("SDDY"),
+            verify: true,
+            setup: true,
+            english: false,
+            shortcuts: true,
+            kit: None,
+            latest: false,
+        };
+        let empty = root.join("no-game");
+        fs::create_dir_all(&empty).unwrap();
+        let (mut extract_only, mut no_pictures) = (vec![], vec![]);
+        for lang in forza_ui::Lang::ALL {
+            let last = std::cell::RefCell::new(String::new());
+            run(&plan, &AtomicBool::new(false), lang, &|e| {
+                if let Event::Log(l) = e {
+                    *last.borrow_mut() = l;
+                }
+            })
+            .unwrap();
+            extract_only.push(last.into_inner());
+            let missed = std::cell::RefCell::new(String::new());
+            pictures(
+                &root,
+                Edition::E1718,
+                &empty.to_string_lossy(),
+                lang,
+                &|e| {
+                    if let Event::Missed(l) = e {
+                        *missed.borrow_mut() = l;
+                    }
+                },
+            );
+            no_pictures.push(missed.into_inner());
+        }
+        let three = |key: &str, args: &[(&str, &str)]| -> Vec<String> {
+            forza_ui::Lang::ALL
+                .into_iter()
+                .map(|l| forza_ui::text(l, key, args))
+                .collect()
+        };
+        assert!(
+            extract_only[0].contains("installer again"),
+            "the next step: {extract_only:?}"
+        );
+        // the Done page's note, which the player sees (the log sits in a closed fold), names the next step too
+        let note = forza_ui::text(forza_ui::Lang::En, "installer.extract_only_note", &[]);
+        assert!(note.contains("installer again"), "{note}");
+        for (key, texts) in [
+            ("installer.log_extract_only", extract_only),
+            ("installer.log_pictures_no_game", no_pictures),
+            (
+                "launcher.run_pictures_failed",
+                three("launcher.run_pictures_failed", &[("error", "E")]),
+            ),
+            (
+                "installer.log_stuck",
+                three("installer.log_stuck", &[("path", "P")]),
+            ),
+            (
+                "installer.log_shortcut_failed",
+                three("installer.log_shortcut_failed", &[]),
+            ),
+        ] {
+            assert!(
+                texts.iter().all(|t| !t.is_empty() && !t.contains(key)),
+                "{key}: {texts:?}"
+            );
+            assert!(
+                texts[1] != texts[0] && texts[2] != texts[0] && texts[2] != texts[1],
+                "{key}: {texts:?}"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -848,7 +975,7 @@ mod tests {
             latest: false,
         };
         let cancel = AtomicBool::new(false);
-        run(&plan, &cancel, &|_| {}).unwrap(); // no kit, even with setup's default true
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // no kit, even with setup's default true
         assert_eq!(GAME_DIR, "game");
         assert!(game_present(&root, "SDDY"));
         assert_eq!(installed_game_id(&root), Some("SDDY"));
@@ -872,15 +999,15 @@ mod tests {
         assert_eq!(installed_game_id(&root), None); // never choose an edition silently
         plan.game_id = None;
         assert!(
-            run(&plan, &cancel, &|_| {})
+            run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
                 .to_string()
                 .contains("--game")
         );
         plan.game_id = Some("SBWG");
-        run(&plan, &cancel, &|_| {}).unwrap();
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         plan.game_id = Some("SDDY");
-        run(&plan, &cancel, &|_| {}).unwrap();
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(
             fs::read(old_game.join("client_Release.exe")).unwrap(),
             b"old edition unchanged"
@@ -904,21 +1031,21 @@ mod tests {
         zip.finish().unwrap();
         plan.kit = Some(kit);
         assert!(
-            run(&plan, &cancel, &|_| {})
+            run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
                 .to_string()
                 .contains("is for 2010–11")
         );
         assert!(!edition_root.join("scripts").exists());
         plan.setup = false;
-        run(&plan, &cancel, &|_| {}).unwrap(); // --no-setup ignores a supplied kit
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // --no-setup ignores a supplied kit
         plan.english = true;
-        assert!(run(&plan, &cancel, &|_| {}).is_err());
+        assert!(run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).is_err());
         plan.english = false;
         plan.iso = Some(root.join("not-read.iso"));
         plan.key = Some(root.join("not-read.key"));
         assert!(
-            run(&plan, &cancel, &|_| {})
+            run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
                 .to_string()
                 .contains("already exists")
@@ -944,7 +1071,7 @@ mod tests {
         plan.iso = None;
         plan.key = None;
         plan.kit = None;
-        run(&plan, &cancel, &|_| {}).unwrap();
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(version_paths(&root, "SBWG").unwrap().0, old_root);
         assert_eq!(
             fs::read(legacy.join("client_Release.exe")).unwrap(),
@@ -1014,7 +1141,7 @@ mod tests {
                 "Forza-WCCF-2017-18/data/save/club.bin",
             ],
         );
-        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(
             fs::read(dest.join("Launcher.exe")).unwrap(),
             b"Forza-WCCF-2017-18/Launcher.exe"
@@ -1052,7 +1179,7 @@ mod tests {
             zip.write_all(b.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
-        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(fs::read(dest.join("Launcher.exe")).unwrap(), b"new");
         assert_eq!(
             fs::read(dest.join("data/save/club.bin")).unwrap(),
@@ -1081,7 +1208,7 @@ mod tests {
                 "DATA/keys.txt",
             ],
         );
-        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap();
         // one folder on Windows, two elsewhere: either way no package byte lands in it
         for p in ["data/save/club.bin", "Data/save/club.bin"] {
             let p = dest.join(p);
@@ -1106,7 +1233,7 @@ mod tests {
             "k.zip",
             &["Launcher.exe", "bin/x.dll", "scripts/setup.py"],
         );
-        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        let e = unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap_err();
         let path = shown(&dest.join("scripts"));
         let texts: Vec<String> = forza_ui::Lang::ALL
             .into_iter()
@@ -1130,7 +1257,7 @@ mod tests {
         let dest = root.join("in");
         fs::create_dir_all(&dest).unwrap();
         let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll", "../x"]);
-        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        let e = unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap_err();
         assert_eq!(e.downcast_ref::<E>(), Some(&E::KitUnsafePath));
         assert!(!root.join("x").exists());
         fs::remove_dir_all(root).unwrap();
@@ -1165,7 +1292,7 @@ mod tests {
             kit: Some(kit),
             latest: false,
         };
-        let e = run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err();
+        let e = run(&plan, &AtomicBool::new(false), forza_ui::Lang::En, &|_| {}).unwrap_err();
         assert!(
             matches!(e.downcast_ref::<E>(), Some(E::Script { .. })),
             "{e:#}"
@@ -1198,7 +1325,7 @@ mod tests {
             &["Launcher.exe", "bin/x.dll", "bin/new.dll", "zz/last.txt"],
         );
         let before = tree(&root);
-        let e = unpack_kit(&kit, &dest, &|_| {}).unwrap_err();
+        let e = unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {}).unwrap_err();
         assert!(
             matches!(e.downcast_ref::<E>(), Some(E::CannotWrite { .. })),
             "{e:#}"
@@ -1239,7 +1366,7 @@ mod tests {
             kit: Some(kit),
             latest: false,
         };
-        let r = run(&plan, &AtomicBool::new(false), &|_| {});
+        let r = run(&plan, &AtomicBool::new(false), forza_ui::Lang::En, &|_| {});
         let _ = (child.kill(), child.wait());
         let e = r.unwrap_err();
         assert!(
@@ -1269,7 +1396,7 @@ mod tests {
             .spawn()
             .unwrap();
         let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll"]);
-        let r = unpack_kit(&kit, &dest, &|_| {});
+        let r = unpack_kit(&kit, &dest, forza_ui::Lang::En, &|_| {});
         let _ = (child.kill(), child.wait());
         let e = r.unwrap_err();
         assert!(
@@ -1311,7 +1438,7 @@ mod tests {
             latest: false,
         };
         let steps = std::cell::Cell::new(0);
-        let e = run(&plan, &AtomicBool::new(false), &|e| {
+        let e = run(&plan, &AtomicBool::new(false), forza_ui::Lang::En, &|e| {
             if !matches!(e, Event::Log(_)) {
                 steps.set(steps.get() + 1); // a stage or the verify pass's progress
             }
@@ -1346,7 +1473,7 @@ mod tests {
         };
         let run_with = |free: u64| {
             FREE.set(Some(free));
-            run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err()
+            run(&plan, &AtomicBool::new(false), forza_ui::Lang::En, &|_| {}).unwrap_err()
         };
         // no pictures yet: setup makes them, the headroom counts
         let before = tree(&root);

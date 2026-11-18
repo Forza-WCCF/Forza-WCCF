@@ -295,6 +295,7 @@ impl App {
         let st = &self.st;
         let id = st.target().map(game_id);
         let reuse = st.reuse;
+        let lang = st.lang;
         let plan = Plan {
             dest: self.dest(),
             iso: (!reuse).then(|| clean(&st.iso)),
@@ -336,7 +337,7 @@ impl App {
                 let _ = tx.send(Msg::Ev(e));
                 ctx.request_repaint();
             };
-            let r = install::run(&plan, &c, &emit);
+            let r = install::run(&plan, &c, lang, &emit);
             let _ = tx.send(Msg::Done(r));
             ctx.request_repaint();
         });
@@ -345,6 +346,7 @@ impl App {
         st.steps = steps;
         (st.stage, st.fraction, st.bytes, st.running) = (0, 0.0, None, true);
         (st.log, st.error, st.did, st.done_path) = (vec![], None, did, done_path);
+        st.missed.clear();
         st.page = Page::Installing;
     }
 
@@ -363,6 +365,15 @@ impl App {
                     st.bytes = (t > 0).then_some((d, t));
                 }
                 Msg::Ev(Event::Log(l)) => st.log.push(l),
+                Msg::Ev(Event::Missed(l)) => {
+                    st.log.push(l.clone());
+                    st.missed.push(l);
+                }
+                Msg::Ev(Event::NoShortcut(l)) => {
+                    st.did[3] = false; // the Done page does not claim a shortcut that was not made
+                    st.log.push(l.clone());
+                    st.missed.push(l);
+                }
                 Msg::Done(r) => {
                     st.running = false;
                     match r {
@@ -717,13 +728,13 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
     let last = std::cell::Cell::new(0u64);
     let emit = |e: Event| match e {
         Event::Stage(s) => println!("== {}", s.title(Lang::En)),
-        Event::Log(l) => println!("{l}"),
+        Event::Log(l) | Event::Missed(l) | Event::NoShortcut(l) => println!("{l}"),
         Event::Progress(d, t) if t > 0 && d / (256 << 20) != last.replace(d / (256 << 20)) => {
             println!("   {} / {}", gb(d), gb(t))
         }
         Event::Progress(..) => {}
     };
-    install::run(&plan, &AtomicBool::new(false), &emit)?;
+    install::run(&plan, &AtomicBool::new(false), Lang::En, &emit)?;
     println!("done");
     Ok(true)
 }
@@ -858,6 +869,35 @@ mod tests {
         app.next(&egui::Context::default(), false);
         assert!((app.st.confirm, app.st.page, app.run.is_none()) == (true, Page::Files, true));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A step that failed without stopping the install reaches the Done page: its line shows, and a shortcut that was
+    /// not made is not claimed.
+    #[test]
+    fn the_done_page_shows_a_failed_step() {
+        let mut app = App::new();
+        let (tx, rx) = channel();
+        app.run = Some(Run {
+            rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+        app.st.did = [true; 4];
+        for m in [
+            Msg::Ev(Event::Missed("no pictures".into())),
+            Msg::Ev(Event::NoShortcut("no shortcut".into())),
+            Msg::Done(Ok(())),
+        ] {
+            tx.send(m).unwrap();
+        }
+        app.poll();
+        assert_eq!(app.st.page, Page::Done);
+        assert_eq!(app.st.did, [true, true, true, false]);
+        assert_eq!(app.st.missed, ["no pictures", "no shortcut"]);
+        assert!(
+            app.st
+                .log
+                .ends_with(&["no pictures".into(), "no shortcut".into()])
+        );
     }
 
     /// The window must not probe the folder, the disc and the drive on every repaint (on a drive that went away, each
