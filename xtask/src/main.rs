@@ -4284,23 +4284,26 @@ mod tests {
     }
 
     #[test]
-    fn check_ci_parses_with_and_without_a_base() {
-        // the wiring that passes main's `before` may leave it out (the weekly run, dispatch): `base` is then None
-        let Task::Check { mode, base, .. } =
-            Task::try_parse_from(["xtask", "check", "ci"]).unwrap()
-        else {
-            panic!("check ci");
-        };
-        assert_eq!((mode.as_deref(), base), (Some("ci"), None));
-        let Task::Check { mode, base, .. } =
-            Task::try_parse_from(["xtask", "check", "ci", "--base", "origin/main"]).unwrap()
-        else {
-            panic!("check ci --base");
-        };
-        assert_eq!(
-            (mode.as_deref(), base.as_deref()),
-            (Some("ci"), Some("origin/main"))
-        );
+    fn check_ci_builds_the_2010_11_hooks_where_its_line_says_in() {
+        // the line and what is built must agree, on a manual run's `--base`, over what `changed_files` returns: a base
+        // the clone does not have gives no list, a known one the changed files
+        for (release, files) in [
+            (false, None),
+            (false, Some("crates/launcher/src/lib.rs\n")),
+            (false, Some("native/hook/src/lib.rs\n")),
+            (true, None),
+            (true, Some("crates/launcher/src/lib.rs\n")),
+        ] {
+            let reason = ci_1011_reason(release, Some("origin/main"), files);
+            assert_eq!(
+                ci_builds_1011(release, files),
+                reason.starts_with("in ("),
+                "{reason}"
+            );
+        }
+        // CI's `check ci` has no `--base`: everything, as its line says
+        assert!(ci_builds_1011(false, None));
+        assert!(ci_1011_reason(false, None, None).starts_with("in ("));
     }
 
     #[test]
