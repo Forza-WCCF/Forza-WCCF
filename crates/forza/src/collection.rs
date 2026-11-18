@@ -1361,6 +1361,27 @@ pub fn convert(copies: &Copies, card: &Card) -> Result<u32, NoConvert> {
     Ok(value(card) * CONVERT_SHARE / 100)
 }
 
+/// The refusal [`convert_card`] gives when the card has no spare earned copy ([`convert`]'s rule).
+pub const NO_SPARE: &str = "no spare copy";
+
+/// CONVERT (`PLAN.md` 2.6): one `convert` line that takes one spare earned copy of `card` and pays its [`convert`]
+/// amount, under the log's lock. The copy and the tokens are one line, so a write cut off inside it moves both or
+/// neither. Refused without a spare earned copy ([`NO_SPARE`]) and, as every write, on a log the fold cannot read
+/// (`InvalidData`).
+pub fn convert_card(log: &Log, at: OffsetDateTime, card: &Card) -> io::Result<Entry> {
+    let mut out = log.append_lines_at(at, |state| {
+        let pays =
+            convert(&state.copies(card.card_no), card).map_err(|_| io::Error::other(NO_SPARE))?;
+        Ok(vec![Line {
+            kind: Kind::Convert,
+            card: Some(card.card_no),
+            tokens: i64::from(pays),
+            why: "convert".to_owned(),
+        }])
+    })?;
+    Ok(out.remove(0))
+}
+
 /// The refusal [`craft_card`] gives for a tier the release does not craft ([`CRAFT`]).
 pub const NOT_CRAFTED: &str = "this tier is not crafted";
 /// The refusal [`craft_card`] gives for a card the log already holds a copy of: crafting picks an unowned card.
@@ -3212,6 +3233,93 @@ mod tests {
             &Card {
                 card_no: 8,
                 ..card(Rarity::Regular, 70)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
+    }
+
+    /// 2.3 (a): CONVERT writes one line that takes one spare earned copy and pays 20 % of the value; a write cut off
+    /// inside it moves neither the copy nor the tokens, and the next write goes on.
+    #[test]
+    fn a_convert_takes_a_spare_and_a_cut_off_keeps_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        let black = Card {
+            card_no: 7,
+            ..card(Rarity::Special, 87)
+        };
+        for _ in 0..2 {
+            log.append_at(at, Kind::Pack, Some(7), 0, "pack").unwrap();
+        }
+        let before = log.lines().unwrap();
+        let e = convert_card(&log, at, &black).unwrap();
+        assert_eq!((e.kind, e.card, e.tokens), (Kind::Convert, Some(7), 48));
+        let whole = log.lines().unwrap();
+        let line = &whole[before.len()..];
+        assert_eq!(line.lines().count(), 1, "one line");
+        for cut in [1, line.len() / 2, line.len() - 2] {
+            std::fs::write(log.path(), format!("{before}{}", &line[..cut])).unwrap();
+            let folded = fold_at(&log.lines().unwrap(), this_week());
+            assert!(!folded.unreadable, "cut at {cut}");
+            assert_eq!(
+                (folded.state.tokens, folded.state.copies(7).earned),
+                (0, 2),
+                "cut at {cut}: no token without the copy leaving"
+            );
+        }
+        convert_card(&log, at, &black).unwrap();
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(7).earned),
+            (48, 1)
+        );
+    }
+
+    /// 2.3 (b): the last earned copy, a card held only as a starter or imported copy, and a card not held never
+    /// convert; an unreadable log is refused as every write is. The log stays as it was.
+    #[test]
+    fn a_convert_is_refused_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Pack, Some(3), 0, "pack").unwrap();
+        for _ in 0..2 {
+            log.append_at(at, Kind::Starter, Some(5), 0, "starter")
+                .unwrap();
+        }
+        log.append_at(at, Kind::Starter, Some(3), 0, "starter")
+            .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let refused = |no: u32| {
+            convert_card(
+                &log,
+                at,
+                &Card {
+                    card_no: no,
+                    ..card(Rarity::Special, 87)
+                },
+            )
+            .unwrap_err()
+            .to_string()
+        };
+        assert_eq!(
+            refused(3),
+            NO_SPARE,
+            "the last earned copy, a starter beside it"
+        );
+        assert_eq!(refused(5), NO_SPARE, "starter copies only");
+        assert_eq!(refused(9), NO_SPARE, "not held");
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        std::fs::write(log.path(), format!("not a line\n{before}")).unwrap();
+        let e = convert_card(
+            &log,
+            at,
+            &Card {
+                card_no: 3,
+                ..card(Rarity::Special, 87)
             },
         )
         .unwrap_err();
