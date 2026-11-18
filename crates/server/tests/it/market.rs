@@ -56,15 +56,37 @@ fn starter_log() -> String {
 }
 
 fn request(verb: Verb, key: &SigningKey, at: u64, log: &str) -> Vec<u8> {
+    request_args(verb, key, at, &[], log)
+}
+
+fn request_args(verb: Verb, key: &SigningKey, at: u64, args: &[u64], log: &str) -> Vec<u8> {
     Request {
         verb,
         key: *key.verifying_key().as_bytes(),
         at,
         rules: RULES,
+        args: args.to_vec(),
         log: log.into(),
     }
     .signed(key)
     .unwrap()
+}
+
+/// `log` with one paid match more that deals `card`, chained to its last line.
+fn with_match(log: &str, card: u32) -> String {
+    let last = log.lines().last().unwrap();
+    let line = forza::collection::Entry {
+        seq: log.lines().count() as u64 + 1,
+        at: time::OffsetDateTime::now_utc(),
+        rules: RULES,
+        kind: forza::collection::Kind::Match,
+        card: Some(card),
+        tokens: 50,
+        why: "match".into(),
+        prev: forza::collection::hash(last),
+    }
+    .line();
+    format!("{log}{line}\n")
 }
 
 /// What the desk sends back to `bytes` until it hangs up or goes quiet for half a second.
@@ -197,4 +219,61 @@ fn a_clock_set_back_does_not_lock_the_key_out() {
         market::ask(d.addr(), &key, Verb::Leave, "", now_ms()).unwrap(),
         "left"
     );
+}
+
+/// Acceptance 3.2 over loopback: a listing, a purchase by a second key and the seller's COLLECT, signed and sent as
+/// the Launcher sends them; no answer's bytes hold either key or its hash.
+#[test]
+fn a_listing_sells_over_the_desk() {
+    let root = scratch("market_ledger");
+    let table = Table::of(
+        &(1..=40)
+            .map(|c| (c, forza::collection::Rarity::Regular, 80))
+            .collect::<Vec<_>>(),
+    );
+    let d = desk(Some(Market::with(table, &root.join("market.db")).unwrap()));
+    let (seller, buyer) = (
+        SigningKey::from_bytes(&[6; 32]),
+        SigningKey::from_bytes(&[7; 32]),
+    );
+    let (sold, funds) = (
+        with_match(&starter_log(), 13),
+        with_match(&starter_log(), 14),
+    );
+    let at = now_ms();
+    let steps: [(&SigningKey, Verb, &[u64], &str, &str); 6] = [
+        (&seller, Verb::Join, &[], &sold, "OK 13 lines\n"),
+        (&seller, Verb::List, &[13, 38], &sold, "OK listed 1:13:38\n"),
+        (&buyer, Verb::Join, &[], &funds, "OK 13 lines\n"),
+        (&buyer, Verb::Browse, &[0], "", "OK listings 1:13:38\n"),
+        (
+            &buyer,
+            Verb::Buy,
+            &[1, 13, 38],
+            &funds,
+            "OK bought 1:13:38\n",
+        ),
+        (
+            &seller,
+            Verb::Collect,
+            &[],
+            "",
+            "OK collected sold 1:13:38\n",
+        ),
+    ];
+    for (n, (key, verb, args, log, want)) in steps.into_iter().enumerate() {
+        let got = answer(d.addr(), &request_args(verb, key, at + n as u64, args, log));
+        let got = String::from_utf8(got).unwrap();
+        assert_eq!(got, want, "{verb:?}");
+        for k in [&seller, &buyer] {
+            let public = k.verifying_key();
+            let pk: String = public
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            let kh = forza_server::market::key_hash(public.as_bytes());
+            assert!(!got.contains(&pk) && !got.contains(&kh[..8]), "{got}");
+        }
+    }
 }

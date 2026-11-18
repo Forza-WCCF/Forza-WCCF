@@ -7,7 +7,8 @@
 //! reports) -> `NO ...`: logs are not collected, players save them and send them themselves. `CLUB PUT|GET|DONE ...`:
 //! a 2017-18 arcade guest's club to the host's store and back ([`forza::online::club`]). `HOLD` -> `HOLD 1` | `HOLD 0` (2010-11 only; the box asks it).
 //! `OCCUPANCY` (admin, loopback only) -> `OCCUPANCY players=N ...`: every room's players, private ones too.
-//! `MARKET JOIN|LEAVE|RESET size sig` + a signed body -> `OK ...` | `NO why`: Create-a-Team's market ([`crate::market`]).
+//! `MARKET JOIN|LEAVE|RESET|LIST|CANCEL|BROWSE|BUY|COLLECT size sig` + a signed body -> `OK ...` | `NO why`:
+//! Create-a-Team's market ([`crate::market`]).
 //!
 //! The lobby's VS rooms ([`forza::online::lobby`] has the words): `CREATE vs [open]` -> `ROOM id code t seat` | `FULL`,
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
