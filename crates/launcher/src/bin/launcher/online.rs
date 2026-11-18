@@ -9,7 +9,7 @@ use forza_ui::launcher::{LauncherState, Tab};
 use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
-use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release, tell_mode};
+use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release, seat_mode, tell_mode};
 use launcher::notice::{self, Notices};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -385,12 +385,15 @@ impl Online {
                 *s = Some(Occupant {
                     club: o.club.clone(),
                     ready: o.ready,
+                    mode: o.mode,
                 });
             }
         }
         // READY pressed here shows at once, before the desk's next answer says so
+        // and this PC's mark is its profile's (a desk before MODE lists every seat FREE)
         if let Some(Some(o)) = room.mine.and_then(|i| seats.get_mut(i)) {
             o.ready |= self.clock.ready;
+            o.mode = seat_mode(st.profile);
         }
         room.seats = seats;
         let c = &mut self.clock;
@@ -417,6 +420,7 @@ impl Online {
                 room.seats[i] = Some(Occupant {
                     club: String::new(),
                     ready: false,
+                    mode: seat_mode(st.profile),
                 });
                 st.lobby.room = Some(room);
                 st.lobby.notice = None;
@@ -483,6 +487,7 @@ impl Online {
                 room.seats[i] = Some(Occupant {
                     club: String::new(),
                     ready: kind == Kind::Arcades,
+                    mode: seat_mode(st.profile),
                 });
                 st.lobby.room = Some(room);
                 self.clock = Clock::default();
