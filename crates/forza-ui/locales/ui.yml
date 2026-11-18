@@ -638,7 +638,7 @@ collection.reset_ask: {en: "Start CREATE-A-TEAM over?\n\nYour cards, tokens and 
 collection.reset_done: {en: "CREATE-A-TEAM starts over. The old cards and club are in %{folder}", it: "CREA LA TUA SQUADRA riparte da zero. Le vecchie carte e il club sono in %{folder}", ja: "クリエイト・ア・チームを最初からやり直します。以前のカードとクラブは次の場所にあります：%{folder}"}
 collection.reset_failed: {en: "CREATE-A-TEAM could not start over, and your cards are unchanged: %{error}", it: "Impossibile ricominciare CREA LA TUA SQUADRA; le tue carte non sono cambiate: %{error}", ja: "クリエイト・ア・チームをやり直せませんでした。カードは変わっていません：%{error}"}
 collection.reset_no_seat: {en: "CREATE-A-TEAM could not start over: the game folder was not found. Your cards are unchanged. On the SETUP tab, pick the game folder and press SET UP, then try again.", it: "Impossibile ricominciare CREA LA TUA SQUADRA: cartella del gioco non trovata. Le tue carte non sono cambiate. Nella scheda CONFIGURAZIONE scegli la cartella del gioco e premi CONFIGURA, poi riprova.", ja: "クリエイト・ア・チームをやり直せませんでした。ゲームフォルダーが見つかりません。カードは変わっていません。「セットアップ」タブでゲームフォルダーを選び、「設定する」を押してから、もう一度お試しください。"}
-# the pack store (PLAN.md 2.1); nation names stay as the cards print them
+# the pack store (PLAN.md 2.1); nation names come from forza::cards::codes::NATIONS_1718
 collection.packs: {en: "PACKS", it: "PACCHETTI", ja: "パック"}
 collection.store_title: {en: "OPEN A PACK", it: "APRI UN PACCHETTO", ja: "パックを開ける"}
 collection.store_hint: {en: "A pack holds 3 player cards, never the same player twice.", it: "Un pacchetto contiene 3 carte giocatore, mai lo stesso giocatore due volte.", ja: "パックには選手カードが 3 枚入っています。同じ選手は入りません。"}
