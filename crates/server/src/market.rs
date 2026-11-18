@@ -1,7 +1,7 @@
-//! Create-a-Team's market on the lobby's desk, steps 3.1, 3.1b and 3.2 (PLAN.md 3.1, 3.4-3.6): the server's value
+//! Create-a-Team's market on the lobby's desk, steps 3.1, 3.1b, 3.2 and 3.3 (PLAN.md 3.1, 3.4-3.6): the server's value
 //! table, `market.db` beside `gamesvr.db`, the plausibility check of a player's grant log, the desk words `MARKET JOIN`,
-//! `LEAVE` and `RESET`, and the ledger's `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT` (their format:
-//! [`forza::market`]). Server stock is a later step.
+//! `LEAVE` and `RESET`, the ledger's `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT`, and each key's own stock list,
+//! `STOCK` and `STOCKBUY` (their format: [`forza::market`]).
 //!
 //! The ledger (PLAN.md 3.4, 3.5): a price inside the card's band from the server's own table, 5 open listings and 10
 //! sales a week per key, 7 days on the market, proceeds held until the seller's COLLECT. LIST and BUY carry the log:
@@ -15,6 +15,11 @@
 //! fork; `MARKET RESET` (a profile reset) is the one allowed restart. No name is asked or stored. LEAVE deletes the log
 //! at once (overwritten in the file, not only unlinked), returns the open listings and keeps the key's hash with its
 //! counters for 7 days, longer while a sale waits for COLLECT.
+//!
+//! The own stock list (PLAN.md 3.5): per key and server day (04:00 to 04:00 UTC, the server's clock), drawn from the
+//! store's secret, the key and the day, plain random within each tier group of the whole table at a share of each
+//! card's value ([`Stock`]), and kept from its first view with its sold slots: a reload, LEAVE then JOIN and RESET show
+//! the same rows. A purchase needs the log's balance less this key's purchases its log does not hold yet, as BUY.
 //!
 //! The value table (card number, tier, TOTAL, series, secret mark) is built on the server's host from an installed
 //! 2017-18 `catalogue.tsv` by `forza-server market-table` ([`write_table`]) and never enters git. Without it every
@@ -313,6 +318,8 @@ pub struct Checked<'a> {
     pub balance: i64,
     /// Its `market_buy` lines: card and price.
     pub bought: Vec<(u32, i64)>,
+    /// Its `stock_buy` lines: card and price.
+    pub stock_bought: Vec<(u32, i64)>,
 }
 
 /// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 3
@@ -613,6 +620,7 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 stock.swap_remove(i);
                 held.entry(c).or_default().earned += 1;
                 market_used = true;
+                out.stock_bought.push((c, price));
             }
         }
         balance = balance
@@ -638,6 +646,97 @@ const SALES_PER_WEEK: u32 = 10;
 const GONE: &str = "that listing is no longer on the market";
 /// CANCEL's refusal of a listing that sold.
 const SOLD: &str = "that listing sold: COLLECT pays it";
+/// STOCKBUY's refusal of a slot bought today.
+const STOCK_SOLD: &str = "that slot is sold: each sells once a day";
+/// Rows of one stock list at most: about 20 bytes each, so a STOCK answer stays under the Launcher's 1 KiB read.
+const STOCK_MAX: u32 = 30;
+/// The stock list's tier groups, in the list's order (PLAN.md 3.5: 4 REGULAR, 3 SPECIAL, 2 RARE, 1 LEGEND or ALL TIME
+/// LEGEND).
+const STOCK_GROUPS: [&[Rarity]; 4] = [
+    &[Rarity::Regular],
+    &[Rarity::Special],
+    &[Rarity::Rare],
+    &[Rarity::Legend, Rarity::AllTimeLegend],
+];
+
+/// The own stock list's settings (PLAN.md 3.5 "Settings (a5)"), read at server start; a server day keeps those of
+/// its first list, so a restart's new settings start with the next day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stock {
+    /// Cards per list in each of [`STOCK_GROUPS`]; their sum is the list's size.
+    pub mix: [u32; 4],
+    /// A slot's price in percent of its card's value, rounded down.
+    pub share: u32,
+    /// Purchases per key and server day; 0: no limit.
+    pub limit: u32,
+}
+
+impl Default for Stock {
+    fn default() -> Self {
+        Self {
+            mix: [4, 3, 2, 1],
+            share: 90,
+            limit: 0,
+        }
+    }
+}
+
+impl Stock {
+    /// The settings from `mix` as `regular,special,rare,legend` (`4,3,2,1`), a share of 1 to 100 % and a limit (0:
+    /// none); refused with the reason.
+    pub fn new(mix: &str, share: u32, limit: u32) -> Result<Self, String> {
+        let n: Vec<u32> = mix
+            .split(',')
+            .map(|n| n.trim().parse())
+            .collect::<Result<_, _>>()
+            .map_err(|_| format!("stock mix {mix:?} is not four numbers"))?;
+        let mix: [u32; 4] = n
+            .try_into()
+            .map_err(|_| format!("stock mix {mix:?} is not four numbers"))?;
+        let cards = mix.iter().sum::<u32>();
+        if !(1..=STOCK_MAX).contains(&cards) {
+            return Err(format!("a stock list of {cards} cards: 1 to {STOCK_MAX}"));
+        }
+        if !(1..=100).contains(&share) {
+            return Err(format!("a stock share of {share} %: 1 to 100"));
+        }
+        Ok(Self { mix, share, limit })
+    }
+
+    fn mix_text(&self) -> String {
+        self.mix.map(|n| n.to_string()).join(",")
+    }
+}
+
+/// The server day at `now` (Unix ms) as days since 1970-01-01 04:00 UTC: the stock list turns at 04:00 UTC (05:00 CET,
+/// 13:00 JST; PLAN.md 3.5 m6), on the server's clock, so a PC's date buys no new list.
+fn stock_day(now: u64) -> i64 {
+    ((now / 1000).saturating_sub(4 * 3600) / 86_400) as i64
+}
+
+/// The log's balance less this key's purchases its log does not hold yet: listings bought (`market_buy`) and stock
+/// slots (`stock_buy`). [`check`] already matched every `stock_buy` line to a sold slot.
+fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, String> {
+    let mut tokens = checked.balance;
+    for (state, written) in [
+        ("bought", &checked.bought),
+        ("stock", &checked.stock_bought),
+    ] {
+        let mut unwritten = pairs(
+            tx,
+            &format!("SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = '{state}'"),
+            kh,
+        )?;
+        for b in written {
+            if let Some(i) = unwritten.iter().position(|u| u == b) {
+                unwritten.swap_remove(i);
+            }
+        }
+        tokens -= unwritten.iter().map(|(_, p)| p).sum::<i64>();
+    }
+    Ok(tokens)
+}
+
 /// Bodies read at once across the desk, and from one address: each may hold [`MAX_BODY`] in memory.
 const MAX_UPLOADS: usize = 8;
 const MAX_UPLOADS_PER_ADDRESS: usize = 2;
@@ -670,6 +769,25 @@ CREATE TABLE IF NOT EXISTS ledger (
     at       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ledger_key ON ledger (key_hash);
+-- the stock lists' secret, drawn with the store and never sent: a list cannot be predicted from outside
+CREATE TABLE IF NOT EXISTS secret (one INTEGER PRIMARY KEY CHECK (one = 1), bytes BLOB NOT NULL);
+-- each key's stock list of a server day (days since 1970-01-01 04:00 UTC), kept from its first view; sold: bought
+CREATE TABLE IF NOT EXISTS stock (
+    key_hash TEXT    NOT NULL,
+    day      INTEGER NOT NULL,
+    slot     INTEGER NOT NULL,             -- from 1
+    card     INTEGER NOT NULL,
+    price    INTEGER NOT NULL,
+    sold     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key_hash, day, slot)
+);
+-- the settings of a server day, from its first list: a restart's new settings start with the next day
+CREATE TABLE IF NOT EXISTS stock_days (
+    day   INTEGER PRIMARY KEY,
+    mix   TEXT    NOT NULL,
+    share INTEGER NOT NULL,
+    lim   INTEGER NOT NULL
+);
 ";
 
 /// The market's server state: the value table, `market.db` and the uploads in flight per address.
@@ -677,6 +795,9 @@ pub struct Market {
     table: Table,
     db: Mutex<Connection>,
     uploads: Mutex<HashMap<String, usize>>,
+    stock: Stock,
+    /// The stock lists' secret (`market.db`'s `secret`).
+    secret: Vec<u8>,
 }
 
 impl std::fmt::Debug for Market {
@@ -727,9 +848,11 @@ impl Market {
         Self::with(Table::load(table)?, db)
     }
 
-    /// The market with `table` (tests build theirs) and its store at `db`.
+    /// The market with `table` (tests build theirs) and its store at `db`, with the default [`Stock`].
     pub fn with(table: Table, db: &Path) -> Result<Self, String> {
-        let open = || -> rusqlite::Result<Connection> {
+        let mut fresh = [0u8; 32];
+        getrandom::fill(&mut fresh).map_err(|e| format!("no random secret ({e})"))?;
+        let open = || -> rusqlite::Result<(Connection, Vec<u8>)> {
             let c = Connection::open(db)?;
             // secure_delete: a deleted log is overwritten in the file, not left in free space (PLAN.md 3.4)
             c.execute_batch(
@@ -770,14 +893,34 @@ impl Market {
                      DROP TABLE ledger_old;",
                 )?;
             }
+            c.execute(
+                "INSERT OR IGNORE INTO secret (one, bytes) VALUES (1, ?1)",
+                [&fresh[..]],
+            )?;
+            let secret = c.query_row("SELECT bytes FROM secret", [], |r| r.get(0))?;
             c.execute_batch("COMMIT")?;
-            Ok(c)
+            Ok((c, secret))
         };
+        let (c, secret) = open().map_err(|e| format!("{}: {e}", db.display()))?;
         Ok(Self {
             table,
-            db: Mutex::new(open().map_err(|e| format!("{}: {e}", db.display()))?),
+            db: Mutex::new(c),
             uploads: Mutex::new(HashMap::new()),
+            stock: Stock::default(),
+            secret,
         })
+    }
+
+    /// The market with the server's stock settings.
+    #[must_use]
+    pub fn with_stock(mut self, stock: Stock) -> Self {
+        self.stock = stock;
+        self
+    }
+
+    #[must_use]
+    pub fn stock(&self) -> Stock {
+        self.stock
     }
 
     #[must_use]
@@ -811,11 +954,13 @@ impl Market {
             )
             .map_err(store_err)?;
         if gone > 0 {
-            db.execute(
-                "DELETE FROM ledger WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
-                [],
-            )
-            .map_err(store_err)?;
+            for table in ["ledger", "stock"] {
+                db.execute(
+                    &format!("DELETE FROM {table} WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = {table}.key_hash)"),
+                    [],
+                )
+                .map_err(store_err)?;
+            }
         }
         let tx = db.transaction().map_err(store_err)?;
         type Stored = (i64, Option<String>, Option<i64>, Option<String>);
@@ -855,7 +1000,7 @@ impl Market {
         if !(req.verb == Verb::Join || joined || req.verb == Verb::Collect && row.is_some()) {
             return Err(NOT_IN.into());
         }
-        // JOIN, LIST and BUY: the log is checked against the table and the key's last log, then kept
+        // JOIN, LIST, BUY, STOCK and STOCKBUY: the log is checked against the table and the key's last log, then kept
         let mut checked = Checked::default();
         if req.verb.logged() {
             let stock = pairs(
@@ -972,6 +1117,22 @@ impl Market {
                 said
             }
             Verb::Buy => self.buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
+            Verb::Stock => {
+                let (_, s, rows) = self.today(&tx, &kh, now)?;
+                let mut said = "stock".to_owned();
+                if s.limit > 0 {
+                    let sold = rows.iter().filter(|r| r.3).count() as u32;
+                    said.push_str(&format!(" left {}", s.limit.saturating_sub(sold)));
+                }
+                for (slot, c, p, sold) in rows {
+                    said.push_str(&format!(
+                        " {slot}:{c}:{p}{}",
+                        if sold { ":sold" } else { "" }
+                    ));
+                }
+                said
+            }
+            Verb::StockBuy => self.stock_buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
             Verb::Collect => {
                 let rows: Vec<(i64, u32, i64, String)> = tx
                     .prepare(
@@ -1186,18 +1347,8 @@ impl Market {
                 "that listing's seller sold {SALES_PER_WEEK} cards this week: it sells again next week"
             ));
         }
-        // a purchase the log lacks (its `market_buy` line not written yet) still spends its tokens
-        let mut unwritten = pairs(
-            tx,
-            "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = 'bought'",
-            kh,
-        )?;
-        for b in &checked.bought {
-            if let Some(i) = unwritten.iter().position(|u| u == b) {
-                unwritten.swap_remove(i);
-            }
-        }
-        let tokens = checked.balance - unwritten.iter().map(|(_, p)| p).sum::<i64>();
+        // a purchase the log lacks (its `market_buy` or `stock_buy` line not written yet) still spends its tokens
+        let tokens = spendable(tx, kh, checked)?;
         if tokens < p {
             return Err(format!("{tokens} tokens to spend, the listing costs {p}"));
         }
@@ -1224,6 +1375,148 @@ impl Market {
         )
         .map_err(store_err)?;
         Ok(format!("bought {id}:{c}:{p}"))
+    }
+
+    /// The key `kh`'s stock list of the server day at `now`: the day, its settings and the rows (slot, card, price,
+    /// sold), drawn and kept on the day's first view. Earlier days' lists go.
+    #[allow(clippy::type_complexity)]
+    fn today(
+        &self,
+        tx: &Connection,
+        kh: &str,
+        now: u64,
+    ) -> Result<(i64, Stock, Vec<(u32, u32, i64, bool)>), String> {
+        let day = stock_day(now);
+        for sql in [
+            "DELETE FROM stock WHERE day < ?1",
+            "DELETE FROM stock_days WHERE day < ?1",
+        ] {
+            tx.execute(sql, params![day]).map_err(store_err)?;
+        }
+        let s = self.stock;
+        tx.execute(
+            "INSERT OR IGNORE INTO stock_days (day, mix, share, lim) VALUES (?1, ?2, ?3, ?4)",
+            params![day, s.mix_text(), s.share, s.limit],
+        )
+        .map_err(store_err)?;
+        let (mix, share, limit): (String, u32, u32) = tx
+            .query_row(
+                "SELECT mix, share, lim FROM stock_days WHERE day = ?1",
+                params![day],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(store_err)?;
+        let s = Stock::new(&mix, share, limit)?;
+        let read = || -> Result<Vec<(u32, u32, i64, bool)>, String> {
+            tx.prepare(
+                "SELECT slot, card, price, sold FROM stock WHERE key_hash = ?1 AND day = ?2 ORDER BY slot",
+            )
+            .and_then(|mut st| {
+                st.query_map(params![kh, day], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })?
+                .collect()
+            })
+            .map_err(store_err)
+        };
+        let rows = read()?;
+        if !rows.is_empty() {
+            return Ok((day, s, rows));
+        }
+        for (slot, (c, p)) in (1u32..).zip(self.draw(kh, day, &s)) {
+            tx.execute(
+                "INSERT INTO stock (key_hash, day, slot, card, price) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![kh, day, slot, c, p],
+            )
+            .map_err(store_err)?;
+        }
+        Ok((day, s, read()?))
+    }
+
+    /// The stock list of the key `kh` on `day` under `s`: a seed from the store's secret, the key and the day, then per
+    /// tier group its cards of the table drawn plain random, none twice, each at `s.share` % of its value.
+    fn draw(&self, kh: &str, day: i64, s: &Stock) -> Vec<(u32, i64)> {
+        let seed = Sha256::new()
+            .chain_update(&self.secret)
+            .chain_update(kh)
+            .chain_update(day.to_le_bytes())
+            .finalize();
+        let seed = seed
+            .get(..8)
+            .and_then(|b| <[u8; 8]>::try_from(b).ok())
+            .map_or(0, u64::from_le_bytes);
+        let mut rng = collection::Rng::new(seed);
+        let mut rows = vec![];
+        for (group, n) in STOCK_GROUPS.iter().zip(s.mix) {
+            let mut pool: Vec<u32> = self
+                .table
+                .cards
+                .iter()
+                .filter(|(_, r)| group.contains(&r.rarity))
+                .map(|(c, _)| *c)
+                .collect();
+            pool.sort_unstable();
+            for _ in 0..n {
+                if pool.is_empty() {
+                    break;
+                }
+                let c = pool.swap_remove(rng.below(pool.len() as u64) as usize);
+                let value = self.table.value(c).unwrap_or_default();
+                rows.push((c, i64::from(value) * i64::from(s.share) / 100));
+            }
+        }
+        rows
+    }
+
+    /// STOCKBUY of today's `slot` of `card` at `price` by the key `kh`, whose log passed as `checked`: the slot as the
+    /// list holds it, not sold, the day's limit not reached, and the tokens [`spendable`]; the slot sells once (a
+    /// conditional update) and a `stock` ledger row waits for the log's `stock_buy` line.
+    fn stock_buy(
+        &self,
+        tx: &Connection,
+        kh: &str,
+        checked: &Checked<'_>,
+        [slot, card, price]: [u64; 3],
+        now: u64,
+    ) -> Result<String, String> {
+        let (day, s, rows) = self.today(tx, kh, now)?;
+        let Some(&(slot, c, p, sold)) = rows.iter().find(|(n, c, p, _)| {
+            u64::from(*n) == slot && u64::from(*c) == card && u64::try_from(*p) == Ok(price)
+        }) else {
+            return Err(format!(
+                "today's stock list has no slot {slot} of card {card} at {price}: the list turns at 04:00 UTC"
+            ));
+        };
+        if sold {
+            return Err(STOCK_SOLD.into());
+        }
+        let bought = rows.iter().filter(|r| r.3).count() as u32;
+        if s.limit > 0 && bought >= s.limit {
+            return Err(format!(
+                "{bought} stock purchases today, this server's limit: the list turns at 04:00 UTC"
+            ));
+        }
+        let tokens = spendable(tx, kh, checked)?;
+        if tokens < p {
+            return Err(format!("{tokens} tokens to spend, the slot costs {p}"));
+        }
+        // conditional, as BUY's sale: a slot sold since the read stays sold once
+        if tx
+            .execute(
+                "UPDATE stock SET sold = 1 WHERE key_hash = ?1 AND day = ?2 AND slot = ?3 AND sold = 0",
+                params![kh, day, slot],
+            )
+            .map_err(store_err)?
+            != 1
+        {
+            return Err(STOCK_SOLD.into());
+        }
+        tx.execute(
+            "INSERT INTO ledger (key_hash, card, price, state, at) VALUES (?1, ?2, ?3, 'stock', ?4)",
+            params![kh, c, p, now as i64],
+        )
+        .map_err(store_err)?;
+        Ok(format!("stockbought {slot}:{c}:{p}"))
     }
 
     /// One `MARKET` request on the desk from `ip` (`words`: the line's words after `MARKET`; `rest`: what the desk
@@ -2419,6 +2712,406 @@ mod tests {
         assert_eq!(
             row(dir.path(), "SELECT card, state FROM ledger ORDER BY id"),
             [[s("57"), s("paid")], [s("57"), s("bought")]]
+        );
+    }
+
+    /// The stock fixture, `table()`'s cards at the values PLAN.md row 3.3 names: REGULAR 1-40 at 40 (TOTAL 80),
+    /// SPECIAL 41-50 and 57 at 240 (TOTAL 87), RARE 51-55 at 1,000 (TOTAL 90), ALL TIME LEGEND 56 at 10,000 (TOTAL 95).
+    fn stock_table() -> Table {
+        let mut cards = vec![];
+        for c in 1..=40 {
+            cards.push((c, Rarity::Regular, 80));
+        }
+        for c in (41..=50).chain([57]) {
+            cards.push((c, Rarity::Special, 87));
+        }
+        for c in 51..=55 {
+            cards.push((c, Rarity::Rare, 90));
+        }
+        cards.push((56, Rarity::AllTimeLegend, 95));
+        Table::of(&cards)
+    }
+
+    fn stock_market(dir: &Path, stock: Stock) -> Market {
+        Market::with(stock_table(), &dir.join("market.db"))
+            .unwrap()
+            .with_stock(stock)
+    }
+
+    const DAY_MS: u64 = 24 * 3600 * 1000;
+
+    /// A STOCK answer's rows: (slot, card, price, sold).
+    fn stock_rows(said: &str) -> Vec<(u64, u64, u64, bool)> {
+        said.split(' ')
+            .filter(|w| w.contains(':'))
+            .map(|w| {
+                let f: Vec<&str> = w.split(':').collect();
+                (
+                    f[0].parse().unwrap(),
+                    f[1].parse().unwrap(),
+                    f[2].parse().unwrap(),
+                    f.get(3) == Some(&"sold"),
+                )
+            })
+            .collect()
+    }
+
+    /// The first start and `weeks` full weeks of 21 paying matches from Tuesday 3 November: 150 + 1,050 a week.
+    fn rich(weeks: i64) -> String {
+        let mut l = started();
+        for w in 0..weeks {
+            for i in 0..21 {
+                let at = t("2026-11-03T10:00:00+09:00") + time::Duration::weeks(w) + mins(9 * i);
+                l.add(at, Kind::Match, Some(20), 50);
+            }
+        }
+        l.text
+    }
+
+    /// `log` with one more line, chained to its last.
+    fn plus(log: &str, kind: Kind, card: u32, tokens: i64) -> String {
+        let last = log.lines().last().unwrap();
+        let line = Entry {
+            seq: log.lines().count() as u64 + 1,
+            at: t("2026-12-01T10:00:00+09:00"),
+            rules: RULES,
+            kind,
+            card: Some(card),
+            tokens,
+            why: String::new(),
+            prev: collection::hash(last),
+        }
+        .line();
+        format!("{log}{line}\n")
+    }
+
+    /// Acceptance 3.3 (a): one key gets the same 10 rows on two views and after a restart, drawn again from the same
+    /// secret, key and day when the stored list is gone; another key and the next server day get other rows; the rows
+    /// are 4 REGULAR, 3 SPECIAL, 2 RARE and 1 LEGEND or ALL TIME LEGEND at 90 % (36, 216, 900, 9,000), and a secret
+    /// HOLE at 5,625.
+    #[test]
+    fn a_keys_stock_list_is_the_same_all_day_and_after_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = earned(&[20]);
+        let a = {
+            let m = stock_market(dir.path(), Stock::default());
+            ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+            ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
+            let a = ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap();
+            assert_eq!(ask(&m, 1, Verb::Stock, NOW + 2, &[], &log).unwrap(), a);
+            assert_ne!(ask(&m, 2, Verb::Stock, NOW + 1, &[], &log).unwrap(), a);
+            a
+        };
+        let rows = stock_rows(&a);
+        let groups = [0, 0, 0, 0, 1, 1, 1, 2, 2, 3];
+        let prices = [36, 36, 36, 36, 216, 216, 216, 900, 900, 9_000];
+        assert_eq!(rows.len(), 10, "{a}");
+        assert!(a.starts_with("stock 1:"), "{a}");
+        for (i, (slot, card, price, sold)) in rows.iter().enumerate() {
+            assert_eq!(
+                (*slot, *price, *sold),
+                (i as u64 + 1, prices[i], false),
+                "{a}"
+            );
+            let tier = stock_table().card(*card as u32).unwrap().rarity;
+            assert!(STOCK_GROUPS[groups[i]].contains(&tier), "{a}");
+        }
+        let m = stock_market(dir.path(), Stock::default());
+        assert_eq!(ask(&m, 1, Verb::Stock, NOW + 3, &[], &log).unwrap(), a);
+        Connection::open(dir.path().join("market.db"))
+            .unwrap()
+            .execute("DELETE FROM stock", [])
+            .unwrap();
+        assert_eq!(ask(&m, 1, Verb::Stock, NOW + 4, &[], &log).unwrap(), a);
+        let next = ask(&m, 1, Verb::Stock, NOW + DAY_MS, &[], &log).unwrap();
+        assert_eq!(stock_rows(&next).len(), 10);
+        assert_ne!(next, a);
+        // a secret HOLE, the one card of its group: 6,250 at 90 %
+        let dir = tempfile::tempdir().unwrap();
+        let mut table = stock_table();
+        table.cards.insert(
+            56,
+            Row {
+                rarity: Rarity::AllTimeLegend,
+                total: 100,
+                series: "HOLE".into(),
+                secret: true,
+            },
+        );
+        let m = Market::with(table, &dir.path().join("market.db")).unwrap();
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let said = ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap();
+        assert!(said.ends_with(" 10:56:5625"), "{said}");
+    }
+
+    /// Acceptance 3.3 (b): a key outside the market, one that left, and one whose log fails the check get no list
+    /// and no sale, each with the reason; nothing is drawn or sold for them.
+    #[test]
+    fn a_key_outside_the_market_or_with_a_failing_log_gets_no_stock() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20]);
+        for verb in [Verb::Stock, Verb::StockBuy] {
+            let args: &[u64] = if verb == Verb::Stock {
+                &[]
+            } else {
+                &[1, 1, 36]
+            };
+            assert_eq!(ask(&m, 3, verb, NOW, args, &log).unwrap_err(), NOT_IN);
+        }
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let mut bad = started();
+        bad.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(20), 1_050);
+        for (at, verb) in [(NOW + 1, Verb::Stock), (NOW + 2, Verb::StockBuy)] {
+            let args: &[u64] = if verb == Verb::Stock {
+                &[]
+            } else {
+                &[1, 1, 36]
+            };
+            let why = ask(&m, 1, verb, at, args, &bad.text).unwrap_err();
+            assert!(
+                why.contains("line 14") && why.contains("one pays 0 to 50"),
+                "{why}"
+            );
+        }
+        ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
+        ask(&m, 2, Verb::Leave, NOW + 1, &[], "").unwrap();
+        assert_eq!(
+            ask(&m, 2, Verb::Stock, NOW + 2, &[], &log).unwrap_err(),
+            NOT_IN
+        );
+        assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM stock"), [[s("0")]]);
+        assert!(row(dir.path(), "SELECT * FROM ledger").is_empty());
+    }
+
+    /// Acceptance 3.3 (c): one key with the tokens buys all 10 slots in a day; a slot sells once, sent again (the same
+    /// answer, one sale), asked again later (refused) or raced from two threads; one token short is refused, and a
+    /// purchase whose `stock_buy` line is not written yet still counts against the balance, once.
+    #[test]
+    fn one_key_buys_its_whole_list_and_each_slot_sells_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = std::sync::Arc::new(stock_market(dir.path(), Stock::default()));
+        let clock = std::cell::Cell::new(NOW);
+        let next = || {
+            clock.set(clock.get() + 1);
+            clock.get()
+        };
+        let log = rich(11); // 11,700 tokens; the list costs 11,592
+        ask(&m, 1, Verb::Join, next(), &[], &log).unwrap();
+        let list = stock_rows(&ask(&m, 1, Verb::Stock, next(), &[], &log).unwrap());
+        for (slot, card, price, _) in &list {
+            let at = next();
+            let first = ask(&m, 1, Verb::StockBuy, at, &[*slot, *card, *price], &log);
+            assert_eq!(first, Ok(format!("stockbought {slot}:{card}:{price}")));
+            assert_eq!(
+                ask(&m, 1, Verb::StockBuy, at, &[*slot, *card, *price], &log),
+                first
+            );
+        }
+        let (slot, card, price, _) = list[0];
+        assert_eq!(
+            ask(&m, 1, Verb::StockBuy, next(), &[slot, card, price], &log).unwrap_err(),
+            STOCK_SOLD
+        );
+        let said = ask(&m, 1, Verb::Stock, next(), &[], &log).unwrap();
+        assert!(stock_rows(&said).iter().all(|r| r.3), "{said}");
+        let stock = format!(
+            "SELECT COUNT(*), SUM(price) FROM ledger WHERE key_hash = '{}' AND state = 'stock'",
+            key_hash(&[1; 32])
+        );
+        assert_eq!(row(dir.path(), &stock), [[s("10"), s("11592")]]);
+        // two racing requests for one slot: one sale
+        ask(&m, 2, Verb::Join, next(), &[], &log).unwrap();
+        let list = stock_rows(&ask(&m, 2, Verb::Stock, next(), &[], &log).unwrap());
+        let (slot, card, price, _) = list[0];
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let at = next();
+        next();
+        let racers = [at, at + 1].map(|at| {
+            let (m, gate, log) = (m.clone(), gate.clone(), log.clone());
+            std::thread::spawn(move || {
+                gate.wait();
+                ask(&m, 2, Verb::StockBuy, at, &[slot, card, price], &log)
+            })
+        });
+        let answers: Vec<_> = racers.into_iter().map(|h| h.join().unwrap()).collect();
+        let won: Vec<_> = answers.iter().filter_map(|a| a.as_ref().ok()).collect();
+        assert_eq!(
+            won,
+            [&format!("stockbought {slot}:{card}:{price}")],
+            "{answers:?}"
+        );
+        let stock2 = format!(
+            "SELECT COUNT(*) FROM ledger WHERE key_hash = '{}' AND state = 'stock'",
+            key_hash(&[2; 32])
+        );
+        assert_eq!(row(dir.path(), &stock2), [[s("1")]]);
+        // 899 tokens: 150 + 11 matches + a sale of card 57 at 199
+        let mut l = started();
+        l.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(57), 50)
+            .add(t("2026-11-03T10:01:00+09:00"), Kind::List, Some(57), 0)
+            .add(
+                t("2026-11-03T10:02:00+09:00"),
+                Kind::MarketSell,
+                Some(57),
+                199,
+            );
+        for i in 0..10 {
+            l.add(
+                t("2026-11-03T11:00:00+09:00") + mins(9 * i),
+                Kind::Match,
+                Some(20),
+                50,
+            );
+        }
+        let short = l.text;
+        ask(&m, 3, Verb::Join, next(), &[], &short).unwrap();
+        let list = stock_rows(&ask(&m, 3, Verb::Stock, next(), &[], &short).unwrap());
+        let rare = [list[7].0, list[7].1, list[7].2];
+        assert_eq!(
+            ask(&m, 3, Verb::StockBuy, next(), &rare, &short).unwrap_err(),
+            "899 tokens to spend, the slot costs 900"
+        );
+        let (slot, card, price, _) = list[0];
+        ask(&m, 3, Verb::StockBuy, next(), &[slot, card, price], &short).unwrap();
+        let held = "863 tokens to spend, the slot costs 900";
+        assert_eq!(
+            ask(&m, 3, Verb::StockBuy, next(), &rare, &short).unwrap_err(),
+            held
+        );
+        let written = plus(&short, Kind::StockBuy, card as u32, -(price as i64));
+        assert_eq!(
+            ask(&m, 3, Verb::StockBuy, next(), &rare, &written).unwrap_err(),
+            held
+        );
+        // and BUY counts it as well
+        let buy = Checked {
+            balance: 899,
+            ..Checked::default()
+        };
+        let db = m.db.lock().unwrap();
+        assert_eq!(spendable(&db, &key_hash(&[3; 32]), &buy).unwrap(), 863);
+    }
+
+    /// Acceptance 3.3 (d): a restart with 12 cards and a share of 85 % leaves the lists already served and the day's
+    /// settings alone, and changes the next day's lists; a limit of 2 refuses the 3rd purchase of a day.
+    #[test]
+    fn new_settings_start_with_the_next_day_and_a_limit_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = earned(&[20]);
+        let served = {
+            let m = stock_market(dir.path(), Stock::default());
+            ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+            ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
+            ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap()
+        };
+        let m = stock_market(dir.path(), Stock::new("5,4,2,1", 85, 2).unwrap());
+        assert_eq!(ask(&m, 1, Verb::Stock, NOW + 2, &[], &log).unwrap(), served);
+        let other = ask(&m, 2, Verb::Stock, NOW + 2, &[], &log).unwrap();
+        assert_eq!(stock_rows(&other).len(), 10, "{other}");
+        assert!(!other.contains("left"), "{other}");
+        let day = NOW + DAY_MS;
+        let said = ask(&m, 1, Verb::Stock, day, &[], &log).unwrap();
+        let prices: Vec<u64> = stock_rows(&said).iter().map(|r| r.2).collect();
+        assert_eq!(
+            prices,
+            [34, 34, 34, 34, 34, 204, 204, 204, 204, 850, 850, 8_500],
+            "{said}"
+        );
+        assert!(said.starts_with("stock left 2 1:"), "{said}");
+        let list = stock_rows(&said);
+        for (n, (slot, card, price, _)) in list.iter().take(3).enumerate() {
+            let got = ask(
+                &m,
+                1,
+                Verb::StockBuy,
+                day + 1 + n as u64,
+                &[*slot, *card, *price],
+                &log,
+            );
+            if n < 2 {
+                assert_eq!(got, Ok(format!("stockbought {slot}:{card}:{price}")));
+            } else {
+                assert_eq!(
+                    got.unwrap_err(),
+                    "2 stock purchases today, this server's limit: the list turns at 04:00 UTC"
+                );
+            }
+        }
+        let said = ask(&m, 1, Verb::Stock, day + 4, &[], &log).unwrap();
+        assert!(said.starts_with("stock left 0 1:"), "{said}");
+        // the settings a server reads at start are checked
+        assert!(Stock::new("4,3,2", 90, 0).is_err());
+        assert!(Stock::new("30,1,0,0", 90, 0).is_err());
+        assert!(Stock::new("4,3,2,1", 0, 0).is_err());
+        assert!(Stock::new("4,3,2,1", 101, 0).is_err());
+    }
+
+    /// Unix ms of an RFC 3339 time.
+    fn ms(at: &str) -> u64 {
+        (t(at).unix_timestamp_nanos() / 1_000_000) as u64
+    }
+
+    /// Acceptance 3.3 (e): a view at 03:59 UTC shows that server day's list and 04:00 the next; LEAVE then JOIN, and
+    /// RESET then JOIN, show the same list with its sold slot.
+    #[test]
+    fn the_list_turns_at_4_utc_and_stays_through_leave_and_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20]);
+        ask(&m, 1, Verb::Join, ms("2026-11-19T03:00:00Z"), &[], &log).unwrap();
+        let night = ask(&m, 1, Verb::Stock, ms("2026-11-19T03:00:01Z"), &[], &log).unwrap();
+        let late = ask(
+            &m,
+            1,
+            Verb::Stock,
+            ms("2026-11-19T03:59:59.999Z"),
+            &[],
+            &log,
+        )
+        .unwrap();
+        assert_eq!(late, night);
+        let at = ms("2026-11-19T04:00:00Z");
+        let morning = ask(&m, 1, Verb::Stock, at, &[], &log).unwrap();
+        assert_ne!(morning, night);
+        assert_eq!(stock_day(at), stock_day(at - 1) + 1);
+        let (slot, card, price, _) = stock_rows(&morning)[0];
+        ask(&m, 1, Verb::StockBuy, at + 1, &[slot, card, price], &log).unwrap();
+        let sold = morning.replacen(
+            &format!(" {slot}:{card}:{price}"),
+            &format!(" {slot}:{card}:{price}:sold"),
+            1,
+        );
+        assert_eq!(ask(&m, 1, Verb::Stock, at + 2, &[], &log).unwrap(), sold);
+        ask(&m, 1, Verb::Leave, at + 3, &[], "").unwrap();
+        ask(&m, 1, Verb::Join, at + 4, &[], &log).unwrap();
+        assert_eq!(ask(&m, 1, Verb::Stock, at + 5, &[], &log).unwrap(), sold);
+        ask(&m, 1, Verb::Reset, at + 6, &[], "").unwrap();
+        let reset: String = log.lines().take(12).map(|l| format!("{l}\n")).collect();
+        ask(&m, 1, Verb::Join, at + 7, &[], &reset).unwrap();
+        assert_eq!(ask(&m, 1, Verb::Stock, at + 8, &[], &reset).unwrap(), sold);
+    }
+
+    /// A stock-bought card is an earned copy: once its `stock_buy` line is in the log it lists at 95 % of its value,
+    /// the band's top, like any earned copy.
+    #[test]
+    fn a_stock_bought_card_lists_at_95_percent() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20, 20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let list = stock_rows(&ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap());
+        let (slot, card, price, _) = list[4];
+        assert_eq!(price, 216);
+        ask(&m, 1, Verb::StockBuy, NOW + 2, &[slot, card, price], &log).unwrap();
+        let top = u64::from(collection::ceiling_value(240));
+        assert_eq!(top, 228);
+        let why = ask(&m, 1, Verb::List, NOW + 3, &[card, top], &log).unwrap_err();
+        assert!(why.starts_with("no earned copy"), "{why}");
+        let written = plus(&log, Kind::StockBuy, card as u32, -216);
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 4, &[card, top], &written).unwrap(),
+            format!("listed 2:{card}:228")
         );
     }
 

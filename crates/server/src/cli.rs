@@ -99,6 +99,16 @@ enum Service {
         /// `market.db` beside `gamesvr.db`; without it every MARKET word answers that the market is not set up
         #[arg(long)]
         market_table: Option<PathBuf>,
+        /// The market's own stock list: cards per list in each tier group, REGULAR,SPECIAL,RARE,LEGEND (LEGEND counts
+        /// ALL TIME LEGEND too); a restart's new settings start with the next server day (04:00 UTC)
+        #[arg(long, default_value = "4,3,2,1")]
+        stock_mix: String,
+        /// The stock list's prices, in percent of each card's value
+        #[arg(long, default_value_t = 90)]
+        stock_share: u32,
+        /// Stock purchases per installation and server day; 0: no limit
+        #[arg(long, default_value_t = 0)]
+        stock_limit: u32,
         life: Option<f64>,
         logs_dir: Option<PathBuf>,
     },
@@ -194,20 +204,26 @@ fn start_desk(
     club: Option<(PathBuf, Option<desk::Allow>)>,
     sessions: Option<Arc<Sessions>>,
     store: Option<&Path>,
-    market_table: Option<&Path>,
+    market: Option<(&Path, Result<crate::market::Stock, String>)>,
     log: Log,
 ) -> std::io::Result<Handle> {
     let mut c = desk::DeskConfig::new(ed);
     c.sessions = sessions;
     // the market's store beside the game server's (`all`); a table that does not load leaves the market off
-    if let (Some(table), Some(store)) = (market_table, store) {
-        match crate::market::Market::open(table, &store.join("market.db")) {
+    if let (Some((table, stock)), Some(store)) = (market, store) {
+        match stock.and_then(|s| {
+            Ok(crate::market::Market::open(table, &store.join("market.db"))?.with_stock(s))
+        }) {
             Ok(m) => {
+                let s = m.stock();
                 log(&format!(
-                    "market on: {} cards, rules {}, catalogue {}",
+                    "market on: {} cards, rules {}, catalogue {}, stock {:?} at {} %, limit {}",
                     m.table().len(),
                     m.table().rules,
-                    m.table().catalogue
+                    m.table().catalogue,
+                    s.mix,
+                    s.share,
+                    s.limit
                 ));
                 c.market = Some(Arc::new(m));
             }
@@ -437,6 +453,9 @@ where
             lan,
             g,
             market_table,
+            stock_mix,
+            stock_share,
+            stock_limit,
             life,
             logs_dir,
         } => {
@@ -462,7 +481,12 @@ where
                     club,
                     sessions.clone(),
                     Some(&g.store),
-                    market_table.as_deref(),
+                    market_table.as_deref().map(|t| {
+                        (
+                            t,
+                            crate::market::Stock::new(stock_mix, *stock_share, *stock_limit),
+                        )
+                    }),
                     file_log(desk_log.clone()),
                 ),
                 start_relay(ed, *relay_port, file_log(relay_log)),

@@ -1,11 +1,11 @@
 //! Create-a-Team's market requests (PLAN.md 3.1, 3.4, 3.5): the installation's key `data\market.key` and the signed
-//! desk words `MARKET JOIN`, `LEAVE`, `RESET`, `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT`. The Launcher builds and
+//! desk words `MARKET JOIN`, `LEAVE`, `RESET`, `LIST`, `CANCEL`, `BROWSE`, `BUY`, `COLLECT`, `STOCK` and `STOCKBUY`. The Launcher builds and
 //! sends them; the server (`forza-server`, `crates/server/src/market.rs`) reads them with [`Request::open`], so the
 //! format lives here once.
 //!
 //! A request is one line and a body: `MARKET VERB size sig` + `size` bytes. The body's first line is
 //! `VERB key at rules` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`) and the verb's
-//! numbers ([`Verb::args`]), then on JOIN, LIST and BUY the grant log `grants.jsonl` as it is on disk. No name is sent:
+//! numbers ([`Verb::args`]), then on JOIN, LIST, BUY, STOCK and STOCKBUY the grant log `grants.jsonl` as it is on disk. No name is sent:
 //! listings never show the seller (PLAN.md 3.5). `sig` is the ed25519 signature of the whole body in hex. Answers:
 //! `OK ...` or `NO reason`, one line. A request whose `at` is not after the key's last one answers [`OLD`] with the
 //! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out); a ledger word
@@ -29,6 +29,14 @@
 //!   `market_sell` line each), then `returned` and `id:card` for each listing past 7 days (an `unlist` line each); at
 //!   most [`COLLECT_PAGE`] rows, so ask again until it answers `OK collected` alone. It also works after LEAVE while a
 //!   sale waits.
+//!
+//! The own stock list (step 3.3, PLAN.md 3.5): each key's list for the server day (04:00 to 04:00 UTC), drawn from a
+//! server secret, the key and the day and kept from its first view, so a reload, LEAVE then JOIN or RESET shows the
+//! same rows; the cards, tier mix, price share and a purchase limit per day are the server's settings:
+//! - `STOCK` + log: `OK stock`, then `left n` when the server has a daily limit (purchases left today), then
+//!   `slot:card:price` for each row from slot 1, `slot:card:price:sold` for one bought today;
+//! - `STOCKBUY slot card price` + log: `OK stockbought slot:card:price` (a `stock_buy` line of `-price`); the card and
+//!   price must be the slot's today, so a list from before 04:00 UTC buys nothing else.
 //!
 //! The key is made on first use and lives outside the profile folder, so a profile reset keeps it (PLAN.md 3.6).
 
@@ -74,6 +82,10 @@ pub enum Verb {
     Buy,
     /// Take the proceeds of sold listings and the listings past 7 days.
     Collect,
+    /// This key's own stock list for the server day.
+    Stock,
+    /// Buy one slot of that list.
+    StockBuy,
 }
 
 impl Verb {
@@ -88,6 +100,8 @@ impl Verb {
             Self::Browse => "BROWSE",
             Self::Buy => "BUY",
             Self::Collect => "COLLECT",
+            Self::Stock => "STOCK",
+            Self::StockBuy => "STOCKBUY",
         }
     }
 
@@ -102,6 +116,8 @@ impl Verb {
             Self::Browse,
             Self::Buy,
             Self::Collect,
+            Self::Stock,
+            Self::StockBuy,
         ]
         .into_iter()
         .find(|v| v.word() == word)
@@ -115,14 +131,18 @@ impl Verb {
             Self::Cancel => &["listing"],
             Self::Browse => &["after"],
             Self::Buy => &["listing", "card", "price"],
-            Self::Join | Self::Leave | Self::Reset | Self::Collect => &[],
+            Self::StockBuy => &["slot", "card", "price"],
+            Self::Join | Self::Leave | Self::Reset | Self::Collect | Self::Stock => &[],
         }
     }
 
-    /// Whether the body carries the grant log, which the server checks: JOIN, LIST and BUY.
+    /// Whether the body carries the grant log, which the server checks: JOIN, LIST, BUY, STOCK and STOCKBUY.
     #[must_use]
     pub fn logged(self) -> bool {
-        matches!(self, Self::Join | Self::List | Self::Buy)
+        matches!(
+            self,
+            Self::Join | Self::List | Self::Buy | Self::Stock | Self::StockBuy
+        )
     }
 }
 
@@ -138,7 +158,7 @@ pub struct Request {
     pub rules: u32,
     /// The verb's numbers ([`Verb::args`]).
     pub args: Vec<u64>,
-    /// JOIN, LIST and BUY: `grants.jsonl` as it is; else empty.
+    /// The words [`Verb::logged`] names: `grants.jsonl` as it is; else empty.
     pub log: String,
 }
 
@@ -322,7 +342,7 @@ pub fn last_at(why: &str) -> Option<u64> {
     why.strip_prefix(OLD)?.rsplit(' ').next()?.parse().ok()
 }
 
-/// Signs `verb`, a word without numbers (JOIN with `log`, LEAVE, RESET, COLLECT), at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
+/// Signs `verb`, a word without numbers (JOIN and STOCK with `log`, LEAVE, RESET, COLLECT), at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
 /// [`send`]. Refused as [`OLD`] because the key's last request is not before `at` (the PC's clock went back after it,
 /// or two requests in one millisecond), it signs again once just after that time.
 pub fn ask(
@@ -526,6 +546,31 @@ mod tests {
                 .unwrap_err()
                 .contains("not numbers")
         );
+    }
+
+    /// Step 3.3: STOCK carries the log and no number, STOCKBUY its slot, card and price and the log; both open again
+    /// as signed.
+    #[test]
+    fn stock_words_carry_the_log_and_their_numbers() {
+        let pk = hex(key(7).verifying_key().as_bytes());
+        let mut r = join();
+        r.verb = Verb::Stock;
+        let sent = r.signed(&key(7)).unwrap();
+        let (words, body) = split(&sent);
+        assert_eq!(words[0], "STOCK");
+        assert_eq!(
+            String::from_utf8(body).unwrap(),
+            format!("STOCK {pk} 1762000000000 1\n{{\"seq\":1}}\n{{\"seq\":2}}\n")
+        );
+        assert_eq!(open(&sent).unwrap(), r);
+        (r.verb, r.args) = (Verb::StockBuy, vec![3, 41, 216]);
+        let sent = r.signed(&key(7)).unwrap();
+        let (_, body) = split(&sent);
+        assert!(String::from_utf8(body).unwrap().starts_with(&format!(
+            "STOCKBUY {pk} 1762000000000 1 3 41 216\n{{\"seq\":1}}"
+        )));
+        assert_eq!(open(&sent).unwrap(), r);
+        assert!(Verb::Stock.logged() && Verb::StockBuy.logged());
     }
 
     #[test]
