@@ -175,6 +175,59 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     mark(seat, p.code())
 }
 
+/// RESET PROFILE (`PLAN.md` 1.5): Create-a-Team's whole folder (collection, save, table) moved in one rename to
+/// `data\profiles\archive\create-a-team-<stamp>` (`-2`, `-3`... when taken), the archive returned. Nothing is deleted
+/// and free play's save and table are never touched. The seat folder's table, when it is Create-a-Team's, goes to
+/// its board first (the old profile is whole after that step too), so the rename is the one step that changes the
+/// profile: a reset stopped anywhere leaves the old profile whole or the new one empty. The next start makes a new
+/// access code (a new club) and an empty table; the next look at the collection offers the first start.
+/// `data\market.key` and the welcome mark live outside the folder and stay.
+pub fn reset(data: &Path, seat: Option<&Path>, stamp: &str) -> io::Result<PathBuf> {
+    reset_with(data, seat, stamp, &mut |_| Ok(()))
+}
+
+/// [`reset`] with `step` called before each of its steps (0: park the seat's table, 1: empty the marker, 2: make the
+/// archive folder, 3: the rename): a test makes one fail.
+fn reset_with(
+    data: &Path,
+    seat: Option<&Path>,
+    stamp: &str,
+    step: &mut dyn FnMut(u8) -> io::Result<()>,
+) -> io::Result<PathBuf> {
+    let p = Profile::CreateATeam;
+    let from = data.join("profiles").join(p.code());
+    if !from.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} does not exist", from.display()),
+        ));
+    }
+    if let Some(seat) = seat
+        && held(seat)? == Some(p)
+    {
+        // what a switch away does (`board_in`): the board then holds the whole table and the marker says so
+        step(0)?;
+        if seat.join(BOARD[0]).is_file() {
+            mirror(seat, &p.board(data), Keep::All)?;
+        }
+        step(1)?;
+        mark(seat, "")?;
+    }
+    step(2)?;
+    let archive = data.join("profiles").join("archive");
+    fs::create_dir_all(&archive)?;
+    let to = (1..)
+        .map(|i| match i {
+            1 => archive.join(format!("{}-{stamp}", p.code())),
+            i => archive.join(format!("{}-{stamp}-{i}", p.code())),
+        })
+        .find(|p| !p.exists())
+        .expect("a free name");
+    step(3)?;
+    fs::rename(&from, &to)?;
+    Ok(to)
+}
+
 /// A run's end: the seat folder's table copied back to `p`'s board folder when it is `p`'s. Free play's table is never
 /// copied while no switch was ever made (no marker): it stays in the seat folder only, as before profiles.
 pub fn board_out(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
@@ -475,6 +528,193 @@ mod tests {
         board_out(&data, &seat, Profile::CreateATeam).unwrap();
         for n in BOARD {
             assert_eq!(fs::read_to_string(cat.join(n)).unwrap(), n);
+        }
+    }
+
+    /// Every file under `dir` by its path there, with its bytes; empty when `dir` is missing.
+    fn tree(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            let Ok(list) = fs::read_dir(&d) else { continue };
+            for e in list {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else {
+                    let k = p.strip_prefix(dir).unwrap().to_path_buf();
+                    out.insert(k, fs::read(&p).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// Everything in `data` but Create-a-Team's folder and the archive: free play's save and table, settings.json,
+    /// the market key and the welcome mark.
+    fn outside(data: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut t = tree(data);
+        let profiles = Path::new("profiles");
+        t.retain(|k, _| {
+            !k.starts_with(profiles.join(Profile::CreateATeam.code()))
+                && !k.starts_with(profiles.join("archive"))
+        });
+        t
+    }
+
+    /// An installation that played both profiles: free play's save and table, Create-a-Team's save, collection (a
+    /// damaged log) and board, the market key and the welcome mark; the seat holds Create-a-Team's table, newer than
+    /// its board (a run that crashed before the copy back).
+    fn played(d: &Path) -> (PathBuf, PathBuf) {
+        let (data, seat) = (d.join("data"), d.join("seat1"));
+        let cat = Profile::CreateATeam;
+        fs::create_dir_all(Profile::Free.save(&data)).unwrap();
+        fs::write(
+            Profile::Free.save(&data).join("seat1_aime.txt"),
+            "free code",
+        )
+        .unwrap();
+        fs::write(data.join("settings.json"), r#"{"profile":"create-a-team"}"#).unwrap();
+        fs::write(data.join("market.key"), "key").unwrap();
+        fs::write(data.join("market.welcome"), "1").unwrap();
+        fs::create_dir_all(&seat).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "free table").unwrap();
+        board_in(&data, &seat, cat).unwrap();
+        fs::create_dir_all(cat.save(&data).join("gamesvr")).unwrap();
+        fs::write(cat.save(&data).join("seat1_aime.txt"), "cat code").unwrap();
+        fs::write(cat.save(&data).join("gamesvr").join("gamesvr.db"), "club").unwrap();
+        let coll = cat.collection(&data).unwrap();
+        fs::create_dir_all(&coll).unwrap();
+        fs::write(
+            coll.join("grants.jsonl"),
+            "{\"seq\":1}\n{broken\n{\"seq\":3}\n",
+        )
+        .unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "cat 1").unwrap();
+        fs::write(seat.join("fpr_panel_state.json"), "{}").unwrap();
+        board_out(&data, &seat, cat).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "cat 2").unwrap();
+        (data, seat)
+    }
+
+    /// The table files in the seat folder, the marker left out.
+    fn seat_table(seat: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut t = tree(seat);
+        t.remove(Path::new(MARKER));
+        t
+    }
+
+    /// 1.5 (1), (2): a reset moves Create-a-Team's collection (the damaged log byte-identical), save and table, the
+    /// seat's newest included, into the archive; free play's save, table and settings and the market key and welcome
+    /// mark stay byte-identical; the next start has a new save and an empty table.
+    #[test]
+    fn a_reset_archives_create_a_team_and_leaves_free_play_alone() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = played(d.path());
+        let cat = Profile::CreateATeam;
+        let home = data.join("profiles").join(cat.code());
+        let old = tree(&home);
+        let free = outside(&data);
+        let to = reset(&data, Some(&seat), "20261118-120000").unwrap();
+        assert_eq!(
+            to,
+            data.join("profiles")
+                .join("archive")
+                .join("create-a-team-20261118-120000")
+        );
+        assert!(!home.exists());
+        let got = tree(&to);
+        let at = |k: &str| got.get(Path::new(k)).cloned();
+        assert_eq!(
+            at("collection/grants.jsonl"),
+            old.get(Path::new("collection/grants.jsonl")).cloned()
+        );
+        assert_eq!(at("save/seat1_aime.txt").as_deref(), Some(&b"cat code"[..]));
+        assert_eq!(at("save/gamesvr/gamesvr.db").as_deref(), Some(&b"club"[..]));
+        assert_eq!(at("board/fpr_table0.txt").as_deref(), Some(&b"cat 2"[..]));
+        assert_eq!(
+            at("board/fpr_table0.txt.prev").as_deref(),
+            Some(&b"cat 1"[..])
+        );
+        assert!(
+            old.values().all(|v| got.values().any(|g| g == v)),
+            "nothing lost"
+        );
+        assert_eq!(outside(&data), free);
+        // the next start: an empty table for Create-a-Team, free play's own back for free play
+        board_in(&data, &seat, cat).unwrap();
+        assert_eq!(table(&seat), None);
+        assert!(!cat.save(&data).exists());
+        board_in(&data, &seat, Profile::Free).unwrap();
+        assert_eq!(table(&seat).as_deref(), Some("free table"));
+        // a second reset in the same second gets its own folder
+        fs::create_dir_all(cat.collection(&data).unwrap()).unwrap();
+        let again = reset(&data, Some(&seat), "20261118-120000").unwrap();
+        assert!(again.ends_with("create-a-team-20261118-120000-2"));
+        assert_eq!(tree(&to), got);
+        // with free play's table in the seat the seat is not touched; with no Create-a-Team folder nothing moves
+        let before = tree(&seat);
+        fs::create_dir_all(cat.collection(&data).unwrap()).unwrap();
+        reset(&data, Some(&seat), "x").unwrap();
+        assert_eq!(tree(&seat), before);
+        assert!(reset(&data, Some(&seat), "y").is_err());
+        assert_eq!(outside(&data), free);
+    }
+
+    /// 1.5 (3): a reset stopped before any of its steps (an error, or a crash there: nothing is undone either way)
+    /// leaves the old profile whole: every file still in its folder, the next start shows the seat's table, and free
+    /// play's files are byte-identical. A reset after it goes through.
+    #[test]
+    fn a_reset_stopped_at_any_step_leaves_the_old_profile_whole() {
+        let cat = Profile::CreateATeam;
+        for fail in 0..4u8 {
+            let d = tempfile::tempdir().unwrap();
+            let (data, seat) = played(d.path());
+            let home = data.join("profiles").join(cat.code());
+            let (old, free, shown) = (tree(&home), outside(&data), seat_table(&seat));
+            let r = reset_with(&data, Some(&seat), "s", &mut |s| {
+                if s == fail {
+                    Err(io::Error::other("injected"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(r.is_err(), "step {fail}");
+            let now = tree(&home);
+            for (k, v) in &old {
+                if !k.starts_with("board") {
+                    assert_eq!(now.get(k), Some(v), "step {fail}: {k:?}");
+                }
+            }
+            assert!(
+                old.values().all(|v| now.values().any(|g| g == v)),
+                "step {fail}: nothing lost"
+            );
+            assert!(
+                !data
+                    .join("profiles")
+                    .join("archive")
+                    .join("create-a-team-s")
+                    .exists()
+            );
+            board_in(&data, &seat, cat).unwrap();
+            assert_eq!(
+                seat_table(&seat),
+                shown,
+                "step {fail}: the table the next start shows"
+            );
+            assert_eq!(outside(&data), free, "step {fail}");
+            let to = reset(&data, Some(&seat), "s").unwrap();
+            assert_eq!(
+                fs::read(to.join("collection").join("grants.jsonl")).ok(),
+                old.get(Path::new("collection/grants.jsonl")).cloned()
+            );
+            board_in(&data, &seat, cat).unwrap();
+            assert_eq!(
+                table(&seat),
+                None,
+                "step {fail}: the new profile's empty table"
+            );
         }
     }
 }
