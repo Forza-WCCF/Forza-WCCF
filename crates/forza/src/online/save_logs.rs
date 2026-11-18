@@ -1092,12 +1092,16 @@ mod tests {
             })
     }
 
-    /// `data` without every one of `cuts`.
+    /// `data` with each of `cuts` turned into a NUL, which no name holds: dropping a cut would join the text on its
+    /// two sides into a name that was never in it (#381: `あPCあ` read as the user `ああ`).
     fn without(data: &[u8], cuts: [&[u8]; 3]) -> Vec<u8> {
         let (mut out, mut i) = (vec![], 0);
         while i < data.len() {
             match cuts.iter().find(|c| data[i..].starts_with(c)) {
-                Some(c) => i += c.len(),
+                Some(c) => {
+                    out.push(0);
+                    i += c.len();
+                }
                 None => {
                     out.push(data[i]);
                     i += 1;
@@ -1171,59 +1175,114 @@ mod tests {
         holds(b"USER %USERPROFILE% PC", n, utf8)
     }
 
-    // The scrub's promise, stated as a rule for what these generators make: the user name, the PC name and the home
-    // path (with `\` and with `/`), each in any case, sit at any offset of the text, in every encoding it comes in
-    // (UTF-8, Latin-1, CP932), and none of them survives; the home goes as one `%USERPROFILE%`, with or without
-    // `folders`. A non-ASCII name may touch letters, digits and kana ("glue"), as in Japanese; an ASCII one is
-    // generated alone, as the whole-word rule spares a letter beside it. The case of a name is spelled out whole, so
-    // the mixed-case `shortcut` above is not exercised here; the UTF-8 text stays UTF-8.
+    /// The scrub's promise, stated as a rule for what these generators make: the user name, the PC name and the home
+    /// path (with `\` and with `/`), each in any case, sit at any offset of the text, in every encoding it comes in
+    /// (UTF-8, Latin-1, CP932), and none of them survives; the home goes as one `%USERPROFILE%`, with or without
+    /// `folders`. A non-ASCII name may touch letters, digits and kana ("glue"), as in Japanese; an ASCII one is
+    /// generated alone, as the whole-word rule spares a letter beside it. The case of a name is spelled out whole, so
+    /// the mixed-case `shortcut` above is not exercised here; the UTF-8 text stays UTF-8.
+    fn no_name_behind(
+        (user, pc, drive): (&str, &str, &str),
+        (cu, cp, ch): (u8, u8, u8),
+        (ends, cores, glue): (&[String; 2], &[String; 3], &[String; 4]),
+        folders: bool,
+    ) -> Result<(), TestCaseError> {
+        prop_assume!(!in_placeholder(user) && !in_placeholder(pc));
+        prop_assume!(
+            glue.iter()
+                .all(|g| [user, pc].iter().all(|n| !holds(g.as_bytes(), n, utf8)))
+        );
+        let home = format!("{drive}:\\Users\\{user}");
+        let scrub = Scrub {
+            home: home.clone(),
+            user: user.to_owned(),
+            pc: pc.to_owned(),
+            folders,
+        };
+        let g = |name: &str, i: usize| {
+            if name.is_ascii() {
+                ""
+            } else {
+                glue[i].as_str()
+            }
+        };
+        let (u, p, h) = (vary(user, cu), vary(pc, cp), vary(&home, ch));
+        let f = h.replace('\\', "/");
+        let text = format!(
+            "{}{}{u}{}{}{}{p}{}{}{h}{}{f}{}",
+            ends[0],
+            g(user, 0),
+            g(user, 1),
+            cores[0],
+            g(pc, 2),
+            g(pc, 3),
+            cores[1],
+            cores[2],
+            ends[1]
+        );
+        for (enc, text_enc) in [(utf8 as Enc, true), (latin1, false), (sjis, false)] {
+            // only text the encoding can hold is checked in it
+            let Some(data) = enc(&text) else { continue };
+            let out = scrub.scrub(data.clone());
+            // what this project wrote as UTF-8 stays valid UTF-8
+            if text_enc {
+                prop_assert!(
+                    std::str::from_utf8(&out).is_ok(),
+                    "{:?}",
+                    String::from_utf8_lossy(&out)
+                );
+            }
+            let shown = String::from_utf8_lossy(&out);
+            // a name can be spelled by a letter of the text beside a placeholder ("E" before "USER"): the
+            // placeholders are no player's text, so each becomes a NUL before a name is looked for
+            let rest = without(&out, [b"USER", b"%USERPROFILE%", b"PC"]);
+            for needle in [&u, &p, &h, &f] {
+                prop_assert!(
+                    holds(&data, needle, enc),
+                    "{needle:?} was never in the text"
+                );
+                prop_assert!(
+                    !holds(&rest, needle, enc),
+                    "{needle:?} survived in {shown:?}"
+                );
+            }
+            let homes = out.windows(13).filter(|w| w == b"%USERPROFILE%").count();
+            prop_assert_eq!(homes, 2, "{:?}", shown);
+        }
+        Ok(())
+    }
+
+    /// #381: proptest's shrunk case, a kana user name with kana on both sides of the PC name ([`without`]).
+    #[test]
+    fn a_kana_name_beside_kana_glue_goes() {
+        let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+        let (ends, cores, glue) = (s(&["", ""]), s(&["\\", " ", "_"]), s(&["", "", "あ", "あ"]));
+        no_name_behind(
+            ("ああ", "郎花", "A"),
+            (0, 0, 0),
+            (
+                &ends.try_into().unwrap(),
+                &cores.try_into().unwrap(),
+                &glue.try_into().unwrap(),
+            ),
+            false,
+        )
+        .unwrap();
+    }
+
     proptest! {
         #[test]
         fn scrub_leaves_no_name_behind(
             user in user_name(),
             pc in pc_name(),
             drive in "[A-Za-z]",
-            (cu, cp, ch) in (0..4u8, 0..4u8, 0..4u8),
+            case in (0..4u8, 0..4u8, 0..4u8),
             ends in ["[ ._\\\\/:,;()#!\n-]{0,3}"; 2],
             cores in ["[ ._\\\\/:,;()#!\n-]{1,3}"; 3],
             glue in ["[a-zA-Z0-9あ日本]{0,3}"; 4],
             folders in any::<bool>(),
         ) {
-            prop_assume!(!in_placeholder(&user) && !in_placeholder(&pc));
-            prop_assume!(glue.iter().all(|g| [&user, &pc].iter().all(|n| !holds(g.as_bytes(), n, utf8))));
-            let home = format!("{drive}:\\Users\\{user}");
-            let scrub = Scrub {
-                home: home.clone(),
-                user: user.clone(),
-                pc: pc.clone(),
-                folders,
-            };
-            let g = |name: &str, i: usize| if name.is_ascii() { "" } else { glue[i].as_str() };
-            let (u, p, h) = (vary(&user, cu), vary(&pc, cp), vary(&home, ch));
-            let f = h.replace('\\', "/");
-            let text = format!(
-                "{}{}{u}{}{}{}{p}{}{}{h}{}{f}{}",
-                ends[0], g(&user, 0), g(&user, 1), cores[0], g(&pc, 2), g(&pc, 3), cores[1], cores[2], ends[1]
-            );
-            for (enc, text_enc) in [(utf8 as Enc, true), (latin1, false), (sjis, false)] {
-                // only text the encoding can hold is checked in it
-                let Some(data) = enc(&text) else { continue };
-                let out = scrub.scrub(data.clone());
-                // what this project wrote as UTF-8 stays valid UTF-8
-                if text_enc {
-                    prop_assert!(std::str::from_utf8(&out).is_ok(), "{:?}", String::from_utf8_lossy(&out));
-                }
-                let shown = String::from_utf8_lossy(&out);
-                // a name can be spelled by a letter of the text beside a placeholder ("E" before "USER"): the
-                // placeholders are no player's text, so they come out before a name is looked for
-                let rest = without(&out, [b"USER", b"%USERPROFILE%", b"PC"]);
-                for needle in [&u, &p, &h, &f] {
-                    prop_assert!(holds(&data, needle, enc), "{needle:?} was never in the text");
-                    prop_assert!(!holds(&rest, needle, enc), "{needle:?} survived in {shown:?}");
-                }
-                let homes = out.windows(13).filter(|w| w == b"%USERPROFILE%").count();
-                prop_assert_eq!(homes, 2, "{:?}", shown);
-            }
+            no_name_behind((&user, &pc, &drive), case, (&ends, &cores, &glue), folders)?;
         }
 
         // A binary file (`blank`): every encoding, UTF-16LE and upper case included, and nothing moves, so a snapshot
@@ -1391,6 +1450,32 @@ mod tests {
             ..Scrub::default()
         };
         assert_eq!(lo.scrub(sjis("伸o").unwrap()), sjis("伸o").unwrap());
+    }
+
+    #[test]
+    fn japanese_names_beside_kana_go_in_every_encoding() {
+        let scrub = Scrub {
+            home: r"C:\Users\さくら".into(),
+            user: "さくら".into(),
+            pc: "郎花".into(),
+            folders: false,
+        };
+        let text = r"ああさくらさん\あ郎花あ C:\Users\さくら\x";
+        let want = r"ああUSERさん\あPCあ %USERPROFILE%\x";
+        assert_eq!(scrub.scrub(text.as_bytes().to_vec()), want.as_bytes());
+        assert_eq!(scrub.scrub(sjis(text).unwrap()), sjis(want).unwrap());
+        // a binary file: UTF-16LE and the rest, each name blanked where it sits
+        let dump = [utf8(text), sjis(text), utf16(text)]
+            .map(Option::unwrap)
+            .concat();
+        let out = scrub.blank(dump.clone());
+        assert_eq!(out.len(), dump.len());
+        for name in ["さくら", "郎花"] {
+            let encs: [Enc; 3] = [utf8, sjis, utf16];
+            for enc in encs {
+                assert!(holds(&dump, name, enc) && !holds(&out, name, enc), "{name}");
+            }
+        }
     }
 
     #[test]
