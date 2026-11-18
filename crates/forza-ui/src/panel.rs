@@ -707,6 +707,9 @@ pub struct PanelState {
     /// Create-a-Team: the collection's copies by card number ([`PanelState::set_owned`]); the catalogue lists, and the
     /// table takes, only owned cards. `None`: Free, every card.
     pub owned: Option<Arc<BTreeMap<u32, Copies>>>,
+    /// Create-a-Team: `owned` is empty because the collection could not be read, not because the player holds nothing:
+    /// no new card is placeable, and the table keeps the cards it has (#374).
+    pub collection_unknown: bool,
     /// Seconds before a resting mouse shows the card big; None: never (CARD HOVER DELAY off).
     pub hover_delay: Option<f32>,
     /// CENTRAL, COUNTER, L-SIDE, R-SIDE, PRESS: lit when the order is on.
@@ -894,6 +897,7 @@ impl PanelState {
             links: board::Links::default(),
             cards,
             owned: None,
+            collection_unknown: false,
             hover_delay: Some(0.5),
             tactics: [false; 5],
             online: false,
@@ -1039,6 +1043,7 @@ impl PanelState {
             links,
             cards,
             owned,
+            collection_unknown,
             hover_delay,
             tactics,
             online,
@@ -1135,7 +1140,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 98] = [
+        let parts: [&dyn std::fmt::Debug; 99] = [
             edition,
             lang,
             page,
@@ -1145,6 +1150,7 @@ impl PanelState {
             &Arc::as_ptr(cards).cast::<()>(),
             &cards.len(),
             &owned.as_ref().map(Arc::as_ptr),
+            &collection_unknown,
             hover_delay,
             tactics,
             online,

@@ -764,6 +764,7 @@ fn collection_dir(
         Err(e) => {
             log(&format!("collection: {e}"));
             st.set_owned(Some(Default::default()));
+            st.collection_unknown = true;
             st.say(forza_ui::widgets::Tone::Refused, "cat.msg_collection_other");
             None
         }
@@ -800,13 +801,16 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
         folded.state.cards.values().filter(|c| c.owned()).count()
     ));
     st.set_owned(Some(folded.state.cards));
+    st.collection_unknown = false;
     own_table(st, table, placed);
 }
 
 /// The log could not be read: no card owned, so nothing new is placeable (an import skips every card); the table and
 /// RESET LINEUP's copy stay whole, since the match start, FORMATIONS and IMPORT write them back to the files (#374).
+/// `collection_unknown` says why `owned` is empty, so no later read of the table filters it either.
 fn collection_unread(st: &mut PanelState) {
     st.set_owned(Some(Default::default()));
+    st.collection_unknown = true;
     st.say(
         forza_ui::widgets::Tone::Refused,
         "cat.msg_collection_unread",
@@ -814,9 +818,14 @@ fn collection_unread(st: &mut PanelState) {
 }
 
 /// The collection's rule on the table after every read of it (the start and each re-read): the cards it does not own
-/// come off, the table is written when any did, and the board shows what stays.
+/// come off, the table is written when any did, and the board shows what stays. With the collection unknown the empty
+/// `owned` means "nothing new", not "nothing on the table": no card comes off and the table file is not written.
 fn own_table(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>) {
-    let gone = panel::owned_table(st, placed);
+    let gone = if st.collection_unknown {
+        Vec::new()
+    } else {
+        panel::owned_table(st, placed)
+    };
     if !gone.is_empty() {
         log(&format!(
             "board: {} card(s) not in the collection taken off the table: {gone:?}",
@@ -5240,6 +5249,56 @@ mod tests {
             "{}",
             m.text
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #374 round 4: with the log unreadable, the table someone else wrote (FPR_Emu's panel, a hand edit) goes
+    /// through the rule that `table_in` runs on every re-read and comes back whole: no card filtered, no byte written.
+    #[test]
+    fn an_unreadable_log_keeps_a_table_someone_else_wrote() {
+        let dir = std::env::temp_dir().join(format!("forza_table_unread_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("grants.jsonl")).unwrap(); // a folder where the log goes: the read fails
+        let at = |no| cards::Placed {
+            slot: no as i32,
+            no,
+            x: 0.5,
+            y: 0.5,
+        };
+        let mut table = forza::cards::TableFile::in_dir(&dir);
+        table.write(&[at(7)]).unwrap();
+        let mut placed = table.read().unwrap();
+        let mut st = cat_state();
+        owned_only(&mut st, &mut table, &mut placed, &dir); // the start: the log cannot be read
+        assert!(st.collection_unknown);
+        table.write(&[at(7), at(9)]).unwrap();
+        let outside = std::fs::read(&table.table).unwrap();
+        let mut placed = table.read().unwrap();
+        own_table(&mut st, &mut table, &mut placed);
+        assert_eq!(
+            placed.iter().map(|p| p.no).collect::<Vec<_>>(),
+            [7, 9],
+            "no card is filtered while the collection is unknown"
+        );
+        assert_eq!(
+            std::fs::read(&table.table).unwrap(),
+            outside,
+            "the table file is kept"
+        );
+        let m = st.message.as_ref().unwrap();
+        assert_eq!(m.tone, forza_ui::widgets::Tone::Refused);
+        assert!(
+            m.text.starts_with("The collection could not be read"),
+            "{}",
+            m.text
+        );
+        // Free with a stray folder: the same guard, since `owned_only` never runs there
+        let mut st = cat_state();
+        assert!(collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into())).is_none());
+        assert!(st.collection_unknown);
+        let mut placed = table.read().unwrap();
+        own_table(&mut st, &mut table, &mut placed);
+        assert_eq!(placed.len(), 2);
+        assert_eq!(std::fs::read(&table.table).unwrap(), outside);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
