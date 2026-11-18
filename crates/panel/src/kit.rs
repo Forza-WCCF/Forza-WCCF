@@ -50,10 +50,15 @@ fn var(name: &str) -> Option<PathBuf> {
 
 impl Files {
     pub fn find(dll_dir: &Path) -> Files {
+        Self::find_with(dll_dir, var)
+    }
+
+    /// [`Files::find`] with the environment as `var` (tests).
+    fn find_with(dll_dir: &Path, var: impl Fn(&str) -> Option<PathBuf>) -> Files {
         let kit = dll_dir.parent().unwrap_or(dll_dir);
-        let edition = match env::var("WCCF_EDITION").as_deref() {
-            Ok("2017-18" | "1718") => Edition::E1718,
-            Ok("2010-11" | "1011") => Edition::E1011,
+        let edition = match var("WCCF_EDITION").as_deref().and_then(Path::to_str) {
+            Some("2017-18" | "1718") => Edition::E1718,
+            Some("2010-11" | "1011") => Edition::E1011,
             _ => forza::kit::Kit::at(kit).edition(),
         };
         let data = var("WCCF_DATA").unwrap_or_else(|| kit.join("data"));
@@ -575,6 +580,26 @@ mod tests {
             keys: d.join("keys.txt"),
         };
         (files, d)
+    }
+
+    /// Review 5: a data folder outside the kit (`WCCF_DATA`) takes the profile's save by `WCCF_EDITION`.
+    #[test]
+    fn the_save_follows_the_named_edition_outside_the_kit() {
+        let (_, d) = files("edition");
+        std::fs::write(d.join("settings.json"), r#"{"profile": "create-a-team"}"#).unwrap();
+        let env = |edition: &'static str| {
+            let d = d.clone();
+            move |n: &str| match n {
+                "WCCF_DATA" => Some(d.clone()),
+                "WCCF_EDITION" => Some(PathBuf::from(edition)),
+                _ => None,
+            }
+        };
+        let cat = Files::find_with(&d.join("nowhere"), env("2017-18"));
+        assert_eq!(cat.save, d.join(r"profiles\create-a-team\save"));
+        let old = Files::find_with(&d.join("nowhere"), env("2010-11"));
+        assert_eq!(old.save, d.join("save"));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// settings.json as it was written.
