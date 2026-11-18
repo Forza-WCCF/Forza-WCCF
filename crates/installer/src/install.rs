@@ -235,7 +235,8 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     if edition.is_some() {
         refuse_running(&dest)?;
     }
-    // the game takes at most its slot of the disc
+    // the game takes at most its slot of the disc: a deliberate upper bound, the volume's size is known only once the
+    // disc is opened, after this check
     let extract = disc::DISCS
         .iter()
         .find(|d| d.game_id == id)
