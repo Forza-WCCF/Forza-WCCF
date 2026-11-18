@@ -6,7 +6,7 @@
 use super::{plain_error, poke, refuse, t, tf};
 use forza::online::lobby::{Created, HEARTBEAT_EVERY, Reserved};
 use forza_ui::launcher::{LauncherState, Tab};
-use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
+use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, Row, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
 use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release, seat_mode, tell_mode};
@@ -405,10 +405,16 @@ impl Online {
             }
         }
         // READY pressed here shows at once, before the desk's next answer says so
-        // and this PC's mark is its profile's (a desk before MODE lists every seat FREE)
         if let Some(Some(o)) = room.mine.and_then(|i| seats.get_mut(i)) {
             o.ready |= self.clock.ready;
-            o.mode = seat_mode(st.profile);
+        }
+        if let Some(i) = room.mine {
+            own_mark(
+                &mut seats,
+                st.lobby.vs.iter_mut().find(|r| r.id == id),
+                i,
+                seat_mode(st.profile),
+            );
         }
         room.seats = seats;
         let c = &mut self.clock;
@@ -724,6 +730,17 @@ impl Online {
     }
 }
 
+/// This PC's mark on its seat `mine` and on its room's row, both its profile's (a desk before MODE lists every seat
+/// FREE). The row's marks are the occupied seats' in seat order.
+fn own_mark(seats: &mut [Option<Occupant>], row: Option<&mut Row>, mine: usize, mode: forza_ui::lobby::Mode) {
+    let Some(Some(o)) = seats.get_mut(mine) else { return };
+    o.mode = mode;
+    let at = seats[..mine].iter().flatten().count();
+    if let Some(m) = row.and_then(|r| r.modes.get_mut(at)) {
+        *m = mode;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -772,6 +789,41 @@ mod tests {
         o.act(LobbyAction::DirectAddress("10.0.0.5".into()), &mut st, &settings);
         assert_eq!(o.servers, ["10.0.0.5", "lobby.wccf.it:20032"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A desk before MODE lists every seat FREE: a Create-a-Team PC's own seat and own room row both show its mark,
+    /// the opponent's stay as the desk said, with an empty seat before this PC's too.
+    #[test]
+    fn own_row_and_seat_share_the_profiles_mark_on_an_old_desk() {
+        use forza_ui::lobby::Mode::{Cat, Free};
+        let seat = |club: &str| {
+            Some(Occupant {
+                club: club.into(),
+                ready: false,
+                mode: Free,
+            })
+        };
+        let row = |modes: Vec<forza_ui::lobby::Mode>| Row {
+            id: "r1".into(),
+            name: "ABCD".into(),
+            players: modes.len() as u8,
+            max: 2,
+            ping_ms: None,
+            lang: None,
+            state: RowState::Open,
+            next_entry: None,
+            room: false,
+            modes,
+        };
+        for (mut seats, mut r, want) in [
+            (vec![seat("a"), seat("me")], row(vec![Free, Free]), vec![Free, Cat]),
+            (vec![None, seat("me")], row(vec![Free]), vec![Cat]),
+        ] {
+            own_mark(&mut seats, Some(&mut r), 1, Cat);
+            assert_eq!(seats[1].as_ref().map(|o| o.mode), Some(Cat));
+            assert_eq!(r.modes, want);
+            assert_eq!(r.modes.last(), Some(&Cat), "own row and own seat agree");
+        }
     }
 
     /// #236 review: HOST VS and a reserved VS seat tell the lobby the mode of the profile the Launcher reads, not only
