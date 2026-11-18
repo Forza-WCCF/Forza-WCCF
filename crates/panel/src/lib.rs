@@ -1664,6 +1664,8 @@ struct Render {
     notice_pending: Option<(String, String)>,
     /// The id of the notice on the banner, for the log line when it goes off early ([`banner_off`]).
     notice_shown: Option<String>,
+    /// The lobby VS banner ([`vs_banner`]) was looked for: it shows at most once a run.
+    vs_marks_done: bool,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1828,6 +1830,7 @@ impl Render {
             notice: None,
             notice_pending: None,
             notice_shown: None,
+            vs_marks_done: false,
             deal_at: Instant::now(),
             deal_last: None,
             painter: painter::Painter::default(),
@@ -2381,6 +2384,7 @@ impl Render {
         self.table_in();
         self.links_in();
         self.settings_in();
+        self.vs_marks_in();
         self.notice_in();
         self.club_in();
         self.deal_in();
@@ -3166,6 +3170,21 @@ impl Render {
         self.notice_pending = Some((n.id, text));
     }
 
+    /// A lobby VS room of FREE against CREATE-A-TEAM: the banner says so once, at the start.
+    fn vs_marks_in(&mut self) {
+        if self.vs_marks_done {
+            return;
+        }
+        let marks = std::env::var("WCCF_VS_MARKS").ok();
+        if let Some(text) = vs_banner(&mut self.vs_marks_done, marks.as_deref(), self.st.lang) {
+            log(&format!(
+                "VS marks {}: banner shown",
+                marks.unwrap_or_default()
+            ));
+            self.st.banner = Some(panel::Note::banner(text));
+        }
+    }
+
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
     /// rewrites it whole whenever the card changes); the slot's session read with it, for the refusal.
     fn club_in(&mut self) {
@@ -3770,6 +3789,25 @@ fn banner_off(banner: &mut Option<panel::Note>, id: Option<&str>, why: &str) -> 
     banner
         .take()
         .map(|_| format!("notice: {} {why}", id.unwrap_or("?")))
+}
+
+/// The banner's text for the run's `WCCF_VS_MARKS` ("cat,free": this PC's mark, then the opponent's) when the two
+/// differ; none without the variable, for two equal or unknown marks, and after the first call (`done`).
+fn vs_banner(done: &mut bool, marks: Option<&str>, lang: forza_ui::Lang) -> Option<String> {
+    use forza::online::lobby::Mode;
+    if std::mem::replace(done, true) {
+        return None;
+    }
+    let (mine, theirs) = marks?.split_once(',')?;
+    let (mine, theirs) = (Mode::parse(mine.trim())?, Mode::parse(theirs.trim())?);
+    let word = |m| forza_ui::lobby::mark_word(lang, m);
+    (mine != theirs).then(|| {
+        forza_ui::text(
+            lang,
+            "panel.vs_mixed",
+            &[("mine", &word(mine)), ("theirs", &word(theirs))],
+        )
+    })
 }
 
 /// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
@@ -4568,7 +4606,7 @@ mod tests {
         BOARD_ANIMATION, BOARD_EVENTS, Duration, Event, HELD, Instant, LPARAM, Modifiers,
         NOTICE_MAX, PointerButton, RECT, Relaxed, WPARAM, banner_off, board_unchanged, board_wake,
         cards, fit_place, fit_workspace, game_press, handle_press, input, of, proj_close_note,
-        read_notice, saved_place_fitted, side_button, table_count, take_off_lines,
+        read_notice, saved_place_fitted, side_button, table_count, take_off_lines, vs_banner,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -4927,6 +4965,39 @@ mod tests {
             None,
             "nothing on the banner: no line"
         );
+    }
+
+    /// (c) The lobby VS banner shows once when the run's variable says FREE against CREATE-A-TEAM, and never without it,
+    /// for equal marks or for a value that is no pair of marks.
+    #[test]
+    fn the_vs_banner_shows_once_for_mixed_marks() {
+        use forza_ui::Lang;
+        let mut done = false;
+        let text = vs_banner(&mut done, Some("cat,free"), Lang::En);
+        assert_eq!(
+            text.as_deref(),
+            Some("This VS match: you play CREATE-A-TEAM, your opponent plays FREE.")
+        );
+        assert_eq!(
+            vs_banner(&mut done, Some("cat,free"), Lang::En),
+            None,
+            "once"
+        );
+        for lang in Lang::ALL {
+            let t = vs_banner(&mut false, Some("free,cat"), lang).expect("mixed");
+            assert!(!t.contains('%'), "{lang:?}: {t}");
+        }
+        for none in [
+            None,
+            Some(""),
+            Some("cat,cat"),
+            Some("free,free"),
+            Some("cat"),
+            Some("cat,pro"),
+            Some("cat,free,free"),
+        ] {
+            assert_eq!(vs_banner(&mut false, none, Lang::En), None, "{none:?}");
+        }
     }
 
     /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file
