@@ -3,7 +3,8 @@
 //! token balance, the match tokens left this week). [`show`] draws a [`CollectionView`] and returns what the player
 //! asked for; Launcher.exe deals the cards and writes the log (`forza::collection`). From the page, PACKS opens the
 //! pack store (`PLAN.md` 2.1): the three packs with their odds after the step-down, and a bought pack's 3 cards turned
-//! over one by one.
+//! over one by one. CRAFT lists the white and black cards not held yet and makes the one picked at its value
+//! (`PLAN.md` 2.2).
 
 use super::Lang;
 use super::board::{self, Card, Look, Rarity};
@@ -167,6 +168,8 @@ pub enum Step {
         since: Option<f64>,
         all: bool,
     },
+    /// CRAFT: the card picked from [`CollectionView::craftable`], by number.
+    Craft { picked: Option<u32> },
 }
 
 /// The page's filters; `None` shows all.
@@ -195,6 +198,8 @@ pub struct CollectionView {
     pub damaged: bool,
     /// The packs on offer: Standard, then each season, then the 24 nations.
     pub offers: Vec<Offer>,
+    /// The cards CRAFT offers: the catalogue's white and black cards with no copy held, in catalogue order.
+    pub craftable: Vec<Card>,
 }
 
 /// What the player asked for.
@@ -210,6 +215,8 @@ pub enum CollectionAction {
     Reset,
     /// BUY the pack.
     Buy(PackChoice),
+    /// CRAFT the card with this number.
+    Craft(u32),
 }
 
 /// Which screen a sample shows.
@@ -224,6 +231,8 @@ pub enum Scenario {
     Store,
     /// A pack opened, every card turned.
     Open,
+    /// CRAFT with a black card picked.
+    Craft,
 }
 
 impl CollectionView {
@@ -253,6 +262,7 @@ impl CollectionView {
             problem: None,
             damaged: false,
             offers: sample_offers(),
+            craftable: vec![],
         };
         match s {
             Scenario::Choose => {
@@ -319,6 +329,20 @@ impl CollectionView {
                         .collect(),
                     since: None,
                     all: true,
+                };
+            }
+            Scenario::Craft => {
+                v.craftable = cards
+                    .iter()
+                    .filter(|c| matches!(c.rarity, Rarity::Regular | Rarity::Special))
+                    .cloned()
+                    .collect();
+                v.step = Step::Craft {
+                    picked: v
+                        .craftable
+                        .iter()
+                        .find(|c| c.rarity == Rarity::Special)
+                        .map(|c| c.number),
                 };
             }
         }
@@ -419,6 +443,11 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
                 }
             }
             Step::Open { .. } => open(ui, &mut v.step, lang),
+            Step::Craft { .. } => {
+                if craft(ui, v, lang, &mut act) {
+                    v.step = Step::Page;
+                }
+            }
         });
     act
 }
@@ -613,16 +642,18 @@ fn card_size(w: f32) -> egui::Vec2 {
 }
 
 /// The cards a filter keeps, as indexes into `cards`.
-pub fn shown(cards: &[(Card, Copies)], f: &Filter) -> Vec<usize> {
-    (0..cards.len())
-        .filter(|&i| {
-            let c = &cards[i].0;
+pub fn shown<'a>(cards: impl IntoIterator<Item = &'a Card>, f: &Filter) -> Vec<usize> {
+    cards
+        .into_iter()
+        .enumerate()
+        .filter(|(_, c)| {
             f.season.as_ref().is_none_or(|s| *s == c.season)
                 && f.nation.as_ref().is_none_or(|n| *n == c.country)
                 && f.league
                     .is_none_or(|l| collection::league_of(&c.club) == Some(LEAGUES[l].0))
                 && f.rarity.is_none_or(|r| r == c.rarity)
         })
+        .map(|(i, _)| i)
         .collect()
 }
 
@@ -652,17 +683,22 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
         let n = v.match_left.max(0).to_string();
         hint(ui, &tr!(lang, "collection.match_left", n = n.as_str()));
     });
-    if !v.offers.is_empty() && widgets::action(ui, &tr!(lang, "collection.packs")).clicked() {
-        v.step = Step::Store { chosen: 0 };
-    }
-    filters(ui, v, lang);
+    ui.horizontal(|ui| {
+        if !v.offers.is_empty() && widgets::action(ui, &tr!(lang, "collection.packs")).clicked() {
+            v.step = Step::Store { chosen: 0 };
+        }
+        if widgets::action(ui, &tr!(lang, "collection.craft")).clicked() {
+            v.step = Step::Craft { picked: None };
+        }
+    });
+    filters(ui, v.cards.iter().map(|(c, _)| c), &mut v.filter, lang);
     if let Some(no) = v.open
         && let Some((card, copies)) = v.cards.iter().find(|(c, _)| c.number == no)
         && detail(ui, card, copies, lang)
     {
         v.open = None;
     }
-    let list = shown(&v.cards, &v.filter);
+    let list = shown(v.cards.iter().map(|(c, _)| c), &v.filter);
     let gap = ui.spacing().item_spacing.x;
     let w = ((ui.available_width() - gap * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
     for row in list.chunks(COLUMNS) {
@@ -714,15 +750,15 @@ fn card_mark(c: &Copies) -> Option<&'static str> {
     crate::panel::card_mark(Some(&one), 0)
 }
 
-fn filters(ui: &mut Ui, v: &mut CollectionView, lang: Lang) {
+/// The filter row; the season and nation lists are the ones `cards` hold.
+fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filter, lang: Lang) {
     let all = tr!(lang, "cat.all");
-    let mut seasons: Vec<String> = v.cards.iter().map(|(c, _)| c.season.clone()).collect();
+    let (mut seasons, mut nations): (Vec<String>, Vec<String>) =
+        cards.map(|c| (c.season.clone(), c.country.clone())).unzip();
     seasons.sort();
     seasons.dedup();
-    let mut nations: Vec<String> = v.cards.iter().map(|(c, _)| c.country.clone()).collect();
     nations.sort();
     nations.dedup();
-    let f = &mut v.filter;
     ui.horizontal_wrapped(|ui| {
         let combo = |ui: &mut Ui, id: &str, label: String, w: f32, add: &mut dyn FnMut(&mut Ui)| {
             egui::ComboBox::from_id_salt(id)
@@ -1030,6 +1066,100 @@ fn store(
             let sub = tr!(lang, "collection.cards_n", n = n.as_str());
             if tile(ui, size, &offers[i].pack.label(lang), &sub, *chosen == i).clicked() {
                 *chosen = i;
+            }
+        });
+    }
+    back
+}
+
+/// CRAFT (`PLAN.md` 2.2): the white and black cards not held yet, the filters, and the card picked with its value
+/// and CRAFT. Only the rows in view are drawn: the list runs to thousands of cards. `true`: back to the page.
+fn craft(
+    ui: &mut Ui,
+    v: &mut CollectionView,
+    lang: Lang,
+    act: &mut Option<CollectionAction>,
+) -> bool {
+    let Step::Craft { picked } = &mut v.step else {
+        return false;
+    };
+    let mut back = false;
+    ui.horizontal(|ui| {
+        back = widgets::action(ui, &tr!(lang, "collection.to_page")).clicked();
+        ui.add_space(8.0);
+        title(ui, &tr!(lang, "collection.craft_title"));
+        ui.add_space(12.0);
+        let n = v.tokens.to_string();
+        ui.label(
+            egui::RichText::new(tr!(lang, "collection.tokens", n = n.as_str()))
+                .font(theme::display(18.0))
+                .color(theme::AMBER),
+        );
+    });
+    hint(ui, &tr!(lang, "collection.craft_hint"));
+    if let Some(card) = picked.and_then(|no| v.craftable.iter().find(|c| c.number == no)) {
+        let price =
+            collection::craft(&forza::cards::collection_cards(std::slice::from_ref(card))[0]);
+        let price = i64::from(price.unwrap_or(0));
+        let can = price > 0 && v.tokens >= price && !v.damaged;
+        ui.horizontal(|ui| {
+            let (r, resp) = ui.allocate_exact_size(card_size(84.0), Sense::hover());
+            resp.widget_info(|| WidgetInfo::labeled(Role::Image, true, &card.name));
+            board::card_face(ui.painter(), r, card, Look::default());
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(&card.name)
+                        .font(theme::bold(16.0))
+                        .color(theme::TEXT),
+                );
+                hint(
+                    ui,
+                    &format!("{} · {} · {}", card.season, card.club, card.country),
+                );
+                let n = price.to_string();
+                let w = ui.available_width();
+                if ui
+                    .add_enabled_ui(can, |ui| {
+                        widgets::cabinet(
+                            ui,
+                            vec2(w, 40.0),
+                            &tr!(lang, "collection.craft_buy", n = n.as_str()),
+                            Cab::Go,
+                            can,
+                        )
+                    })
+                    .inner
+                    .clicked()
+                    && can
+                {
+                    *act = Some(CollectionAction::Craft(card.number));
+                }
+                if v.tokens < price {
+                    hint(ui, &tr!(lang, "collection.craft_short", n = n.as_str()));
+                }
+            });
+        });
+    }
+    filters(ui, v.craftable.iter(), &mut v.filter, lang);
+    let list = shown(&v.craftable, &v.filter);
+    let gap = ui.spacing().item_spacing;
+    let w = ((ui.available_width() - gap.x * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
+    let size = card_size(w);
+    for row in list.chunks(COLUMNS) {
+        let here = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), size.y));
+        if !ui.is_rect_visible(here) {
+            ui.add_space(size.y + gap.y);
+            continue;
+        }
+        ui.horizontal(|ui| {
+            for &i in row {
+                let card = &v.craftable[i];
+                let on = *picked == Some(card.number);
+                let resp = board::catalogue_card(ui, card, size, on, false, None);
+                resp.widget_info(|| WidgetInfo::labeled(Role::Button, true, &card.name));
+                if resp.clicked() {
+                    *picked = Some(card.number);
+                }
             }
         });
     }

@@ -986,6 +986,7 @@ impl App {
                 problem: Some(why),
                 damaged,
                 offers: Vec::new(),
+                craftable: Vec::new(),
             }),
         );
     }
@@ -1465,6 +1466,35 @@ impl App {
                     Err(e) if e.to_string() == forza::collection::TOO_FEW_PLAYERS => {
                         refuse(t("collection.buy_pool"));
                     }
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
+            Action::Collection(CollectionAction::Craft(no)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                match collection::craft(cat, &dir, no) {
+                    Ok(e) => {
+                        log(&format!("collection: craft card {no}, {} tokens", e.tokens));
+                        let name = cat
+                            .iter()
+                            .find(|k| k.number == no)
+                            .map(|k| k.name.clone())
+                            .unwrap_or_default();
+                        say(tf("launcher.msg_crafted", &[("name", &name)]), 0);
+                        self.collection(&kit);
+                        if let Some(v) = &mut self.st.collection {
+                            v.step = forza_ui::collection::Step::Craft { picked: None };
+                        }
+                    }
+                    Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
+                        refuse(t("launcher.msg_craft_tokens"));
+                    }
+                    // a line the fold cannot read: nothing new is saved until a reset (the tab says so too)
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => refuse(t("collection.damaged")),
+                    // held already (another Launcher crafted it): the view made again drops it from the list
+                    Err(e) if e.to_string() == forza::collection::ALREADY_HELD => self.collection(&kit),
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
