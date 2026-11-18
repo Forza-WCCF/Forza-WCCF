@@ -34,7 +34,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 pub struct Files {
     pub edition: Edition,
     pub data: PathBuf,
-    /// The active profile's save (`forza::kit::save_in`): the Launcher locks the choice while the game runs.
+    /// The active profile's save (`forza::kit::save_of`, by `edition`: `data` may sit outside the kit): the Launcher
+    /// locks the choice while the game runs.
     pub save: PathBuf,
     pub catalogue: PathBuf,
     pub cards: PathBuf,
@@ -72,7 +73,7 @@ impl Files {
             catalogue: var("WCCF_CATALOGUE").unwrap_or_else(|| cache.join("catalogue.tsv")),
             cards: var("WCCF_CARDS").unwrap_or_else(|| cache.join("cards")),
             keys,
-            save: forza::kit::save_in(&data),
+            save: forza::kit::save_of(&data, Some(edition)),
             data,
         }
     }
