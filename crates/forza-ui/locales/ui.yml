@@ -642,6 +642,7 @@ deal.foot: {en: "Click to close.", it: "Clicca per chiudere.", ja: "クリック
 deal.saving: {en: "Saving to your collection…", it: "Salvataggio nella tua collezione…", ja: "コレクションに保存しています…"}
 deal.saved: {en: "Saved to your collection.", it: "Salvata nella tua collezione.", ja: "コレクションに保存しました。"}
 deal.not_saved: {en: "The card is not saved yet. Trying again.", it: "La carta non è ancora salvata. Nuovo tentativo in corso.", ja: "カードはまだ保存されていません。再試行しています。"}
+deal.damaged: {en: "Your collection file is damaged, so this card is not saved. It is kept and saved at a game start that can read the file.", it: "Il file della collezione è danneggiato: questa carta non è salvata. Resta in attesa e sarà salvata a un avvio del gioco che riesce a leggere il file.", ja: "コレクションのファイルが壊れているため、このカードは保存されていません。カードは保管され、ファイルを読み込めるゲーム起動時に保存されます。"}
 deal.tokens: {en: "+%{n} tokens", it: "+%{n} gettoni", ja: "+%{n} トークン"}
 deal.no_tokens: {en: "This week's match tokens are all earned.", it: "Hai già tutti i gettoni partita di questa settimana.", ja: "今週の試合トークンはすべて獲得済みです。"}
 deal.copy: {en: "You own %{n} copies of this card.", it: "Hai %{n} copie di questa carta.", ja: "このカードは %{n} 枚目です。"}

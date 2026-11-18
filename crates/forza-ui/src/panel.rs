@@ -2676,6 +2676,8 @@ pub enum Grant {
     Saving,
     /// A write failed (the log held by another program, a disk error); it is tried again.
     Retrying,
+    /// The log has a line that cannot be read: the card is kept for a later start and not tried again this run.
+    Damaged,
     Saved {
         /// The match's tokens: 50, or 0 once the week's cap is reached.
         tokens: i64,
@@ -2715,6 +2717,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     let extra: f32 = match &grant {
         None => 0.0,
         Some(Grant::Saved { copies, .. }) if *copies > 1 => 120.0,
+        Some(Grant::Damaged) => 90.0,
         Some(_) => 56.0,
     };
     let size = vec2(360.0, (640.0 + extra).min(area.height() - 20.0));
@@ -2796,6 +2799,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 match g {
                     Grant::Saving => line(&mut c, tr!(lang, "deal.saving"), theme::TEXT_DIM),
                     Grant::Retrying => line(&mut c, tr!(lang, "deal.not_saved"), theme::AMBER),
+                    Grant::Damaged => line(&mut c, tr!(lang, "deal.damaged"), theme::RED_TEXT),
                     Grant::Saved {
                         tokens,
                         copies,
