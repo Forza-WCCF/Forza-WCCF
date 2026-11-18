@@ -652,7 +652,7 @@ CREATE TABLE IF NOT EXISTS keys (
     sales      INTEGER NOT NULL DEFAULT 0, -- the sales of the week `sales_week` (YYYYWW), kept by RESET and LEAVE
     sales_week INTEGER NOT NULL DEFAULT 0,
     forks      INTEGER NOT NULL DEFAULT 0, -- logs refused for dropping accepted lines (for the operator)
-    left_at    INTEGER,                    -- LEAVE's time (Unix ms); the row goes 7 days later once no sale waits
+    left_at    INTEGER,                    -- LEAVE's time (Unix ms); the row goes 7 days after it and the last request, once no sale waits
     asked      TEXT,                       -- the last request's verb and numbers, a ledger word's only, and
     answer     TEXT                        -- its answer: that request sent again answers it once more
 );
@@ -745,29 +745,32 @@ impl Market {
                 )
                 .optional()?;
             let old = old.is_some_and(|sql| !sql.contains("AUTOINCREMENT"));
+            // one transaction for every change below: a stop half way leaves the store as it was
+            c.execute_batch("BEGIN")?;
             if old {
                 c.execute_batch(
-                    "BEGIN; DROP INDEX IF EXISTS ledger_key; ALTER TABLE ledger RENAME TO ledger_old;",
+                    "DROP INDEX IF EXISTS ledger_key; ALTER TABLE ledger RENAME TO ledger_old;",
                 )?;
             }
             c.execute_batch(SCHEMA)?;
-            let answers: i64 = c.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('keys') WHERE name = 'answer'",
-                [],
-                |r| r.get(0),
-            )?;
-            if answers == 0 {
-                c.execute_batch(
-                    "ALTER TABLE keys ADD COLUMN asked TEXT; ALTER TABLE keys ADD COLUMN answer TEXT;",
+            for column in ["asked", "answer"] {
+                let has: i64 = c.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('keys') WHERE name = ?1",
+                    [column],
+                    |r| r.get(0),
                 )?;
+                if has == 0 {
+                    c.execute_batch(&format!("ALTER TABLE keys ADD COLUMN {column} TEXT;"))?;
+                }
             }
             if old {
                 c.execute_batch(
                     "INSERT INTO ledger (id, key_hash, card, price, state, at)
                      SELECT id, key_hash, card, price, state, at FROM ledger_old;
-                     DROP TABLE ledger_old; COMMIT;",
+                     DROP TABLE ledger_old;",
                 )?;
             }
+            c.execute_batch("COMMIT")?;
             Ok(c)
         };
         Ok(Self {
@@ -801,7 +804,8 @@ impl Market {
         // on its own: a refused request below rolls its transaction back, the expiry stays done
         let gone = db
             .execute(
-                "DELETE FROM keys WHERE left_at <= ?1 AND NOT EXISTS
+                // last_at too: a COLLECT after LEAVE keeps its answer for a resend (one day of clock slack at most)
+                "DELETE FROM keys WHERE left_at <= ?1 AND last_at <= ?1 AND NOT EXISTS
                  (SELECT 1 FROM ledger l WHERE l.key_hash = keys.key_hash AND l.state = 'sold')",
                 params![now.saturating_sub(KEEP_LEFT_MS) as i64],
             )
@@ -869,7 +873,7 @@ impl Market {
             let kept = old.iter().zip(lines).take_while(|(a, b)| a == b).count();
             if kept < old.len() {
                 tx.execute(
-                    "UPDATE keys SET forks = forks + 1, last_at = ?2 WHERE key_hash = ?1",
+                    "UPDATE keys SET forks = forks + 1, last_at = ?2, asked = NULL, answer = NULL WHERE key_hash = ?1",
                     params![kh, at],
                 )
                 .map_err(store_err)?;
@@ -2204,6 +2208,95 @@ mod tests {
             row(dir.path(), "SELECT id, state FROM ledger ORDER BY id"),
             [[s("1"), s("stock")], [s("4"), s("open")]]
         );
+    }
+
+    /// Advisor 2: a LIST refused as a fork moves the key's last time, and the same request sent again is old, not the
+    /// earlier LIST's `OK`.
+    #[test]
+    fn a_fork_refused_repeat_is_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57, 57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap(),
+            "listed 1:57:228"
+        );
+        // the same words over a log missing its last accepted line
+        let forked = earned(&[57]);
+        let why = ask(&m, 1, Verb::List, NOW + 2, &[57, 228], &forked).unwrap_err();
+        assert!(why.starts_with("a fork"), "{why}");
+        let again = ask(&m, 1, Verb::List, NOW + 2, &[57, 228], &forked);
+        assert_eq!(again, Err(format!("{OLD}, the last at {}", NOW + 2)));
+        assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM ledger"), [[s("1")]]);
+    }
+
+    /// Advisor 3, 6: a COLLECT after a real LEAVE pays the waiting sale once; its answer lost and the COLLECT sent again
+    /// once LEAVE is 7 days old (still inside the clock slack of the COLLECT), it answers the same and pays nothing more.
+    #[test]
+    fn a_collect_after_leave_sent_again_past_7_days_pays_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57]);
+        let funds = earned(&[20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        ask(&m, 2, Verb::Join, NOW + 1, &[], &funds).unwrap();
+        ask(&m, 2, Verb::Buy, NOW + 2, &[1, 57, 228], &funds).unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::Leave, NOW + 3, &[], "").unwrap(),
+            "left waiting 1"
+        );
+        let collect = NOW + 3 + KEEP_LEFT_MS - 1000;
+        assert_eq!(
+            ask(&m, 1, Verb::Collect, collect, &[], "").unwrap(),
+            "collected sold 1:57:228"
+        );
+        let mut again = req(Verb::Collect, collect, "");
+        again.key = [1; 32];
+        let past = NOW + 3 + KEEP_LEFT_MS + 1000;
+        assert_eq!(m.handle(&again, past).unwrap(), "collected sold 1:57:228");
+        assert_eq!(
+            row(dir.path(), "SELECT state FROM ledger ORDER BY id"),
+            [[s("bought")]]
+        );
+        let seller_rows = format!(
+            "SELECT COUNT(*) FROM keys WHERE key_hash = '{}'",
+            key_hash(&[1; 32])
+        );
+        assert_eq!(row(dir.path(), &seller_rows), [[s("1")]]);
+        // once the COLLECT is 7 days old too, the key goes
+        let gone = collect + KEEP_LEFT_MS + 1;
+        assert_eq!(
+            ask(&m, 1, Verb::Collect, gone, &[], "").unwrap_err(),
+            NOT_IN
+        );
+        assert_eq!(row(dir.path(), &seller_rows), [[s("0")]]);
+    }
+
+    /// Advisor 4: a store stopped between the two column additions (only `asked` added) opens and answers a resend.
+    #[test]
+    fn a_store_with_one_answer_column_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        Connection::open(dir.path().join("market.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE keys (key_hash TEXT PRIMARY KEY, log TEXT, last_at INTEGER NOT NULL, welcome TEXT,
+                     sales INTEGER NOT NULL DEFAULT 0, sales_week INTEGER NOT NULL DEFAULT 0,
+                     forks INTEGER NOT NULL DEFAULT 0, left_at INTEGER, asked TEXT);",
+            )
+            .unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap(),
+                "listed 1:57:228"
+            );
+        }
+        drop(m);
+        market(dir.path());
     }
 
     /// Acceptance 3.2 (c): LIST of a card held only as a starter (a REGULAR and the picked RARE) or as an imported copy
