@@ -775,8 +775,8 @@ fn collection_dir(
 }
 
 /// Create-a-Team (plan step 1.3): the catalogue and the table hold only the collection's cards. An unreadable log leaves
-/// the table file as it is (nothing is written over a table that cannot be checked) while the board is filtered in
-/// memory, and the catalogue stays empty.
+/// the table as it is, in the file and in memory (nothing is written over a table that cannot be checked), and the
+/// catalogue stays empty.
 fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>, dir: &Path) {
     let text = match forza::collection::Log::new(dir).lines() {
         Ok(text) => text,
@@ -785,7 +785,7 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
                 "collection: {} could not be read: {e} - no card listed, the table kept",
                 dir.display()
             ));
-            collection_unread(st, placed);
+            collection_unread(st);
             return;
         }
     };
@@ -796,7 +796,7 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
     if folded.unreadable {
         // the cards granted after the break would count as not owned and leave the table file for good
         log("collection: a line cannot be read - no card listed, the table kept");
-        collection_unread(st, placed);
+        collection_unread(st);
         return;
     }
     log(&format!(
@@ -807,11 +807,10 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
     own_table(st, table, placed);
 }
 
-/// The log could not be read: no card owned, so nothing is placeable; the table is filtered on screen only (the file is
-/// left for a read that works) and the player is told what the board shows.
-fn collection_unread(st: &mut PanelState, placed: &mut Vec<Placed>) {
+/// The log could not be read: no card owned, so nothing new is placeable (an import skips every card); the table and
+/// RESET LINEUP's copy stay whole, since the match start, FORMATIONS and IMPORT write them back to the files (#374).
+fn collection_unread(st: &mut PanelState) {
     st.set_owned(Some(Default::default()));
-    panel::owned_table(st, placed);
     st.say(
         forza_ui::widgets::Tone::Refused,
         "cat.msg_collection_unread",
@@ -5239,8 +5238,9 @@ mod tests {
         assert!(st.owns(7));
     }
 
-    /// Plan 1.3 (M3): a log that cannot be read lists no card, empties the board in memory, leaves the table file as it
-    /// is and says so.
+    /// Plan 1.3 (M3), #374 round 2: a log that cannot be read lists no card and says so, and leaves the table whole in
+    /// the file and in memory, so what the match start (RESET LINEUP's copy), FORMATIONS load and IMPORT write later
+    /// (`placed`, `before_match`) is byte for byte what was there.
     #[test]
     fn an_unreadable_log_keeps_the_table_file_and_says_so() {
         let dir =
@@ -5254,14 +5254,38 @@ mod tests {
         };
         let mut table = forza::cards::TableFile::in_dir(&dir);
         table.write(&[at(7), at(9)]).unwrap();
+        let file = std::fs::read(&table.table).unwrap();
+        let kept = table.table.with_file_name(super::KEPT_TABLE);
+        std::fs::write(&kept, cards::table_text(&[at(7)])).unwrap();
+        let kept_file = std::fs::read(&kept).unwrap();
         let mut placed = table.read().unwrap();
         let mut st = cat_state();
+        forza_ui::panel::keep_saved(
+            &mut st,
+            cards::parse_table(&kept_file),
+            std::time::SystemTime::now(),
+        );
         owned_only(&mut st, &mut table, &mut placed, &dir);
-        assert!(placed.is_empty());
-        assert!(st.board.cards.is_empty());
         assert!(st.owned.as_ref().is_some_and(|o| o.is_empty()));
-        let disk = cards::parse_table(&std::fs::read(&table.table).unwrap());
-        assert_eq!(disk.len(), 2, "the file is kept");
+        // the writers: the match start's kept copy, then the table as FORMATIONS load / IMPORT / a move write it
+        std::fs::write(&kept, cards::table_text(&placed)).unwrap();
+        assert_eq!(
+            std::fs::read(&kept).unwrap(),
+            file,
+            "the match start keeps the whole table"
+        );
+        table.write(&placed).unwrap();
+        assert_eq!(
+            std::fs::read(&table.table).unwrap(),
+            file,
+            "the table file is kept"
+        );
+        let before = st.before_match.clone().unwrap();
+        assert_eq!(
+            cards::table_text(&before).as_bytes(),
+            kept_file,
+            "RESET LINEUP's copy is kept"
+        );
         let m = st.message.as_ref().unwrap();
         assert_eq!(m.tone, forza_ui::widgets::Tone::Refused);
         assert!(
