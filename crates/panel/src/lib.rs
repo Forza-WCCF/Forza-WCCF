@@ -805,7 +805,6 @@ fn owned_only(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Place
         folded.state.cards.values().filter(|c| c.owned()).count()
     ));
     st.set_owned(Some(folded.state.cards));
-    st.collection_unknown = false;
     own_table(st, table, placed);
 }
 
@@ -825,11 +824,10 @@ fn collection_unread(st: &mut PanelState) {
 /// come off, the table is written when any did, and the board shows what stays. With the collection unknown the empty
 /// `owned` means "nothing new", not "nothing on the table": no card comes off and the table file is not written.
 fn own_table(st: &mut PanelState, table: &mut TableFile, placed: &mut Vec<Placed>) {
-    let gone = if st.collection_unknown {
-        Vec::new()
-    } else {
-        panel::owned_table(st, placed)
-    };
+    if st.collection_unknown {
+        log("board: the collection is unknown - the table read is kept as it is");
+    }
+    let gone = panel::owned_table(st, placed);
     if !gone.is_empty() {
         log(&format!(
             "board: {} card(s) not in the collection taken off the table: {gone:?}",
@@ -5353,6 +5351,29 @@ mod tests {
         assert_eq!(placed.len(), 2);
         assert_eq!(std::fs::read(&table.table).unwrap(), outside);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #378 review: the guard sits where ownership is applied. A card granted this run while the collection is unknown
+    /// is placeable, and the table is not filtered down to it.
+    #[test]
+    fn a_card_granted_while_the_collection_is_unknown_filters_nothing() {
+        let at = |no| cards::Placed {
+            slot: no as i32,
+            no,
+            x: 0.5,
+            y: 0.5,
+        };
+        let mut st = cat_state();
+        super::collection_unread(&mut st);
+        let granted = forza::collection::Copies {
+            earned: 1,
+            ..Default::default()
+        };
+        st.set_owned(Some([(7, granted)].into()));
+        let mut placed = vec![at(7), at(9)];
+        assert!(forza_ui::panel::owned_table(&mut st, &mut placed).is_empty());
+        assert_eq!(placed.len(), 2);
+        assert!(st.owns(7) && !st.owns(9));
     }
 
     /// #374 M1: a log with a line in the middle that cannot be read is unreadable as a whole: the cards granted after

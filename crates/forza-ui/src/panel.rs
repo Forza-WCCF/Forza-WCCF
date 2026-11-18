@@ -691,8 +691,9 @@ pub struct PanelState {
     /// Create-a-Team: the collection's copies by card number ([`PanelState::set_owned`]); the catalogue lists, and the
     /// table takes, only owned cards. `None`: Free, every card.
     pub owned: Option<Arc<BTreeMap<u32, Copies>>>,
-    /// Create-a-Team: `owned` is empty because the collection could not be read, not because the player holds nothing:
-    /// no new card is placeable, and the table keeps the cards it has (#374).
+    /// Create-a-Team: the collection could not be read, so `owned` is not the player's: it holds no card, or only the
+    /// ones granted this run. Only those are placeable, and [`owned_table`] takes no card off (#374). It holds for the
+    /// whole run: the log is read once, at the panel's start, and the next run reads it again.
     pub collection_unknown: bool,
     /// Seconds before a resting mouse shows the card big; None: never (CARD HOVER DELAY off).
     pub hover_delay: Option<f32>,
@@ -1651,8 +1652,11 @@ pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::System
 
 /// The saved table and RESET LINEUP's kept one without the cards the collection does not own (Create-a-Team, at the
 /// panel's start); the board shows what stays and the message says how many left. The cards taken off: the caller
-/// writes the table when there are any.
+/// writes the table when there are any. Nothing comes off while the collection is unknown (`collection_unknown`).
 pub fn owned_table(st: &mut PanelState, placed: &mut Vec<Placed>) -> Vec<u32> {
+    if st.collection_unknown {
+        return Vec::new();
+    }
     let owned = st.owned.clone();
     let gone: Vec<u32> = placed
         .iter()
