@@ -2053,7 +2053,11 @@ fn the_detail_shows_convert_inside_the_page() {
             let sell = h
                 .query_by_label(&t("deal.sell_from", &[("n", &floor)]))
                 .map(|n| n.rect());
-            assert_eq!(sell.is_some(), copies.earned > 0, "{tag}: the market price");
+            assert_eq!(
+                sell.is_some(),
+                copies.earned > copies.listed,
+                "{tag}: the market price"
+            );
             if let Some(s) = sell {
                 assert!(
                     s.left() >= 16.0 && s.right() <= size.x - 16.0 && s.bottom() <= close.top(),
@@ -2079,6 +2083,49 @@ fn the_detail_shows_convert_inside_the_page() {
             }
         }
     }
+}
+
+/// Review 7 m3: a card whose earned copies are all on the market, with a starter beside them, shows no market price
+/// above its "can never be sold" line: the panel's rule (`panel::card_mark`, `earned > listed`).
+#[test]
+fn the_detail_prices_no_card_whose_earned_copies_are_all_listed() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let lang = Lang::En;
+    let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+    let mut view = CollectionView::sample(Scenario::Spare);
+    let open = view.open;
+    let (card, copies) = view
+        .cards
+        .iter_mut()
+        .find(|(k, _)| Some(k.number) == open)
+        .expect("an open card");
+    copies.listed = copies.earned;
+    copies.starter = 1;
+    let card = card.clone();
+    let mut st = launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(
+        launcher::window_size(Some(700.0)),
+        1.0,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    h.run_steps(4);
+    let row = &forza::cards::collection_cards(std::slice::from_ref(&card))[0];
+    let floor = forza::collection::floor_value(forza::collection::value(row)).to_string();
+    assert!(
+        h.query_by_label(&t("collection.no_sell", &[])).is_some(),
+        "the card cannot sell"
+    );
+    assert!(
+        h.query_by_label(&t("deal.sell_from", &[("n", &floor)]))
+            .is_none(),
+        "no market price for a card that cannot sell"
+    );
 }
 
 /// #374: the deal window holds its collection lines inside it and above its foot line, for every grant state and

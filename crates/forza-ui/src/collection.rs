@@ -886,8 +886,9 @@ fn detail(
                             ),
                         );
                     }
-                    // the market floor, as the deal window prints it: only an earned copy ever sells
-                    if copies.earned > 0 {
+                    // the market floor, as the deal window prints it: only an earned copy off the market sells (the
+                    // panel's rule, `panel::card_mark`)
+                    if copies.earned > copies.listed {
                         let floor = collection::floor_value(collection::value(row)).to_string();
                         hint(ui, &tr!(lang, "deal.sell_from", n = floor.as_str()));
                     }
