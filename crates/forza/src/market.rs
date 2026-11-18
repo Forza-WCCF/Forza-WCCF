@@ -11,7 +11,9 @@
 //! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out); a ledger word
 //! (below) sent again byte for byte, before any other request of its key, answers what it answered the first time and
 //! changes nothing, so a Launcher whose answer was lost (a reset connection, a timeout) sends the same bytes again
-//! until one comes, and only then signs anything new. LEAVE answers
+//! until one comes, and only then signs anything new. Each new request's `at` is strictly above its key's last one,
+//! even within one millisecond (two COLLECT pages): a new request with the same `at`, verb and numbers is taken for
+//! that resend. LEAVE answers
 //! `OK left`, then `returned` and the card numbers of the open listings it closed (the Launcher writes their `unlist`
 //! lines), then `waiting n` when n sales wait for COLLECT.
 //!
