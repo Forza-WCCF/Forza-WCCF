@@ -13,6 +13,8 @@ launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: 
 launcher.collection: {en: "COLLECTION ›", it: "COLLEZIONE ›", ja: "コレクション ›"}
 launcher.msg_no_starter: {en: "Choose your start in COLLECTION before you play.", it: "Scegli come iniziare in COLLEZIONE prima di giocare.", ja: "プレイする前に「コレクション」でスタートを選んでください。"}
 launcher.msg_pack_tokens: {en: "Not enough tokens for this pack.", it: "Gettoni insufficienti per questo pacchetto.", ja: "このパックを買うにはトークンが足りません。"}
+launcher.msg_craft_tokens: {en: "Not enough tokens for this card.", it: "Gettoni insufficienti per questa carta.", ja: "このカードを作成するにはトークンが足りません。"}
+launcher.msg_crafted: {en: "%{name} is in your collection.", it: "%{name} è nella tua collezione.", ja: "%{name} をコレクションに追加しました。"}
 launcher.msg_no_catalogue: {en: "The card list is missing. Press SET UP on the SETUP tab, then open COLLECTION again.", it: "Manca l'elenco delle carte. Premi CONFIGURA nella scheda CONFIGURAZIONE, poi riapri COLLEZIONE.", ja: "カードの一覧がありません。「セットアップ」タブで「設定する」を押してから、もう一度「コレクション」を開いてください。"}
 launcher.where: {en: "WHERE TO PLAY", it: "DOVE GIOCARE", ja: "プレイ場所"}
 launcher.this_pc: {en: "This PC", it: "Questo PC", ja: "このPC"}
@@ -663,6 +665,12 @@ collection.new_card: {en: "NEW", it: "NUOVA", ja: "初入手"}
 collection.copy_n: {en: "COPY %{n}", it: "COPIA %{n}", ja: "%{n} 枚目"}
 collection.show_all: {en: "SHOW ALL", it: "MOSTRA TUTTE", ja: "すべて表示"}
 collection.to_store: {en: "‹ PACKS", it: "‹ PACCHETTI", ja: "‹ パック"}
+# crafting (PLAN.md 2.2): REGULAR and SPECIAL cards only in this release
+collection.craft: {en: "CRAFT", it: "CREA", ja: "作成"}
+collection.craft_title: {en: "CRAFT A CARD", it: "CREA UNA CARTA", ja: "カードを作成"}
+collection.craft_hint: {en: "Pick a REGULAR or SPECIAL card you do not have and pay its value. Crafting RARE cards and up opens later.", it: "Scegli una carta NORMALE o SPECIALE che non hai e paga il suo valore. La creazione di carte RARA e superiori arriverà più avanti.", ja: "持っていないレギュラーかスペシャルのカードを選び、その価値を払います。レア以上のカードの作成は今後追加されます。"}
+collection.craft_buy: {en: "CRAFT · %{n} TOKENS", it: "CREA · %{n} GETTONI", ja: "作成・%{n} トークン"}
+collection.craft_short: {en: "This card costs %{n} tokens. Play matches to earn more.", it: "Questa carta costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このカードは %{n} トークンです。試合をしてトークンを集めましょう。"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

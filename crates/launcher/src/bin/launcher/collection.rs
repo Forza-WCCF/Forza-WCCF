@@ -75,7 +75,7 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
         None => (Filter::default(), None, Step::Page),
     };
     let step = match step {
-        kept @ (Step::Store { .. } | Step::Open { .. }) if started => kept,
+        kept @ (Step::Store { .. } | Step::Open { .. } | Step::Craft { .. }) if started => kept,
         _ if started => Step::Page,
         _ if let Some((choice, dealt, rares)) = pending(catalogue, dir) => Step::Pick {
             choice,
@@ -108,6 +108,12 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
         problem: None,
         damaged: folded.unreadable,
         offers: offers(catalogue),
+        craftable: catalogue
+            .iter()
+            .zip(collection_cards(catalogue))
+            .filter(|(_, row)| c::craft(row).is_some() && !s.cards.contains_key(&row.card_no))
+            .map(|(k, _)| k.clone())
+            .collect(),
     }
 }
 
@@ -137,6 +143,20 @@ pub fn buy(catalogue: &[Card], dir: &Path, choice: PackChoice) -> io::Result<Vec
     std::fs::create_dir_all(dir)?;
     let lines = c::buy_pack(&Log::new(dir), c::now(), &mut rng, &pool, choice.pack())?;
     Ok(lines.iter().filter_map(|e| e.card).collect())
+}
+
+/// CRAFT: the catalogue's card `no` at its value, one `craft` line under the log's lock (`forza::collection::craft_card`).
+pub fn craft(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> {
+    let card = catalogue
+        .iter()
+        .find(|k| k.number == no)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("card {no} is not in the catalogue")))?;
+    std::fs::create_dir_all(dir)?;
+    c::craft_card(
+        &Log::new(dir),
+        c::now(),
+        &collection_cards(std::slice::from_ref(card))[0],
+    )
 }
 
 /// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
@@ -682,5 +702,60 @@ mod tests {
         assert!(!c::pack_fills(&two, c::Pack::Standard), "two players cannot fill 3");
         let three = [card(1, 7001), card(2, 7002), card(3, 7003)];
         assert!(c::pack_fills(&three, c::Pack::Standard));
+    }
+
+    /// 2.2: CRAFT offers the white and black cards not held, never a RARE; a craft pays the value, adds the card and
+    /// takes it off the list, and the view made again stays on CRAFT.
+    #[test]
+    fn craft_offers_unheld_white_and_black_cards_and_makes_one() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("no deal on the screen")
+        };
+        take(
+            &coll,
+            &data,
+            &Step::Pick {
+                choice,
+                dealt,
+                rares,
+                picked: Some(0),
+            },
+        )
+        .unwrap();
+        let mut v = view(&cat, &coll, None).unwrap();
+        let held: Vec<u32> = v.cards.iter().map(|(k, _)| k.number).collect();
+        assert!(!v.craftable.is_empty());
+        assert!(
+            v.craftable
+                .iter()
+                .all(|k| k.rarity == R::Regular && !held.contains(&k.number))
+        );
+        assert_eq!(
+            v.craftable.len(),
+            cat.iter().filter(|k| k.rarity == R::Regular).count() - 11
+        );
+        let no = v.craftable[0].number;
+        let e = craft(&cat, &coll, no).unwrap();
+        assert_eq!((e.kind, e.card), (c::Kind::Craft, Some(no)));
+        v.step = Step::Craft { picked: Some(no) };
+        let again = view(&cat, &coll, Some(v)).unwrap();
+        assert!(
+            matches!(again.step, Step::Craft { .. }),
+            "the view made again stays on CRAFT"
+        );
+        assert_eq!(again.tokens, c::WELCOME + e.tokens);
+        assert!(again.cards.iter().any(|(k, n)| k.number == no && n.earned == 1));
+        assert!(
+            again.craftable.iter().all(|k| k.number != no),
+            "a held card is no longer offered"
+        );
+        assert_eq!(craft(&cat, &coll, no).unwrap_err().to_string(), c::ALREADY_HELD);
     }
 }

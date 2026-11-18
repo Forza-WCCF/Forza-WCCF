@@ -2397,3 +2397,119 @@ fn the_store_and_the_opened_pack_fit_the_page() {
         }
     }
 }
+
+/// 2.2: CRAFT at the Launcher's smallest window, in every language: the page's PACKS and CRAFT lie apart inside the
+/// page; on CRAFT the hint, the picked card's CRAFT button and its short note lie inside the page, the button in view,
+/// and the cards in view lie inside the page and apart.
+#[test]
+fn craft_fits_the_page() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionView, Scenario, Step};
+    let size = launcher::window_size(Some(700.0));
+    let inside = |r: egui::Rect, tag: &str| {
+        assert!(
+            r.left() >= 16.0 && r.right() <= size.x - 16.0,
+            "{tag}: {r:?} inside the page"
+        );
+    };
+    let rect = |s: &egui::epaint::TextShape| egui::Rect::from_min_size(s.pos, s.galley.size());
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        let run = |view: CollectionView| {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, move |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            h
+        };
+        let tag = format!("{lang:?} page");
+        let h = run(CollectionView::sample(Scenario::Page));
+        let packs = h
+            .query_by_label(&t("collection.packs", &[]))
+            .expect("PACKS")
+            .rect();
+        let craft = h
+            .query_by_label(&t("collection.craft", &[]))
+            .expect("CRAFT")
+            .rect();
+        inside(packs, &tag);
+        inside(craft, &tag);
+        assert!(
+            !packs.shrink(0.5).intersects(craft),
+            "{tag}: {packs:?} overlaps {craft:?}"
+        );
+
+        let tag = format!("{lang:?} craft");
+        let view = CollectionView::sample(Scenario::Craft);
+        let Step::Craft { picked: Some(no) } = view.step else {
+            panic!("no card picked")
+        };
+        let card = view
+            .craftable
+            .iter()
+            .find(|c| c.number == no)
+            .unwrap()
+            .clone();
+        let price = forza::collection::craft(
+            &forza::cards::collection_cards(std::slice::from_ref(&card))[0],
+        )
+        .expect("a black card crafts")
+        .to_string();
+        assert!(
+            view.tokens < price.parse().unwrap(),
+            "{tag}: the sample shows the short note"
+        );
+        let names: Vec<String> = view.craftable.iter().map(|c| c.name.clone()).collect();
+        let h = run(view);
+        let drawn = drawn_texts(&h);
+        let buy = h
+            .query_by_label(&t("collection.craft_buy", &[("n", &price)]))
+            .expect("CRAFT · n TOKENS")
+            .rect();
+        inside(buy, &tag);
+        assert!(buy.bottom() <= size.y, "{tag}: {buy:?} in view");
+        for key in ["collection.craft_hint", "collection.craft_short"] {
+            let text = t(key, &[("n", &price)]);
+            let r = drawn
+                .iter()
+                .find(|d| d.galley.text() == text)
+                .map(rect)
+                .unwrap_or_else(|| panic!("{tag}: {key} not drawn"));
+            inside(r, &tag);
+        }
+        let short = drawn
+            .iter()
+            .find(|d| d.galley.text() == t("collection.craft_short", &[("n", &price)]))
+            .map(rect)
+            .unwrap();
+        assert!(
+            short.top() >= buy.bottom() - 0.5,
+            "{tag}: the note {short:?} under {buy:?}"
+        );
+        let mut cards: Vec<egui::Rect> = names
+            .iter()
+            .flat_map(|n| h.query_all_by_role_and_label(Role::Button, n))
+            .map(|n| n.rect())
+            .filter(|r| r.top() > buy.bottom() && r.bottom() <= size.y)
+            .collect();
+        cards.dedup();
+        assert!(
+            cards.len() >= COLLECTION_COLUMNS,
+            "{tag}: {} cards in view",
+            cards.len()
+        );
+        for (i, a) in cards.iter().enumerate() {
+            inside(*a, &tag);
+            for b in &cards[i + 1..] {
+                assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+            }
+        }
+    }
+}
+
+const COLLECTION_COLUMNS: usize = forza_ui::collection::COLUMNS;
