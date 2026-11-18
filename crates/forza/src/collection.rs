@@ -610,14 +610,22 @@ pub fn pack<'a>(
         out.push(next);
     }
     if out.len() == PACK_CARDS && out.iter().all(|c| c.rarity == Rarity::Regular) {
-        let kept: Vec<u32> = out[..PACK_CARDS - 1].iter().map(|c| c.player).collect();
-        if let Some(better) = draw(
-            rng,
-            pool,
-            |c| pick(c) && !kept.contains(&c.player),
-            &Rarity::BETTER,
-        ) {
-            out[PACK_CARDS - 1] = better;
+        // The last card first; when the other two hold every SPECIAL-or-better player (Korea Republic's 2 SPECIAL
+        // players drawn as REGULAR cards), an earlier card makes room instead (1.1b review N5).
+        for slot in (0..PACK_CARDS).rev() {
+            let kept: Vec<u32> = (0..PACK_CARDS)
+                .filter(|&i| i != slot)
+                .map(|i| out[i].player)
+                .collect();
+            if let Some(better) = draw(
+                rng,
+                pool,
+                |c| pick(c) && !kept.contains(&c.player),
+                &Rarity::BETTER,
+            ) {
+                out[slot] = better;
+                break;
+            }
         }
     }
     out
