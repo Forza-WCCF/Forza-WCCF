@@ -1,7 +1,8 @@
 //! Card sizes in physical pixels. The catalogue grid fills its width: whole-pixel cards in the scan's shape (the HQ
-//! pack's 180x254), as many a row as fit at most 170 points wide. The detail pane and the card view draw a picture at
-//! a whole multiple or a whole fraction of its own pixels ([`whole_fit`], [`exact`]). Points convert with
-//! `pixels_per_point`, so Windows scaling (100/125/150/200 %) changes the point size, never the sharpness.
+//! pack's 180x254), as many a row as fit at most 170 points wide. The detail pane and the card view size their slot at
+//! a whole multiple or a whole fraction of the album art's pixels ([`whole_fit`], [`exact`]): the album art draws
+//! whole there, while a picture of other pixels (the pack's scan) is scaled to fill the same slot and may be soft
+//! (issue #265). Points convert with `pixels_per_point`, so Windows scaling (100/125/150/200 %) changes the point size.
 use egui::{Vec2, vec2};
 
 /// The pack's scan, in physical pixels.
