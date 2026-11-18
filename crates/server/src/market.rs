@@ -689,16 +689,18 @@ impl Stock {
             .split(',')
             .map(|n| n.trim().parse())
             .collect::<Result<_, _>>()
-            .map_err(|_| format!("stock mix {mix:?} is not four numbers"))?;
+            .map_err(|_| format!("--stock-mix {mix:?} is not four numbers"))?;
         let mix: [u32; 4] = n
             .try_into()
-            .map_err(|_| format!("stock mix {mix:?} is not four numbers"))?;
+            .map_err(|_| format!("--stock-mix {mix:?} is not four numbers"))?;
         let cards = mix.iter().sum::<u32>();
         if !(1..=STOCK_MAX).contains(&cards) {
-            return Err(format!("a stock list of {cards} cards: 1 to {STOCK_MAX}"));
+            return Err(format!(
+                "--stock-mix {mix:?} makes a list of {cards} cards: 1 to {STOCK_MAX}"
+            ));
         }
         if !(1..=100).contains(&share) {
-            return Err(format!("a stock share of {share} %: 1 to 100"));
+            return Err(format!("--stock-share {share}: 1 to 100 %"));
         }
         Ok(Self { mix, share, limit })
     }
@@ -3082,11 +3084,16 @@ mod tests {
         }
         let said = ask(&m, 1, Verb::Stock, day + 4, &[], &log).unwrap();
         assert!(said.starts_with("stock left 0 1:"), "{said}");
-        // the settings a server reads at start are checked
-        assert!(Stock::new("4,3,2", 90, 0).is_err());
-        assert!(Stock::new("30,1,0,0", 90, 0).is_err());
-        assert!(Stock::new("4,3,2,1", 0, 0).is_err());
-        assert!(Stock::new("4,3,2,1", 101, 0).is_err());
+        // the settings a server reads at start are checked, and a refusal names its flag (review m4)
+        for (mix, share, flag) in [
+            ("4,3,2", 90, "--stock-mix "),
+            ("30,1,0,0", 90, "--stock-mix "),
+            ("4,3,2,1", 0, "--stock-share "),
+            ("4,3,2,1", 101, "--stock-share "),
+        ] {
+            let why = Stock::new(mix, share, 0).unwrap_err();
+            assert!(why.starts_with(flag), "{why}");
+        }
     }
 
     /// Unix ms of an RFC 3339 time.
