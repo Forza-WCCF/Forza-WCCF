@@ -162,8 +162,10 @@ incremental = true
 # `cargo xtask check ci` (CI's pull requests and pushes to main) and `check quick` with sccache: built for test speed,
 # not size, with the tests in the same profile, so each dependency compiles once. Not incremental: sccache caches only
 # that. The per-package overrides of [profile.release] (the programs, Launcher, panel, installer, dmath.dll at "z") are
-# inherited, so the programs CI scans with Defender keep their shape and dmath.dll its build (det-math ALL c4ca5aec in
-# both). The weekly run (`check ci --release`) and `cargo xtask package` build release, what players get.
+# inherited, so the programs that have one keep their shape and dmath.dll its build (det-math ALL c4ca5aec in both).
+# CI's Defender scan of target\kit then reads this profile's files, and winmm.dll, wccfk.dll, wccfnet.dll, ICMP.DLL and
+# forza-server.exe have no override: opt-level 1 with sixteen codegen units there, not their release shape (the release
+# profile is unchanged). The weekly run (`check ci --release`) and `cargo xtask package` build release, what players get.
 [profile.ci]
 inherits = "release"
 lto = false

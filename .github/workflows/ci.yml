@@ -153,7 +153,9 @@ jobs:
       PROFILE: ${{ (github.event_name == 'schedule' || inputs.release) && 'release' || 'ci' }}
     steps:
       # Defender deleted an old winmm.dll and flagged inject.exe and logowin.exe on players' PCs: the kits are scanned
-      # here, and any detection while the tests run (behaviour monitoring included) fails the job
+      # here, and any detection while the tests run (behaviour monitoring included) fails the job. The kits are the `ci`
+      # profile's (Cargo.toml): winmm.dll, wccfk.dll, wccfnet.dll, ICMP.DLL and forza-server.exe, which have no
+      # per-package override, are opt-level 1 with sixteen codegen units there; the release shape is unchanged.
       - name: Defender status
         id: defender
         shell: pwsh
