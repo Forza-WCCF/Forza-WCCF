@@ -69,6 +69,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
 /// [`view`] of a log already read and folded (the Launcher logs the fold's warnings from the same read).
 pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<CollectionView>) -> CollectionView {
     let s = folded.state;
+    let pool = collection_cards(catalogue);
     let started = s.cards.values().any(|k| k.starter > 0);
     let (filter, open, step) = match old {
         Some(o) => (o.filter, o.open, o.step),
@@ -107,20 +108,29 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
         open,
         problem: None,
         damaged: folded.unreadable,
-        offers: offers(catalogue),
+        offers: offers_of(&pool),
+        // the page's held rule: a card whose copies all left (sold) is offered again
         craftable: catalogue
             .iter()
-            .zip(collection_cards(catalogue))
-            .filter(|(_, row)| c::craft(row).is_some() && !s.cards.contains_key(&row.card_no))
+            .zip(&pool)
+            .filter(|(_, row)| {
+                let n = s.copies(row.card_no);
+                c::craft(row).is_some() && n.earned + n.starter + n.imported == 0
+            })
             .map(|(k, _)| k.clone())
             .collect(),
     }
 }
 
-/// The store's packs (`PLAN.md` 2.3): Standard, each season of the catalogue, the 24 nations with their card counts;
-/// each with one card's odds after the step-down.
+/// The store's packs of the catalogue.
+#[cfg(test)]
 pub fn offers(catalogue: &[Card]) -> Vec<Offer> {
-    let pool = collection_cards(catalogue);
+    offers_of(&collection_cards(catalogue))
+}
+
+/// The store's packs (`PLAN.md` 2.3) from the catalogue's pool (`view_of` builds it once per view): Standard, each
+/// season, the 24 nations with their card counts; each with one card's odds after the step-down.
+fn offers_of(pool: &[c::Card]) -> Vec<Offer> {
     let mut seasons: Vec<u16> = pool.iter().map(|c| c.season).filter(|&y| y > 0).collect();
     seasons.sort_unstable();
     seasons.dedup();
@@ -130,8 +140,8 @@ pub fn offers(catalogue: &[Card]) -> Vec<Offer> {
         .map(|pack| Offer {
             pack,
             cards: pool.iter().filter(|c| pack.pack().has(c)).count() as u32,
-            odds: c::pack_odds(&pool, pack.pack()),
-            fills: c::pack_fills(&pool, pack.pack()),
+            odds: c::pack_odds(pool, pack.pack()),
+            fills: c::pack_fills(pool, pack.pack()),
         })
         .collect()
 }
@@ -757,5 +767,30 @@ mod tests {
             "a held card is no longer offered"
         );
         assert_eq!(craft(&cat, &coll, no).unwrap_err().to_string(), c::ALREADY_HELD);
+    }
+
+    /// REVIEW-22 minor: a card sold down to no copy keeps a zeroed entry in the fold, and CRAFT offers it again by the
+    /// page's held rule (the page does not show it).
+    #[test]
+    fn craft_offers_a_card_sold_down_to_no_copy() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, _) = profile(dir.path());
+        let sold = cat.iter().find(|k| k.rarity == R::Regular).unwrap().number;
+        let log = Log::new(&coll);
+        std::fs::create_dir_all(&coll).unwrap();
+        for kind in [c::Kind::Pack, c::Kind::MarketSell] {
+            log.append_at(c::now(), kind, Some(sold), 0, "test").unwrap();
+        }
+        assert!(
+            c::fold(&log.lines().unwrap()).state.cards.contains_key(&sold),
+            "a zeroed entry"
+        );
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(
+            v.craftable.iter().any(|k| k.number == sold),
+            "a sold card is offered again"
+        );
+        assert!(v.cards.iter().all(|(k, _)| k.number != sold), "and not shown as held");
     }
 }
