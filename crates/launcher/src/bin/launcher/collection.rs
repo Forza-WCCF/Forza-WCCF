@@ -304,4 +304,26 @@ mod tests {
         let v = view(&cat, &coll, None).unwrap();
         assert!(matches!(v.step, Step::Choose { .. }));
     }
+
+    /// #374 B1: a last line cut off by an interrupted write is dropped as the next write drops it, so the page opens
+    /// with the cards before it and PLAY is not held back.
+    #[test]
+    fn a_cut_off_last_line_opens_the_collection_page() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::Season(2013)).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let log = coll.join("grants.jsonl");
+        let mut text = std::fs::read_to_string(&log).unwrap();
+        text.push_str("{\"seq\": 14, \"at\": \"2026-11-1");
+        std::fs::write(&log, text).unwrap();
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(matches!(v.step, Step::Page), "the page, not the picker");
+        assert_eq!(v.cards.len(), 12);
+    }
 }
