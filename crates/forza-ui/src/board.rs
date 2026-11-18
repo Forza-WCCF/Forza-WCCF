@@ -4,10 +4,10 @@
 
 use super::Lang;
 use super::theme;
-use super::widgets::{centered_text, fan, fit, gradient};
+use super::widgets::{fan, fit, fit_elided, gradient};
 use egui::{
-    Align2, Color32, Id, Order, Painter, Pos2, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
-    Ui, Vec2, pos2, vec2,
+    Align2, Color32, Galley, Id, Order, Painter, Pos2, Rect, Response, Sense, Shadow, Stroke,
+    StrokeKind, Ui, Vec2, pos2, vec2,
 };
 use forza::cards::hq::{self, Hq};
 use forza::cards::links::Affinity;
@@ -542,18 +542,20 @@ pub fn code_chip(p: &Painter, right: Pos2, h: f32, code: &str, alpha: f32) {
     if code.is_empty() {
         return;
     }
-    let g = p.layout_no_wrap(
-        code.to_owned(),
-        theme::display(h),
-        theme::TEXT.gamma_multiply(alpha),
-    );
+    let (r, g) = chip(p, right, h, code, theme::TEXT.gamma_multiply(alpha));
+    p.rect_filled(r, 3, Color32::from_black_alpha((180.0 * alpha) as u8));
+    p.galley(r.min + vec2(h * 0.35, h * 0.1), g, theme::TEXT);
+}
+
+/// [`code_chip`]'s box and its text.
+fn chip(p: &Painter, right: Pos2, h: f32, code: &str, color: Color32) -> (Rect, Arc<Galley>) {
+    let g = p.layout_no_wrap(code.to_owned(), theme::display(h), color);
     let pad = vec2(h * 0.35, h * 0.1);
     let r = Rect::from_min_size(
         right - vec2(g.size().x + 2.0 * pad.x, g.size().y / 2.0 + pad.y),
         g.size() + 2.0 * pad,
     );
-    p.rect_filled(r, 3, Color32::from_black_alpha((180.0 * alpha) as u8));
-    p.galley(r.min + pad, g, theme::TEXT);
+    (r, g)
 }
 
 /// How a card is drawn: at rest, lifted (dragged), a ghost left in its slot, a swap target, out of position.
@@ -635,7 +637,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
         true,
     );
     // the position band
-    let band_h = (rect.height() * 0.17).max(13.0);
+    let band_h = band_height(rect);
     let band = Rect::from_min_size(rect.min, vec2(rect.width(), band_h));
     let pc = card.pos.color().gamma_multiply(alpha);
     p.rect_filled(
@@ -665,11 +667,16 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
     );
 
     // the picture: a square under the band, as wide as the card allows (the original pictures are 128x128)
-    let inset = if big { 6.0 } else { 3.0 };
-    let side = rect.width() - 2.0 * inset;
-    let pic = Rect::from_min_size(
-        band.left_bottom() + vec2(inset, inset * 0.7),
-        vec2(side, side),
+    let parts = big.then(|| face_parts(p, rect, card));
+    let pic = parts.as_ref().map_or_else(
+        || {
+            let inset = 3.0;
+            Rect::from_min_size(
+                band.left_bottom() + vec2(inset, inset * 0.7),
+                Vec2::splat(rect.width() - 2.0 * inset),
+            )
+        },
+        |f| f.pic,
     );
     card_picture(p, pic, rim, alpha);
     // a scrim under the name, so it reads on any picture
@@ -682,7 +689,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
         Color32::from_black_alpha((200.0 * alpha) as u8),
         true,
     );
-    if big {
+    if let Some(f) = parts {
         let g = fit(
             p,
             &card.name,
@@ -698,32 +705,19 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
             g,
             theme::TEXT,
         );
-        centered_text(
-            p,
-            Rect::from_min_max(
-                pos2(rect.left() + 6.0, pic.bottom() + 1.0),
-                pos2(rect.right() - 6.0, pic.bottom() + rect.width() * 0.12),
-            ),
-            &card.club,
-            theme::body(rect.width() * 0.09),
-            theme::TEXT_DIM.gamma_multiply(alpha),
-        );
+        let club = club_galley(p, rect, card, theme::TEXT_DIM.gamma_multiply(alpha));
+        p.galley(f.club.min, club, theme::TEXT_DIM);
         p.text(
-            rect.left_bottom() + vec2(6.0, -4.0),
-            Align2::LEFT_BOTTOM,
+            f.season.min,
+            Align2::LEFT_TOP,
             &card.season,
             theme::display(rect.width() * 0.1),
             theme::TEXT_FAINT.gamma_multiply(alpha),
         );
-        rarity_mark(
-            p,
-            rect.right_bottom() + vec2(-11.0, -11.0),
-            14.0,
-            card.rarity,
-        );
+        rarity_mark(p, f.mark.center(), MARK, card.rarity);
         code_chip(
             p,
-            rect.right_bottom() + vec2(-22.0, -11.0),
+            f.chip.right_center(),
             rect.width() * 0.09,
             card.series(),
             alpha,
@@ -761,6 +755,82 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
     }
     face_marks(p, rect, r, card, rim, alpha, look);
     r
+}
+
+/// The rarity mark's size on a big face.
+const MARK: f32 = 14.0;
+
+/// A drawn face's position band height.
+fn band_height(rect: Rect) -> f32 {
+    (rect.height() * 0.17).max(13.0)
+}
+
+/// A big face's club line, shrunk to its room, cut with "…" past it.
+pub fn club_galley(p: &Painter, rect: Rect, card: &Card, color: Color32) -> Arc<Galley> {
+    fit_elided(
+        p,
+        &card.club,
+        theme::body(rect.width() * 0.09),
+        color,
+        rect.width() - 12.0,
+    )
+}
+
+/// Where a big drawn face ([`card_face`]) puts its parts under the band: the picture, the club line, the season, the
+/// series chip and the rarity mark (the box the mark's widest shape covers; [`Rect::NOTHING`] for a chip without a code).
+#[derive(Clone, Copy, Debug)]
+pub struct FaceParts {
+    pub pic: Rect,
+    pub club: Rect,
+    pub season: Rect,
+    pub chip: Rect,
+    pub mark: Rect,
+}
+
+/// [`FaceParts`] for `card` on a big face in `rect`: the foot row on the card's foot (the season at the
+/// left, the chip and the mark at the right), the club line over it, and the picture as large as the room above
+/// allows (#376: the chip and the mark sat on the club line, and the card's foot cut it).
+pub fn face_parts(p: &Painter, rect: Rect, card: &Card) -> FaceParts {
+    let card = &*real(p.ctx(), card);
+    let h = rect.width() * 0.09;
+    let chip_h = chip(p, Pos2::ZERO, h, card.series(), theme::TEXT)
+        .0
+        .height();
+    let season = p
+        .layout_no_wrap(
+            card.season.clone(),
+            theme::display(rect.width() * 0.1),
+            theme::TEXT,
+        )
+        .size();
+    // the row's middle: its tallest part 2 points over the card's foot
+    let row = rect.bottom() - 2.0 - (MARK * 1.35).max(chip_h).max(season.y) / 2.0;
+    let mark = Rect::from_center_size(pos2(rect.right() - 11.0, row), Vec2::splat(MARK * 1.35));
+    let chip = if card.series().is_empty() {
+        Rect::NOTHING
+    } else {
+        chip(
+            p,
+            pos2(mark.left() - 2.0, row),
+            h,
+            card.series(),
+            theme::TEXT,
+        )
+        .0
+    };
+    let season = Rect::from_min_size(pos2(rect.left() + 6.0, row - season.y / 2.0), season);
+    let club = club_galley(p, rect, card, theme::TEXT_DIM).size();
+    let club_top = mark.top().min(chip.top()).min(season.top()) - 1.0 - club.y;
+    let club = Rect::from_min_size(pos2(rect.center().x - club.x / 2.0, club_top), club);
+    let top = rect.top() + band_height(rect) + 4.2;
+    let side = (rect.width() - 12.0).min(club.top() - 1.0 - top);
+    FaceParts {
+        pic: Rect::from_min_size(pos2(rect.center().x - side / 2.0, top), Vec2::splat(side)),
+        club,
+        season,
+        chip,
+        mark,
+    }
 }
 
 /// The rim (amber when selected or a drop target) and the out-of-position corner, over the face or the scan.

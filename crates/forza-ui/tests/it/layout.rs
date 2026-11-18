@@ -1615,3 +1615,147 @@ fn the_catalogue_keeps_its_place_when_the_search_line_gives_up_the_keys() {
         );
     }
 }
+
+/// #376: on a big drawn card face the club line, the season, the series chip (WGK, HOLE) and the rarity mark each
+/// keep their own room inside the card, the picture keeps a room above them, and the club text fits its line: shrunk,
+/// then cut with "…" on a whole character. On the pop-out board in English, Italian and Japanese at 1920x1080 and
+/// 2360x1640 with and without the cabinet buttons, and on the narrowest big faces the app draws (the docked hover
+/// face, the catalogue grid's least big tile), for the sample's clubs, a long one, one too long even shrunk, and a
+/// Japanese one. The chip and the mark sat on the club line and the card's foot cut it ("Porto Azzurro").
+#[test]
+fn card_badges_keep_off_the_club_name() {
+    use forza_ui::{board, sizing};
+    let ctx = egui::Context::default();
+    theme::install(&ctx, Edition::E1718, &theme::font_dir()).expect("the fonts in assets/fonts");
+    // our fonts take effect from the next pass
+    ctx.run_ui(egui::RawInput::default(), |_| {})
+        .textures_delta
+        .clear();
+    // (name, cut with "…" on every big face)
+    let clubs = [
+        ("Porto Azzurro", false),
+        (
+            "Sporting Clube Internacional de Porto Azzurro e Real Olmedo",
+            true,
+        ),
+        ("北風フットボールクラブ", false),
+        ("北風フットボールクラブ・ユナイテッド東京シティ", true),
+    ];
+    let mut faces: Vec<(String, egui::Rect)> = vec![];
+    for (w, h) in [(1920.0, 1080.0), (2360.0, 1640.0)] {
+        for buttons in [false, true] {
+            let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
+            let (room, _) = panel::desk_parts(sheet, buttons, false);
+            assert!(
+                panel::desk_bench_right(room, true, None, None),
+                "{w}x{h}: bench beside"
+            );
+            let at = panel::desk_board_rect(room, true);
+            let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+            let rects = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots);
+            for (slot, r) in rects.iter().enumerate() {
+                faces.push((format!("{w}x{h} buttons {buttons} slot {slot}"), *r));
+            }
+        }
+    }
+    // the docked hover face (90x127 at x1) and the catalogue grid's least tile still drawn big
+    for ppp in [1.0, 1.25, 1.5, 2.0] {
+        let f = sizing::hover_face(ppp);
+        faces.push((
+            format!("hover face x{ppp}"),
+            egui::Rect::from_min_size(egui::Pos2::ZERO, f),
+        ));
+        let least = (200..2000)
+            .map(|avail| sizing::grid(avail as f32, ppp).card)
+            .filter(|c| c.x >= 90.0)
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .expect("a big grid tile");
+        faces.push((
+            format!("grid x{ppp}"),
+            egui::Rect::from_min_size(egui::Pos2::ZERO, least),
+        ));
+    }
+    assert!(
+        faces.iter().any(|(_, r)| r.width() == 90.0),
+        "the narrowest big face"
+    );
+    let mut big = 0;
+    for lang in Lang::ALL {
+        let st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let p = ui.painter();
+            for (at, rect) in &faces {
+                if rect.width() < 90.0 {
+                    continue; // a small face: name only
+                }
+                for ci in st.board.slots.iter().flatten() {
+                    let mut card = st.board.cards[*ci].clone();
+                    let own = (card.club.clone(), false);
+                    for (club, cut) in clubs
+                        .iter()
+                        .map(|&(c, cut)| (c.to_owned(), cut))
+                        .chain([own])
+                    {
+                        card.club = club;
+                        big += 1;
+                        let f = board::face_parts(p, *rect, &card);
+                        let case = format!("{} {at} {rect:?} {:?}: {f:?}", lang.code(), card.club);
+                        assert!(f.pic.is_positive(), "{case}: no room for the picture");
+                        let parts = [f.club, f.season, f.chip, f.mark];
+                        for r in parts
+                            .iter()
+                            .chain([&f.pic])
+                            .filter(|r| **r != egui::Rect::NOTHING)
+                        {
+                            assert!(
+                                rect.expand(0.01).contains_rect(*r),
+                                "{case}: {r:?} off the card"
+                            );
+                        }
+                        for (i, a) in parts.iter().enumerate() {
+                            for b in &parts[i + 1..] {
+                                assert!(!a.intersects(*b), "{case}: {a:?} on {b:?}");
+                            }
+                        }
+                        assert!(!f.pic.intersects(f.club), "{case}: the club on the picture");
+                        // the drawn club text: its line's size, inside the card's margins
+                        let g = board::club_galley(p, *rect, &card, egui::Color32::WHITE);
+                        assert!(
+                            (g.size() - f.club.size()).length() < 0.01,
+                            "{case}: drawn {:?}",
+                            g.size()
+                        );
+                        assert!(
+                            g.size().x <= rect.width() - 12.0 + 0.01,
+                            "{case}: {} wide",
+                            g.size().x
+                        );
+                        let shown: String = g
+                            .rows
+                            .iter()
+                            .flat_map(|r| r.row.glyphs.iter().map(|gl| gl.chr))
+                            .collect();
+                        if cut {
+                            let size = g.job.sections[0].format.font_id.size;
+                            assert!(
+                                size < rect.width() * 0.09 - 0.01,
+                                "{case}: not shrunk ({size})"
+                            );
+                            let kept = shown
+                                .strip_suffix('…')
+                                .unwrap_or_else(|| panic!("{case}: no … in {shown:?}"));
+                            assert!(
+                                !kept.is_empty() && card.club.starts_with(kept),
+                                "{case}: cut as {shown:?}"
+                            );
+                        } else if !card.club.is_empty() {
+                            assert_eq!(shown, card.club, "{case}: cut");
+                        }
+                    }
+                }
+            }
+        });
+        out.textures_delta.clear();
+    }
+    assert!(big >= 3 * 40 * 11 * 5, "{big} big faces checked");
+}
