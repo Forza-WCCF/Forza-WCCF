@@ -52,6 +52,25 @@
   player's language (English when there is none), up to the `SHA-256 sums` line, as plain text with VIEW ON GITHUB.
 - Player feedback: GitHub issues, in English, Italian or Japanese.
 
+## Test builds of a held feature
+
+A feature held off `main` (a stack of PRs labelled `hold`) can go to testers as its own build, cut like a
+[candidate](#release-candidate) but never merged:
+
+- Branch `<name>/test` (e.g. `cat/test`) = the tip of the stack's top branch plus the one `chore(release): <ver>`
+  commit. It is force-pushed at each cut and never worked on.
+- Version: one minor above the newest release on `main`, with a pre-release part: `0.9.0-cat.1`, then `cat.2`, ... per
+  re-cut. Dispatch `gh workflow run release.yml --ref cat/test -f version=0.9.0-cat.1`, run the per-file antivirus
+  check, then sign the tag `v0.9.0-cat.1` on that sha and publish it as a GitHub pre-release.
+- The tag check in `release.yml` accepts a pre-release part. The Launcher's UPDATE lists a test tag, marked as a test
+  build, but never offers it as newer; testers pick it there. The installer skips test tags.
+- Flow: cut -> testers pick the test version in UPDATE -> a fix lands on its stack branch, the stack is rebased and cut
+  again (`cat.N+1`; never commit onto the test branch) -> a server fix goes through a tester branch on the server ->
+  after the test week: tuning, then the stack merges to `main` in stack order once its `hold` comes off; the test branch
+  is deleted, its tags stay.
+- One maintainer approval covers all re-cuts of one test week.
+- There is no release PR: steps 2 and 5 of the candidate flow are skipped, and the test sha never reaches `main`.
+
 ## Release candidate
 
 A release ships the bytes CI built for its candidate, never a local package.
@@ -67,6 +86,8 @@ working with released clients (CI and the loopback server test); otherwise it is
    cherry-picked onto `next` (`git cherry-pick -x`), or `next` is cut again from a newer `main` sha. A re-cut
    force-pushes `next`. The release merge deletes the remote branch (delete-branch-on-merge), so right after it `next`
    is reset to `origin/main` and pushed again (no approval needed: it is not `main`).
+   A [test build of a held feature](#test-builds-of-a-held-feature) takes a branch tip instead of a `main` sha: it has
+   no release PR and its sha never reaches `main`.
 2. Push it and open one draft PR `next` -> `main`, titled `chore(release): <x.y.z>`; a re-cut updates that PR. While it
    is a draft only `ci-ok` runs there, and fails on purpose (`ci.yml` skips the other jobs; the candidate build is the
    dispatch below): the long jobs start when it is marked ready, after the play test (step 5).
@@ -85,6 +106,7 @@ working with released clients (CI and the loopback server test); otherwise it is
    confirm `gh pr checks <n> -R Forza-WCCF/Forza-WCCF` shows `ci-ok` passing. `gh pr checks --watch` can exit on the
    draft's stale red `ci-ok`, so it is not the wait. Then merge it with a merge
    commit, never squash or rebase, so the candidate sha stays an ancestor of `main`.
+   A test cut skips this step: its sha is never an ancestor of `main`.
 6. Sign the tag on the candidate sha, not on the merge commit: `git tag -s v<x.y.z> -m "..." <candidate sha>`.
    Pushing the tag prints `Cannot create ref ... restricted` (the tag ruleset), yet the admin bypass creates it:
    confirm with `gh api repos/Forza-WCCF/Forza-WCCF/git/ref/tags/v<x.y.z>`.
