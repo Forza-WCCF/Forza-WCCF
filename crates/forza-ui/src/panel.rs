@@ -4191,6 +4191,9 @@ fn note_line(ui: &mut Ui, message: &mut Option<Note>) {
     }
 }
 
+/// The catalogue's search line and its row: one height, so the field never pokes out of its row (#361).
+const SEARCH_H: f32 = 40.0;
+
 fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     if st.catalogue.view.is_some() {
         return card_view(ui, st, lang);
@@ -4207,8 +4210,8 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     }
     let (mut import, mut form) = (false, false);
     let e1718 = st.edition == Edition::E1718;
-    // the search line, IMPORT LINEUP and FORMATIONS at its right end
-    let row = vec2(ui.available_width(), 36.0);
+    // the search line, IMPORT LINEUP and SAVED LINEUPS at its right end
+    let row = vec2(ui.available_width(), SEARCH_H);
     // the FORMATIONS dialog's name line keeps the keys
     let keep = !egui::Popup::is_any_open(ui.ctx()) && st.formations.is_none() && !st.import_help;
     // a click elsewhere (FRONT | BACK, a chip, a card) leaves the keys with the search line: egui drops a field's
@@ -4238,7 +4241,7 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         .margin(vec2(12.0, 8.0))
                         // one height with and without the keys: egui rounds the room for the 1.5 pt focus outline
                         // up and for the 1 pt idle one not, so the idle field was a point taller (issue #265)
-                        .min_size(vec2(0.0, 40.0)),
+                        .min_size(vec2(0.0, SEARCH_H)),
                 )
                 .accessible_name(tr!(lang, "cat.search_hint"))
             },

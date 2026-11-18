@@ -487,6 +487,37 @@ fn a_click_in_the_catalogue_keeps_the_search_line_focused_and_still() {
     }
 }
 
+/// The catalogue's search line and IMPORT LINEUP and SAVED LINEUPS at its right end share one centre line: a row shorter
+/// than the field (36 points under a 40 point field) centred the buttons in the row while the field ran 4 points past
+/// its foot (#361).
+#[test]
+fn the_catalogue_search_row_centres_its_buttons_on_the_field() {
+    for lang in Lang::ALL {
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+        st.message = None;
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st)
+        });
+        h.run_steps(3);
+        let field = h.get_by_role(egui::accesskit::Role::TextInput).rect();
+        for key in ["cat.import", "form.open"] {
+            // SAVED LINEUPS is under the board too: the one nearest the search line
+            let button = h
+                .query_all_by_label(&forza_ui::text(lang, key, &[]))
+                .map(|n| n.rect())
+                .min_by(|a, b| {
+                    let d = |r: &egui::Rect| (r.center().y - field.center().y).abs();
+                    d(a).total_cmp(&d(b))
+                })
+                .unwrap_or_else(|| panic!("{lang:?}: {key}"));
+            assert!(
+                (button.center().y - field.center().y).abs() <= 0.5,
+                "{lang:?} {key}: {button:?} off the search line's centre line {field:?}"
+            );
+        }
+    }
+}
+
 /// On the catalogue page the FORMATIONS dialog's name line keeps the keys after a click opens it: typed letters land
 /// in the name, not in the search line drawn under it (the dialog is drawn first, so its last request must win).
 #[test]
