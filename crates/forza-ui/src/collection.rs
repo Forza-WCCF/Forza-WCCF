@@ -217,6 +217,8 @@ pub enum CollectionAction {
     Buy(PackChoice),
     /// CRAFT the card with this number.
     Craft(u32),
+    /// CONVERT one spare earned copy of the card with this number into tokens.
+    Convert(u32),
 }
 
 /// Which screen a sample shows.
@@ -694,7 +696,7 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
     filters(ui, v.cards.iter().map(|(c, _)| c), &mut v.filter, lang);
     if let Some(no) = v.open
         && let Some((card, copies)) = v.cards.iter().find(|(c, _)| c.number == no)
-        && detail(ui, card, copies, lang)
+        && detail(ui, card, copies, lang, act)
     {
         v.open = None;
     }
@@ -814,9 +816,16 @@ fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filte
     });
 }
 
-/// A card's detail: its value and how it is made, its copies by source and its mark. No CONVERT and no SELL here:
-/// CONVERT comes with step 2.3 (spare earned copies only) and selling with the market (4.1). `true`: CLOSE pressed.
-fn detail(ui: &mut Ui, card: &Card, copies: &Copies, lang: Lang) -> bool {
+/// A card's detail: its value and how it is made, its copies by source and its mark, and CONVERT while a spare earned
+/// copy is held (`forza::collection::convert`'s rule). No SELL here: selling comes with the market (4.1). `true`: CLOSE
+/// pressed.
+fn detail(
+    ui: &mut Ui,
+    card: &Card,
+    copies: &Copies,
+    lang: Lang,
+    act: &mut Option<CollectionAction>,
+) -> bool {
     let row = &forza::cards::collection_cards(std::slice::from_ref(card))[0];
     let mut close = false;
     egui::Frame::new()
@@ -894,9 +903,19 @@ fn detail(ui: &mut Ui, card: &Card, copies: &Copies, lang: Lang) -> bool {
                     if card_mark(copies).is_some() {
                         hint(ui, &tr!(lang, "collection.no_sell"));
                     }
-                    if widgets::action(ui, &tr!(lang, "collection.close")).clicked() {
-                        close = true;
-                    }
+                    ui.horizontal(|ui| {
+                        if let Ok(pays) = collection::convert(copies, row) {
+                            let n = pays.to_string();
+                            if widgets::action(ui, &tr!(lang, "collection.convert", n = n.as_str()))
+                                .clicked()
+                            {
+                                *act = Some(CollectionAction::Convert(card.number));
+                            }
+                        }
+                        if widgets::action(ui, &tr!(lang, "collection.close")).clicked() {
+                            close = true;
+                        }
+                    });
                 });
             });
         });
