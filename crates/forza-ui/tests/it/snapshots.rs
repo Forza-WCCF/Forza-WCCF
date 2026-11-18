@@ -1430,6 +1430,7 @@ fn launcher_collection() {
             (Pick, "pick"),
             (Page, "page"),
             (Detail, "detail"),
+            (Spare, "detail_spare"),
             (Store, "store"),
             (Open, "open"),
         ] {

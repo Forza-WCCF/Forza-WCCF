@@ -229,6 +229,8 @@ pub enum Scenario {
     Page,
     /// The page with a starter card's detail open.
     Detail,
+    /// The page with the detail of a card held in 2 earned copies: CONVERT and the market price.
+    Spare,
     /// The store on a Nation pack, Korea Republic: its odds stepped down.
     Store,
     /// A pack opened, every card turned.
@@ -292,7 +294,7 @@ impl CollectionView {
                     picked: Some(1),
                 };
             }
-            Scenario::Page | Scenario::Detail => {
+            Scenario::Page | Scenario::Detail | Scenario::Spare => {
                 let c = |earned, starter, imported, listed| Copies {
                     earned,
                     starter,
@@ -304,8 +306,10 @@ impl CollectionView {
                     .chain((12..15).map(|n| held(n, c(0, 0, 1, 0))))
                     .chain((15..21).map(|n| held(n, c(1 + (n as u32 % 2), 0, 0, 0))))
                     .collect();
-                if s == Scenario::Detail {
-                    v.open = Some(v.cards[0].0.number);
+                match s {
+                    Scenario::Detail => v.open = Some(v.cards[0].0.number),
+                    Scenario::Spare => v.open = Some(v.cards[15].0.number),
+                    _ => {}
                 }
             }
             Scenario::Store => {
