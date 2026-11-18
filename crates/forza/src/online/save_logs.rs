@@ -529,7 +529,8 @@ impl Scrub {
         all.extend(
             forms
                 .iter()
-                .filter_map(|f| Needle::new(f, cp932_char, false)),
+                .filter_map(|f| Needle::new(f, cp932_char, false))
+                .map(|n| Needle { cp932: true, ..n }),
         );
         if utf16 {
             all.extend(
@@ -607,10 +608,21 @@ impl Scrub {
             false if aligned && clean_cp932() => Chars::Cp932,
             false => Chars::Unknown,
         };
-        for (needle, new, ends) in self.text_pairs() {
-            if text && !needle.utf8 {
+        // in CP932 the CP932 forms go first, while every character start is known; the other forms then match
+        // anywhere, so one that ends inside a character (あ's UTF-8 E3 81 82 is 縺 and a lead byte) hides no name (#381)
+        let (first, rest): (Vec<_>, Vec<_>) = self
+            .text_pairs()
+            .into_iter()
+            .partition(|(n, ..)| chars != Chars::Cp932 || n.cp932);
+        for (needle, new, ends) in first.into_iter().chain(rest) {
+            // a form that is itself UTF-8 (CP932 辮田 is E3 90 93 63) matches only whole characters of text
+            if text && !needle.utf8 && std::str::from_utf8(&needle.bytes).is_err() {
                 continue;
             }
+            let chars = match chars {
+                Chars::Cp932 if !needle.cp932 => Chars::Unknown,
+                c => c,
+            };
             let ends = match ends {
                 // a name that is not ASCII sits where it sits: Japanese has no word breaks
                 Ends::Word if !needle.ascii => Ends::Any,
@@ -659,13 +671,15 @@ enum Chars {
 
 /// A name in one encoding: its bytes, which of them may match in either ASCII case (only those of an ASCII
 /// character: a CP932 or UTF-16 byte of a kanji is often an ASCII letter, and 人 is not 伸), whether the form is
-/// ASCII (then it goes as a whole word), and whether it is the UTF-8 form (the only one this project's text takes).
+/// ASCII (then it goes as a whole word), whether it is the UTF-8 form (the only one this project's text takes), and
+/// whether it is the CP932 form (an ASCII one is every form).
 #[derive(Clone, Debug)]
 struct Needle {
     bytes: Vec<u8>,
     fold: Vec<bool>,
     ascii: bool,
     utf8: bool,
+    cp932: bool,
 }
 
 impl Needle {
@@ -682,6 +696,7 @@ impl Needle {
             fold,
             ascii: form.is_ascii(),
             utf8,
+            cp932: form.is_ascii(),
         })
     }
 
@@ -772,10 +787,7 @@ fn replace(
     with: impl Fn(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
     let lead = |b: u8| matches!(b, 0x81..=0x9F | 0xE0..=0xFC);
-    // in CP932 a match must end where a character does, or every start after it is misread and a name there stays
-    // (あ's UTF-8 E3 81 82 is 縺 and the lead byte of a second character)
-    let whole = needle.iter().fold(true, |start, &b| !(start && lead(b)));
-    if needle.is_empty() || (chars == Chars::Cp932 && !whole) {
+    if needle.is_empty() {
         return data.to_vec();
     }
     let alnum = |b: Option<&u8>| b.is_some_and(u8::is_ascii_alphanumeric);
@@ -1491,7 +1503,21 @@ mod tests {
         };
         let data = sjis("縺ぁあ").unwrap();
         assert_eq!(data, [0xE3, 0x81, 0x82, 0x9F, 0x82, 0xA0]);
-        assert_eq!(scrub.scrub(data), sjis("縺ぁUSER").unwrap());
+        // the UTF-8 form goes too: a log may hold UTF-8 lines among CP932 ones
+        assert_eq!(scrub.scrub(data), b"USER\x9FUSER");
+    }
+
+    #[test]
+    fn a_latin1_name_that_reads_as_cp932_goes() {
+        // E8 6B is è before a "k" in Latin-1, and 鑢 in CP932
+        let scrub = Scrub {
+            user: "soyabè".into(),
+            ..Scrub::default()
+        };
+        assert_eq!(
+            scrub.scrub(b"login soyab\xE8k ok".to_vec()),
+            b"login USERk ok"
+        );
     }
 
     #[test]
@@ -1504,6 +1530,14 @@ mod tests {
         let data = sjis("host 辮").unwrap();
         assert_eq!(data[5..], [0xE3, 0x90]);
         assert_eq!(scrub.scrub(data), sjis("host PC").unwrap());
+        // 辮田 is E3 90 93 63, whole UTF-8 (㐓c): the file is text, and the CP932 form still goes
+        let scrub = Scrub {
+            pc: "辮田".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("host 辮田").unwrap();
+        assert!(std::str::from_utf8(&data).is_ok());
+        assert_eq!(scrub.scrub(data), b"host PC");
     }
 
     #[test]
