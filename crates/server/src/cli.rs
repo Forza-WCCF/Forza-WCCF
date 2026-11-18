@@ -227,7 +227,8 @@ fn start_desk(
                 ));
                 c.market = Some(Arc::new(m));
             }
-            Err(e) => log(&format!("market not set up: {e}")),
+            // fail-closed: no LIST, BUY or STOCK for anyone until the operator fixes the table or the flag
+            Err(e) => log(&format!("market off: {e}")),
         }
     }
     // the operator's notice: beside the game server's store (`all`), else in data\ beside hold_projector.txt
