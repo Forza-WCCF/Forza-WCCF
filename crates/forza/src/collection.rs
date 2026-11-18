@@ -537,7 +537,7 @@ impl Rng {
     }
 
     /// A number below `n` (`n` > 0).
-    fn below(&mut self, n: u64) -> u64 {
+    pub fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
 

@@ -1,12 +1,13 @@
-//! Create-a-Team's market words on a real desk over loopback: `MARKET JOIN / LEAVE / RESET` signed by
-//! `forza::market`, the "not set up" answer without a value table, and the old words answering as before.
+//! Create-a-Team's market words on a real desk over loopback: `MARKET JOIN / LEAVE / RESET`, the ledger and the own
+//! stock list signed by `forza::market`, the "not set up" answer without a value table, and the old words answering as
+//! before.
 
 use crate::common::*;
 use ed25519_dalek::SigningKey;
 use forza::collection::RULES;
 use forza::market::{self, NOT_SET_UP, Request, Verb};
 use forza_server::desk::{DeskConfig, start};
-use forza_server::market::{Market, Table};
+use forza_server::market::{Market, Stock, Table};
 use forza_server::{Edition, Handle};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -276,4 +277,48 @@ fn a_listing_sells_over_the_desk() {
             assert!(!got.contains(&pk) && !got.contains(&kh[..8]), "{got}");
         }
     }
+}
+
+/// Acceptance 3.3 over loopback: a list of the most rows a server may set (30) answers in one line under the
+/// Launcher's 1 KiB read, and a slot bought over the desk shows sold on the next view.
+#[test]
+fn a_stock_list_sells_over_the_desk() {
+    let root = scratch("market_stock");
+    let table = Table::of(
+        &(1..=40)
+            .map(|c| (c, forza::collection::Rarity::Regular, 80))
+            .collect::<Vec<_>>(),
+    );
+    let market = Market::with(table, &root.join("market.db"))
+        .unwrap()
+        .with_stock(Stock::new("30,0,0,0", 100, 0).unwrap());
+    let d = desk(Some(market));
+    let key = SigningKey::from_bytes(&[8; 32]);
+    let log = with_match(&starter_log(), 13); // 50 tokens
+    let at = now_ms();
+    assert_eq!(
+        market::send(d.addr(), &request(Verb::Join, &key, at, &log)).unwrap(),
+        "13 lines"
+    );
+    let raw = answer(d.addr(), &request(Verb::Stock, &key, at + 1, &log));
+    let said = String::from_utf8(raw).unwrap();
+    assert!(said.len() < 1024 && said.ends_with('\n'), "{said}");
+    let rows: Vec<&str> = said.trim_end().split(' ').skip(2).collect();
+    assert_eq!(rows.len(), 30, "{said}");
+    let first: Vec<u64> = rows[0].split(':').map(|n| n.parse().unwrap()).collect();
+    assert_eq!((first[0], first[2]), (1, 40), "{said}");
+    let bought = format!("stockbought 1:{}:40", first[1]);
+    assert_eq!(
+        market::send(
+            d.addr(),
+            &request_args(Verb::StockBuy, &key, at + 2, &first, &log)
+        )
+        .unwrap(),
+        bought
+    );
+    let again = market::send(d.addr(), &request(Verb::Stock, &key, at + 3, &log)).unwrap();
+    assert!(
+        again.starts_with(&format!("stock 1:{}:40:sold 2:", first[1])),
+        "{again}"
+    );
 }
