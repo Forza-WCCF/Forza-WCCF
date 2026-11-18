@@ -102,7 +102,8 @@ enum Keep {
 }
 
 /// [`BOARD`]'s files from `from` to `to`, a file `from` lacks removed from `to`; what it replaces is kept first as
-/// [`Keep`] says ([`keep_aside`]).
+/// [`Keep`] says ([`keep_aside`]). A run's end ([`Keep::Cards`]) removes nothing: the panel never deletes these files, so
+/// one the seat lacks was lost, and the profile's copy (RESET LINEUP's kept table, the panel state) stays.
 fn mirror(from: &Path, to: &Path, keep: Keep) -> io::Result<()> {
     fs::create_dir_all(to)?;
     let blank = |f: &[u8]| f.iter().all(u8::is_ascii_whitespace);
@@ -117,7 +118,7 @@ fn mirror(from: &Path, to: &Path, keep: Keep) -> io::Result<()> {
         }
         if a.is_file() {
             fs::copy(&a, &b)?;
-        } else if b.is_file() {
+        } else if b.is_file() && keep != Keep::Cards {
             fs::remove_file(&b)?;
         }
     }
@@ -448,5 +449,26 @@ mod tests {
             fs::read_to_string(cat.join("fpr_table0.txt.prev2")).unwrap(),
             "1 202 0 0\r\n"
         );
+    }
+
+    /// Review 5: a run's end whose seat lacks the panel's other files leaves the profile's copies where they are.
+    #[test]
+    fn a_run_end_keeps_the_profiles_other_board_files() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        let cat = Profile::CreateATeam.board(&data);
+        fs::create_dir_all(&cat).unwrap();
+        for n in BOARD {
+            fs::write(cat.join(n), n).unwrap();
+        }
+        fs::create_dir_all(&seat).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        for n in &BOARD[1..] {
+            fs::remove_file(seat.join(n)).unwrap();
+        }
+        board_out(&data, &seat, Profile::CreateATeam).unwrap();
+        for n in BOARD {
+            assert_eq!(fs::read_to_string(cat.join(n)).unwrap(), n);
+        }
     }
 }
