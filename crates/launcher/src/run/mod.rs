@@ -2337,6 +2337,10 @@ impl Run<'_> {
             env.push(("WCCF_RELAY".into(), format!("{ip}:{relay}")));
             env.push(("WCCF_SEAT".into(), self.seat_no.to_string()));
         }
+        // a lobby VS room's marks: the panel's banner when FREE meets CREATE-A-TEAM
+        if let Some(m) = self.vs_target.as_ref().and_then(|t| t.marks.clone()) {
+            env.push(("WCCF_VS_MARKS".into(), m));
+        }
         if self.debug {
             env.push(("MXHOOK_VERBOSE".into(), "1".into()));
         }
@@ -2540,7 +2544,8 @@ impl Run<'_> {
             // rooms"); single use, so the line goes now. The window's heartbeat keeps the room while the run lasts.
             let ticket = t.room.map(|(_, ticket)| ticket);
             if ticket.is_some() {
-                let _ = choices::write(&panel_file, &choices::set_panel_value(&panel, "ticket", None));
+                let panel = choices::set_panel_value(&panel, "ticket", None);
+                let _ = choices::write(&panel_file, &choices::set_panel_value(&panel, "vs_marks", None));
             }
             self.start_vslink(found, ticket);
             return Ok(());

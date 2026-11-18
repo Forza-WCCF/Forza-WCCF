@@ -2019,6 +2019,9 @@ impl App {
             panel = choices::set_panel_value(&panel, "server", Some(&server));
         }
         panel = choices::set_panel_value(&panel, "ticket", seat.as_ref().map(|(_, t)| t.as_str()));
+        // a lobby VS room's two marks, this PC's first, for the panel's banner at the start (run's WCCF_VS_MARKS)
+        let marks = seat.as_ref().and(self.st.lobby.room.as_ref()).and_then(|r| r.marks());
+        panel = choices::set_panel_value(&panel, "vs_marks", marks.as_deref());
         // a change only: play.py switches the game's text at the start (english.py), then takes the line out
         let change = (lang != kit.game_language()).then_some(match lang {
             "en" => "on",
