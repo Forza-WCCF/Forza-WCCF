@@ -962,8 +962,9 @@ fn store(
                     .font(theme::bold(13.0))
                     .color(theme::AMBER),
             );
-            ui.add_space(8.0);
             for (r, &o) in tiers.iter().zip(odds) {
+                // the space goes before each label: one after the last pushed the row past the page and BUY with it
+                ui.add_space(8.0);
                 let text = format!(
                     "{} {}",
                     tr!(lang, rarity_key(*r)),
@@ -978,7 +979,6 @@ fn store(
                         .font(theme::bold(13.0))
                         .color(if o == 0 { theme::TEXT_DIM } else { theme::TEXT }),
                 );
-                ui.add_space(8.0);
             }
         });
     }
