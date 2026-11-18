@@ -2015,9 +2015,18 @@ fn the_detail_shows_convert_inside_the_page() {
     for lang in Lang::ALL {
         let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
         for spare in [true, false] {
-            let mut view = CollectionView::sample(Scenario::Detail);
-            let (card, copies) = view.cards[if spare { 15 } else { 0 }].clone();
-            view.open = Some(card.number);
+            // the snapshot suite's two details: a starter card's and a spare's
+            let view = CollectionView::sample(if spare {
+                Scenario::Spare
+            } else {
+                Scenario::Detail
+            });
+            let (card, copies) = view
+                .cards
+                .iter()
+                .find(|(k, _)| Some(k.number) == view.open)
+                .cloned()
+                .expect("an open card");
             let mut st =
                 launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
             st.profile = Some(forza::profile::Profile::CreateATeam);
