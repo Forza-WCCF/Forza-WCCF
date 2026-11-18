@@ -181,13 +181,19 @@ pub fn seat_mode(profile: Option<Profile>) -> Mode {
     }
 }
 
+/// How often a `MODE` line that got no answer is sent, and the wait between tries.
+const MODE_TRIES: u32 = 3;
+const MODE_RETRY: Duration = Duration::from_secs(1);
+
 /// `MODE id ticket cat` on its own thread when this PC plays Create-a-Team (a seat is free until it says, so free play
-/// sends nothing). Best effort like [`close`]: a desk before `MODE` answers `ERR`, and the seat goes on as a free one.
+/// sends nothing). A line that got no answer is sent again, [`MODE_TRIES`] times in all; a desk's answer is final (a
+/// desk before `MODE` answers `ERR`). Anything but `OK` goes to `log`: the seat then plays as a free one.
 pub fn tell_mode(
     profile: Option<Profile>,
     server: &str,
     id: &str,
     ticket: &str,
+    log: Log,
 ) -> Option<thread::JoinHandle<Result<bool, String>>> {
     let mode = seat_mode(profile);
     if mode.is_free() {
@@ -195,8 +201,26 @@ pub fn tell_mode(
     }
     let (server, id, ticket) = (server.to_owned(), id.to_owned(), ticket.to_owned());
     Some(thread::spawn(move || {
-        let a = socket(&server).ok_or_else(|| "not an address".to_owned())?;
-        lobby::mode(a, &id, &ticket, mode)
+        let mut tries = 0;
+        let r = loop {
+            tries += 1;
+            let r = socket(&server)
+                .ok_or_else(|| format!("{server} is not an address"))
+                .and_then(|a| lobby::mode(a, &id, &ticket, mode));
+            match &r {
+                Err(e) if !e.starts_with("ERR") && tries < MODE_TRIES => thread::sleep(MODE_RETRY),
+                _ => break r,
+            }
+        };
+        let word = mode.word();
+        match &r {
+            Ok(true) => {}
+            Ok(false) => log(&format!("VS room {id}: MODE {word}: the seat is gone")),
+            Err(e) => log(&format!(
+                "VS room {id}: the lobby did not take MODE {word} after {tries} tries ({e}); the seat plays as FREE"
+            )),
+        }
+        r
     }))
 }
 
@@ -871,15 +895,22 @@ mod tests {
                 }
             }
         });
+        let (log, logged) = log_lines();
         for free in [None, Some(Profile::Free)] {
             assert_eq!(seat_mode(free), Mode::Free);
-            assert!(tell_mode(free, &server, "r7x1", "t9").is_none());
+            assert!(tell_mode(free, &server, "r7x1", "t9", log.clone()).is_none());
         }
         let cat = Some(Profile::CreateATeam);
         assert_eq!(seat_mode(cat), Mode::Cat);
-        let answer = tell_mode(cat, &server, "r7x1", "t9").unwrap().join().unwrap();
+        let answer = tell_mode(cat, &server, "r7x1", "t9", log).unwrap().join().unwrap();
         assert!(answer.is_err_and(|e| e.starts_with("ERR")));
         assert_eq!(said.recv().unwrap(), "MODE r7x1 t9 cat\n");
+        // a desk's ERR is final: one line, logged
+        let logged = logged.lock().unwrap().clone();
+        assert!(
+            matches!(&logged[..], [l] if l.contains("MODE cat") && l.contains("ERR say WANT")),
+            "{logged:?}"
+        );
         let lost = Arc::new(AtomicBool::new(false));
         let flag = lost.clone();
         let b = beat(&server, "t9", Duration::from_millis(30), move || {
@@ -890,6 +921,45 @@ mod tests {
         }
         assert!(!lost.load(Ordering::Relaxed), "the seat is still held");
         drop(b);
+    }
+
+    /// A [`Log`] that keeps its lines.
+    fn log_lines() -> (Log, Arc<Mutex<Vec<String>>>) {
+        let lines = Arc::new(Mutex::new(vec![]));
+        let keep = lines.clone();
+        (Arc::new(move |l: &str| keep.lock().unwrap().push(l.to_owned())), lines)
+    }
+
+    /// A `MODE` line the desk closed without answering is sent again; the next answer counts and nothing is logged.
+    #[test]
+    fn a_lost_mode_line_is_sent_again() {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = l.local_addr().unwrap().to_string();
+        let (heard, said) = mpsc::channel::<String>();
+        thread::spawn(move || {
+            for (n, c) in l.incoming().enumerate() {
+                let c = c.unwrap();
+                let mut line = String::new();
+                BufReader::new(&c).read_line(&mut line).unwrap();
+                if n > 0 {
+                    (&c).write_all(b"OK\n").unwrap();
+                }
+                if heard.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        let (log, logged) = log_lines();
+        let answer = tell_mode(Some(Profile::CreateATeam), &server, "r7x1", "t9", log)
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(answer, Ok(true));
+        for _ in 0..2 {
+            assert_eq!(said.recv_timeout(Duration::from_secs(5)).unwrap(), "MODE r7x1 t9 cat\n");
+        }
+        assert!(logged.lock().unwrap().is_empty());
     }
 
     #[test]

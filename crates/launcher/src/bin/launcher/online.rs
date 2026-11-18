@@ -424,7 +424,7 @@ impl Online {
         match result {
             Ok(Created::Room { id, code, ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
-                tell_mode(st.profile, &server, &id, &ticket);
+                tell_mode(st.profile, &server, &id, &ticket, Arc::new(|l: &str| super::log(l)));
                 let mut room = Room::new(&code, Kind::Vs, 2);
                 // seat 2 when QUICK MATCH sat down in a waiting room; the club id comes with the next LOBBY
                 let i = usize::from(seat.clamp(1, 2)) - 1;
@@ -487,7 +487,7 @@ impl Online {
                     None => (Kind::Arcades, 8),
                 };
                 if kind == Kind::Vs {
-                    tell_mode(st.profile, &server, &id, &ticket);
+                    tell_mode(st.profile, &server, &id, &ticket, Arc::new(|l: &str| super::log(l)));
                 }
                 let mut room = Room::new(&name, kind, n);
                 room.next_entry = st.lobby.arcades.iter().find(|r| r.id == id).and_then(|r| r.next_entry);
