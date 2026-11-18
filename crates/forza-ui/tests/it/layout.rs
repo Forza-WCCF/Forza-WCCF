@@ -1615,3 +1615,71 @@ fn the_catalogue_keeps_its_place_when_the_search_line_gives_up_the_keys() {
         );
     }
 }
+
+/// #376: on the pop-out board's big cards the club line, the season, the series chip (WGK, HOLE) and the rarity mark
+/// each keep their own room inside the card, in English, Italian and Japanese, at 1920x1080 and 2360x1640 with and
+/// without the cabinet buttons, for the sample's clubs and a long one. The chip and the mark sat on the club line and
+/// the card's foot cut it ("Porto Azzurro", "Real Olmedo").
+#[test]
+fn card_badges_keep_off_the_club_name() {
+    use forza_ui::board;
+    let ctx = egui::Context::default();
+    theme::install(&ctx, Edition::E1718, &theme::font_dir()).expect("the fonts in assets/fonts");
+    // our fonts take effect from the next pass
+    ctx.run_ui(egui::RawInput::default(), |_| {})
+        .textures_delta
+        .clear();
+    let mut big = 0;
+    for (w, h) in [(1920.0, 1080.0), (2360.0, 1640.0)] {
+        for buttons in [false, true] {
+            let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
+            let (room, _) = panel::desk_parts(sheet, buttons, false);
+            assert!(
+                panel::desk_bench_right(room, true, None, None),
+                "{w}x{h}: bench beside"
+            );
+            let at = panel::desk_board_rect(room, true);
+            for lang in Lang::ALL {
+                let st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+                let rects = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots);
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    let p = ui.painter();
+                    for (slot, ci) in st.board.slots.iter().enumerate() {
+                        let (Some(ci), rect) = (ci, rects[slot]) else {
+                            continue;
+                        };
+                        if rect.width() < 90.0 {
+                            continue; // a small face: name only
+                        }
+                        let mut card = st.board.cards[*ci].clone();
+                        for club in [card.club.clone(), "Porto Azzurro".into()] {
+                            card.club = club;
+                            big += 1;
+                            let f = board::face_parts(p, rect, &card);
+                            let case = format!(
+                                "{w}x{h} buttons {buttons} {} slot {slot} {:?} {rect:?}: {f:?}",
+                                lang.code(),
+                                card.club
+                            );
+                            let parts = [f.club, f.season, f.chip, f.mark];
+                            for r in parts.iter().chain([&f.pic]).filter(|r| r.is_positive()) {
+                                assert!(
+                                    rect.expand(0.01).contains_rect(*r),
+                                    "{case}: {r:?} off the card"
+                                );
+                            }
+                            for (i, a) in parts.iter().enumerate() {
+                                for b in &parts[i + 1..] {
+                                    assert!(!a.intersects(*b), "{case}: {a:?} on {b:?}");
+                                }
+                            }
+                            assert!(!f.pic.intersects(f.club), "{case}: the club on the picture");
+                        }
+                    }
+                });
+                out.textures_delta.clear();
+            }
+        }
+    }
+    assert!(big >= 2 * 2 * 3 * 2 * 11, "{big} big cards checked");
+}
