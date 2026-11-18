@@ -1382,20 +1382,22 @@ impl App {
                 Action::Collection(CollectionAction::Reset),
             ),
             Action::Collection(CollectionAction::Reset) => {
-                // never while a game runs: the run holds the save and the table, and the panel writes the log
-                if RUNNING.load(Ordering::Relaxed) || run::any_on(&kit) {
-                    refuse(t("launcher.msg_game_running"));
+                // never while a game runs or starts: the run holds the save and the table, and the panel writes the log
+                let done = if RUNNING.load(Ordering::Relaxed) {
+                    Err(collection::ResetRefused::Busy)
                 } else {
-                    match collection::reset(&kit.data(), run::seat_of(&kit).as_deref()) {
-                        Ok(to) => {
-                            let to = to.display().to_string();
-                            log(&format!("collection: reset, the old profile is in {to}"));
-                            say(tf("collection.reset_done", &[("folder", &to)]), 0);
-                        }
-                        Err(e) => {
-                            log(&format!("collection: reset failed, the profile is unchanged: {e}"));
-                            refuse(tf("collection.reset_failed", &[("error", &e.to_string())]));
-                        }
+                    collection::reset_kit(&kit)
+                };
+                match done {
+                    Ok(to) => {
+                        let to = to.display().to_string();
+                        log(&format!("collection: reset, the old profile is in {to}"));
+                        say(tf("collection.reset_done", &[("folder", &to)]), 0);
+                    }
+                    Err(collection::ResetRefused::Busy) => refuse(t("launcher.msg_game_running")),
+                    Err(collection::ResetRefused::Failed(e)) => {
+                        log(&format!("collection: reset failed, the profile is unchanged: {e}"));
+                        refuse(tf("collection.reset_failed", &[("error", &e.to_string())]));
                     }
                 }
                 self.collection(&kit);
