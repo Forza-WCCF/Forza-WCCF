@@ -634,3 +634,104 @@ fn fixed_rooms_fit_long_text() {
         }
     }
 }
+
+/// (b) The FREE / CREATE-A-TEAM marks at the lobby's smallest window, in every language: on each VS room row the tags
+/// sit right of the room code and left of the PLAYERS count, inside the row's height, over no other text of the row;
+/// on each room seat they sit inside the seat's well, right of the club and READY text and over none of it.
+#[test]
+fn lobby_marks_stay_in_their_rows() {
+    let small = Vec2::new(lobby::SIZE.x, 470.0);
+    let texts = |h: &egui_kittest::Harness<'_>| -> Vec<(String, egui::Rect)> {
+        h.output()
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_owned(),
+                    t.galley.rect.translate(t.pos.to_vec2()),
+                )),
+                _ => None,
+            })
+            .collect()
+    };
+    let boxes = |h: &egui_kittest::Harness<'_>| -> Vec<egui::Rect> {
+        h.output()
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Rect(r) => Some(r.rect),
+                _ => None,
+            })
+            .collect()
+    };
+    for lang in Lang::ALL {
+        let words = [lobby::Mode::Free, lobby::Mode::Cat].map(|m| lobby::mark_word(lang, m));
+        let is_mark = |t: &str| words.iter().any(|w| w == t);
+        // the list, the full mixed room too
+        let mut v = lobby::LobbyView::sample(lobby::Scenario::VsList);
+        v.open_only = false;
+        let mut h = harness(small, 1.0, Edition::E1718, |ui| {
+            lobby::show(ui, &mut v, lang);
+        });
+        h.run_steps(8);
+        let (all, tags) = (texts(&h), boxes(&h));
+        for (code, n) in [("K7QM", 1), ("TQ4D", 1), ("WZ8P", 2)] {
+            let name = all.iter().find(|(t, _)| t == code).unwrap().1;
+            let y = name.center().y;
+            let row: Vec<&(String, egui::Rect)> = all
+                .iter()
+                .filter(|(_, r)| (r.center().y - y).abs() < lobby::ROW_H / 2.0)
+                .collect();
+            let count = row.iter().find(|(t, _)| t.contains('/')).unwrap().1;
+            let marks: Vec<egui::Rect> = row
+                .iter()
+                .filter(|(t, _)| is_mark(t))
+                .map(|(_, r)| *r)
+                .collect();
+            assert_eq!(marks.len(), n, "{lang:?} {code}");
+            for m in &marks {
+                let tag = tags
+                    .iter()
+                    .find(|b| b.contains_rect(m.shrink(0.5)) && b.height() < lobby::ROW_H)
+                    .unwrap_or_else(|| panic!("{lang:?} {code}: no tag round {m:?}"));
+                let why = format!("{lang:?} {code}: tag {tag:?}");
+                assert!(tag.left() > name.right(), "{why} on the code {name:?}");
+                assert!(tag.right() < count.left(), "{why} on the count {count:?}");
+                assert!(
+                    tag.top() >= y - lobby::ROW_H / 2.0 && tag.bottom() <= y + lobby::ROW_H / 2.0,
+                    "{why} out of its row"
+                );
+                for (t, r) in &row {
+                    assert!(is_mark(t) || !r.intersects(*tag), "{why} over {t:?}");
+                }
+            }
+        }
+        // the room: seat 1 CREATE-A-TEAM, seat 2 FREE, both READY
+        let mut v = lobby::LobbyView::sample(lobby::Scenario::RoomReady);
+        let mut h = harness(small, 1.0, Edition::E1718, |ui| {
+            lobby::show(ui, &mut v, lang);
+        });
+        h.run_steps(8);
+        let (all, rects) = (texts(&h), boxes(&h));
+        for (club, word) in [("A7K2", &words[1]), ("Q3ZD", &words[0])] {
+            let (said, text) = all.iter().find(|(t, _)| t.contains(club)).unwrap();
+            let well = rects
+                .iter()
+                .find(|b| b.contains(text.center()) && (b.height() - lobby::ROW_H).abs() < 0.5)
+                .unwrap_or_else(|| panic!("{lang:?} {club}: no seat well"));
+            let mark = all
+                .iter()
+                .find(|(t, r)| t == word && well.contains(r.center()))
+                .unwrap_or_else(|| panic!("{lang:?} {club}: no {word} mark"))
+                .1;
+            let tag = rects
+                .iter()
+                .find(|b| b.contains_rect(mark.shrink(0.5)) && b.height() < lobby::ROW_H)
+                .unwrap();
+            let why = format!("{lang:?} {club}: tag {tag:?} in {well:?}");
+            assert!(well.contains_rect(*tag), "{why} leaves its seat");
+            assert!(well.contains_rect(*text), "{why}: {said:?} leaves its seat");
+            assert!(!tag.intersects(*text), "{why} over {said:?} {text:?}");
+        }
+    }
+}

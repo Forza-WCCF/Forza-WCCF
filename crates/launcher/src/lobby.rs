@@ -821,6 +821,7 @@ impl Book {
                     }),
                     next_entry: sh.next_entry,
                     room: sh.room,
+                    modes: vec![],
                 });
             }
             for r in &l.vs {
@@ -839,6 +840,11 @@ impl Book {
                     }),
                     next_entry: None,
                     room: false,
+                    modes: {
+                        let mut o = r.occupants.clone();
+                        o.sort_by_key(|o| o.seat);
+                        o.iter().map(|o| o.mode).collect()
+                    },
                 });
             }
         }
@@ -1039,6 +1045,38 @@ mod tests {
         assert!(add_server(&mut list, "10.0.0.6".into(), true));
         assert_eq!(list, ["10.0.0.6", "lobby.wccf.it:20032", "10.0.0.5"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (e) A desk before `MODE` (seats without `mode`, `v` 1) lists its VS rooms as before, each player FREE; a seat
+    /// that said CREATE-A-TEAM marks its row, in seat order whatever order the line lists them in.
+    #[test]
+    fn vs_rows_carry_their_seats_marks() {
+        const OLD: &str = r#"{"v":1,"edition":"2017-18","at":1,"vs":[{"id":"r7x1","code":"K7QM","players":2,"max":2,"kind":2,"occupants":[{"seat":1,"club":"A7K2","ready":true},{"seat":2,"club":"Q3ZD"}]}]}"#;
+        const NEW: &str = r#"{"v":1,"edition":"2017-18","at":1,"vs":[{"id":"r7x1","code":"K7QM","players":2,"max":2,"kind":2,"occupants":[{"seat":2,"club":"Q3ZD","mode":"cat"},{"seat":1,"club":"A7K2","ready":true}]}]}"#;
+        let server = "lobby.test:20032".to_owned();
+        let now = Instant::now();
+        for (line, modes) in [(OLD, [Mode::Free, Mode::Free]), (NEW, [Mode::Free, Mode::Cat])] {
+            let mut book = Book::new(std::slice::from_ref(&server));
+            let lobby = Lobby::parse(line);
+            assert_eq!(lobby.as_ref().map(|l| l.v), Ok(1));
+            book.apply(
+                &Msg::Poll {
+                    server: server.clone(),
+                    ping_ms: Some(30),
+                    result: lobby,
+                },
+                now,
+            );
+            let mut v = forza_ui::launcher::lobby_for(forza_ui::theme::Edition::E1718);
+            book.fill(&mut v, now);
+            let r = &v.vs[0];
+            assert_eq!(
+                (r.id.as_str(), r.name.as_str(), r.players, r.max, &r.state),
+                ("r7x1", "K7QM", 2, 2, &RowState::Full),
+                "{line}"
+            );
+            assert_eq!(r.modes, modes, "{line}");
+        }
     }
 
     #[test]
