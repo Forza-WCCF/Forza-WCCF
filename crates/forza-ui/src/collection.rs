@@ -116,6 +116,8 @@ pub struct Offer {
     pub pack: PackChoice,
     pub cards: u32,
     pub odds: [[u32; 5]; collection::PACK_CARDS],
+    /// Every draw fills a pack (`forza::collection::pack_fills`): BUY waits for it.
+    pub fills: bool,
 }
 
 /// One opened card: the card and how many copies of it the player holds now.
@@ -351,15 +353,18 @@ fn sample_offers() -> Vec<Offer> {
         pack: PackChoice::Standard,
         cards: 8_396,
         odds: full,
+        fills: true,
     })
     .chain((2001..2016).map(|y| Offer {
         pack: PackChoice::Season(y),
         cards: 560,
         odds: full,
+        fills: true,
     }))
     .chain(COUNTS.iter().enumerate().map(|(i, &cards)| Offer {
         pack: PackChoice::Nation(i),
         cards,
+        fills: true,
         odds: if NATIONS[i] == "Korea Republic" {
             collection::odds_by_card([true, true, false, false, false])
         } else {
@@ -970,7 +975,7 @@ fn store(
     }
     ui.add_space(4.0);
     let price = offer.pack.pack().price();
-    let can = tokens >= price && offer.cards as usize >= collection::PACK_CARDS;
+    let can = tokens >= price && offer.fills;
     let n = price.to_string();
     let w = ui.available_width();
     if ui
@@ -989,7 +994,9 @@ fn store(
     {
         *act = Some(CollectionAction::Buy(offer.pack));
     }
-    if tokens < price {
+    if !offer.fills {
+        hint(ui, &tr!(lang, "collection.buy_pool"));
+    } else if tokens < price {
         hint(ui, &tr!(lang, "collection.buy_short", n = n.as_str()));
     }
     let picks: Vec<usize> = (0..offers.len())

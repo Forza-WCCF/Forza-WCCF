@@ -120,6 +120,7 @@ pub fn offers(catalogue: &[Card]) -> Vec<Offer> {
             pack,
             cards: pool.iter().filter(|c| pack.pack().has(c)).count() as u32,
             odds: c::pack_odds(&pool, pack.pack()),
+            fills: c::pack_fills(&pool, pack.pack()),
         })
         .collect()
 }
@@ -581,6 +582,11 @@ mod tests {
         let cat = catalogue();
         let o = offers(&cat);
         assert_eq!((o[0].pack, o[0].cards), (PackChoice::Standard, cat.len() as u32));
+        assert!(o[0].fills);
+        assert!(
+            o.iter().filter(|x| x.cards < 6).all(|x| !x.fills),
+            "BUY waits for a pool that fills a pack"
+        );
         assert_eq!(
             o.iter()
                 .filter(|x| matches!(x.pack, PackChoice::Season(_)))
