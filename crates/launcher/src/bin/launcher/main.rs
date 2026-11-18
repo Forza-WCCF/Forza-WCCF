@@ -1395,6 +1395,10 @@ impl App {
                         say(tf("collection.reset_done", &[("folder", &to)]), 0);
                     }
                     Err(collection::ResetRefused::Busy) => refuse(t("launcher.msg_game_running")),
+                    Err(collection::ResetRefused::NoSeat) => {
+                        log("collection: reset refused, no game folder found for the seat's table");
+                        refuse(t("collection.reset_no_seat"));
+                    }
                     Err(collection::ResetRefused::Failed(e)) => {
                         log(&format!("collection: reset failed, the profile is unchanged: {e}"));
                         refuse(tf("collection.reset_failed", &[("error", &e.to_string())]));
