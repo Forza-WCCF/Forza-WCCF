@@ -635,6 +635,8 @@ const OPEN_LISTINGS: i64 = 5;
 const SALES_PER_WEEK: u32 = 10;
 /// BUY's refusal of a listing that sold, was cancelled, expired or never was.
 const GONE: &str = "that listing is no longer on the market";
+/// CANCEL's refusal of a listing that sold.
+const SOLD: &str = "that listing sold: COLLECT pays it";
 /// Bodies read at once across the desk, and from one address: each may hold [`MAX_BODY`] in memory.
 const MAX_UPLOADS: usize = 8;
 const MAX_UPLOADS_PER_ADDRESS: usize = 2;
@@ -864,12 +866,21 @@ impl Market {
                     .optional()
                     .map_err(store_err)?;
                 match r {
+                    // conditional, as BUY's sale: a listing sold since the SELECT stays sold
                     Some((c, state)) if state == "open" => {
-                        tx.execute("DELETE FROM ledger WHERE id = ?1", params![id])
-                            .map_err(store_err)?;
+                        if tx
+                            .execute(
+                                "DELETE FROM ledger WHERE id = ?1 AND state = 'open'",
+                                params![id],
+                            )
+                            .map_err(store_err)?
+                            != 1
+                        {
+                            return Err(SOLD.into());
+                        }
                         format!("cancelled {id}:{c}")
                     }
-                    Some(_) => return Err("that listing sold: COLLECT pays it".into()),
+                    Some(_) => return Err(SOLD.into()),
                     None => return Err("this installation has no listing with that id".into()),
                 }
             }
@@ -1995,6 +2006,45 @@ mod tests {
             ),
             [[s("1")]]
         );
+    }
+
+    /// m1: the seller's CANCEL races a BUY of the same listing: exactly one goes through, and the ledger agrees with it
+    /// (cancelled: no row and no purchase; sold: CANCEL says so and the sale stands).
+    #[test]
+    fn cancel_races_a_buy_and_one_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = std::sync::Arc::new(market(dir.path()));
+        let seller = earned(&[57]);
+        let funds = earned(&[20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        ask(&m, 2, Verb::Join, NOW + 2, &[], &funds).unwrap();
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let racers = [
+            (1u8, Verb::Cancel, vec![1]),
+            (2, Verb::Buy, vec![1, 57, 228]),
+        ]
+        .map(|(k, verb, args)| {
+            let (m, gate) = (m.clone(), gate.clone());
+            let log = if k == 2 { funds.clone() } else { String::new() };
+            std::thread::spawn(move || {
+                gate.wait();
+                ask(&m, k, verb, NOW + 3, &args, &log)
+            })
+        });
+        let [cancel, buy] = racers.map(|h| h.join().unwrap());
+        let states = row(dir.path(), "SELECT state FROM ledger ORDER BY id");
+        match (&cancel, &buy) {
+            (Ok(c), Err(b)) => {
+                assert_eq!((c.as_str(), b.as_str()), ("cancelled 1:57", GONE));
+                assert!(states.is_empty(), "{states:?}");
+            }
+            (Err(c), Ok(b)) => {
+                assert_eq!((c.as_str(), b.as_str()), (SOLD, "bought 1:57:228"));
+                assert_eq!(states, [[s("sold")], [s("bought")]]);
+            }
+            _ => panic!("{cancel:?} {buy:?}"),
+        }
     }
 
     /// Acceptance 3.2 (c): LIST of a card held only as a starter (a REGULAR and the picked RARE) or as an imported copy
