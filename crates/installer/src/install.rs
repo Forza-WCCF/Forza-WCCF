@@ -564,12 +564,9 @@ fn unpack_kit(zip_path: &Path, dest: &Path, emit: &dyn Fn(Event)) -> Result<()> 
             let Ok(rel) = name.strip_prefix(prefix.trim_end_matches('/')) else {
                 continue;
             };
-            // data\ is the player's in any capitals: Windows folder names ignore case (the Launcher's UPDATE skips it alike)
-            let player_data = rel
-                .components()
-                .next()
-                .is_some_and(|c| c.as_os_str().eq_ignore_ascii_case("data"));
-            if rel.as_os_str().is_empty() || (keep_data && player_data) {
+            // the package's data\ is unpacked even over an install with data: `forza::apply` checks every file the
+            // package lists, then skips data\ in any capitals when copying (as the Launcher's UPDATE)
+            if rel.as_os_str().is_empty() {
                 continue;
             }
             let out = top.join(rel);
@@ -1028,6 +1025,40 @@ mod tests {
             b"2017-18 save"
         );
         assert_eq!(tree(&other), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A package whose files.txt lists a data\ file applies over an install with data: the file is unpacked for the
+    /// check, the player's copy kept.
+    #[test]
+    fn a_listed_data_file_applies_over_an_install_with_data() {
+        let root =
+            std::env::temp_dir().join(format!("unpack-listed-data-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let kit = root.join("k.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
+        for (n, b) in [
+            ("Launcher.exe", "new"),
+            ("bin/x.dll", "new"),
+            ("data/save/club.bin", "package"),
+            (
+                "files.txt",
+                "Launcher.exe\r\nbin\\x.dll\r\ndata\\save\\club.bin\r\nfiles.txt\r\n",
+            ),
+        ] {
+            zip.start_file(n, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        unpack_kit(&kit, &dest, &|_| {}).unwrap();
+        assert_eq!(fs::read(dest.join("Launcher.exe")).unwrap(), b"new");
+        assert_eq!(
+            fs::read(dest.join("data/save/club.bin")).unwrap(),
+            b"2017-18 save"
+        );
+        assert!(!dest.join("data/update").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
