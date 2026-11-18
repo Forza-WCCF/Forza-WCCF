@@ -4,6 +4,7 @@
 
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
@@ -239,6 +240,17 @@ pub fn misc_dir(game: &Path) -> PathBuf {
 /// The active profile's save for a kit's `data` folder (callers that know only that folder: the panel, the card steps).
 pub fn save_in(data: &Path) -> PathBuf {
     Profile::of(&read_settings(&data.join("settings.json"))).save(data)
+}
+
+/// Writes `bytes` to `path` through a temporary file beside it (`path` with the extension `tmp`) and one rename: a crash
+/// or a power cut never leaves half a file.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let mut f = fs::File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    fs::rename(&tmp, path)
 }
 
 /// A settings.json file; an empty object when it is missing or not JSON.

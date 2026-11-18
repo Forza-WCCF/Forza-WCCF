@@ -105,9 +105,7 @@ fn mirror(from: &Path, to: &Path) -> io::Result<()> {
 
 /// The marker through a temporary file and one rename: a power cut never leaves a torn name that refuses every start.
 fn mark(seat: &Path, code: &str) -> io::Result<()> {
-    let (marker, tmp) = (seat.join(MARKER), seat.join(format!("{MARKER}.tmp")));
-    fs::write(&tmp, code)?;
-    fs::rename(&tmp, &marker)
+    crate::kit::write_atomic(&seat.join(MARKER), code.as_bytes())
 }
 
 /// A run's start: the seat folder gets `p`'s card table. The table there is first copied to the profile it belongs to;
@@ -323,7 +321,7 @@ mod tests {
         fs::create_dir_all(&seat).unwrap();
         fs::write(seat.join("fpr_table0.txt"), "free").unwrap();
         fs::write(seat.join(MARKER), "free").unwrap();
-        let tmp = seat.join(format!("{MARKER}.tmp"));
+        let tmp = seat.join(MARKER).with_extension("tmp");
         fs::create_dir_all(&tmp).unwrap(); // the temporary file cannot be made
         assert!(board_in(&data, &seat, Profile::CreateATeam).is_err());
         assert_eq!(fs::read_to_string(seat.join(MARKER)).unwrap(), "free");
