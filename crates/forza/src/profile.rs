@@ -74,7 +74,8 @@ impl Profile {
 /// The profile whose table the seat folder holds: free play without a marker, `None` while a switch is half done. A
 /// marker naming no profile is an error: its table is nobody's to overwrite.
 // shortcut: the marker is the only witness; a lost one (a seat folder copied from another install, a hand deletion)
-// means free play, so a Create-a-Team table left there goes to free play's board. Upgrade if a launcher path loses it.
+// means free play, so a Create-a-Team table left there goes to free play's board (free play's own kept as `.prev`).
+// Upgrade if a launcher path loses it.
 fn held(seat: &Path) -> io::Result<Option<Profile>> {
     match fs::read_to_string(seat.join(MARKER)) {
         Ok(s) if s.trim().is_empty() => Ok(None),
@@ -89,11 +90,15 @@ fn held(seat: &Path) -> io::Result<Option<Profile>> {
     }
 }
 
-/// [`BOARD`]'s files from `from` to `to`, a file `from` lacks removed from `to`.
-fn mirror(from: &Path, to: &Path) -> io::Result<()> {
+/// [`BOARD`]'s files from `from` to `to`, a file `from` lacks removed from `to`. With `keep`, a file of `to` that this
+/// replaces or removes and that differs is kept as `<name>.prev` first.
+fn mirror(from: &Path, to: &Path, keep: bool) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for n in BOARD {
         let (a, b) = (from.join(n), to.join(n));
+        if keep && b.is_file() && (!a.is_file() || fs::read(&a)? != fs::read(&b)?) {
+            fs::rename(&b, to.join(format!("{n}.prev")))?;
+        }
         if a.is_file() {
             fs::copy(&a, &b)?;
         } else if b.is_file() {
@@ -118,18 +123,19 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     if held == Some(p) {
         // free play that never switched has no board folder: nothing moves, nothing new on disk
         if empty && p.board(data).join(BOARD[0]).is_file() {
-            mirror(&p.board(data), seat)?;
+            mirror(&p.board(data), seat, false)?;
             mark(seat, p.code())?;
         }
         return Ok(());
     }
     if let Some(h) = held {
         if !empty {
-            mirror(seat, &h.board(data))?;
+            // a lost marker names free play for another profile's table: free play's own table stays as `.prev`
+            mirror(seat, &h.board(data), true)?;
         }
         mark(seat, "")?;
     }
-    mirror(&p.board(data), seat)?;
+    mirror(&p.board(data), seat, false)?;
     mark(seat, p.code())
 }
 
@@ -137,7 +143,7 @@ pub fn board_in(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
 /// copied while no switch was ever made (no marker): it stays in the seat folder only, as before profiles.
 pub fn board_out(data: &Path, seat: &Path, p: Profile) -> io::Result<()> {
     if seat.join(MARKER).is_file() && held(seat)? == Some(p) {
-        mirror(seat, &p.board(data))?;
+        mirror(seat, &p.board(data), false)?;
     }
     Ok(())
 }
@@ -332,5 +338,33 @@ mod tests {
             "create-a-team"
         );
         assert!(!tmp.exists());
+    }
+
+    /// A lost marker (a hand deletion) makes Create-a-Team's table look like free play's: the switch that follows copies
+    /// it over free play's board, and free play's own table stays beside it as `.prev`.
+    #[test]
+    fn a_lost_marker_keeps_free_plays_table_as_prev() {
+        let d = tempfile::tempdir().unwrap();
+        let (data, seat) = (d.path().join("data"), d.path().join("seat1"));
+        fs::create_dir_all(&seat).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "free").unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        fs::write(seat.join("fpr_table0.txt"), "cat").unwrap();
+        fs::remove_file(seat.join(MARKER)).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        let free = Profile::Free.board(&data);
+        assert_eq!(
+            fs::read_to_string(free.join("fpr_table0.txt")).unwrap(),
+            "cat"
+        );
+        assert_eq!(
+            fs::read_to_string(free.join("fpr_table0.txt.prev")).unwrap(),
+            "free"
+        );
+        // an unchanged table makes no `.prev`
+        fs::remove_file(free.join("fpr_table0.txt.prev")).unwrap();
+        board_in(&data, &seat, Profile::Free).unwrap();
+        board_in(&data, &seat, Profile::CreateATeam).unwrap();
+        assert!(!free.join("fpr_table0.txt.prev").exists());
     }
 }
