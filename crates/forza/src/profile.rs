@@ -207,7 +207,8 @@ fn reset_with(
     {
         // what a switch away does (`board_in`): the board then holds the whole table and the marker says so
         step(0)?;
-        if seat.join(BOARD[0]).is_file() {
+        // every file the seat holds, not only with the table there: the emptying below deletes them all
+        if BOARD.iter().any(|n| seat.join(n).is_file()) {
             mirror(seat, &p.board(data), Keep::All)?;
         }
         step(1)?;
@@ -724,6 +725,28 @@ mod tests {
                 table(&seat),
                 None,
                 "step {fail}: the new profile's empty table"
+            );
+        }
+        // review 7 m1: a seat whose table file is gone (quarantined, half deleted) still has its other files parked
+        // before the seat is emptied: stopped at any step (5: not stopped), the panel's UNDO copy is in the profile,
+        // its archive or the seat
+        for fail in 0..6u8 {
+            let d = tempfile::tempdir().unwrap();
+            let (data, seat) = played(d.path());
+            fs::remove_file(seat.join(BOARD[0])).unwrap();
+            fs::write(seat.join(BOARD[4]), "undo copy").unwrap();
+            let r = reset_with(&data, Some(&seat), "s", &mut |s| {
+                if s == fail {
+                    Err(io::Error::other("injected"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(r.is_err(), fail < 5, "step {fail}");
+            let kept = [tree(&data.join("profiles")), tree(&seat)];
+            assert!(
+                kept.iter().any(|t| t.values().any(|v| v == b"undo copy")),
+                "step {fail}: the UNDO copy is kept"
             );
         }
     }
