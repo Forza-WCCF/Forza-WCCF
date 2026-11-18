@@ -143,6 +143,16 @@ fn letterbox(r: Rect, aspect: f32) -> Rect {
     Rect::from_center_size(r.center(), vec2(w, w / aspect))
 }
 
+/// Where a picture of `aspect` (width / height) draws in the card slot `r`: a card-shaped one (within 5 % of the slot's
+/// shape) fills it, so two sides of slightly different shapes share one rect (issue #265); another shape is letterboxed.
+fn picture_rect(r: Rect, aspect: f32) -> Rect {
+    if (aspect / r.aspect_ratio() - 1.0).abs() < 0.05 {
+        r
+    } else {
+        letterbox(r, aspect)
+    }
+}
+
 fn picture_dir(ctx: &egui::Context) -> Option<std::path::PathBuf> {
     ctx.data(|d| d.get_temp::<Option<std::path::PathBuf>>(Id::unique("card-pictures")))
         .flatten()
@@ -416,15 +426,8 @@ pub fn card_side(
     match got {
         Some((id, size)) => {
             p.rect_filled(rect, 0, theme::DEEP);
-            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid.
-            // A card-shaped picture fills the slot, so two sides of slightly different shapes (a scan front, an album
-            // back) draw in the same rect (issue #265); only another shape (the game's square picture) is letterboxed
-            let aspect = size.x / size.y;
-            let at = if (aspect / rect.aspect_ratio() - 1.0).abs() < 0.05 {
-                rect
-            } else {
-                letterbox(rect, aspect)
-            };
+            // a plain mesh, not an image shape: the tessellator's feathering would move its edges off the pixel grid
+            let at = picture_rect(rect, size.x / size.y);
             let at = Rect::from_min_size(
                 rect.min
                     + ((at.min - rect.min) * p.pixels_per_point()).round() / p.pixels_per_point(),
@@ -2797,6 +2800,26 @@ pub fn catalogue_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The 5 % gate: the pack's 180x254 scan and the album's 256x357 art fill each other's slot; the game's square
+    /// picture, and a shape just past 5 % either way, are letterboxed whole inside it.
+    #[test]
+    fn a_card_shaped_picture_fills_its_slot_and_another_is_letterboxed() {
+        let slot = Rect::from_min_size(pos2(10.0, 20.0), vec2(256.0, 357.0));
+        let k = slot.aspect_ratio();
+        for aspect in [180.0 / 254.0, k, k * 1.049, k * 0.951] {
+            assert_eq!(picture_rect(slot, aspect), slot, "{aspect}: fills the slot");
+        }
+        for aspect in [1.0, k * 1.051, k * 0.949] {
+            let at = picture_rect(slot, aspect);
+            assert!(at != slot && slot.contains_rect(at), "{aspect}: {at:?}");
+            assert!(
+                (at.aspect_ratio() - aspect).abs() < 1e-4,
+                "{aspect}: its own shape"
+            );
+            assert_eq!(at.center(), slot.center(), "{aspect}: centred");
+        }
+    }
 
     #[test]
     fn a_rating_comes_from_the_area_drawn_on_top() {
