@@ -538,9 +538,11 @@ fn hook_feature(e1011: bool) -> &'static str {
 /// What only the 2010-11 edition builds from (git's paths, lower case; a folder ends in `/`). `check quick`, which
 /// pull requests' CI runs, builds and tests the 2010-11 hooks ([`HOOKS`]: wccfk.dll and the 2010-11 Linux server's
 /// winmm.dll) only when a change touches one of these, and so does `check ci --base` ([`ci_builds_1011`]); the full
-/// check, `check ci` without `--base` or with `--release` (the weekly run, releases), `build` and `package` always do. The hook crate and its dependency count whole (both editions' hooks share their
-/// code), and so do the toolchain and the locked crates. Package-less 2010-11 files (README, deploy scripts) are only
-/// staged or linted, by `check ci` and the lint job alike.
+/// check, `check ci` without `--base` or with `--release` (the weekly run, releases), `build` and `package` always do.
+/// The hook crate and its dependency count whole (both editions' hooks share their code), and so do the toolchain, the
+/// locked crates and the settings that profile or lint every crate: a break in those that only the 2010-11 hooks meet
+/// must not wait for the weekly `--release` run. Package-less 2010-11 files (README, deploy scripts) are only staged or
+/// linted, by `check ci` and the lint job alike.
 const PATHS_1011: &[&str] = &[
     "editions/2010-11/",
     "legacy/2010-11/",
@@ -552,6 +554,9 @@ const PATHS_1011: &[&str] = &[
     "crates/forza/src/setup/e1011.rs",
     "crates/forza/examples/setup1011.rs",
     "deploy/linux/wccf-1011",
+    // the root manifest (profiles, workspace lints) and native/'s clippy settings: the hooks are built and linted by them
+    "cargo.toml",
+    "native/clippy.toml",
     "cargo.lock",
     "rust-toolchain.toml",
     ".cargo/",
@@ -4222,6 +4227,11 @@ mod tests {
         assert!(touches_1011("crates/forza/src/setup/e1011.rs\n"));
         assert!(touches_1011("native/hook/src/lib.rs\n"));
         assert!(touches_1011("Cargo.lock\n"));
+        // the files that profile or lint every crate reach the 2010-11 hooks, so a break only they meet cannot wait
+        // for the weekly --release run; a crate's own manifest is that crate's
+        assert!(touches_1011("Cargo.toml\n"));
+        assert!(touches_1011("native/clippy.toml\n"));
+        assert!(!touches_1011("crates/forza/Cargo.toml\n"));
         assert_eq!(hooks(false).count(), 2);
         assert!(hooks(false).all(|(f, _, _)| f.contains("e1718")));
         assert_eq!(hooks(true).count(), HOOKS.len());
