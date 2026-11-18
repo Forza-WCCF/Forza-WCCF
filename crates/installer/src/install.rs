@@ -1250,6 +1250,36 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// A program running from the install refuses the package in `forza::apply` too (here past the installer's own
+    /// check): the staging copy in data\update goes with the refusal.
+    #[cfg(windows)]
+    #[test]
+    fn a_running_refusal_leaves_no_staging_copy() {
+        let root =
+            std::env::temp_dir().join(format!("running-staging-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dest = two_editions(&root);
+        let exe = dest.join("game/control_Release.exe");
+        fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+        let mut child = std::process::Command::new(&exe)
+            .args(["install::tests::a_program_that_waits", "--exact"])
+            .env("WCCF_TEST_WAIT", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll"]);
+        let r = unpack_kit(&kit, &dest, &|_| {});
+        let _ = (child.kill(), child.wait());
+        let e = r.unwrap_err();
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::ProgramRunning { .. })),
+            "{e:#}"
+        );
+        assert!(!dest.join("data/update").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// The program `a_running_program_refuses_the_package` starts: this test binary, waiting when asked to.
     #[test]
     fn a_program_that_waits() {

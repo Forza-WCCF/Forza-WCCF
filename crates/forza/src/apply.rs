@@ -51,6 +51,7 @@ pub fn apply<E: Display + From<String>>(
 ) -> Result<(), Failed<E>> {
     #[cfg(windows)]
     if let Some(p) = crate::procs::running_from(dir) {
+        let _ = fs::remove_dir_all(work);
         return Err(Failed::Running(p));
     }
     // every file the new kit lists, there and whole, before the installed kit is touched: an antivirus may have taken some
