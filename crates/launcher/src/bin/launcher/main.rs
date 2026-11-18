@@ -824,15 +824,16 @@ struct App {
 }
 
 /// The collection read's warnings to log now, and the list the next refresh compares to (`said`): `None` is a log that
-/// could not be read, which leaves no list, so a damaged line still there after it is logged again; the failed read
-/// that clears a list is logged once, so the repeat has its cause beside it.
+/// could not be read; its one line replaces the list, so it is logged once (a read failing from the first refresh
+/// too), and a damaged line still there after it is logged again, with its cause beside it.
 fn warnings_to_log(read: Option<&[String]>, said: &mut Vec<String>) -> Vec<String> {
+    const FAILED: &str = "collection: the log could not be read; its warnings are logged again once it can be";
     let Some(warnings) = read else {
-        if said.is_empty() {
+        if said.len() == 1 && said[0] == FAILED {
             return Vec::new();
         }
-        said.clear();
-        return vec!["collection: the log could not be read; its warnings are logged again once it can be".into()];
+        *said = vec![FAILED.into()];
+        return said.clone();
     };
     if warnings == said.as_slice() {
         return Vec::new();
@@ -2290,13 +2291,21 @@ mod tests {
         assert_eq!(said, damaged);
         assert!(warnings_to_log(Some(&damaged), &mut said).is_empty(), "once");
         assert_eq!(warnings_to_log(None, &mut said).len(), 1, "the failed read is logged");
-        assert!(said.is_empty(), "a failed read leaves no list");
         assert!(warnings_to_log(None, &mut said).is_empty(), "once");
         assert_eq!(
             warnings_to_log(Some(&damaged), &mut said),
             ["collection: line 12 does not parse"],
             "logged again after the failed read"
         );
+        // review 5: a read that fails from the first refresh is logged, once
+        let mut said = Vec::new();
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "the first failed read");
+        assert!(warnings_to_log(None, &mut said).is_empty(), "once");
+        assert!(
+            warnings_to_log(Some(&[]), &mut said).is_empty(),
+            "a good empty read says nothing"
+        );
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "a new failure after it");
     }
 
     /// A session the player started in the window ends on its own screen (2026-11-06: the window closed after a joined
