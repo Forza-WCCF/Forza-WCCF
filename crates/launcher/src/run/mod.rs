@@ -580,8 +580,7 @@ fn ask_each(kit: &Kit, _p: &Params, word: &str, ui: &dyn Ui) -> Option<i32> {
 /// The game's programs running from this game's folders that no run of this kit holds (left by an older kit): said,
 /// never stopped by name.
 fn outside(kit: &Kit, p: &Params, ui: &dyn Ui) -> i32 {
-    let Some(game) = game_folder(kit, p) else { return OK };
-    let left = strays(&game, p);
+    let left = strays_of(kit, p);
     if left.is_empty() {
         return OK;
     }
@@ -833,6 +832,12 @@ fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
             false
         }
     }
+}
+
+/// [`strays`] of the game folder setup recorded (none without one): a start refuses while there is one, and so does
+/// START OVER (a game started by hand writes the profile's log and seat table).
+pub fn strays_of(kit: &Kit, p: &Params) -> Vec<procs::Proc> {
+    game_folder(kit, p).map_or_else(Vec::new, |g| strays(&g, p))
 }
 
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.

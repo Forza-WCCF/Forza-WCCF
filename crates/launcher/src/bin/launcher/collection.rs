@@ -168,7 +168,8 @@ pub fn take(dir: &Path, data: &Path, step: &Step) -> io::Result<Vec<c::Entry>> {
 /// Why START OVER did not run; the profile is unchanged in each case.
 #[derive(Debug)]
 pub enum ResetRefused {
-    /// A start between its checks and its game, a run, a server, or a SET UP holds the kit.
+    /// A start between its checks and its game, a run, a server, or a SET UP holds the kit, or a game program runs
+    /// from the game's folders that no run holds (started by hand: a start refuses it too).
     Busy,
     /// No game folder found: the seat's table would outlive the reset and come back at the next start.
     NoSeat,
@@ -182,6 +183,10 @@ pub fn reset_kit(kit: &Kit) -> Result<PathBuf, ResetRefused> {
     let Some(_admitted) = run::admit(kit).filter(|_| !run::any_on(kit)) else {
         return Err(ResetRefused::Busy);
     };
+    // a game started by hand holds neither, and its panel would write the old club into the new profile
+    if !run::strays_of(kit, &run::Params::of(kit)).is_empty() {
+        return Err(ResetRefused::Busy);
+    }
     let seat = run::seat_of(kit).ok_or(ResetRefused::NoSeat)?;
     reset(&kit.data(), &seat).map_err(ResetRefused::Failed)
 }
@@ -489,6 +494,41 @@ mod tests {
         start.join().unwrap();
         let r = reset_kit(&kit);
         assert!(!matches!(r, Err(ResetRefused::Busy)), "the start is done: {r:?}");
+    }
+
+    /// 1.5 review 7 M1: START OVER is refused while a game program runs from the game's folders that no run of this
+    /// Launcher holds (started by hand), as a start refuses it (`run::strays_of`); the profile stays where it is.
+    /// The stray is a copy of cmd.exe under a game program's name, as `tests/procs.rs` makes one.
+    #[test]
+    fn start_over_is_refused_beside_a_game_started_by_hand() {
+        use std::os::windows::process::CommandExt;
+        let top = tempfile::Builder::new().prefix("wccf-").tempdir().unwrap();
+        let (kit_dir, game) = (top.path().join("kit"), top.path().join("game"));
+        std::fs::create_dir_all(kit_dir.join("data")).unwrap();
+        std::fs::create_dir_all(&game).unwrap();
+        let settings = serde_json::json!({ "game": game.display().to_string() });
+        std::fs::write(kit_dir.join(r"data\settings.json"), settings.to_string()).unwrap();
+        let system = std::env::var_os("SystemRoot").unwrap();
+        for n in launcher::kit::GAME_PROGRAMS {
+            std::fs::copy(Path::new(&system).join(r"System32\cmd.exe"), game.join(n)).unwrap();
+        }
+        let kit = Kit::at(&kit_dir);
+        let (coll, _) = profile(&kit.data());
+        std::fs::create_dir_all(&coll).unwrap();
+        let mut stray = std::process::Command::new(game.join(launcher::kit::GAME_PROGRAMS[1]))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap();
+        let r = reset_kit(&kit);
+        let _ = stray.kill();
+        let _ = stray.wait();
+        assert!(matches!(r, Err(ResetRefused::Busy)), "{r:?}");
+        assert!(coll.is_dir(), "the profile stays beside a game started by hand");
+        let r = reset_kit(&kit);
+        assert!(r.is_ok(), "the game is closed: {r:?}");
+        assert!(!coll.exists());
     }
 
     /// 1.5 review M2: START OVER is refused when no seat folder is found (no game folder recorded or beside the kit):
