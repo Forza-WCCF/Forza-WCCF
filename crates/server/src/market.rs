@@ -3221,6 +3221,46 @@ mod tests {
         assert!(why.ends_with("no random secret (no entropy)"), "{why}");
     }
 
+    /// Advisor m1: the draw is seeded with the store's secret, so two new stores give the same key on the same day
+    /// different lists (a key and a day alone would let anyone compute a list).
+    #[test]
+    fn two_stores_give_one_key_different_lists_the_same_day() {
+        let log = earned(&[20]);
+        let lists: Vec<String> = (0..2)
+            .map(|_| {
+                let dir = tempfile::tempdir().unwrap();
+                let m = stock_market(dir.path(), Stock::default());
+                ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+                ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap()
+            })
+            .collect();
+        assert_eq!(stock_rows(&lists[0]).len(), 10);
+        assert_ne!(lists[0], lists[1]);
+    }
+
+    /// Advisor m2: the server day comes from the server's clock, not the request's: a PC clock 23 h ahead, past
+    /// 04:00 UTC, still gets the server's today list.
+    #[test]
+    fn a_pc_clock_a_day_ahead_still_gets_todays_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20]);
+        let now = ms("2026-11-19T03:00:00Z");
+        ask(&m, 1, Verb::Join, now, &[], &log).unwrap();
+        let today = ask(&m, 1, Verb::Stock, now + 1, &[], &log).unwrap();
+        let ahead = now + 23 * 3600 * 1000;
+        assert_eq!(stock_day(ahead), stock_day(now) + 1);
+        let r = Request {
+            verb: Verb::Stock,
+            key: [1; 32],
+            at: ahead,
+            rules: RULES,
+            args: vec![],
+            log: log.clone(),
+        };
+        assert_eq!(m.handle(&r, now + 2).unwrap(), today);
+    }
+
     /// The other guards: 5 open listings per key, CANCEL, the seller's own listing, a purchase's tokens held until
     /// its `market_buy` line is in the log, and 10 sales a week per seller (BROWSE leaves that seller out).
     #[test]
