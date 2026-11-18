@@ -608,21 +608,22 @@ impl Scrub {
             false if aligned && clean_cp932() => Chars::Cp932,
             false => Chars::Unknown,
         };
-        // in CP932 the CP932 forms go first, while every character start is known; the other forms then match
-        // anywhere, so one that ends inside a character (あ's UTF-8 E3 81 82 is 縺 and a lead byte) hides no name (#381)
+        // in CP932 the CP932 forms go first, while every character start is known: another form may end inside a
+        // character (あ's UTF-8 E3 81 82 is 縺 and a lead byte), and the byte it leaves can misread the starts after it
+        // in a later pass (#381).
+        //
+        // shortcut: a later non-CP932 form (UTF-8, Latin-1) can still be refused right after such a byte; mixed files
+        // holding two such names side by side are not known, track starts across passes if one turns up
         let (first, rest): (Vec<_>, Vec<_>) = self
             .text_pairs()
             .into_iter()
             .partition(|(n, ..)| chars != Chars::Cp932 || n.cp932);
         for (needle, new, ends) in first.into_iter().chain(rest) {
-            // a form that is itself UTF-8 (CP932 辮田 is E3 90 93 63) matches only whole characters of text
+            // a form that is itself UTF-8 matches only whole characters of text: CP932 辮田 is E3 90 93 63, and a
+            // mojibake name's Latin-1 form ("Ã©") takes every é too, a cost a log can take over a leak
             if text && !needle.utf8 && std::str::from_utf8(&needle.bytes).is_err() {
                 continue;
             }
-            let chars = match chars {
-                Chars::Cp932 if !needle.cp932 => Chars::Unknown,
-                c => c,
-            };
             let ends = match ends {
                 // a name that is not ASCII sits where it sits: Japanese has no word breaks
                 Ends::Word if !needle.ascii => Ends::Any,
@@ -639,6 +640,9 @@ impl Scrub {
     }
 
     /// A binary file: each match turned into as many underscores, nothing moves, so a snapshot stays a valid file.
+    ///
+    /// shortcut: [`Self::short`] at 3 skips a one-character non-ASCII name (辮) and a 2-letter ASCII one in a dump,
+    /// to keep a blank rare; take them once a dump is known to hold one
     pub fn blank(&self, mut data: Vec<u8>) -> Vec<u8> {
         for old in [&self.home, &self.user, &self.pc] {
             for n in Self::encodings(old, true, 3) {
@@ -823,8 +827,15 @@ fn replace(
             };
         if hit {
             out.extend(with(&data[i..end]));
+            if chars == Chars::Cp932 {
+                // a form of another encoding may end inside a character: the next start follows from its bytes
+                (start, trail) = data[i..end]
+                    .iter()
+                    .fold((true, false), |(s, _), &b| (!(s && lead(b)), !s));
+            } else {
+                trail = false;
+            }
             i = end;
-            trail = false;
         } else {
             let (b, was) = (data[i], start);
             out.push(b);
@@ -1505,6 +1516,17 @@ mod tests {
         assert_eq!(data, [0xE3, 0x81, 0x82, 0x9F, 0x82, 0xA0]);
         // the UTF-8 form goes too: a log may hold UTF-8 lines among CP932 ones
         assert_eq!(scrub.scrub(data), b"USER\x9FUSER");
+    }
+
+    #[test]
+    fn a_latin1_form_never_starts_inside_a_cp932_character() {
+        // に is 82 C9, and C9 is É in Latin-1 (the upper form of "é")
+        let scrub = Scrub {
+            user: "é".into(),
+            ..Scrub::default()
+        };
+        let data = sjis("ここに").unwrap();
+        assert_eq!(scrub.scrub(data.clone()), data);
     }
 
     #[test]
