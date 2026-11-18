@@ -715,24 +715,43 @@ fn stock_day(now: u64) -> i64 {
 }
 
 /// The log's balance less this key's purchases its log does not hold yet: listings bought (`market_buy`) and stock
-/// slots (`stock_buy`). [`check`] already matched every `stock_buy` line to a sold slot.
+/// slots (`stock_buy`). [`check`] already matched every `stock_buy` line to a sold slot; a `stock_gone` row (bought
+/// before the key expired) takes its line first and withholds nothing.
 fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, String> {
     let mut tokens = checked.balance;
     for (state, written) in [
         ("bought", &checked.bought),
         ("stock", &checked.stock_bought),
     ] {
-        let mut unwritten = pairs(
-            tx,
-            &format!("SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = '{state}'"),
-            kh,
-        )?;
+        let rows = |state: &str| {
+            pairs(
+                tx,
+                &format!(
+                    "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = '{state}'"
+                ),
+                kh,
+            )
+        };
+        let mut lines: HashMap<(u32, i64), usize> = HashMap::new();
         for b in written {
-            if let Some(i) = unwritten.iter().position(|u| u == b) {
-                unwritten.swap_remove(i);
+            *lines.entry(*b).or_default() += 1;
+        }
+        let gone = if state == "stock" {
+            rows("stock_gone")?
+        } else {
+            Vec::new()
+        };
+        for (row, withheld) in gone
+            .into_iter()
+            .map(|r| (r, false))
+            .chain(rows(state)?.into_iter().map(|r| (r, true)))
+        {
+            match lines.get_mut(&row) {
+                Some(n) if *n > 0 => *n -= 1,
+                _ if withheld => tokens -= row.1,
+                _ => {}
             }
         }
-        tokens -= unwritten.iter().map(|(_, p)| p).sum::<i64>();
     }
     Ok(tokens)
 }
@@ -758,7 +777,8 @@ CREATE TABLE IF NOT EXISTS keys (
 -- listings, sales and purchases by key (steps 3.2, 3.3 fill it). state: open (listed at `at`), sold (sold, the
 -- proceeds wait for the seller's COLLECT), paid (collected), bought (this key's purchase of a listing: one
 -- `market_buy` line matches it), stock (this key's stock-list purchase: one `stock_buy` line matches it),
--- stock_reset (one from before a RESET: the slot stays sold, no line matches it). Ids are never reused: a listing's
+-- stock_reset (one from before a RESET: the slot stays sold, no line matches it), stock_gone (a stock row of a key
+-- dropped 7 days after LEAVE: its line still matches it when that log JOINs again, and it withholds nothing). Ids are never reused: a listing's
 -- id names it in CANCEL and BUY.
 CREATE TABLE IF NOT EXISTS ledger (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -954,12 +974,13 @@ impl Market {
             )
             .map_err(store_err)?;
         if gone > 0 {
-            for table in ["ledger", "stock"] {
-                db.execute(
-                    &format!("DELETE FROM {table} WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = {table}.key_hash)"),
-                    [],
-                )
-                .map_err(store_err)?;
+            // stock purchases stay, retired: the player's log keeps their `stock_buy` lines for a later JOIN
+            for sql in [
+                "UPDATE ledger SET state = 'stock_gone' WHERE state = 'stock' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
+                "DELETE FROM ledger WHERE state <> 'stock_gone' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
+                "DELETE FROM stock WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = stock.key_hash)",
+            ] {
+                db.execute(sql, []).map_err(store_err)?;
             }
         }
         let tx = db.transaction().map_err(store_err)?;
@@ -1005,7 +1026,7 @@ impl Market {
         if req.verb.logged() {
             let stock = pairs(
                 &tx,
-                "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = 'stock'",
+                "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
                 &kh,
             )?;
             checked = check(&req.log, &self.table, &stock)?;
@@ -1187,7 +1208,7 @@ impl Market {
                 .map_err(store_err)?;
                 for sql in [
                     "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'sold', 'paid', 'bought')",
-                    "UPDATE ledger SET state = 'stock_reset' WHERE key_hash = ?1 AND state = 'stock'",
+                    "UPDATE ledger SET state = 'stock_reset' WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
                 ] {
                     tx.execute(sql, params![kh]).map_err(store_err)?;
                 }
@@ -3112,6 +3133,42 @@ mod tests {
         assert_eq!(
             ask(&m, 1, Verb::List, NOW + 4, &[card, top], &written).unwrap(),
             format!("listed 2:{card}:228")
+        );
+    }
+
+    /// Review M1: a key that bought stock and LEAVEs is dropped 7 days later; it JOINs again with its log, whose
+    /// `stock_buy` line still matches the purchase (kept, retired), and that purchase withholds no tokens. A new
+    /// purchase of the same card at the same price is still withheld until its own line is written.
+    #[test]
+    fn a_stock_buyer_rejoins_with_its_log_after_its_key_expired() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20, 20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let list = stock_rows(&ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap());
+        let (slot, card, price, _) = list[0];
+        ask(&m, 1, Verb::StockBuy, NOW + 2, &[slot, card, price], &log).unwrap();
+        let (card, price) = (card as u32, price as i64);
+        let written = plus(&log, Kind::StockBuy, card, -price);
+        ask(&m, 1, Verb::Stock, NOW + 3, &[], &written).unwrap();
+        ask(&m, 1, Verb::Leave, NOW + 4, &[], "").unwrap();
+        let back = NOW + 5 + KEEP_LEFT_MS;
+        assert_eq!(
+            ask(&m, 1, Verb::Join, back, &[], &written),
+            Ok(format!("{} lines", written.lines().count()))
+        );
+        let kh = key_hash(&[1; 32]);
+        let checked = check(&written, &m.table, &[(card, price)]).unwrap();
+        let db = m.db.lock().unwrap();
+        assert_eq!(spendable(&db, &kh, &checked).unwrap(), checked.balance);
+        db.execute(
+            "INSERT INTO ledger (key_hash, card, price, state, at) VALUES (?1, ?2, ?3, 'stock', 0)",
+            params![kh, card, price],
+        )
+        .unwrap();
+        assert_eq!(
+            spendable(&db, &kh, &checked).unwrap(),
+            checked.balance - price
         );
     }
 
