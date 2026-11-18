@@ -2124,18 +2124,23 @@ fn test_filter(pkgs: &BTreeSet<String>, target: &str) -> Option<String> {
 }
 
 /// The staged kits must hold the built programs and the test programs.
-/// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (build_all removes it without).
-fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
-    for p in PROGRAMS
+/// The staged programs `check` runs or ships; wccfk.dll only with `e1011` (`build_all` removes it without).
+fn required_programs(e1011: bool) -> impl Iterator<Item = &'static str> {
+    PROGRAMS
         .iter()
-        .filter(|p| e1011 || **p != "programs/wccfk.dll")
-        .chain(&[
+        .copied()
+        .filter(move |p| e1011 || *p != "programs/wccfk.dll")
+        .chain([
             "source/build/fakegame.exe",
             "source/build/fakegame_iphlp.exe",
             "source/build/test_dhcphook.exe",
             "source/build/crashme.exe",
         ])
-    {
+}
+
+/// The staged kits must hold the built programs and the test programs.
+fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    for p in required_programs(e1011) {
         ensure!(
             kit.join(p).is_file(),
             "{p} is missing: run `cargo xtask build` first"
@@ -2163,16 +2168,22 @@ fn ensure_built(kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
     Ok(())
 }
 
-/// The checks that start Windows programs from the staged kits; the 2010-11 hook's only with `e1011`.
-fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
-    if e1011 {
+/// The 2010-11 hook's kit test, only with `e1011`: without the hooks there is no wccfk.dll to point the imports at.
+fn hook_test(kit: &Path, e1011: bool) -> Option<(&'static str, Command)> {
+    e1011.then(|| {
         let mut c = Command::new(kit.join("source/build/test_dhcphook.exe"));
         c.arg(kit.join("programs/wccfk.dll"));
-        ck.run(
+        (
             "2010-11 hook: the IpReleaseAddress and IpRenewAddress imports now point into wccfk.dll",
             c,
-            false,
-        );
+        )
+    })
+}
+
+/// The checks that start Windows programs from the staged kits; the 2010-11 hook's only with `e1011`.
+fn windows_tests(ck: &mut Checks, kit: &Path, kit_1718: &Path, e1011: bool) -> Result<()> {
+    if let Some((what, c)) = hook_test(kit, e1011) {
+        ck.run(what, c, false);
     }
     panel_selftests(ck)?;
     guard_tests(ck, kit_1718)
@@ -4248,6 +4259,49 @@ mod tests {
     }
 
     #[test]
+    fn check_ci_parses_with_and_without_a_base() {
+        // the wiring that passes main's `before` may leave it out (the weekly run, dispatch): `base` is then None
+        let Task::Check { mode, base, .. } =
+            Task::try_parse_from(["xtask", "check", "ci"]).unwrap()
+        else {
+            panic!("check ci");
+        };
+        assert_eq!((mode.as_deref(), base), (Some("ci"), None));
+        let Task::Check { mode, base, .. } =
+            Task::try_parse_from(["xtask", "check", "ci", "--base", "origin/main"]).unwrap()
+        else {
+            panic!("check ci --base");
+        };
+        assert_eq!(
+            (mode.as_deref(), base.as_deref()),
+            (Some("ci"), Some("origin/main"))
+        );
+    }
+
+    #[test]
+    fn a_run_without_the_2010_11_hooks_demands_no_wccfk_dll() {
+        // ensure_built's list: a skipped run has no wccfk.dll (build_all removed it) and must not fail for it
+        assert!(!required_programs(false).any(|p| p == "programs/wccfk.dll"));
+        assert!(required_programs(true).any(|p| p == "programs/wccfk.dll"));
+        assert_eq!(
+            required_programs(true).count(),
+            required_programs(false).count() + 1
+        );
+        // windows_tests starts the hook's kit test only with e1011
+        let kit = Path::new("kit/2010-11");
+        assert!(hook_test(kit, false).is_none());
+        let (what, c) = hook_test(kit, true).expect("the 2010-11 hook's kit test");
+        assert!(what.starts_with("2010-11 hook"), "{what}");
+        assert_eq!(
+            c.get_program(),
+            kit.join("source/build/test_dhcphook.exe").as_os_str()
+        );
+        // fmt_clippy lints one pass per hooks(e1011) entry: the two 2010-11 ones come only with e1011
+        assert_eq!(hooks(false).count(), 2);
+        assert_eq!(hooks(true).count(), HOOKS.len());
+    }
+
+    #[test]
     fn check_ci_says_why_a_base_is_missing() {
         let only_1718 = Some("crates/launcher/src/lib.rs\n");
         assert_eq!(
@@ -4258,7 +4312,10 @@ mod tests {
             ci_1011_reason(false, Some("origin/main"), Some("native/hook/src/lib.rs\n")),
             "in (a 2010-11 path changed)"
         );
-        assert_eq!(ci_1011_reason(false, None, None), "in (no --base: everything)");
+        assert_eq!(
+            ci_1011_reason(false, None, None),
+            "in (no --base: everything)"
+        );
         // a force-push leaves `before` unfetched (fetch-depth: 2): its own line, not the no-`--base` one
         assert_eq!(
             ci_1011_reason(false, Some("0f00ba5"), None),
