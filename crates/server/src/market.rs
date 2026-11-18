@@ -870,9 +870,18 @@ impl Market {
 
     /// The market with `table` (tests build theirs) and its store at `db`, with the default [`Stock`].
     pub fn with(table: Table, db: &Path) -> Result<Self, String> {
-        let mut fresh = [0u8; 32];
-        getrandom::fill(&mut fresh).map_err(|e| format!("no random secret ({e})"))?;
-        let open = || -> rusqlite::Result<(Connection, Vec<u8>)> {
+        Self::with_draw(table, db, |b| getrandom::fill(b).map_err(|e| e.to_string()))
+    }
+
+    /// [`Market::with`], `draw` filling a new store's secret; a store that holds one keeps it and draws nothing.
+    fn with_draw(
+        table: Table,
+        db: &Path,
+        draw: impl FnOnce(&mut [u8; 32]) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        // the inner `Err`: no secret could be drawn (the store left as it was)
+        type Opened = Result<(Connection, Vec<u8>), String>;
+        let open = || -> rusqlite::Result<Opened> {
             let c = Connection::open(db)?;
             // secure_delete: a deleted log is overwritten in the file, not left in free space (PLAN.md 3.4)
             c.execute_batch(
@@ -913,15 +922,27 @@ impl Market {
                      DROP TABLE ledger_old;",
                 )?;
             }
-            c.execute(
-                "INSERT OR IGNORE INTO secret (one, bytes) VALUES (1, ?1)",
-                [&fresh[..]],
-            )?;
-            let secret = c.query_row("SELECT bytes FROM secret", [], |r| r.get(0))?;
+            let stored: Option<Vec<u8>> = c
+                .query_row("SELECT bytes FROM secret", [], |r| r.get(0))
+                .optional()?;
+            let secret = match stored {
+                Some(s) => s,
+                None => {
+                    let mut fresh = [0u8; 32];
+                    if let Err(e) = draw(&mut fresh) {
+                        return Ok(Err(format!("{}: no random secret ({e})", db.display())));
+                    }
+                    c.execute(
+                        "INSERT INTO secret (one, bytes) VALUES (1, ?1)",
+                        [&fresh[..]],
+                    )?;
+                    fresh.to_vec()
+                }
+            };
             c.execute_batch("COMMIT")?;
-            Ok((c, secret))
+            Ok(Ok((c, secret)))
         };
-        let (c, secret) = open().map_err(|e| format!("{}: {e}", db.display()))?;
+        let (c, secret) = open().map_err(|e| format!("{}: {e}", db.display()))??;
         Ok(Self {
             table,
             db: Mutex::new(c),
@@ -3170,6 +3191,27 @@ mod tests {
             spendable(&db, &kh, &checked).unwrap(),
             checked.balance - price
         );
+    }
+
+    /// Review m1: a store that holds its secret keeps it and draws no new bytes (it opens without entropy); a new
+    /// store draws once, and without entropy it does not open.
+    #[test]
+    fn a_stored_secret_is_kept_and_nothing_is_drawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("market.db");
+        let first = Market::with(stock_table(), &db).unwrap().secret;
+        let mut draws = 0;
+        let again = Market::with_draw(stock_table(), &db, |_| {
+            draws += 1;
+            Err("no entropy".into())
+        })
+        .unwrap();
+        assert_eq!((again.secret, draws), (first, 0));
+        let why = Market::with_draw(stock_table(), &dir.path().join("new.db"), |_| {
+            Err("no entropy".into())
+        })
+        .unwrap_err();
+        assert!(why.ends_with("no random secret (no entropy)"), "{why}");
     }
 
     /// The other guards: 5 open listings per key, CANCEL, the seller's own listing, a purchase's tokens held until
