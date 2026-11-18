@@ -3,13 +3,15 @@
 
 use std::hash::BuildHasher;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use forza::board::Card;
 use forza::cards::collection_cards;
 use forza::collection::{self as c, LEAGUES, Log, Rarity};
 use forza_ui::collection::{Choice, CollectionView, Filter, StartRow, Step};
+use launcher::Kit;
+use launcher::run;
 
 /// The deal drawn and not taken yet, in the profile's collection folder: DEAL writes it, TAKE removes it, so a restart
 /// or a trip to FREE and back shows the same 12 cards (`PLAN.md` 2.4: "You choose once"). A reset archives the folder
@@ -162,8 +164,26 @@ pub fn take(dir: &Path, data: &Path, step: &Step) -> io::Result<Vec<c::Entry>> {
     Ok(out)
 }
 
+/// Why START OVER did not run; the profile is unchanged in each case.
+#[derive(Debug)]
+pub enum ResetRefused {
+    /// A start between its checks and its game, a run, a server, or a SET UP holds the kit.
+    Busy,
+    Failed(io::Error),
+}
+
+/// START OVER for `kit`: under the kit's admission for the whole reset, as SET UP takes it (`setup.rs` `admitted`). A
+/// start holds it from its checks until its game is on, so a reset never lands under a start, and a start meanwhile
+/// is refused (`launcher.run_busy`).
+pub fn reset_kit(kit: &Kit) -> Result<PathBuf, ResetRefused> {
+    let Some(_admitted) = run::admit(kit).filter(|_| !run::any_on(kit)) else {
+        return Err(ResetRefused::Busy);
+    };
+    reset(&kit.data(), run::seat_of(kit).as_deref()).map_err(ResetRefused::Failed)
+}
+
 /// START OVER (`PLAN.md` 1.5): the profile's folder into its archive (`forza::profile::reset`) under this PC's time.
-pub fn reset(data: &Path, seat: Option<&Path>) -> io::Result<std::path::PathBuf> {
+pub fn reset(data: &Path, seat: Option<&Path>) -> io::Result<PathBuf> {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     let stamp = format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}",
@@ -182,7 +202,6 @@ mod tests {
     use super::*;
     use forza::board::{Position, Rarity as R};
     use forza::profile::Profile;
-    use std::path::PathBuf;
 
     /// A catalogue of 2 seasons: per season 2 GK, 6 DF, 6 MF, 4 FW REGULAR at TOTAL 80-82 and 4 RARE.
     fn catalogue() -> Vec<Card> {
@@ -421,5 +440,35 @@ mod tests {
         assert_eq!(lines.len(), 12);
         assert!(lines.iter().all(|e| e.kind == c::Kind::Starter), "no second welcome");
         assert_eq!(std::fs::read(data.join(c::WELCOME_MARK)).unwrap(), mark);
+    }
+
+    /// 1.5 review M1: START OVER is refused while a start holds the kit's admission (between its checks and its game,
+    /// the window where it could land under the start); the profile stays where it is.
+    #[test]
+    fn start_over_is_refused_under_a_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let kit = Kit::at(dir.path());
+        let (coll, _) = profile(&kit.data());
+        std::fs::create_dir_all(&coll).unwrap();
+        // the start's admission on its own thread, as the start's job holds it (the mutex is the thread's)
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let start = std::thread::spawn({
+            let kit = Kit::at(dir.path());
+            move || {
+                let admitted = run::admit(&kit).expect("the start's admission");
+                held_tx.send(()).unwrap();
+                done_rx.recv().unwrap();
+                drop(admitted);
+            }
+        });
+        held_rx.recv().unwrap();
+        let r = reset_kit(&kit);
+        assert!(matches!(r, Err(ResetRefused::Busy)), "{r:?}");
+        assert!(coll.is_dir(), "the profile stays under a start");
+        done_tx.send(()).unwrap();
+        start.join().unwrap();
+        let r = reset_kit(&kit);
+        assert!(!matches!(r, Err(ResetRefused::Busy)), "the start is done: {r:?}");
     }
 }
