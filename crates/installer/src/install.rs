@@ -241,8 +241,16 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
         .find(|d| d.game_id == id)
         .filter(|_| plan.iso.is_some())
         .map_or(0, |d| d.slot_end - d.slot_start);
+    // setup's headroom only when it makes the card pictures: a new game, or an install without them
+    let headroom = if plan.iso.is_some()
+        || edition.is_some_and(|e| !dest.join(e.layout().cache).join("cards").is_dir())
+    {
+        HEADROOM
+    } else {
+        0
+    };
     if plan.iso.is_some() || edition.is_some() {
-        room(&dest, extract + kit.map_or(0, |k| kit_room(k)))?;
+        room(&dest, extract + headroom + kit.map_or(0, |k| kit_room(k)))?;
     }
     let vol = match (&plan.iso, key) {
         (Some(iso), Some(key)) => Some((iso, disc::open(iso, &key)?)),
@@ -262,7 +270,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
         let got = fetch::download(&p, cancel, &|d, t| emit(Event::Progress(d, t)))?;
         emit(Event::Log("Package checked against its SHA-256".into()));
         check_setup(Some(id), check_kit_zip(&got)?)?;
-        room(&dest, extract + kit_room(&got))?;
+        room(&dest, extract + headroom + kit_room(&got))?;
         kit = Some(got);
     }
     if let Some((iso, (vol, table))) = &vol
@@ -337,12 +345,9 @@ fn apply(plan: &Plan, r: Resolved, cancel: &AtomicBool, emit: &dyn Fn(Event)) ->
     Ok(())
 }
 
-/// The drive holds `need` bytes and the headroom setup takes (card pictures, the seat folders).
+/// The drive holds `need` bytes.
 fn room(dest: &Path, need: u64) -> Result<()> {
-    ensure!(
-        free_space(dest).is_none_or(|f| f > need + HEADROOM),
-        E::NoSpace
-    );
+    ensure!(free_space(dest).is_none_or(|f| f > need), E::NoSpace);
     Ok(())
 }
 
@@ -1256,15 +1261,15 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Reusing an install with setup checks the free space too: the package and setup's headroom (#277).
+    /// Reusing an install with setup checks the free space too: the package, and setup's headroom only when the
+    /// install lacks its card pictures (#277).
     #[test]
-    fn reuse_and_setup_with_too_little_space_is_refused() {
+    fn reuse_and_setup_needs_the_package_and_headroom_only_without_pictures() {
         let root = std::env::temp_dir().join(format!("space-reuse-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let dest = two_editions(&root);
         let kit = kit_zip(&root, "k.zip", &["Launcher.exe", "bin/x.dll"]);
-        let before = tree(&root);
-        FREE.set(Some(HEADROOM));
+        let need = kit_room(&kit);
         let plan = Plan {
             dest: root.clone(),
             iso: None,
@@ -1277,10 +1282,29 @@ mod tests {
             kit: Some(kit),
             latest: false,
         };
-        let e = run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err();
+        let run_with = |free: u64| {
+            FREE.set(Some(free));
+            run(&plan, &AtomicBool::new(false), &|_| {}).unwrap_err()
+        };
+        // no pictures yet: setup makes them, the headroom counts
+        let before = tree(&root);
+        let e = run_with(need + HEADROOM);
+        assert_eq!(e.downcast_ref::<E>(), Some(&E::NoSpace), "{e:#}");
+        assert_eq!(tree(&root), before);
+        // pictures there: the package alone
+        fs::create_dir_all(dest.join(Edition::E1718.layout().cache).join("cards")).unwrap();
+        let before = tree(&root);
+        let e = run_with(need - 1);
         assert_eq!(e.downcast_ref::<E>(), Some(&E::NoSpace), "{e:#}");
         assert_eq!(tree(&root), before);
         assert!(!dest.join("Launcher.exe").exists());
+        // just enough: the package applies (setup then fails here, no game program)
+        let e = run_with(need + 1);
+        assert!(
+            matches!(e.downcast_ref::<E>(), Some(E::Script { .. })),
+            "{e:#}"
+        );
+        assert!(dest.join("Launcher.exe").is_file());
         fs::remove_dir_all(root).unwrap();
     }
 
