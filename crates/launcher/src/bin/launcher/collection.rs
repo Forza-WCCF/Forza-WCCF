@@ -162,6 +162,21 @@ pub fn take(dir: &Path, data: &Path, step: &Step) -> io::Result<Vec<c::Entry>> {
     Ok(out)
 }
 
+/// START OVER (`PLAN.md` 1.5): the profile's folder into its archive (`forza::profile::reset`) under this PC's time.
+pub fn reset(data: &Path, seat: Option<&Path>) -> io::Result<std::path::PathBuf> {
+    let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let stamp = format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        t.year(),
+        u8::from(t.month()),
+        t.day(),
+        t.hour(),
+        t.minute(),
+        t.second()
+    );
+    forza::profile::reset(data, seat, &stamp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +382,44 @@ mod tests {
         assert!(matches!(v.step, Step::Page), "the page, not the picker");
         assert!(v.damaged);
         assert_eq!(v.cards.len(), 5, "the cards before the break");
+    }
+
+    /// 1.5 (1), (4), 1.5 (f) through the tab: a log with a broken middle line, START OVER confirmed: the archive holds
+    /// the broken log byte-identical, the tab offers the first start again, and the new start writes 12 starter lines
+    /// and no second welcome (its mark stays byte-identical).
+    #[test]
+    fn a_damaged_log_starts_over_from_the_collection_tab() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        let first = |coll: &Path| {
+            deal(&cat, coll, Choice::Season(2013)).unwrap();
+            let mut step = view(&cat, coll, None).unwrap().step;
+            if let Step::Pick { picked, .. } = &mut step {
+                *picked = Some(0);
+            }
+            take(coll, &data, &step).unwrap()
+        };
+        assert!(first(&coll).iter().any(|e| e.kind == c::Kind::Welcome));
+        let log = coll.join("grants.jsonl");
+        let text = std::fs::read_to_string(&log).unwrap();
+        let mut lines: Vec<&str> = text.lines().collect();
+        lines[5] = "not a line";
+        std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+        let broken = std::fs::read(&log).unwrap();
+        let mark = std::fs::read(data.join(c::WELCOME_MARK)).unwrap();
+        assert!(view(&cat, &coll, None).unwrap().damaged);
+        let to = reset(&data, None).unwrap();
+        assert_eq!(
+            std::fs::read(to.join("collection").join("grants.jsonl")).unwrap(),
+            broken
+        );
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(matches!(v.step, Step::Choose { .. }), "the first start again");
+        assert!(!v.damaged && v.cards.is_empty() && v.tokens == 0);
+        let lines = first(&coll);
+        assert_eq!(lines.len(), 12);
+        assert!(lines.iter().all(|e| e.kind == c::Kind::Starter), "no second welcome");
+        assert_eq!(std::fs::read(data.join(c::WELCOME_MARK)).unwrap(), mark);
     }
 }

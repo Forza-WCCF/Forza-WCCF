@@ -2066,6 +2066,117 @@ fn the_deal_window_holds_its_collection_lines() {
     }
 }
 
+/// 1.5: START OVER on a damaged collection sits under its line (the page's foot has none then) and asks first; the
+/// question fits the Launcher's smallest window in every language: title, body and both buttons inside the dialog,
+/// the buttons apart, and START OVER there confirms.
+#[test]
+fn start_over_asks_first_and_its_question_fits() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionAction, CollectionView, Scenario};
+    use std::cell::RefCell;
+    let size = launcher::window_size(Some(700.0));
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let tag = format!("{lang:?}");
+        let mut start =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        start.profile = Some(forza::profile::Profile::CreateATeam);
+        let mut view = CollectionView::sample(Scenario::Page);
+        view.damaged = true;
+        start.collection = Some(view);
+        start.tab = launcher::Tab::Collection;
+        let st = RefCell::new(start);
+        let got = RefCell::new(None);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                *got.borrow_mut() = Some(a);
+            }
+        });
+        h.run_steps(4);
+        let yes = t("collection.reset");
+        let button = h.get_by_label(&yes);
+        let r = button.rect();
+        assert!(
+            window.contains_rect(r) && r.bottom() < size.y / 2.0,
+            "{tag}: {r:?} under the damaged line"
+        );
+        button.click();
+        h.run_steps(2);
+        let reset = |a| launcher::Action::Collection(a);
+        assert_eq!(got.take(), Some(reset(CollectionAction::ResetAsk)), "{tag}");
+        // the Launcher's answer (main.rs `ask`)
+        st.borrow_mut().confirm = Some(launcher::Confirm::new(
+            &t("collection.reset_ask"),
+            yes.clone(),
+            reset(CollectionAction::Reset),
+        ));
+        h.run_steps(4);
+        // the modal's frame (egui gives it `Role::Dialog`, fit.rs) has no box of its own: its content's
+        let dialog = h
+            .root()
+            .children_recursive()
+            .filter(|n| n.accesskit_node().role() == Role::Dialog)
+            .find(|n| {
+                n.children_recursive()
+                    .any(|c| c.accesskit_node().role() == Role::Button)
+            })
+            .expect("the question");
+        let d = dialog
+            .children_recursive()
+            .filter_map(|n| n.accesskit_node().bounding_box())
+            .map(|b| {
+                egui::Rect::from_min_max(
+                    egui::pos2(b.x0 as f32, b.y0 as f32),
+                    egui::pos2(b.x1 as f32, b.y1 as f32),
+                )
+            })
+            .reduce(|a, b| a.union(b))
+            .expect("the dialog's content");
+        assert!(
+            window.contains_rect(d),
+            "{tag}: the dialog {d:?} inside the window"
+        );
+        let button = |label: &str| {
+            let found: Vec<egui::Rect> = dialog
+                .children_recursive()
+                .filter(|n| {
+                    n.accesskit_node().role() == Role::Button
+                        && n.accesskit_node().label().as_deref() == Some(label)
+                })
+                .map(|n| n.rect())
+                .collect();
+            assert_eq!(found.len(), 1, "{tag}: {label:?} in the dialog");
+            found[0]
+        };
+        let (y, n) = (button(&yes), button(&t("common.cancel")));
+        assert!(
+            d.contains_rect(y) && d.contains_rect(n),
+            "{tag}: {y:?} {n:?} inside {d:?}"
+        );
+        assert!(!y.shrink(0.5).intersects(n), "{tag}: the buttons overlap");
+        let ask = t("collection.reset_ask");
+        let (title, body) = ask.split_once("\n\n").unwrap();
+        let drawn = drawn_texts(&h);
+        for line in [title, body] {
+            let at = drawn
+                .iter()
+                .find(|s| s.galley.text() == line)
+                .map(|s| egui::Rect::from_min_size(s.pos, s.galley.size()))
+                .unwrap_or_else(|| panic!("{tag}: {line:?} drawn"));
+            assert!(d.contains_rect(at), "{tag}: {line:?} {at:?} inside {d:?}");
+            assert!(at.bottom() <= y.top(), "{tag}: {line:?} above the buttons");
+        }
+        h.get_all_by_label(&yes)
+            .find(|n| n.rect() == y)
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        assert_eq!(got.take(), Some(reset(CollectionAction::Reset)), "{tag}");
+        assert!(st.borrow().confirm.is_none(), "{tag}: the question closes");
+    }
+}
+
 /// #374: the start picker and the deal at the Launcher's smallest window, in every language: the start tiles in view
 /// lie inside the page and apart; the 11 dealt cards and the 3 RARE cards too.
 #[test]

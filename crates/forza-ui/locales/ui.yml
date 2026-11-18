@@ -632,6 +632,10 @@ collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{im
 collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
 collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
 collection.damaged: {en: "Part of your collection file is damaged. The cards saved before it are shown, and new cards and tokens cannot be saved.", it: "Una parte del file della collezione è danneggiata. Sono mostrate le carte salvate prima del danno; nuove carte e gettoni non possono essere salvati.", ja: "コレクションのファイルの一部が壊れています。壊れた箇所より前に保存したカードを表示しています。新しいカードとトークンは保存できません。"}
+collection.reset: {en: "START OVER", it: "RICOMINCIA", ja: "最初からやり直す"}
+collection.reset_ask: {en: "Start CREATE-A-TEAM over?\n\nYour cards, tokens and club move to an archive folder, and you choose a new start. FREE keeps its own club and cards.", it: "Ricominciare CREA LA TUA SQUADRA?\n\nCarte, gettoni e club vanno in una cartella di archivio, poi scegli un nuovo inizio. LIBERO tiene il suo club e le sue carte.", ja: "クリエイト・ア・チームを最初からやり直しますか？\n\nカード、トークン、クラブはアーカイブフォルダーに移り、新しいスタートを選びます。フリーのクラブとカードはそのままです。"}
+collection.reset_done: {en: "CREATE-A-TEAM starts over. The old cards and club are in %{folder}", it: "CREA LA TUA SQUADRA riparte da zero. Le vecchie carte e il club sono in %{folder}", ja: "クリエイト・ア・チームを最初からやり直します。以前のカードとクラブは次の場所にあります：%{folder}"}
+collection.reset_failed: {en: "CREATE-A-TEAM could not start over, and your cards are unchanged: %{error}", it: "Impossibile ricominciare CREA LA TUA SQUADRA; le tue carte non sono cambiate: %{error}", ja: "クリエイト・ア・チームをやり直せませんでした。カードは変わっていません：%{error}"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

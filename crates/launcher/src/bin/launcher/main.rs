@@ -934,24 +934,27 @@ impl App {
             self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
         let old = self.st.collection.take();
+        // the reason, and whether it is the log (START OVER is its way out)
         let made = match &self.catalogue {
-            None => Err(t("launcher.msg_no_catalogue")),
+            None => Err((t("launcher.msg_no_catalogue"), false)),
             Some(cat) => collection::view(cat, &dir, old.clone())
-                .map_err(|e| read_failed(forza::collection::Log::new(&dir).path(), &e)),
+                .map_err(|e| (read_failed(forza::collection::Log::new(&dir).path(), &e), true)),
         };
-        self.st.collection = Some(made.unwrap_or_else(|why| forza_ui::collection::CollectionView {
-            step: forza_ui::collection::Step::Choose {
-                starts: Vec::new(),
-                chosen: None,
-            },
-            cards: Vec::new(),
-            tokens: 0,
-            match_left: 0,
-            filter: Default::default(),
-            open: None,
-            problem: Some(why),
-            damaged: false,
-        }));
+        self.st.collection = Some(
+            made.unwrap_or_else(|(why, damaged)| forza_ui::collection::CollectionView {
+                step: forza_ui::collection::Step::Choose {
+                    starts: Vec::new(),
+                    chosen: None,
+                },
+                cards: Vec::new(),
+                tokens: 0,
+                match_left: 0,
+                filter: Default::default(),
+                open: None,
+                problem: Some(why),
+                damaged,
+            }),
+        );
     }
 
     /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
@@ -1370,6 +1373,30 @@ impl App {
                 match collection::take(&dir, &kit.data(), &v.step) {
                     Ok(lines) => log(&format!("collection: first start, {} line(s) written", lines.len())),
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+                self.collection(&kit);
+            }
+            Action::Collection(CollectionAction::ResetAsk) => self.ask(
+                &t("collection.reset_ask"),
+                "collection.reset",
+                Action::Collection(CollectionAction::Reset),
+            ),
+            Action::Collection(CollectionAction::Reset) => {
+                // never while a game runs: the run holds the save and the table, and the panel writes the log
+                if RUNNING.load(Ordering::Relaxed) || run::any_on(&kit) {
+                    refuse(t("launcher.msg_game_running"));
+                } else {
+                    match collection::reset(&kit.data(), run::seat_of(&kit).as_deref()) {
+                        Ok(to) => {
+                            let to = to.display().to_string();
+                            log(&format!("collection: reset, the old profile is in {to}"));
+                            say(tf("collection.reset_done", &[("folder", &to)]), 0);
+                        }
+                        Err(e) => {
+                            log(&format!("collection: reset failed, the profile is unchanged: {e}"));
+                            refuse(tf("collection.reset_failed", &[("error", &e.to_string())]));
+                        }
+                    }
                 }
                 self.collection(&kit);
             }

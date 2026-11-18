@@ -123,6 +123,10 @@ pub enum CollectionAction {
     Deal(Choice),
     /// TAKE THIS TEAM: the 11 and the RARE picked become the starter cards.
     Take,
+    /// START OVER clicked: the Launcher asks to confirm.
+    ResetAsk,
+    /// START OVER confirmed: the profile goes to its archive and the first start comes back (`PLAN.md` 1.5).
+    Reset,
 }
 
 /// Which screen a sample shows.
@@ -211,14 +215,19 @@ impl CollectionView {
 
 /// The tab; what the player asked for, if anything.
 pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<CollectionAction> {
+    let mut act = None;
     if let Some(p) = &v.problem {
         widgets::status_line(ui, widgets::Tone::Refused, p);
-        return None;
-    }
-    if v.damaged {
+    } else if v.damaged {
         widgets::status_line(ui, widgets::Tone::Refused, &tr!(lang, "collection.damaged"));
     }
-    let mut act = None;
+    // a damaged log's way out, under its line (B1); a whole one has it at the page's foot
+    if v.damaged && widgets::action(ui, &tr!(lang, "collection.reset")).clicked() {
+        act = Some(CollectionAction::ResetAsk);
+    }
+    if v.problem.is_some() {
+        return act;
+    }
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| match &mut v.step {
@@ -229,7 +238,7 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
                 picked,
                 ..
             } => pick(ui, dealt, rares, picked, lang, &mut act),
-            Step::Page => page(ui, v, lang),
+            Step::Page => page(ui, v, lang, &mut act),
         });
     act
 }
@@ -451,7 +460,7 @@ fn rarity_key(r: Rarity) -> &'static str {
 /// The page's card width: 6 to a row in the Launcher's window.
 pub const COLUMNS: usize = 6;
 
-fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang) {
+fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<CollectionAction>) {
     ui.horizontal_wrapped(|ui| {
         let n = v.tokens.to_string();
         ui.label(
@@ -507,6 +516,12 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang) {
                 }
             }
         });
+    }
+    if !v.damaged {
+        ui.add_space(12.0);
+        if widgets::action(ui, &tr!(lang, "collection.reset")).clicked() {
+            *act = Some(CollectionAction::ResetAsk);
+        }
     }
 }
 
