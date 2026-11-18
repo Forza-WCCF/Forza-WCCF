@@ -752,14 +752,27 @@ unsafe extern "system" fn board_wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM)
     unsafe { DefWindowProcW(h, m, wp, lp) }
 }
 
-/// Create-a-Team (plan step 1.3): the folder the collection is read from. `Ok(None)` is Free; a folder that is not
-/// this run's (a stray variable, another profile) fails closed, with no card listed, and the player is told.
+/// Create-a-Team (plan step 1.3): the folder the collection is read from: the run's (`checked`), else the kit's own
+/// (`own`, settings.json on Create-a-Team) whatever the variable says, so only an unreadable log turns the ownership
+/// rule off; the deal then saves nothing. `Ok(None)` with no `own` is Free; a stray variable on a kit that is not on
+/// Create-a-Team fails closed, with no card listed, and the player is told.
 fn collection_dir(
     st: &mut PanelState,
     checked: &Result<Option<PathBuf>, String>,
+    own: Option<PathBuf>,
 ) -> Option<PathBuf> {
     match checked {
         Ok(Some(dir)) => Some(dir.clone()),
+        _ if let Some(own) = own => {
+            if let Err(e) = checked {
+                log(&format!("collection: {e}"));
+            }
+            log(&format!(
+                "collection: read from {} for what the player owns - the match card is not saved",
+                own.display()
+            ));
+            Some(own)
+        }
         Ok(None) => None,
         Err(e) => {
             log(&format!("collection: {e}"));
@@ -1849,7 +1862,7 @@ impl Render {
             ));
         }
         let collection = files.checked_collection();
-        if let Some(dir) = collection_dir(&mut st, &collection) {
+        if let Some(dir) = collection_dir(&mut st, &collection, files.own_collection()) {
             owned_only(&mut st, &mut table, &mut placed, &dir);
         }
         // both files are read once and then written whole: a failed read is remembered, and nothing is written back
@@ -5175,7 +5188,9 @@ mod tests {
     #[test]
     fn a_collection_folder_for_another_run_lists_no_card() {
         let mut st = cat_state();
-        assert!(collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into())).is_none());
+        assert!(
+            collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into()), None).is_none()
+        );
         assert!(st.owned.as_ref().is_some_and(|o| o.is_empty()));
         assert!(!st.owns(7));
         let m = st.message.as_ref().unwrap();
@@ -5186,7 +5201,7 @@ mod tests {
              the game again."
         );
         let mut st = cat_state();
-        assert!(collection_dir(&mut st, &Ok(None)).is_none());
+        assert!(collection_dir(&mut st, &Ok(None), None).is_none());
         assert!(st.owned.is_none());
         assert!(st.message.is_none());
         assert!(st.owns(7));
@@ -5291,7 +5306,9 @@ mod tests {
         );
         // Free with a stray folder: the same guard, since `owned_only` never runs there
         let mut st = cat_state();
-        assert!(collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into())).is_none());
+        assert!(
+            collection_dir(&mut st, &Err("WCCF_COLLECTION ... - ignored".into()), None).is_none()
+        );
         assert!(st.collection_unknown);
         let mut placed = table.read().unwrap();
         own_table(&mut st, &mut table, &mut placed);
@@ -5321,6 +5338,21 @@ mod tests {
         assert!(forza_ui::panel::owned_table(&mut st, &mut placed).is_empty());
         assert_eq!(placed.len(), 2);
         assert!(st.owns(7) && !st.owns(9));
+    }
+
+    /// #378 review: a kit on Create-a-Team reads its own collection whatever `WCCF_COLLECTION` says (a stray value, none
+    /// at all), so the ownership rule stays on; only a kit on free play fails closed.
+    #[test]
+    fn a_create_a_team_kit_reads_its_own_collection_whatever_the_variable() {
+        let own = std::path::PathBuf::from("own");
+        for checked in [Err("WCCF_COLLECTION ... - ignored".to_owned()), Ok(None)] {
+            let mut st = cat_state();
+            assert_eq!(
+                collection_dir(&mut st, &checked, Some(own.clone())),
+                Some(own.clone())
+            );
+            assert!(!st.collection_unknown && st.owned.is_none() && st.message.is_none());
+        }
     }
 
     /// #374 M1: a log with a line in the middle that cannot be read is unreadable as a whole: the cards granted after

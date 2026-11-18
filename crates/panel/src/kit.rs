@@ -101,6 +101,14 @@ impl Files {
         }
     }
 
+    /// This kit's Create-a-Team collection when settings.json chooses that profile (2017-18), whatever
+    /// `WCCF_COLLECTION` says: where the panel reads what the player owns.
+    pub fn own_collection(&self) -> Option<PathBuf> {
+        (self.edition == Edition::E1718)
+            .then(|| forza::profile::Profile::of(&self.settings()).collection(&self.data))
+            .flatten()
+    }
+
     /// Create-a-Team's collection folder, where the deal saves the match card: `WCCF_COLLECTION` when it is this kit's
     /// (2017-18, settings.json's "profile"). `Ok(None)` = free play, only shown; `Err` = a stray variable (left in the
     /// environment, a free-play run), ignored so it never writes grants.
@@ -108,10 +116,7 @@ impl Files {
         let Some(var) = &self.collection else {
             return Ok(None);
         };
-        let want = (self.edition == Edition::E1718)
-            .then(|| forza::profile::Profile::of(&self.settings()).collection(&self.data))
-            .flatten();
-        match want {
+        match self.own_collection() {
             Some(want) if same_dir(var, &want, &self.data) => Ok(Some(var.clone())),
             Some(want) => Err(format!(
                 "WCCF_COLLECTION {} is not this kit's Create-a-Team collection {} - ignored, nothing saved",
