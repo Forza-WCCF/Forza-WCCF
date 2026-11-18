@@ -2007,7 +2007,8 @@ fn collection_cards_and_marks_fit_the_page() {
 }
 
 /// Step 2.3: a card with a spare earned copy shows CONVERT with its amount beside CLOSE, both inside the page and apart,
-/// at the Launcher's smallest window in every language; a starter card's detail shows no CONVERT.
+/// and its market price above them, at the Launcher's smallest window in every language; a starter card's detail
+/// shows neither.
 #[test]
 fn the_detail_shows_convert_inside_the_page() {
     use forza_ui::collection::{CollectionView, Scenario};
@@ -2047,6 +2048,18 @@ fn the_detail_shows_convert_inside_the_page() {
                 .rect();
             let convert = h.query_by_label(&label).map(|n| n.rect());
             assert_eq!(convert.is_some(), spare, "{tag}: CONVERT only for a spare");
+            // the market price: only an earned copy sells, inside the page and above the buttons
+            let floor = forza::collection::floor_value(forza::collection::value(row)).to_string();
+            let sell = h
+                .query_by_label(&t("deal.sell_from", &[("n", &floor)]))
+                .map(|n| n.rect());
+            assert_eq!(sell.is_some(), copies.earned > 0, "{tag}: the market price");
+            if let Some(s) = sell {
+                assert!(
+                    s.left() >= 16.0 && s.right() <= size.x - 16.0 && s.bottom() <= close.top(),
+                    "{tag}: the market price {s:?} inside the page, above CLOSE {close:?}"
+                );
+            }
             assert_eq!(
                 forza::collection::convert(&copies, row).is_ok(),
                 spare,
