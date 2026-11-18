@@ -2406,27 +2406,46 @@ fn the_store_and_the_opened_pack_fit_the_page() {
     let rect = |s: &egui::epaint::TextShape| egui::Rect::from_min_size(s.pos, s.galley.size());
     for lang in Lang::ALL {
         let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
-        for s in [Scenario::Store, Scenario::Open] {
+        // the Korea pack (two tiers) and Standard (all five) in the store, then the opened pack
+        for (s, standard) in [
+            (Scenario::Store, false),
+            (Scenario::Store, true),
+            (Scenario::Open, false),
+        ] {
             let mut st =
                 launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
             st.profile = Some(forza::profile::Profile::CreateATeam);
-            st.collection = Some(CollectionView::sample(s));
+            let mut view = CollectionView::sample(s);
+            if standard {
+                view.step = forza_ui::collection::Step::Store { chosen: 0 };
+            }
+            st.collection = Some(view);
             st.tab = launcher::Tab::Collection;
             let mut h = harness(size, 1.0, Edition::E1718, |ui| {
                 launcher::show(ui, &mut st);
             });
             h.run_steps(4);
-            let tag = format!("{lang:?} {s:?}");
+            let tag = format!("{lang:?} {s:?} standard={standard}");
             let drawn = drawn_texts(&h);
             if s == Scenario::Store {
                 let korea = nation("Korea Republic", lang);
-                let head = t("collection.odds_title", &[("pack", korea)]);
+                let pack = if standard {
+                    t("collection.pack_standard", &[])
+                } else {
+                    korea.to_owned()
+                };
+                let head = t("collection.odds_title", &[("pack", &pack)]);
                 let top = drawn
                     .iter()
                     .find(|d| d.galley.text() == head)
                     .map(|d| d.pos.y)
                     .unwrap_or_else(|| panic!("{tag}: {head:?} not drawn"));
-                let price = forza::collection::NATION_PACK.to_string();
+                let price = if standard {
+                    forza::collection::STANDARD_PACK
+                } else {
+                    forza::collection::NATION_PACK
+                }
+                .to_string();
                 let buy = h
                     .query_by_label(&t("collection.buy", &[("n", &price)]))
                     .expect("BUY")
@@ -2468,8 +2487,8 @@ fn the_store_and_the_opened_pack_fit_the_page() {
                     .filter(|r| r.top() > buy.bottom() && r.bottom() <= size.y)
                     .collect();
                 apart(&tiles, &tag);
-                if lang != Lang::En {
-                    // every nation in Japanese; in Italian the 18 the game names differently (Argentina stays)
+                if lang != Lang::En && !standard {
+                    // the nation tiles (Standard has none): every nation in Japanese; in Italian the 18 the game names differently (Argentina stays)
                     let named = forza::collection::NATIONS
                         .iter()
                         .filter(|n| nation(n, lang) != **n)
