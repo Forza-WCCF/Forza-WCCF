@@ -671,17 +671,47 @@ impl Pack<'_> {
     }
 }
 
-/// One pack card's odds per tier ([`Rarity::ALL`]' order, tenths of a percent) after the step-down: a tier the pack's
-/// pool lacks passes its odds to the next lower tier it has. Before the guarantee and the no-player-twice rule.
+/// Each pack card's odds per tier for `kind`'s pool: [`odds_by_card`] of the tiers the pool has.
 #[must_use]
-pub fn pack_odds(pool: &[Card], kind: Pack) -> [u32; 5] {
-    let has = Rarity::ALL.map(|r| pool.iter().any(|c| c.rarity == r && kind.has(c)));
-    let mut out = [0; 5];
-    for (i, r) in Rarity::ALL.iter().enumerate() {
-        if let Some(j) = (0..=i).rev().find(|&j| has[j]) {
-            out[j] += r.odds();
+pub fn pack_odds(pool: &[Card], kind: Pack) -> [[u32; 5]; PACK_CARDS] {
+    odds_by_card(Rarity::ALL.map(|r| pool.iter().any(|c| c.rarity == r && kind.has(c))))
+}
+
+/// Each pack card's odds per tier ([`Rarity::ALL`]' order, tenths of a percent, rounded) when the pool has the tiers
+/// `has` says, card by card as [`pack`] draws them: every card at the match-card odds after the step-down (a tier the
+/// pool lacks passes its odds to the next lower tier it has), and the last card with the guarantee too, which redraws
+/// it from SPECIAL or better at those tiers' stepped-down odds when all the cards came out REGULAR.
+// shortcut: leaves out the no-player-twice rule and the guarantee's fallback to an earlier card, which move only a
+// pool of a few players; a pool that small shows its exact odds once a store measures them
+#[must_use]
+pub fn odds_by_card(has: [bool; 5]) -> [[u32; 5]; PACK_CARDS] {
+    let step = |tiers: &[Rarity]| {
+        let mut out = [0.0_f64; 5];
+        for r in tiers {
+            let i = Rarity::ALL.iter().position(|a| a == r).unwrap_or(0);
+            if let Some(j) = (0..=i)
+                .rev()
+                .find(|&j| has[j] && tiers.contains(&Rarity::ALL[j]))
+            {
+                out[j] += f64::from(r.odds());
+            }
+        }
+        out
+    };
+    let one = step(&Rarity::ALL);
+    let better = step(&Rarity::BETTER);
+    let better_sum: f64 = better.iter().sum();
+    let mut last = one;
+    if better_sum > 0.0 {
+        let all_regular = 1_000.0 * (one[0] / 1_000.0).powi(PACK_CARDS as i32);
+        last[0] -= all_regular;
+        for (t, b) in better.iter().enumerate() {
+            last[t] += all_regular * b / better_sum;
         }
     }
+    let round = |o: [f64; 5]| o.map(|x| x.round() as u32);
+    let mut out = [round(one); PACK_CARDS];
+    out[PACK_CARDS - 1] = round(last);
     out
 }
 
@@ -2053,22 +2083,57 @@ mod tests {
         }
     }
 
-    /// 2.1: the odds the store shows, after the step-down.
+    /// 2.1: the odds the store shows per card, after the step-down; the last card's with the guarantee (#374: it
+    /// comes out REGULAR about 37 % of the time, not 68 %).
     #[test]
     fn pack_odds_step_down() {
         let pool = store_pool();
+        let korea = pack_odds(&pool, Pack::Nation("Korea Republic"));
+        assert_eq!(korea[0], [680, 320, 0, 0, 0]);
+        assert_eq!(korea[1], korea[0]);
+        assert_eq!(korea[2], [366, 634, 0, 0, 0]);
+        let chile = pack_odds(&pool, Pack::Nation("Chile"));
+        assert_eq!(chile[0], [680, 260, 60, 0, 0]);
+        assert_eq!(chile[2][0], 366);
+        assert_eq!(pack_odds(&pool, Pack::Season(2006))[0], [680, 320, 0, 0, 0]);
+        assert_eq!(pack_odds(&[], Pack::Standard), [[0; 5]; PACK_CARDS]);
+        // a pool with no SPECIAL or better has no guarantee to give
         assert_eq!(
-            pack_odds(&pool, Pack::Nation("Korea Republic")),
-            [680, 320, 0, 0, 0]
+            odds_by_card([true, false, false, false, false])[2],
+            [1_000, 0, 0, 0, 0]
         );
-        assert_eq!(
-            pack_odds(&pool, Pack::Nation("Chile")),
-            [680, 260, 60, 0, 0]
-        );
-        assert_eq!(pack_odds(&pool, Pack::Season(2006)), [680, 320, 0, 0, 0]);
-        assert_eq!(pack_odds(&[], Pack::Standard), [0; 5]);
-        let full = pack_odds(&pool, Pack::Standard);
-        assert_eq!(full.iter().sum::<u32>(), 1_000);
+        for card in pack_odds(&pool, Pack::Standard) {
+            assert!((999..=1_001).contains(&card.iter().sum::<u32>()), "{card:?}");
+        }
+    }
+
+    /// #374: the odds the store shows are the ones 20,000 packs come out at, card by card (within 1.5 points).
+    #[test]
+    fn pack_odds_match_the_draw() {
+        let pool = store_pool();
+        let mut rng = Rng::new(0x374);
+        for kind in [Pack::Standard, Pack::Nation("Chile")] {
+            let shown = pack_odds(&pool, kind);
+            let mut seen = [[0u32; 5]; PACK_CARDS];
+            let n = 20_000;
+            for _ in 0..n {
+                for (slot, c) in pack(&mut rng, &pool, |c| kind.has(c)).iter().enumerate() {
+                    let t = Rarity::ALL.iter().position(|r| *r == c.rarity).unwrap();
+                    seen[slot][t] += 1;
+                }
+            }
+            for slot in 0..PACK_CARDS {
+                for t in 0..5 {
+                    let got = seen[slot][t] * 1_000 / n;
+                    assert!(
+                        got.abs_diff(shown[slot][t]) <= 15,
+                        "{kind:?} card {}: tier {t} shown {} drawn {got}",
+                        slot + 1,
+                        shown[slot][t]
+                    );
+                }
+            }
+        }
     }
 
     /// 2.1 (a): 99 tokens buy nothing and leave the log as it was; 100 write the price line and 3 card lines.

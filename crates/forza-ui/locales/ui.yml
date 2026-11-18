@@ -651,8 +651,9 @@ collection.pack_nation_hint: {en: "%{n} tokens · one nation", it: "%{n} gettoni
 collection.pick_nation: {en: "A NATION", it: "UNA NAZIONE", ja: "国で選ぶ"}
 collection.cards_n: {en: "%{n} cards", it: "%{n} carte", ja: "%{n} 枚"}
 collection.odds_title: {en: "ODDS PER CARD: %{pack}", it: "PROBABILITÀ PER CARTA: %{pack}", ja: "1 枚ごとの確率：%{pack}"}
+collection.odds_card: {en: "CARD %{n}", it: "CARTA %{n}", ja: "カード %{n}"}
 collection.odds_guarantee: {en: "Every pack holds at least 1 SPECIAL card or better.", it: "Ogni pacchetto contiene almeno 1 carta SPECIALE o superiore.", ja: "どのパックにもスペシャル以上のカードが 1 枚以上入っています。"}
-collection.odds_step_down: {en: "A rarity this pack has no cards of (–) passes its chance to the rarity below.", it: "Una rarità senza carte in questo pacchetto (–) passa la sua probabilità alla rarità inferiore.", ja: "このパックにないレア度（–）の確率は、1 つ下のレア度に回ります。"}
+collection.odds_step_down: {en: "This pack has no cards of a rarity marked –. Its chance goes to the next rarity below.", it: "Questo pacchetto non ha carte della rarità segnata con –. La sua probabilità passa alla rarità inferiore.", ja: "このパックには「–」のレア度のカードがありません。その確率は 1 つ下のレア度に回ります。"}
 collection.buy: {en: "BUY · %{n} TOKENS", it: "COMPRA · %{n} GETTONI", ja: "購入・%{n} トークン"}
 collection.buy_short: {en: "This pack costs %{n} tokens. Play matches to earn more.", it: "Questo pacchetto costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このパックは %{n} トークンです。試合をしてトークンを集めましょう。"}
 collection.to_page: {en: "‹ COLLECTION", it: "‹ COLLEZIONE", ja: "‹ コレクション"}

@@ -109,13 +109,13 @@ impl PackChoice {
     }
 }
 
-/// One pack on offer: its pool's size and one card's odds per tier after the step-down
+/// One pack on offer: its pool's size and each card's odds per tier after the step-down and the guarantee
 /// (`forza::collection::pack_odds`, tenths of a percent).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Offer {
     pub pack: PackChoice,
     pub cards: u32,
-    pub odds: [u32; 5],
+    pub odds: [[u32; 5]; collection::PACK_CARDS],
 }
 
 /// One opened card: the card and how many copies of it the player holds now.
@@ -346,7 +346,7 @@ fn sample_offers() -> Vec<Offer> {
         1_264, 988, 957, 647, 644, 531, 497, 384, 375, 251, 129, 127, 99, 94, 89, 74, 72, 65, 52,
         51, 47, 44, 40, 27,
     ];
-    let full = collection::Rarity::ALL.map(collection::Rarity::odds);
+    let full = collection::odds_by_card([true; 5]);
     std::iter::once(Offer {
         pack: PackChoice::Standard,
         cards: 8_396,
@@ -361,7 +361,7 @@ fn sample_offers() -> Vec<Offer> {
         pack: PackChoice::Nation(i),
         cards,
         odds: if NATIONS[i] == "Korea Republic" {
-            [680, 320, 0, 0, 0]
+            collection::odds_by_card([true, true, false, false, false])
         } else {
             full
         },
@@ -936,27 +936,36 @@ fn store(
         Rarity::Legend,
         Rarity::AllTime,
     ];
-    ui.horizontal_wrapped(|ui| {
-        for (r, &o) in tiers.iter().zip(&offer.odds) {
-            let text = format!(
-                "{} {}",
-                tr!(lang, rarity_key(*r)),
-                if o == 0 {
-                    "–".into()
-                } else {
-                    chance(o, lang)
-                }
-            );
+    for (slot, odds) in offer.odds.iter().enumerate() {
+        ui.horizontal_wrapped(|ui| {
+            let n = (slot + 1).to_string();
             ui.label(
-                egui::RichText::new(text)
+                egui::RichText::new(tr!(lang, "collection.odds_card", n = n.as_str()))
                     .font(theme::bold(13.0))
-                    .color(if o == 0 { theme::TEXT_DIM } else { theme::TEXT }),
+                    .color(theme::AMBER),
             );
             ui.add_space(8.0);
-        }
-    });
+            for (r, &o) in tiers.iter().zip(odds) {
+                let text = format!(
+                    "{} {}",
+                    tr!(lang, rarity_key(*r)),
+                    if o == 0 {
+                        "–".into()
+                    } else {
+                        chance(o, lang)
+                    }
+                );
+                ui.label(
+                    egui::RichText::new(text)
+                        .font(theme::bold(13.0))
+                        .color(if o == 0 { theme::TEXT_DIM } else { theme::TEXT }),
+                );
+                ui.add_space(8.0);
+            }
+        });
+    }
     hint(ui, &tr!(lang, "collection.odds_guarantee"));
-    if offer.odds.contains(&0) {
+    if offer.odds[0].contains(&0) {
         hint(ui, &tr!(lang, "collection.odds_step_down"));
     }
     ui.add_space(4.0);
