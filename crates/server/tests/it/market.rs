@@ -322,3 +322,45 @@ fn a_stock_list_sells_over_the_desk() {
         "{again}"
     );
 }
+
+/// Review m3: the widest STOCK answer a server may give, 30 rows of 4-digit cards at 10,000 tokens, all sold, under
+/// the widest `left`, still fits the Launcher's 1 KiB read.
+#[test]
+fn the_widest_stock_list_fits_1_kib() {
+    let root = scratch("market_stock_wide");
+    let mut cards: Vec<_> = (1..=12)
+        .map(|c| (c, forza::collection::Rarity::Regular, 80))
+        .collect();
+    cards.extend((9960..=9999).map(|c| (c, forza::collection::Rarity::AllTimeLegend, 99)));
+    let market = Market::with(Table::of(&cards), &root.join("market.db"))
+        .unwrap()
+        .with_stock(Stock::new("0,0,0,30", 100, u32::MAX).unwrap());
+    let d = desk(Some(market));
+    let key = SigningKey::from_bytes(&[9; 32]);
+    let log = starter_log();
+    let at = now_ms();
+    assert_eq!(
+        market::send(d.addr(), &request(Verb::Join, &key, at, &log)).unwrap(),
+        "12 lines"
+    );
+    market::send(d.addr(), &request(Verb::Stock, &key, at + 1, &log)).unwrap();
+    rusqlite::Connection::open(root.join("market.db"))
+        .unwrap()
+        .execute("UPDATE stock SET sold = 1", [])
+        .unwrap();
+    let said =
+        String::from_utf8(answer(d.addr(), &request(Verb::Stock, &key, at + 2, &log))).unwrap();
+    assert!(said.starts_with("OK stock left 4294967265 "), "{said}");
+    let rows: Vec<&str> = said.trim_end().split(' ').skip(4).collect();
+    assert_eq!(rows.len(), 30, "{said}");
+    assert!(
+        rows.iter()
+            .all(|r| r.ends_with(":10000:sold") && r.split(':').nth(1).unwrap().len() == 4),
+        "{said}"
+    );
+    assert!(
+        said.len() < 1024 && said.ends_with('\n'),
+        "{} bytes: {said}",
+        said.len()
+    );
+}
