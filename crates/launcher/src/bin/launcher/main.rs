@@ -1537,7 +1537,13 @@ impl App {
                 else {
                     return;
                 };
-                match collection::stats(cat, &dir, &folder) {
+                // the log is read first: the game may still be writing it, and that is no write error
+                let grants = forza::collection::Log::new(&dir);
+                let lines = match grants.lines() {
+                    Ok(lines) => lines,
+                    Err(e) => return refuse(read_failed(grants.path(), &e)),
+                };
+                match collection::stats(cat, &lines, &folder) {
                     Ok(file) => {
                         log(&format!("collection: stats written to {}", file.display()));
                         let to = folder.display().to_string();

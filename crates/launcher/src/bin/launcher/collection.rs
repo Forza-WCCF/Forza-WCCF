@@ -183,10 +183,10 @@ pub fn convert(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> 
     )
 }
 
-/// SAVE STATS (`PLAN.md` 2.4): the log folded into counts into `folder`, as `create-a-team-stats.json`. The log is
-/// only read, and the file holds no name, key, id, card number, date or path.
-pub fn stats(catalogue: &[Card], dir: &Path, folder: &Path) -> io::Result<PathBuf> {
-    c::write_stats(&Log::new(dir), &collection_cards(catalogue), folder)
+/// SAVE STATS (`PLAN.md` 2.4): the log's lines folded into counts into `folder`, as `create-a-team-stats.json`. The
+/// caller reads the log, so a log the game is still writing keeps its own message apart from the write's.
+pub fn stats(catalogue: &[Card], lines: &str, folder: &Path) -> io::Result<PathBuf> {
+    c::write_stats_lines(lines, &collection_cards(catalogue), folder)
 }
 
 /// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
@@ -885,7 +885,7 @@ mod tests {
         let log = Log::new(&coll);
         let before = log.lines().unwrap();
         let picked = tempfile::tempdir().unwrap();
-        let file = stats(&cat, &coll, picked.path()).unwrap();
+        let file = stats(&cat, &before, picked.path()).unwrap();
         assert_eq!(file.file_name().unwrap(), c::STATS_FILE);
         assert_eq!(log.lines().unwrap(), before, "the log is only read");
         let text = std::fs::read_to_string(&file).unwrap();
