@@ -718,8 +718,31 @@ pub fn odds_by_card(has: [bool; 5]) -> [[u32; 5]; PACK_CARDS] {
 /// The refusal [`buy_pack`] gives when the balance is under the pack's price.
 pub const NOT_ENOUGH_TOKENS: &str = "not enough tokens";
 
+/// The refusal [`buy_pack`] gives when the pack's pool cannot fill it ([`pack_fills`]).
+pub const TOO_FEW_PLAYERS: &str = "too few players for a pack";
+
+/// Whether every draw of `kind` fills a pack: its lowest tier holds [`PACK_CARDS`] players or more, so a card stepped
+/// down to it always finds a player the pack does not hold yet.
+#[must_use]
+pub fn pack_fills(pool: &[Card], kind: Pack) -> bool {
+    let Some(low) = Rarity::ALL
+        .into_iter()
+        .find(|r| pool.iter().any(|c| c.rarity == *r && kind.has(c)))
+    else {
+        return false;
+    };
+    let mut players: Vec<u32> = pool
+        .iter()
+        .filter(|c| c.rarity == low && kind.has(c))
+        .map(|c| c.player)
+        .collect();
+    players.sort_unstable();
+    players.dedup();
+    players.len() >= PACK_CARDS
+}
+
 /// Buy and open a pack under the log's lock: refused under its price ([`NOT_ENOUGH_TOKENS`]) or when its pool cannot
-/// fill it, else one `pack` line that pays the price and one `pack` line per card, in one write.
+/// fill it ([`TOO_FEW_PLAYERS`]), else one `pack` line that pays the price and one `pack` line per card, in one write.
 pub fn buy_pack(
     log: &Log,
     at: OffsetDateTime,
@@ -732,8 +755,8 @@ pub fn buy_pack(
             return Err(io::Error::other(NOT_ENOUGH_TOKENS));
         }
         let cards = pack(rng, pool, |c| kind.has(c));
-        if cards.len() < PACK_CARDS {
-            return Err(io::Error::other(format!("{}: too few cards", kind.why())));
+        if !pack_fills(pool, kind) || cards.len() < PACK_CARDS {
+            return Err(io::Error::other(TOO_FEW_PLAYERS));
         }
         let line = |card: Option<u32>, tokens| Line {
             kind: Kind::Pack,
@@ -2148,7 +2171,10 @@ mod tests {
             [1_000, 0, 0, 0, 0]
         );
         for card in pack_odds(&pool, Pack::Standard) {
-            assert!((999..=1_001).contains(&card.iter().sum::<u32>()), "{card:?}");
+            assert!(
+                (999..=1_001).contains(&card.iter().sum::<u32>()),
+                "{card:?}"
+            );
         }
     }
 
@@ -2260,6 +2286,27 @@ mod tests {
         assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
     }
 
+    /// #374: BUY needs a pool that fills every pack, not only 3 cards: 1 REGULAR player and 3 SPECIAL ones draw a short
+    /// pack whenever the second card rolls REGULAR.
+    #[test]
+    fn a_pack_fills_only_with_three_players_in_its_lowest_tier() {
+        let pool = store_pool();
+        assert!(pack_fills(&pool, Pack::Nation("Korea Republic")));
+        assert!(pack_fills(&pool, Pack::Standard));
+        assert!(!pack_fills(&pool, Pack::Nation("Ghana")));
+        let mut thin: Vec<Card> = vec![];
+        two_per_player(&mut thin, 0, 1, Rarity::Regular, "Ghana", 2010);
+        two_per_player(&mut thin, 100, 5, Rarity::Special, "Ghana", 2010);
+        assert!(!pack_fills(&thin, Pack::Nation("Ghana")));
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 300, "welcome")
+            .unwrap();
+        let e = buy_pack(&log, at, &mut Rng::new(1), &thin, Pack::Nation("Ghana")).unwrap_err();
+        assert_eq!(e.to_string(), TOO_FEW_PLAYERS);
+    }
+
     /// #374: a write cut between a pack's price line and its card lines is said when the log is read.
     #[test]
     fn a_pack_cut_from_its_cards_is_said() {
@@ -2267,7 +2314,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log = Log::new(dir.path());
         let at = when("2026-11-11T12:00:00+01:00");
-        log.append_at(at, Kind::Welcome, None, 300, "welcome").unwrap();
+        log.append_at(at, Kind::Welcome, None, 300, "welcome")
+            .unwrap();
         let mut rng = Rng::new(5);
         for _ in 0..2 {
             buy_pack(&log, at, &mut rng, &pool, Pack::Standard).unwrap();
@@ -2279,11 +2327,15 @@ mod tests {
         let cut = [&lines[..3], &lines[5..6]].concat().join("\n") + "\n";
         let warnings = fold_at(&cut, this_week()).warnings;
         assert!(
-            warnings.iter().any(|w| w.starts_with("line 2: a pack paid for with 1 of its 3")),
+            warnings
+                .iter()
+                .any(|w| w.starts_with("line 2: a pack paid for with 1 of its 3")),
             "{warnings:?}"
         );
         assert!(
-            warnings.iter().any(|w| w.starts_with("line 4: a pack paid for with 0 of its 3")),
+            warnings
+                .iter()
+                .any(|w| w.starts_with("line 4: a pack paid for with 0 of its 3")),
             "{warnings:?}"
         );
     }

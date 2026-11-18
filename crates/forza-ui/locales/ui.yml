@@ -657,6 +657,7 @@ collection.odds_guarantee: {en: "Every pack holds at least 1 SPECIAL card or bet
 collection.odds_step_down: {en: "This pack has no cards of a rarity marked –. Its chance goes to the next rarity below.", it: "Questo pacchetto non ha carte della rarità segnata con –. La sua probabilità passa alla rarità inferiore.", ja: "このパックには「–」のレア度のカードがありません。その確率は 1 つ下のレア度に回ります。"}
 collection.buy: {en: "BUY · %{n} TOKENS", it: "COMPRA · %{n} GETTONI", ja: "購入・%{n} トークン"}
 collection.buy_short: {en: "This pack costs %{n} tokens. Play matches to earn more.", it: "Questo pacchetto costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このパックは %{n} トークンです。試合をしてトークンを集めましょう。"}
+collection.buy_pool: {en: "This pack has too few different players to fill its 3 cards. Choose another pack.", it: "Questo pacchetto ha troppi pochi giocatori diversi per le sue 3 carte. Scegli un altro pacchetto.", ja: "このパックは選手の種類が少なく、3 枚そろえられません。別のパックを選んでください。"}
 collection.to_page: {en: "‹ COLLECTION", it: "‹ COLLEZIONE", ja: "‹ コレクション"}
 collection.open_title: {en: "YOUR PACK", it: "IL TUO PACCHETTO", ja: "パックの中身"}
 collection.new_card: {en: "NEW", it: "NUOVA", ja: "初入手"}

@@ -1436,6 +1436,10 @@ impl App {
                     Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
                         refuse(t("launcher.msg_pack_tokens"));
                     }
+                    // the pool refused the pack, the disk did not fail
+                    Err(e) if e.to_string() == forza::collection::TOO_FEW_PLAYERS => {
+                        refuse(t("collection.buy_pool"));
+                    }
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
