@@ -696,6 +696,71 @@ impl Online {
 mod tests {
     use super::*;
 
+    /// #236 review: HOST VS and a reserved VS seat tell the lobby the mode of the profile the Launcher reads, not only
+    /// the mapping (`seat_mode`): a Create-a-Team PC sends `MODE id ticket cat` for both.
+    #[test]
+    fn a_create_a_team_seat_tells_the_lobby_its_mode() {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = l.local_addr().unwrap().to_string();
+        let (heard, said) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                let c = c.unwrap();
+                let mut line = String::new();
+                BufReader::new(&c).read_line(&mut line).unwrap();
+                let _ = (&c).write_all(b"OK\n");
+                if heard.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        let d = tempfile::tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        let mut st = LauncherState::sample(
+            launcher::Edition::E1718,
+            forza_ui::Lang::En,
+            forza_ui::launcher::Scenario::Ready,
+        );
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.lobby.arcades_view_only = true; // 2017-18: a seat reserved before the list came is a VS seat
+        let mut o = Online::default();
+        o.poller = Some(Poller::start(
+            Vec::new(),
+            "2017-18",
+            Duration::from_secs(3600),
+            Arc::new(|| {}),
+        ));
+        let room = |id: &str, ticket: &str| Created::Room {
+            id: id.into(),
+            code: "ABCD".into(),
+            ticket: ticket.into(),
+            seat: 1,
+        };
+        o.created(&mut st, &settings, server.clone(), Ok(room("r1", "t1")));
+        let ticket = Reserved::Ticket {
+            ticket: "t2".into(),
+            seat: 2,
+        };
+        o.reserved(
+            &mut st,
+            &settings,
+            server.clone(),
+            "r2".into(),
+            "EFGH".into(),
+            Ok(ticket),
+        );
+        let mut modes = Vec::new();
+        while modes.len() < 2 {
+            let line = said.recv_timeout(Duration::from_secs(5)).expect("a MODE line");
+            if line.starts_with("MODE ") {
+                modes.push(line);
+            }
+        }
+        modes.sort();
+        assert_eq!(modes, ["MODE r1 t1 cat\n", "MODE r2 t2 cat\n"]);
+    }
+
     /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY
     /// CPU NOW starts the run.
     #[test]
