@@ -2136,6 +2136,59 @@ fn collection_cards_and_marks_fit_the_page() {
     );
 }
 
+/// Step 2.3: a card with a spare earned copy shows CONVERT with its amount beside CLOSE, both inside the page and apart,
+/// at the Launcher's smallest window in every language; a starter card's detail shows no CONVERT.
+#[test]
+fn the_detail_shows_convert_inside_the_page() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        for spare in [true, false] {
+            let mut view = CollectionView::sample(Scenario::Detail);
+            let (card, copies) = view.cards[if spare { 15 } else { 0 }].clone();
+            view.open = Some(card.number);
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let row = &forza::cards::collection_cards(std::slice::from_ref(&card))[0];
+            let pays = (forza::collection::value(row) * forza::collection::CONVERT_SHARE / 100)
+                .to_string();
+            let label = t("collection.convert", &[("n", &pays)]);
+            let tag = format!("{lang:?} spare={spare} {label:?}");
+            let close = h
+                .query_by_label(&t("collection.close", &[]))
+                .expect("CLOSE")
+                .rect();
+            let convert = h.query_by_label(&label).map(|n| n.rect());
+            assert_eq!(convert.is_some(), spare, "{tag}: CONVERT only for a spare");
+            assert_eq!(
+                forza::collection::convert(&copies, row).is_ok(),
+                spare,
+                "{tag}"
+            );
+            if let Some(r) = convert {
+                for b in [r, close] {
+                    assert!(
+                        b.left() >= 16.0 && b.right() <= size.x - 16.0 && b.bottom() <= size.y,
+                        "{tag}: {b:?} inside the page"
+                    );
+                }
+                assert!(
+                    !r.shrink(0.5).intersects(close),
+                    "{tag}: {r:?} overlaps CLOSE {close:?}"
+                );
+            }
+        }
+    }
+}
+
 /// #374: the deal window holds its collection lines inside it and above its foot line, for every grant state and
 /// language (the damaged note is the longest).
 #[test]

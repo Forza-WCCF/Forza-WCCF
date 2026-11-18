@@ -1499,6 +1499,32 @@ impl App {
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
+            Action::Collection(CollectionAction::Convert(no)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                match collection::convert(cat, &dir, no) {
+                    Ok(e) => {
+                        log(&format!("collection: convert card {no}, {} tokens", e.tokens));
+                        let name = cat
+                            .iter()
+                            .find(|k| k.number == no)
+                            .map(|k| k.name.clone())
+                            .unwrap_or_default();
+                        let n = e.tokens.to_string();
+                        say(tf("launcher.msg_converted", &[("name", &name), ("n", &n)]), 0);
+                        self.collection(&kit);
+                    }
+                    // the log moved on since the view was read (another Launcher): the view made again drops CONVERT
+                    Err(e) if e.to_string() == forza::collection::NO_SPARE => {
+                        refuse(t("launcher.msg_no_spare"));
+                        self.collection(&kit);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => refuse(t("collection.damaged")),
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
             Action::VsLink => {
                 // data\settings.json "vs_link" (default on), which run::start_vslink reads
                 let file = kit.settings_file();

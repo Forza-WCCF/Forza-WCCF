@@ -169,6 +169,20 @@ pub fn craft(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> {
     )
 }
 
+/// CONVERT: one spare earned copy of the catalogue's card `no` into tokens, one `convert` line under the log's lock
+/// (`forza::collection::convert_card`).
+pub fn convert(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> {
+    let card = catalogue
+        .iter()
+        .find(|k| k.number == no)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("card {no} is not in the catalogue")))?;
+    c::convert_card(
+        &Log::new(dir),
+        c::now(),
+        &collection_cards(std::slice::from_ref(card))[0],
+    )
+}
+
 /// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
 /// (a rebuild), or an edited file names a league past [`LEAGUES`] (its name would index past the list).
 fn pending(catalogue: &[Card], dir: &Path) -> Option<(Choice, Vec<Card>, Vec<Card>)> {
@@ -792,5 +806,61 @@ mod tests {
             "a sold card is offered again"
         );
         assert!(v.cards.iter().all(|(k, _)| k.number != sold), "and not shown as held");
+    }
+
+    /// 2.3: the detail's copies by source are the fold's; CONVERT takes one spare earned copy at 20 % of the value
+    /// and never the last nor a starter copy.
+    #[test]
+    fn convert_takes_a_spare_and_the_view_follows_the_fold() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let held: Vec<u32> = view(&cat, &coll, None)
+            .unwrap()
+            .cards
+            .iter()
+            .map(|(k, _)| k.number)
+            .collect();
+        let mut free = cat
+            .iter()
+            .filter(|k| k.rarity == R::Regular && !held.contains(&k.number));
+        let spare = free.next().unwrap().number;
+        let log = Log::new(&coll);
+        let at = c::now();
+        for _ in 0..2 {
+            log.append_at(at, c::Kind::Pack, Some(spare), 0, "test").unwrap();
+        }
+        let check = |v: &forza_ui::collection::CollectionView| {
+            let s = c::fold(&log.lines().unwrap()).state;
+            for (k, n) in &v.cards {
+                assert_eq!(*n, s.copies(k.number), "card {}: copies by source", k.number);
+            }
+            s
+        };
+        check(&view(&cat, &coll, None).unwrap());
+        let row = &collection_cards(std::slice::from_ref(cat.iter().find(|k| k.number == spare).unwrap()))[0];
+        let e = convert(&cat, &coll, spare).unwrap();
+        assert_eq!((e.kind, e.card), (c::Kind::Convert, Some(spare)));
+        assert_eq!(e.tokens, i64::from(c::value(row) * c::CONVERT_SHARE / 100));
+        let v = view(&cat, &coll, None).unwrap();
+        let s = check(&v);
+        assert_eq!(s.copies(spare).earned, 1);
+        assert_eq!(v.tokens, c::WELCOME + e.tokens);
+        assert_eq!(
+            convert(&cat, &coll, spare).unwrap_err().to_string(),
+            c::NO_SPARE,
+            "the last earned copy stays"
+        );
+        assert_eq!(
+            convert(&cat, &coll, held[0]).unwrap_err().to_string(),
+            c::NO_SPARE,
+            "a starter copy"
+        );
     }
 }
