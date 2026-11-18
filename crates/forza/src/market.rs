@@ -1,14 +1,29 @@
-//! Create-a-Team's market requests (PLAN.md 3.1, 3.4): the installation's key `data\market.key` and the signed desk
-//! words `MARKET JOIN`, `MARKET LEAVE` and `MARKET RESET`. The Launcher builds and sends them; the server
-//! (`forza-server`, `crates/server/src/market.rs`) reads them with [`Request::open`], so the format lives here once.
+//! Create-a-Team's market requests (PLAN.md 3.1, 3.4, 3.5): the installation's key `data\market.key` and the signed
+//! desk words `MARKET JOIN`, `LEAVE`, `RESET`, `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT`. The Launcher builds and
+//! sends them; the server (`forza-server`, `crates/server/src/market.rs`) reads them with [`Request::open`], so the
+//! format lives here once.
 //!
 //! A request is one line and a body: `MARKET VERB size sig` + `size` bytes. The body's first line is
-//! `VERB key at rules` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`), then on JOIN
-//! the grant log `grants.jsonl` as it is on disk. No name is sent: listings never show the seller (PLAN.md 3.5). `sig`
-//! is the ed25519 signature of the whole body in hex. Answers: `OK ...` or `NO reason`, one line. A request whose `at`
-//! is not after the key's last one answers [`OLD`] with the last time, and [`ask`] signs it again once past it (a PC
-//! clock set back must not lock the key out). LEAVE answers `OK left`, then `returned` and the card numbers of the
-//! open listings it closed (the Launcher writes their `unlist` lines), then `waiting n` when n sales wait for COLLECT.
+//! `VERB key at rules` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`) and the verb's
+//! numbers ([`Verb::args`]), then on JOIN, LIST and BUY the grant log `grants.jsonl` as it is on disk. No name is sent:
+//! listings never show the seller (PLAN.md 3.5). `sig` is the ed25519 signature of the whole body in hex. Answers:
+//! `OK ...` or `NO reason`, one line. A request whose `at` is not after the key's last one answers [`OLD`] with the
+//! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out). LEAVE answers
+//! `OK left`, then `returned` and the card numbers of the open listings it closed (the Launcher writes their `unlist`
+//! lines), then `waiting n` when n sales wait for COLLECT.
+//!
+//! The ledger's words (step 3.2) answer with `id:card:price` triples and never a key, a key's hash or a name:
+//! - `LIST card price` + log: `OK listed id:card:price` (the Launcher writes the `list` line);
+//! - `CANCEL listing`: `OK cancelled id:card` (an `unlist` line);
+//! - `BROWSE after`: `OK listings` and up to [`BROWSE_PAGE`] open listings of other keys with an id above `after`,
+//!   lowest id first, none of a seller at the week's 10 sales (ask again from the last id; fewer than a page is the
+//!   end);
+//! - `BUY listing card price` + log: `OK bought id:card:price` (a `market_buy` line); the card and price must be the
+//!   listing's, so a stale id buys nothing else;
+//! - `COLLECT`: `OK collected`, then `sold` and `id:card:price` for each sale whose proceeds it pays now (a
+//!   `market_sell` line each), then `returned` and `id:card` for each listing past 7 days (an `unlist` line each); at
+//!   most [`COLLECT_PAGE`] rows, so ask again until it answers `OK collected` alone. It also works after LEAVE while a
+//!   sale waits.
 //!
 //! The key is made on first use and lives outside the profile folder, so a profile reset keeps it (PLAN.md 3.6).
 
@@ -29,6 +44,10 @@ pub const MAX_HEAD: usize = 256;
 pub const NOT_SET_UP: &str = "the market is not set up on this server";
 /// How a refusal of a request not later than the key's last one starts; the server adds `, the last at <ms>`.
 pub const OLD: &str = "an old request (sent twice?)";
+/// Listings in one `BROWSE` answer at most: about 900 bytes, under [`send`]'s 1 KiB read.
+pub const BROWSE_PAGE: usize = 40;
+/// Rows in one `COLLECT` answer at most, as [`BROWSE_PAGE`].
+pub const COLLECT_PAGE: usize = 30;
 
 /// What a request asks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,6 +58,16 @@ pub enum Verb {
     Leave,
     /// A profile reset: the server starts a new history for the same key.
     Reset,
+    /// Put one earned copy on the market at a price inside its band.
+    List,
+    /// Take one of this key's open listings back.
+    Cancel,
+    /// A page of the other keys' open listings.
+    Browse,
+    /// Buy one listing.
+    Buy,
+    /// Take the proceeds of sold listings and the listings past 7 days.
+    Collect,
 }
 
 impl Verb {
@@ -48,14 +77,46 @@ impl Verb {
             Self::Join => "JOIN",
             Self::Leave => "LEAVE",
             Self::Reset => "RESET",
+            Self::List => "LIST",
+            Self::Cancel => "CANCEL",
+            Self::Browse => "BROWSE",
+            Self::Buy => "BUY",
+            Self::Collect => "COLLECT",
         }
     }
 
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
-        [Self::Join, Self::Leave, Self::Reset]
-            .into_iter()
-            .find(|v| v.word() == word)
+        [
+            Self::Join,
+            Self::Leave,
+            Self::Reset,
+            Self::List,
+            Self::Cancel,
+            Self::Browse,
+            Self::Buy,
+            Self::Collect,
+        ]
+        .into_iter()
+        .find(|v| v.word() == word)
+    }
+
+    /// The numbers the body's first line carries after `rules`, by name.
+    #[must_use]
+    pub fn args(self) -> &'static [&'static str] {
+        match self {
+            Self::List => &["card", "price"],
+            Self::Cancel => &["listing"],
+            Self::Browse => &["after"],
+            Self::Buy => &["listing", "card", "price"],
+            Self::Join | Self::Leave | Self::Reset | Self::Collect => &[],
+        }
+    }
+
+    /// Whether the body carries the grant log, which the server checks: JOIN, LIST and BUY.
+    #[must_use]
+    pub fn logged(self) -> bool {
+        matches!(self, Self::Join | Self::List | Self::Buy)
     }
 }
 
@@ -69,7 +130,9 @@ pub struct Request {
     pub at: u64,
     /// The Launcher's economy table ([`crate::collection::RULES`]).
     pub rules: u32,
-    /// JOIN: `grants.jsonl` as it is; else empty.
+    /// The verb's numbers ([`Verb::args`]).
+    pub args: Vec<u64>,
+    /// JOIN, LIST and BUY: `grants.jsonl` as it is; else empty.
     pub log: String,
 }
 
@@ -90,15 +153,23 @@ fn unhex<const N: usize>(s: &str) -> Option<[u8; N]> {
 
 impl Request {
     /// The bytes to send: the request line and the body, signed with `key` (whose public half the body names); refused
-    /// with the reason when the body passes [`MAX_BODY`], so the Launcher says so before it sends anything.
+    /// with the reason when the body passes [`MAX_BODY`], so the Launcher says so before it sends anything, or when
+    /// `args` does not match [`Verb::args`].
     pub fn signed(&self, key: &SigningKey) -> Result<Vec<u8>, String> {
+        if self.args.len() != self.verb.args().len() {
+            return Err(usage(self.verb));
+        }
         let mut body = format!(
-            "{} {} {} {}\n",
+            "{} {} {} {}",
             self.verb.word(),
             hex(key.verifying_key().as_bytes()),
             self.at,
             self.rules
         );
+        for a in &self.args {
+            body.push_str(&format!(" {a}"));
+        }
+        body.push('\n');
         body.push_str(&self.log);
         if body.len() > MAX_BODY {
             return Err(format!(
@@ -147,12 +218,20 @@ impl Request {
         let head =
             std::str::from_utf8(head).map_err(|_| "the request's first line is not UTF-8")?;
         let words: Vec<&str> = head.split_whitespace().collect();
-        let [word, key, at, rules] = words.as_slice() else {
-            return Err("the request's first line is not VERB key at rules".into());
+        let [word, key, at, rules, args @ ..] = words.as_slice() else {
+            return Err(usage(Verb::Join));
         };
         if Verb::parse(word) != Some(verb) {
             return Err("the request's line and body name different words".into());
         }
+        if args.len() != verb.args().len() {
+            return Err(usage(verb));
+        }
+        let args = args
+            .iter()
+            .map(|a| a.parse())
+            .collect::<Result<_, _>>()
+            .map_err(|_| "the request's numbers are not numbers")?;
         let key = unhex::<32>(key).ok_or("the key is not 64 hex digits")?;
         let public = VerifyingKey::from_bytes(&key)
             .ok()
@@ -170,9 +249,19 @@ impl Request {
             key,
             at,
             rules,
+            args,
             log: log.to_owned(),
         })
     }
+}
+
+/// The refusal of a first line with the wrong number of words: JOIN, LEAVE and RESET take none after `rules`.
+fn usage(verb: Verb) -> String {
+    let mut s = "the request's first line is not VERB key at rules".to_owned();
+    for a in verb.args() {
+        s.push_str(&format!(" {a}"));
+    }
+    s
 }
 
 /// The installation's market key from `path` (`data\market.key`), made and saved there on first use.
@@ -227,7 +316,7 @@ pub fn last_at(why: &str) -> Option<u64> {
     why.strip_prefix(OLD)?.rsplit(' ').next()?.parse().ok()
 }
 
-/// Signs `verb` (with `log` on JOIN) at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
+/// Signs `verb`, a word without numbers (JOIN with `log`, LEAVE, RESET, COLLECT), at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
 /// [`send`]. Refused as [`OLD`] because the key's last request is not before `at` (the PC's clock went back after it,
 /// or two requests in one millisecond), it signs again once just after that time.
 pub fn ask(
@@ -243,6 +332,7 @@ pub fn ask(
             key: *key.verifying_key().as_bytes(),
             at,
             rules: crate::collection::RULES,
+            args: Vec::new(),
             log: log.to_owned(),
         }
         .signed(key)
@@ -270,6 +360,7 @@ mod tests {
             key: *key(7).verifying_key().as_bytes(),
             at: 1_762_000_000_000,
             rules: 1,
+            args: Vec::new(),
             log: "{\"seq\":1}\n{\"seq\":2}\n".into(),
         }
     }
@@ -369,6 +460,64 @@ mod tests {
         assert!(why.contains("over the market's limit of 8192 KiB"), "{why}");
         r.log.truncate(MAX_BODY - 200);
         assert!(r.signed(&key(7)).is_ok());
+    }
+
+    /// The words released before the ledger send the same bytes: no number after `rules`, the log as it is.
+    #[test]
+    fn join_and_leave_bytes_are_unchanged() {
+        let k = key(7);
+        let pk = hex(k.verifying_key().as_bytes());
+        let mut leave = join();
+        (leave.verb, leave.log) = (Verb::Leave, String::new());
+        for (r, body) in [
+            (
+                join(),
+                format!("JOIN {pk} 1762000000000 1\n{{\"seq\":1}}\n{{\"seq\":2}}\n"),
+            ),
+            (leave, format!("LEAVE {pk} 1762000000000 1\n")),
+        ] {
+            let sig = hex(&k.sign(body.as_bytes()).to_bytes());
+            let want = format!("MARKET {} {} {sig}\n{body}", r.verb.word(), body.len());
+            assert_eq!(String::from_utf8(r.signed(&k).unwrap()).unwrap(), want);
+        }
+    }
+
+    /// The ledger's words carry their numbers on the first line, LIST and BUY the log after it; a wrong count of
+    /// numbers is refused on both ends.
+    #[test]
+    fn ledger_words_carry_their_numbers() {
+        let mut r = join();
+        (r.verb, r.args) = (Verb::Buy, vec![17, 57, 228]);
+        let sent = r.signed(&key(7)).unwrap();
+        let (_, body) = split(&sent);
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains(" 1 17 57 228\n{\"seq\":1}")
+        );
+        assert_eq!(open(&sent).unwrap(), r);
+        r.args.pop();
+        assert!(
+            r.signed(&key(7))
+                .unwrap_err()
+                .ends_with("rules listing card price")
+        );
+        let body =
+            format!("BUY {} 1 1 17 57\n", hex(key(7).verifying_key().as_bytes())).into_bytes();
+        let sig = key(7).sign(&body).to_bytes();
+        assert!(
+            Request::open(Verb::Buy, &sig, &body)
+                .unwrap_err()
+                .ends_with("rules listing card price")
+        );
+        let body =
+            format!("CANCEL {} 1 1 x\n", hex(key(7).verifying_key().as_bytes())).into_bytes();
+        let sig = key(7).sign(&body).to_bytes();
+        assert!(
+            Request::open(Verb::Cancel, &sig, &body)
+                .unwrap_err()
+                .contains("not numbers")
+        );
     }
 
     #[test]
