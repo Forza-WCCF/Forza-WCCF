@@ -243,6 +243,7 @@ jobs:
           "screen $($b.Width)x$($b.Height)"
           if ($b.Width -lt 1600 -or $b.Height -lt 1000) { throw "screen still $($b.Width)x$($b.Height)" }
       - name: cargo xtask check (pull requests quick, else ci; the GPU snapshot tests run in the snapshots job)
+        id: check
         shell: bash
         env:
           CARGO_LOG: ${{ inputs.fingerprints && 'cargo::core::compiler::fingerprint=info' || '' }}
@@ -256,6 +257,13 @@ jobs:
             cargo xtask check ci --release
           else
             cargo xtask check ci
+          fi
+          # what the testers get: a run that skipped the 2010-11 hooks (xtask PATHS_1011) leaves no wccfk.dll in the
+          # 2010-11 kit, and that kit then refuses every program (launcher::run ensure_hook), so it is not published
+          if [ -f target/kit/2010-11/programs/wccfk.dll ]; then
+            echo "kit=target/kit/**" >> "$GITHUB_OUTPUT"
+          else
+            echo "kit=target/kit/2017-18/**" >> "$GITHUB_OUTPUT"
           fi
       - name: Defender scan of the kits and the installer
         shell: pwsh
@@ -320,12 +328,13 @@ jobs:
           } | Format-List
           "::error::Defender detected $($hits.Count) threat(s) during the job"
           exit 1
+      # a 2010-11 kit without its hook is the run above's skip: the 2017-18 kit alone goes to the testers then
       - name: kit artifact (for testers)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: kit
           path: |
-            target/kit/**
+            ${{ steps.check.outputs.kit }}
             target/x86_64-pc-windows-msvc/${{ env.PROFILE }}/Forza-WCCF-Installer.exe
           retention-days: 3
           if-no-files-found: ignore
