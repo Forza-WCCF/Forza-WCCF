@@ -855,6 +855,7 @@ fn a_tunnel_desk_holds_no_rooms() {
         "JOIN K7QMZDRX".into(),
         "SHOP 0123456789abcdef".into(),
         "READY 0a1b2c3d t".into(),
+        "MODE 0a1b2c3d t cat".into(),
         "CLOSE 0a1b2c3d t".into(),
     ] {
         assert_eq!(say(a, &w), "ERR rooms are on the lobby", "{w}");

@@ -73,7 +73,7 @@ token the control then sends as the seat's address in MATCHING_ENTRY 243 (+8 add
 pairs an entry only within its pool: no ticket = M3's open pool (round, rematch history and the rest as before); a
 room's ticket = the other PC of that room, across rounds and history; a ticket the desk no longer holds (room
 closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and game server in one process, VS on);
-a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
+a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY`, `MODE` and `CLOSE`
 answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
 ## Market (2017-18, Create-a-Team)
