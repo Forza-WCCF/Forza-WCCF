@@ -953,6 +953,15 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut before: Option<&str> = None;
     let mut seq = 0;
     let mut chain = true;
+    // a pack's price line and the cards of it seen so far: a write cut between them took the tokens and lost cards
+    let mut paid: Option<(usize, usize)> = None;
+    let short = |paid: Option<(usize, usize)>, out: &mut Folded| {
+        if let Some((n, got)) = paid.filter(|&(_, got)| got < PACK_CARDS) {
+            out.warnings.push(format!(
+                "line {n}: a pack paid for with {got} of its {PACK_CARDS} card lines after it (an interrupted write)"
+            ));
+        }
+    };
     for (n, line) in lines.lines().enumerate().map(|(n, l)| (n + 1, l)) {
         if line.trim().is_empty() {
             continue;
@@ -986,9 +995,19 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
                 ));
             }
         }
+        match (&entry.kind, entry.card) {
+            (Kind::Pack, None) => short(paid.replace((n, 0)), &mut out),
+            (Kind::Pack, Some(_)) => {
+                if let Some((_, got)) = &mut paid {
+                    *got += 1;
+                }
+            }
+            _ => short(paid.take(), &mut out),
+        }
         out.state.apply(&entry, this_week);
         before = Some(line);
     }
+    short(paid, &mut out);
     if cut.is_some() && !out.unreadable {
         out.warnings.push(format!(
             "line {} does not parse (cut off by an interrupted write) and is dropped",
@@ -1351,7 +1370,7 @@ mod tests {
         }
     }
 
-    /// A fixed log of 10 lines, all on one business day except the last two.
+    /// A fixed log of 12 lines (a whole pack among them), all on one business day except the last two.
     fn fixed() -> Fixture {
         let mut f = Fixture::default();
         f.add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(1), 0)
@@ -1365,6 +1384,8 @@ mod tests {
                 -STANDARD_PACK,
             )
             .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(4), 0)
+            .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(5), 0)
+            .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(6), 0)
             .add("2026-11-11T12:04:00+01:00", Kind::Convert, Some(3), 48)
             .add("2026-11-11T12:05:00+01:00", Kind::Import, Some(1), 0)
             .add("2026-11-11T12:06:00+01:00", Kind::List, Some(2), 0)
@@ -1379,7 +1400,7 @@ mod tests {
         let folded = fold_at(&f.text, this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         let s = &folded.state;
-        assert_eq!(s.seq, 10);
+        assert_eq!(s.seq, 12);
         assert_eq!(
             s.copies(1),
             Copies {
@@ -1416,7 +1437,7 @@ mod tests {
         assert_eq!(s.match_week, 100);
         assert!(s.copies(3).owned());
 
-        // A torn last line (line 10): dropped with a warning, the 9 lines before it kept.
+        // A torn last line (line 12): dropped with a warning, the 11 lines before it kept.
         let mut torn = f.text.clone();
         torn.truncate(torn[..torn.len() - 1].rfind('\n').unwrap() + 1);
         torn.push_str("{\"seq\": 99, \"at\": \"2026-11-11T0");
@@ -1427,11 +1448,11 @@ mod tests {
         );
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
-            folded.warnings[0].starts_with("line 10 does not parse"),
+            folded.warnings[0].starts_with("line 12 does not parse"),
             "{:?}",
             folded.warnings
         );
-        assert_eq!(folded.state.seq, 9);
+        assert_eq!(folded.state.seq, 11);
         assert_eq!(
             folded.state.tokens, s.tokens,
             "the torn line moved no token"
@@ -1456,7 +1477,7 @@ mod tests {
             folded.warnings
         );
         assert_eq!(
-            folded.state.seq, 10,
+            folded.state.seq, 12,
             "the lines after the break are still read"
         );
     }
@@ -2213,6 +2234,34 @@ mod tests {
             .is_err()
         );
         assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+    }
+
+    /// #374: a write cut between a pack's price line and its card lines is said when the log is read.
+    #[test]
+    fn a_pack_cut_from_its_cards_is_said() {
+        let pool = store_pool();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 300, "welcome").unwrap();
+        let mut rng = Rng::new(5);
+        for _ in 0..2 {
+            buy_pack(&log, at, &mut rng, &pool, Pack::Standard).unwrap();
+        }
+        let text = log.lines().unwrap();
+        assert!(fold_at(&text, this_week()).warnings.is_empty());
+        // the first pack keeps 1 card line, the second none: the log ends on its price line
+        let lines: Vec<&str> = text.lines().collect();
+        let cut = [&lines[..3], &lines[5..6]].concat().join("\n") + "\n";
+        let warnings = fold_at(&cut, this_week()).warnings;
+        assert!(
+            warnings.iter().any(|w| w.starts_with("line 2: a pack paid for with 1 of its 3")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.starts_with("line 4: a pack paid for with 0 of its 3")),
+            "{warnings:?}"
+        );
     }
 
     /// 2.1 (d): the Nation picker's 24, none of the 7 dropped.

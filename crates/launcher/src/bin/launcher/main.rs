@@ -933,6 +933,12 @@ impl App {
         if self.catalogue.is_none() {
             self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
+        // what the read found (a damaged line, a pack cut from its cards) goes to DETAILS and launcher.txt
+        if let Ok(text) = forza::collection::Log::new(&dir).lines() {
+            for w in forza::collection::fold(&text).warnings {
+                log(&format!("collection: {w}"));
+            }
+        }
         let old = self.st.collection.take();
         // the reason, and whether it is the log (START OVER is its way out)
         let made = match &self.catalogue {
