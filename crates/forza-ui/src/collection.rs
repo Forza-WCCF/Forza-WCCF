@@ -99,13 +99,26 @@ impl PackChoice {
         }
     }
 
-    /// The pick's own name: a season as the cards print it, a nation as the catalogue spells it.
+    /// The pick's own name: a season as the cards print it, a nation in the player's language.
     fn label(self, lang: Lang) -> String {
         match self {
             PackChoice::Standard => tr!(lang, "collection.pack_standard"),
             PackChoice::Season(y) => season(y),
-            PackChoice::Nation(i) => NATIONS[i].to_string(),
+            PackChoice::Nation(i) => nation(NATIONS[i], lang).to_string(),
         }
+    }
+}
+
+/// A nation's name in `lang`: the game's own 2017-18 names (`forza::cards::codes::NATIONS_1718`: the original Japanese,
+/// the Italian where it differs from the English); the English when the table lacks it.
+pub fn nation(en: &str, lang: Lang) -> &str {
+    let row = forza::cards::codes::NATIONS_1718
+        .iter()
+        .find(|(_, e, _)| *e == en);
+    match (row, lang) {
+        (Some((ja, _, _)), Lang::Ja) => ja,
+        (Some((_, _, it)), Lang::It) if !it.is_empty() => it,
+        _ => en,
     }
 }
 
