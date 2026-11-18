@@ -676,7 +676,7 @@ fn session(
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         // an arcade's own desk behind its tunnel (loopback is many guests, so no per-address limits there) seats its
         // own PCs only: rooms live on the public lobby
-        ["CREATE" | "JOIN" | "SHOP" | "READY" | "CLOSE", ..] if sh.cfg.tunnel => {
+        ["CREATE" | "JOIN" | "SHOP" | "READY" | "MODE" | "CLOSE", ..] if sh.cfg.tunnel => {
             return out.write_all(b"ERR rooms are on the lobby\n");
         }
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
