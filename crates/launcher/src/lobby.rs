@@ -6,6 +6,7 @@
 use crate::Edition;
 use forza::online::SEAT_PORT;
 use forza::online::lobby::{self, Created, Lobby, Mode, Peers, Reserved, State, VsRoom};
+use forza::profile::Profile;
 use forza::service::Log;
 use forza_ui::Lang;
 use forza_ui::lobby::{LobbyView, Row, RowState};
@@ -171,11 +172,11 @@ pub fn close(server: &str, id: &str, ticket: &str) -> thread::JoinHandle<()> {
     })
 }
 
-/// The mode this PC's VS seats play: Create-a-Team when it is settings.json's active profile, else free.
-// shortcut: reads the "profile" key by hand; use forza::profile::Profile::of once the profiles are on main
-pub fn seat_mode(settings: &Path) -> Mode {
-    match crate::choices::setting(settings, "profile").as_deref() {
-        Some("create-a-team") => Mode::Cat,
+/// The mode this PC's VS seats play: Create-a-Team when it is the active profile (the Launcher's, read by
+/// `forza::profile` on 2017-18 only), else free.
+pub fn seat_mode(profile: Option<Profile>) -> Mode {
+    match profile {
+        Some(Profile::CreateATeam) => Mode::Cat,
         _ => Mode::Free,
     }
 }
@@ -183,12 +184,12 @@ pub fn seat_mode(settings: &Path) -> Mode {
 /// `MODE id ticket cat` on its own thread when this PC plays Create-a-Team (a seat is free until it says, so free play
 /// sends nothing). Best effort like [`close`]: a desk before `MODE` answers `ERR`, and the seat goes on as a free one.
 pub fn tell_mode(
-    settings: &Path,
+    profile: Option<Profile>,
     server: &str,
     id: &str,
     ticket: &str,
 ) -> Option<thread::JoinHandle<Result<bool, String>>> {
-    let mode = seat_mode(settings);
+    let mode = seat_mode(profile);
     if mode.is_free() {
         return None;
     }
@@ -870,14 +871,13 @@ mod tests {
                 }
             }
         });
-        let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("settings.json");
-        std::fs::write(&settings, r#"{"profile":"free"}"#).unwrap();
-        assert_eq!(seat_mode(&settings), Mode::Free);
-        assert!(tell_mode(&settings, &server, "r7x1", "t9").is_none());
-        std::fs::write(&settings, r#"{"profile":"create-a-team"}"#).unwrap();
-        assert_eq!(seat_mode(&settings), Mode::Cat);
-        let answer = tell_mode(&settings, &server, "r7x1", "t9").unwrap().join().unwrap();
+        for free in [None, Some(Profile::Free)] {
+            assert_eq!(seat_mode(free), Mode::Free);
+            assert!(tell_mode(free, &server, "r7x1", "t9").is_none());
+        }
+        let cat = Some(Profile::CreateATeam);
+        assert_eq!(seat_mode(cat), Mode::Cat);
+        let answer = tell_mode(cat, &server, "r7x1", "t9").unwrap().join().unwrap();
         assert!(answer.is_err_and(|e| e.starts_with("ERR")));
         assert_eq!(said.recv().unwrap(), "MODE r7x1 t9 cat\n");
         let lost = Arc::new(AtomicBool::new(false));
