@@ -61,8 +61,13 @@ pub fn starts(catalogue: &[Card]) -> Vec<StartRow> {
 /// The view of the log in `dir` against the catalogue. `old` keeps the page's filter and open card, and a start being
 /// chosen or a deal not taken yet. A line that cannot be read shows the cards before it, marked damaged, so a started
 /// collection still plays (reset, `PLAN.md` 1.5, is the way to a whole file again).
+#[cfg(test)]
 pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::Result<CollectionView> {
-    let folded = c::fold(&Log::new(dir).lines()?);
+    Ok(view_of(catalogue, dir, c::fold(&Log::new(dir).lines()?), old))
+}
+
+/// [`view`] of a log already read and folded (the Launcher logs the fold's warnings from the same read).
+pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<CollectionView>) -> CollectionView {
     let s = folded.state;
     let started = s.cards.values().any(|k| k.starter > 0);
     let (filter, open, step) = match old {
@@ -85,7 +90,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         },
         kept => kept,
     };
-    Ok(CollectionView {
+    CollectionView {
         step,
         cards: catalogue
             .iter()
@@ -103,7 +108,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         problem: None,
         damaged: folded.unreadable,
         offers: offers(catalogue),
-    })
+    }
 }
 
 /// The store's packs (`PLAN.md` 2.3): Standard, each season of the catalogue, the 24 nations with their card counts;
