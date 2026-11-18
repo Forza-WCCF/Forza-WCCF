@@ -69,7 +69,7 @@ impl Kit {
     /// A kit in `dir` (tests, tools).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
-        let profile = profile_of(&dir);
+        let profile = profile_of(&dir.join("data"), Self::layout(&dir));
         Self { dir, profile }
     }
 
@@ -239,14 +239,20 @@ pub fn misc_dir(game: &Path) -> PathBuf {
 
 /// The active profile's save for a kit's `data` folder (callers that know only that folder: the panel, the card steps).
 pub fn save_in(data: &Path) -> PathBuf {
-    profile_of(data.parent().unwrap_or(data)).save(data)
+    save_of(data, Kit::layout(data.parent().unwrap_or(data)))
 }
 
-/// settings.json "profile" of the kit in `dir` on 2017-18 only: a settings file copied into a 2010-11 kit never moves
-/// its save into a profile folder.
-fn profile_of(dir: &Path) -> Profile {
-    if Kit::layout(dir) == Some(Edition::E1718) {
-        Profile::of(&read_settings(&dir.join("data").join("settings.json")))
+/// The active profile's save for a `data` folder whose kit edition the caller knows (the panel's `WCCF_EDITION`):
+/// `data` may then be anywhere, not only in the kit.
+pub fn save_of(data: &Path, edition: Option<Edition>) -> PathBuf {
+    profile_of(data, edition).save(data)
+}
+
+/// settings.json "profile" in `data` on 2017-18 only: a settings file copied into a 2010-11 kit never moves its save
+/// into a profile folder.
+fn profile_of(data: &Path, edition: Option<Edition>) -> Profile {
+    if edition == Some(Edition::E1718) {
+        Profile::of(&read_settings(&data.join("settings.json")))
     } else {
         Profile::Free
     }
@@ -456,5 +462,26 @@ mod tests {
         assert_eq!(kit.profile(), Profile::Free);
         assert_eq!(kit.save(), data.join("save"));
         assert_eq!(save_in(&data), data.join("save"));
+    }
+
+    /// #234 review: a `data` folder outside any kit (the panel's `WCCF_DATA`) follows the edition the caller names.
+    #[test]
+    fn a_data_folder_outside_the_kit_follows_the_named_edition() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let cat = data.join(r"profiles\create-a-team\save");
+        assert_eq!(
+            save_in(&data),
+            data.join("save"),
+            "no kit layout: 2010-11's rule"
+        );
+        assert_eq!(save_of(&data, Some(Edition::E1718)), cat);
+        assert_eq!(save_of(&data, Some(Edition::E1011)), data.join("save"));
     }
 }
