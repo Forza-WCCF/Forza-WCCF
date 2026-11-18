@@ -245,8 +245,11 @@ fn run(
     let mut rng = collection::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
     let mut pending = replay(dir, &pool, log);
     let (mut retry, mut wait) = (RETRY_FIRST, RETRY_FIRST);
+    // a log the fold cannot read never takes a line (`Log::append_lines_at`): no more tries this run, the cards stay in
+    // PENDING for a start that can read it
+    let mut damaged = false;
     loop {
-        while let Some(job) = pending.front_mut() {
+        while !damaged && let Some(job) = pending.front_mut() {
             match save(dir, job) {
                 Ok(grant) => {
                     log(&format!(
@@ -259,6 +262,18 @@ fn run(
                     wait = RETRY_FIRST;
                     if let Err(e) = keep_pending(dir, &pending) {
                         log(&format!("deal: {PENDING} not updated ({e})"));
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                    damaged = true;
+                    let no = job.drawn.card_no;
+                    log(&format!(
+                        "deal: card {no} not saved: the collection log is damaged ({e}) - no more tries this run, \
+                         {} card(s) kept in {PENDING}",
+                        pending.len()
+                    ));
+                    for j in &pending {
+                        let _ = tell.send((j.card, Grant::Damaged));
                     }
                 }
                 Err(e) => {
@@ -276,7 +291,7 @@ fn run(
                 }
             }
         }
-        let asked = if pending.is_empty() {
+        let asked = if pending.is_empty() || damaged {
             asks.recv().map_err(|_| RecvTimeoutError::Disconnected)
         } else {
             asks.recv_timeout(retry)
@@ -308,6 +323,13 @@ fn run(
                     log(&format!(
                         "deal: {PENDING} not written ({e}) - the card is lost if the game ends before it is saved"
                     ));
+                }
+                if damaged {
+                    log(&format!(
+                        "deal: card {} kept in {PENDING}, not saved: the collection log is damaged",
+                        drawn.card_no
+                    ));
+                    let _ = tell.send((i, Grant::Damaged));
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -532,6 +554,33 @@ mod tests {
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.tokens, collection::MATCH_TOKENS);
         assert!(!dir.join(PENDING).exists(), "kept after the save");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// #374: a log with a line that cannot be read is no retry: the card is said damaged once, kept in PENDING, and the
+    /// log is left as it was.
+    #[test]
+    fn a_damaged_log_stops_the_tries_and_says_why() {
+        let dir = scratch("grant-damaged");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("grants.jsonl");
+        let log = Log::new(&dir);
+        for no in [7, 8] {
+            log.append(Kind::Starter, Some(no), 0, "starter").unwrap();
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        let broken = text.replacen("{", "not a line {", 1);
+        fs::write(&path, &broken).unwrap();
+        let g = Granter::start(dir.clone(), cards(), |_| {});
+        g.ask("test");
+        let news = wait_for(&g, Duration::from_secs(10), |g| *g == Grant::Damaged);
+        assert_eq!(news.last().map(|n| &n.1), Some(&Grant::Damaged), "{news:?}");
+        // a retry would come after RETRY_FIRST
+        let later = wait_for(&g, RETRY_FIRST * 2, |_| true);
+        assert!(later.is_empty(), "{later:?}");
+        assert!(!news.iter().any(|n| n.1 == Grant::Retrying), "{news:?}");
+        assert!(dir.join(PENDING).is_file(), "the card is kept");
+        assert_eq!(fs::read_to_string(&path).unwrap(), broken);
         let _ = fs::remove_dir_all(&dir);
     }
 
