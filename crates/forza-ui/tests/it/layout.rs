@@ -2135,3 +2135,137 @@ fn collection_cards_and_marks_fit_the_page() {
         "a spare earned copy does convert"
     );
 }
+
+/// #374: the deal window holds its collection lines inside it and above its foot line, for every grant state and
+/// language (the damaged note is the longest).
+#[test]
+fn the_deal_window_holds_its_collection_lines() {
+    for lang in Lang::ALL {
+        let t = |k: &str, n: &str| forza_ui::text(lang, k, &[("n", n)]);
+        for (grant, key, n) in [
+            (panel::Grant::Saving, "deal.saving", ""),
+            (panel::Grant::Retrying, "deal.not_saved", ""),
+            (panel::Grant::Damaged, "deal.damaged", ""),
+            (
+                panel::Grant::Saved {
+                    tokens: 15,
+                    copies: 2,
+                    convert: Some(30),
+                    floor: 120,
+                },
+                "deal.sell_from",
+                "120",
+            ),
+        ] {
+            let mut st = panel::PanelState::new(
+                Edition::E1718,
+                lang,
+                forza_ui::sample::board(),
+                forza_ui::sample::cards().into(),
+            );
+            let mut deal = panel::Deal::new(3);
+            deal.grant = Some(grant);
+            st.deal = Some(deal);
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+                panel::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let (plain, rare) = (t("deal.title", ""), t("deal.title_rare", ""));
+            let win = h
+                .query_by_label(&plain)
+                .or_else(|| h.query_by_label(&rare))
+                .expect("the deal window")
+                .rect();
+            let drawn = drawn_texts(&h);
+            let rect = |text: &str| {
+                drawn
+                    .iter()
+                    .find(|s| s.galley.text() == text)
+                    .map(|s| egui::Rect::from_min_size(s.pos, s.galley.size()))
+                    .unwrap_or_else(|| panic!("{lang:?}: {text:?} not drawn"))
+            };
+            let line = rect(&t(key, n));
+            let foot = rect(&t("deal.foot", ""));
+            let tag = format!("{lang:?} {key}: line {line:?}, foot {foot:?}, window {win:?}");
+            assert!(win.contains_rect(line), "{tag}: the line inside the window");
+            assert!(
+                line.bottom() <= foot.top(),
+                "{tag}: the line above the foot"
+            );
+        }
+    }
+}
+
+/// #374: the start picker and the deal at the Launcher's smallest window, in every language: the start tiles in view
+/// lie inside the page and apart; the 11 dealt cards and the 3 RARE cards too.
+#[test]
+fn the_start_picker_and_the_deal_fit_the_page() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    let apart = |rects: &[egui::Rect], tag: &str| {
+        for (i, a) in rects.iter().enumerate() {
+            assert!(
+                a.left() >= 16.0 && a.right() <= size.x - 16.0,
+                "{tag}: {a:?} inside the page"
+            );
+            for b in &rects[i + 1..] {
+                assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+            }
+        }
+    };
+    for lang in Lang::ALL {
+        for s in [Scenario::Choose, Scenario::Pick] {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            let view = CollectionView::sample(s);
+            let names: std::collections::BTreeSet<String> = match &view.step {
+                forza_ui::collection::Step::Pick { dealt, .. } => {
+                    dealt.iter().map(|c| c.name.clone()).collect()
+                }
+                _ => Default::default(),
+            };
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            // the step's own tiles: the radio buttons under its title (the Launcher's own sit above it)
+            let head = if s == Scenario::Choose {
+                "collection.choose_title"
+            } else {
+                "collection.pick_title"
+            };
+            let head = forza_ui::text(lang, head, &[]);
+            let top = drawn_texts(&h)
+                .iter()
+                .find(|t| t.galley.text() == head)
+                .map(|t| t.pos.y)
+                .expect("the step's title");
+            let tag = format!("{lang:?} {s:?}");
+            let tiles: Vec<egui::Rect> = h
+                .query_all_by_role(Role::RadioButton)
+                .map(|n| n.rect())
+                .filter(|r| r.top() > top && r.bottom() <= size.y)
+                .collect();
+            match s {
+                Scenario::Choose => {
+                    assert!(tiles.len() >= 4, "{tag}: {} starts in view", tiles.len())
+                }
+                _ => {
+                    assert_eq!(tiles.len(), 3, "{tag}: the RARE cards");
+                    let dealt: Vec<egui::Rect> = names
+                        .iter()
+                        .flat_map(|n| h.query_all_by_role_and_label(Role::Image, n))
+                        .map(|n| n.rect())
+                        .collect();
+                    assert!(dealt.len() >= 11, "{tag}: {} dealt cards", dealt.len());
+                    apart(&dealt, &tag);
+                }
+            }
+            apart(&tiles, &tag);
+        }
+    }
+}
