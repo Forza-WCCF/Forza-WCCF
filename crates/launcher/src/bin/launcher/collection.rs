@@ -77,7 +77,8 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
             rares,
             picked: None,
         },
-        Step::Page => Step::Choose {
+        // a deal on screen whose file is gone (START OVER archived it) is no deal: the picker comes back
+        Step::Page | Step::Pick { .. } => Step::Choose {
             starts: starts(catalogue),
             chosen: None,
         },
@@ -443,6 +444,21 @@ mod tests {
         assert_eq!(lines.len(), 12);
         assert!(lines.iter().all(|e| e.kind == c::Kind::Starter), "no second welcome");
         assert_eq!(std::fs::read(data.join(c::WELCOME_MARK)).unwrap(), mark);
+    }
+
+    /// 1.5 review m2: START OVER with a deal on screen: the view made from the old one offers the picker again, not
+    /// the archived profile's deal (TAKE would write its 12 numbers as the new start).
+    #[test]
+    fn start_over_from_the_deal_brings_the_picker_back() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::League(0)).unwrap();
+        let old = view(&cat, &coll, None).unwrap();
+        assert!(matches!(old.step, Step::Pick { .. }));
+        reset(&data, &dir.path().join("seat1")).unwrap();
+        let v = view(&cat, &coll, Some(old)).unwrap();
+        assert!(matches!(v.step, Step::Choose { .. }), "{:?}", v.step);
     }
 
     /// 1.5 review M1: START OVER is refused while a start holds the kit's admission (between its checks and its game,
