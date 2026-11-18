@@ -1570,11 +1570,21 @@ pub fn write_stats(
     cards: &[Card],
     folder: &std::path::Path,
 ) -> io::Result<std::path::PathBuf> {
-    let mut text =
-        serde_json::to_string_pretty(&stats(&log.lines()?, cards)).map_err(io::Error::other)?;
+    write_stats_lines(&log.lines()?, cards, folder)
+}
+
+/// [`write_stats`] of a log already read: the caller that reads the log itself keeps a read failure (the game still
+/// writing it, `WouldBlock`) apart from the write's. The file goes through [`crate::kit::write_atomic`], so a failed or
+/// interrupted write leaves the old file, never half of a new one the player then sends.
+pub fn write_stats_lines(
+    lines: &str,
+    cards: &[Card],
+    folder: &std::path::Path,
+) -> io::Result<std::path::PathBuf> {
+    let mut text = serde_json::to_string_pretty(&stats(lines, cards)).map_err(io::Error::other)?;
     text.push('\n');
     let file = folder.join(STATS_FILE);
-    std::fs::write(&file, text)?;
+    crate::kit::write_atomic(&file, text.as_bytes())?;
     Ok(file)
 }
 
@@ -1971,6 +1981,90 @@ mod tests {
         ] {
             assert!(!body.contains(word), "the count names {word}");
         }
+    }
+
+    /// step 2.4: a copy out on the market at the log's end is neither a held card nor a spare.
+    #[test]
+    fn a_copy_on_the_market_leaves_the_cards_and_the_spares() {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        )
+        .add("2026-11-02T12:01:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-02T12:02:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-02T12:03:00+01:00", Kind::List, Some(91734), 0);
+        let s = stats(&f.text, &stats_cards());
+        // two earned copies, one of them listed: one card held, and no spare (a listed copy does not convert)
+        assert_eq!(s.cards.regular, 1, "{s:?}");
+        assert_eq!(s.spares.regular, 0, "{s:?}");
+        assert_eq!(s.weeks[0].listings, 1);
+    }
+
+    /// step 2.4: a torn last line and a card the catalogue no longer holds give counts and no panic: the lines before
+    /// the tear count, and the lost card's craft counts in no tier.
+    #[test]
+    fn a_torn_line_and_a_lost_card_count_up_to_the_tear() {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        )
+        .add(
+            "2026-11-02T12:01:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add(
+            "2026-11-02T12:02:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        // a card number the catalogue lost (a rebuild), then a line the interrupted write cut off
+        .add("2026-11-02T12:03:00+01:00", Kind::Craft, Some(99999), -40)
+        .add(
+            "2026-11-02T12:04:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        );
+        let whole = f.text.trim_end_matches('\n');
+        let s = stats(&whole[..whole.len() - 40], &stats_cards());
+        assert_eq!(s.weeks.len(), 1);
+        assert_eq!(s.weeks[0].matches, 2, "the torn line is dropped");
+        assert_eq!(
+            s.weeks[0].crafts,
+            ByTier::default(),
+            "a card the catalogue lost counts in no tier"
+        );
+        assert_eq!(s.cards.regular, 2, "the two matches' copies");
+        assert_eq!(s.spares.regular, 1);
+        assert_eq!(s.balance, WELCOME + 2 * MATCH_TOKENS - 40);
+    }
+
+    /// step 2.4: the file is replaced whole: a write that fails leaves the old file as it was.
+    #[test]
+    fn a_failed_stats_write_keeps_the_old_file() {
+        let out = tempfile::tempdir().unwrap();
+        let file = out.path().join(STATS_FILE);
+        std::fs::write(&file, "the file before").unwrap();
+        // the temporary file beside it in the way: the write fails before it can touch the stats file
+        std::fs::create_dir(file.with_extension("tmp")).unwrap();
+        let f = three_weeks();
+        assert!(write_stats_lines(&f.text, &stats_cards(), out.path()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "the file before",
+            "the old file stays whole"
+        );
     }
 
     /// (3.1) the fold's copies per source, the balance and the week's match tokens; a torn last line dropped.
