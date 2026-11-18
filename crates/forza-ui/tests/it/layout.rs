@@ -2215,6 +2215,113 @@ fn the_detail_shows_convert_inside_the_page() {
     }
 }
 
+/// Step 4.1 (g): the market page at the Launcher's smallest window in every language: in the market the picked offer's
+/// BUY, each TAKE BACK, REFRESH and LEAVE THE MARKET inside the page and apart, every offer card inside it; outside
+/// the market the opt-in's JOIN THE MARKET inside it and no list; and a listable card's detail shows LIST at the band's floor.
+#[test]
+fn the_market_page_holds_its_buttons() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        for joined in [true, false] {
+            let view = CollectionView::sample(if joined {
+                Scenario::Market
+            } else {
+                Scenario::MarketOptIn
+            });
+            let price = view.market.stock[2].price.to_string();
+            let names: Vec<String> = view
+                .market
+                .stock
+                .iter()
+                .chain(&view.market.sale)
+                .map(|o| o.card.name.clone())
+                .collect();
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let tag = format!("{lang:?} joined={joined}");
+            let inside = |r: egui::Rect, what: &str| {
+                assert!(
+                    r.left() >= 16.0 && r.right() <= size.x - 16.0,
+                    "{tag}: {what} {r:?} inside the page"
+                );
+            };
+            let (join, buy) = (
+                t("collection.market_join", &[]),
+                t("collection.buy", &[("n", &price)]),
+            );
+            let (join, buy) = (h.query_by_label(&join), h.query_by_label(&buy));
+            assert_eq!(join.is_some(), !joined, "{tag}: JOIN only outside");
+            assert_eq!(buy.is_some(), joined, "{tag}: the list only inside");
+            if let Some(j) = join {
+                let r = j.rect();
+                inside(r, "JOIN");
+                assert!(r.bottom() <= size.y, "{tag}: JOIN {r:?} on screen");
+                continue;
+            }
+            let mut buttons = vec![buy.unwrap().rect()];
+            buttons.extend(
+                h.query_all_by_label(&t("collection.market_unlist", &[]))
+                    .map(|n| n.rect()),
+            );
+            assert_eq!(buttons.len(), 3, "{tag}: BUY and 2 TAKE BACK");
+            for key in ["collection.market_refresh", "collection.market_leave"] {
+                buttons.push(h.query_by_label(&t(key, &[])).expect(key).rect());
+            }
+            for (i, a) in buttons.iter().enumerate() {
+                inside(*a, "a button");
+                for b in &buttons[i + 1..] {
+                    assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+                }
+            }
+            for name in &names {
+                for n in h.query_all_by_label(name) {
+                    inside(n.rect(), name);
+                }
+            }
+        }
+    }
+    // a card held in 2 earned copies, in the market: LIST at the band's floor on the detail
+    let mut view = CollectionView::sample(Scenario::Spare);
+    view.market.joined = true;
+    let open = view
+        .cards
+        .iter()
+        .find(|(k, _)| Some(k.number) == view.open)
+        .unwrap();
+    let row = &forza::cards::collection_cards(std::slice::from_ref(&open.0))[0];
+    let floor = forza::collection::floor_value(forza::collection::value(row)).to_string();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::It, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    let list = h
+        .query_by_label(&forza_ui::text(
+            Lang::It,
+            "collection.market_list",
+            &[("n", &floor)],
+        ))
+        .expect("LIST at the floor")
+        .rect();
+    assert!(
+        list.left() >= 16.0 && list.right() <= size.x - 16.0,
+        "{list:?}"
+    );
+}
+
 /// Review 7 m3: a card whose earned copies are all on the market, with a starter beside them, shows no market price
 /// above its "can never be sold" line: the panel's rule (`panel::card_mark`, `earned > listed`).
 #[test]
