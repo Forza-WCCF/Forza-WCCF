@@ -192,9 +192,7 @@ fn keep_pending(dir: &Path, pending: &VecDeque<Job>) -> io::Result<()> {
         })
         .collect();
     fs::create_dir_all(dir)?;
-    let tmp = dir.join("grants.pending.tmp");
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, &path)
+    forza::kit::write_atomic(&path, text.as_bytes())
 }
 
 /// The cards an earlier run left in [`PENDING`]; each first looks for its line in the log (`tries` 1), so a card whose
