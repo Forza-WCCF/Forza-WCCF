@@ -732,7 +732,29 @@ impl Market {
             c.execute_batch(
                 "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;",
             )?;
+            // a store made before step 3.2 has ledger ids without AUTOINCREMENT, which reuse a deleted highest id: its
+            // rows move to a new table, whose counter starts past the highest id kept (3.1 wrote no ledger rows)
+            let old: Option<String> = c
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ledger'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let old = old.is_some_and(|sql| !sql.contains("AUTOINCREMENT"));
+            if old {
+                c.execute_batch(
+                    "BEGIN; DROP INDEX IF EXISTS ledger_key; ALTER TABLE ledger RENAME TO ledger_old;",
+                )?;
+            }
             c.execute_batch(SCHEMA)?;
+            if old {
+                c.execute_batch(
+                    "INSERT INTO ledger (id, key_hash, card, price, state, at)
+                     SELECT id, key_hash, card, price, state, at FROM ledger_old;
+                     DROP TABLE ledger_old; COMMIT;",
+                )?;
+            }
             Ok(c)
         };
         Ok(Self {
@@ -2045,6 +2067,52 @@ mod tests {
             }
             _ => panic!("{cancel:?} {buy:?}"),
         }
+    }
+
+    /// m2: a store made by step 3.1 (ledger ids without AUTOINCREMENT) never gives a deleted highest id again: its
+    /// rows keep their ids, and a LIST after the highest row is cancelled takes the next one.
+    #[test]
+    fn a_store_from_before_the_ledger_never_reuses_an_id() {
+        let dir = tempfile::tempdir().unwrap();
+        Connection::open(dir.path().join("market.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE keys (key_hash TEXT PRIMARY KEY, log TEXT, last_at INTEGER NOT NULL, welcome TEXT,
+                     listings INTEGER NOT NULL DEFAULT 0, sales INTEGER NOT NULL DEFAULT 0,
+                     sales_week INTEGER NOT NULL DEFAULT 0, forks INTEGER NOT NULL DEFAULT 0, left_at INTEGER);
+                 CREATE TABLE ledger (id INTEGER PRIMARY KEY, key_hash TEXT NOT NULL, card INTEGER NOT NULL,
+                     price INTEGER NOT NULL, state TEXT NOT NULL, at INTEGER NOT NULL);
+                 CREATE INDEX ledger_key ON ledger (key_hash);
+                 INSERT INTO ledger VALUES (1, 'x', 45, 360, 'stock', 0);",
+            )
+            .unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57, 57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap(),
+            "listed 2:57:228"
+        );
+        assert_eq!(
+            ask(&m, 1, Verb::Cancel, NOW + 2, &[2], "").unwrap(),
+            "cancelled 2:57"
+        );
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 3, &[57, 228], &seller).unwrap(),
+            "listed 3:57:228"
+        );
+        // and after a restart
+        drop(m);
+        let m = market(dir.path());
+        ask(&m, 1, Verb::Cancel, NOW + 4, &[3], "").unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 5, &[57, 228], &seller).unwrap(),
+            "listed 4:57:228"
+        );
+        assert_eq!(
+            row(dir.path(), "SELECT id, state FROM ledger ORDER BY id"),
+            [[s("1"), s("stock")], [s("4"), s("open")]]
+        );
     }
 
     /// Acceptance 3.2 (c): LIST of a card held only as a starter (a REGULAR and the picked RARE) or as an imported copy
