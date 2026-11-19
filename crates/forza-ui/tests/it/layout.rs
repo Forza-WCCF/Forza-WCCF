@@ -35,6 +35,58 @@ fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_
     }
 }
 
+/// CLEAN UP's result shows whole on SETUP at the Launcher's size in every language (#397: in Italian it sat on its own
+/// row under the button, and its frame and the bottom of its text ran under the scroll area's bottom edge). The success
+/// line fits without scrolling; a long failure list is scrolled into view when it appears. As in the Launcher, the result
+/// comes after SETUP is on screen: on a window's first frame the footer has no height yet, so nothing is under the fold.
+#[test]
+fn the_cleanup_result_fits_the_setup_page() {
+    use egui::accesskit::Role;
+    use forza_ui::widgets::Tone;
+    for lang in Lang::ALL {
+        let what = (1..=5)
+            .map(|i| format!(r"data\leftover_{i}.bin: Access is denied. (os error 5)"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let failed = forza_ui::text(lang, "launcher.cleanup_failed", &[("what", &what)]);
+        for failure in [None, Some(failed)] {
+            let mut st = launcher::LauncherState::sample(
+                Edition::E1718,
+                lang,
+                launcher::Scenario::CleanedUp,
+            );
+            let sample = st.clean_status.take().expect("the scenario has a result");
+            let result = failure.clone().map_or(sample, |f| (Tone::Refused, f));
+            let note = result.1.clone();
+            let st = std::cell::RefCell::new(st);
+            let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st.borrow_mut());
+            });
+            h.run_steps(4);
+            st.borrow_mut().clean_status = Some(result);
+            // a step is 0.25 s: the scroll to a new result (at most 0.2 s) ends well within these
+            h.run_steps(4);
+            let play = forza_ui::text(lang, "launcher.play", &[]);
+            let play = h.get_by_role_and_label(Role::Button, &play).rect();
+            let tab = forza_ui::text(lang, "launcher.setup", &[]);
+            let tab = h.get_by_role_and_label(Role::RadioButton, &tab).rect();
+            let r = h.get_by_label(&note).rect();
+            let [_, _, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+            // the scroll area ends at the central panel's 14 px margin over the footer, whose 10 px margin sits over
+            // PLAY, and starts 10 px under the tab row; the status line's frame adds its margins around the text
+            let (lo, hi) = (tab.bottom() + 10.0, play.top() - 24.0);
+            assert!(
+                r.top() - top >= lo && r.bottom() + bottom <= hi,
+                "{} failure={}: the result's frame {}..{} is outside the page {lo}..{hi}",
+                lang.code(),
+                failure.is_some(),
+                r.top() - top,
+                r.bottom() + bottom
+            );
+        }
+    }
+}
+
 /// 2017-18 HOST ARCADE's dialog: "List my arcade", the arcade's name, HOST ARCADE and CANCEL over the ONLINE tab.
 /// ONLINE has no PLAY: its JOIN joins the code typed, CONNECT in the Direct address fold plays online; PLAY on the
 /// PLAY tab with Online chosen shows ONLINE instead of playing.
