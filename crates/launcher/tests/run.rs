@@ -807,36 +807,60 @@ fn server_mode_runs_forza_server_and_stop_ends_it() {
 fn guarded_copy(to: &Path) {
     stand_in("fakegame_iphlp.exe", to);
     let mut exe = fs::read(to).unwrap();
-    let old = b"iphlpapi.dll\0";
+    rename_import(&mut exe, b"iphlpapi.dll\0", b"wccfnet.dll");
+    fs::write(to, exe).unwrap();
+}
+
+/// `exe`'s one DLL name `old` (with its NUL, any case) overwritten with `new`, NUL-padded to the same length.
+fn rename_import(exe: &mut [u8], old: &[u8], new: &[u8]) {
     let at: Vec<usize> = exe
         .windows(old.len())
         .enumerate()
         .filter(|(_, w)| w.eq_ignore_ascii_case(old))
         .map(|(i, _)| i)
         .collect();
-    assert_eq!(at.len(), 1, "one import name");
-    exe[at[0]..at[0] + old.len()].copy_from_slice(b"wccfnet.dll\0\0");
-    fs::write(to, exe).unwrap();
+    assert_eq!(at.len(), 1, "one import name {}", String::from_utf8_lossy(old));
+    assert!(
+        new.len() < old.len(),
+        "the new name and its NUL fit in the old one's place"
+    );
+    let slot = &mut exe[at[0]..at[0] + old.len()];
+    slot.fill(0);
+    slot[..new.len()].copy_from_slice(new);
 }
 
 /// The import check on built programs: the stand-in as built imports IPHLPAPI.DLL, the plain fakegame imports no
-/// guard, and only the renamed copy passes.
+/// guard, a copy that imports wccfnet.dll but takes the blocked call from another DLL is refused, and only the renamed
+/// copy passes.
 #[test]
 fn the_guard_reads_the_import_table() {
     let dir = tempfile::Builder::new().prefix("wccf-").tempdir().unwrap();
-    let (plain, iphlp, guarded) = (
+    let (plain, iphlp, guarded, elsewhere) = (
         dir.path().join("plain.exe"),
         dir.path().join("iphlp.exe"),
         dir.path().join("guarded.exe"),
+        dir.path().join("elsewhere.exe"),
     );
     stand_in("fakegame.exe", &plain);
     stand_in("fakegame_iphlp.exe", &iphlp);
     guarded_copy(&guarded);
+    // KERNEL32.dll's descriptor becomes wccfnet.dll, then IPHLPAPI's (IpRenewAddress) becomes KERNEL32.dll
+    stand_in("fakegame_iphlp.exe", &elsewhere);
+    let mut exe = fs::read(&elsewhere).unwrap();
+    rename_import(&mut exe, b"kernel32.dll\0", b"wccfnet.dll");
+    rename_import(&mut exe, b"iphlpapi.dll\0", b"KERNEL32.dll");
+    fs::write(&elsewhere, exe).unwrap();
     let check = |p: &Path| launcher::guard::imports(&fs::read(p).unwrap());
     let why = check(&iphlp).unwrap_err();
     assert!(why.contains("still imports IPHLPAPI.DLL"), "{why}");
     let why = check(&plain).unwrap_err();
     assert!(why.contains("does not import wccfnet.dll"), "{why}");
+    let why = check(&elsewhere).unwrap_err();
+    // the message lists every call taken from that DLL, so only the blocked one and the DLL are pinned
+    assert!(
+        why.contains("IpRenewAddress") && why.ends_with(" from KERNEL32.dll"),
+        "{why}"
+    );
     check(&guarded).unwrap();
 }
 
