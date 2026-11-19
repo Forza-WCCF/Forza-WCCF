@@ -536,7 +536,8 @@ impl Scrub {
             all.extend(
                 forms
                     .iter()
-                    .filter_map(|f| Needle::new(f, utf16_char, false)),
+                    .filter_map(|f| Needle::new(f, utf16_char, false))
+                    .map(|n| Needle { wide: true, ..n }),
             );
         }
         let mut v: Vec<Needle> = vec![];
@@ -550,7 +551,8 @@ impl Scrub {
 
     /// Too short to take out: under `ascii` characters for an ASCII name, under `ascii - 1` for any other. Text takes
     /// 2 and 1: a 2-letter ASCII name goes as a whole word, a single ASCII letter ("a", "I") would wreck every line
-    /// and points at nobody, a single kanji goes. Binary files take 3 and 2, so a blank stays rare in a snapshot.
+    /// and points at nobody, a single kanji goes. Binary files take 3 and 2 where a name sits, and a shorter one only
+    /// as a whole string ([`Self::blank`]), so a blank stays rare in a snapshot.
     fn short(name: &str, ascii: usize) -> bool {
         name.chars().count() < if name.is_ascii() { ascii } else { ascii - 1 }
     }
@@ -610,10 +612,16 @@ impl Scrub {
         };
         // in CP932 the CP932 forms go first, while every character start is known: another form may end inside a
         // character (あ's UTF-8 E3 81 82 is 縺 and a lead byte), and the byte it leaves can misread the starts after it
-        // in a later pass (#381).
-        //
-        // shortcut: a later non-CP932 form (UTF-8, Latin-1) can still be refused right after such a byte; mixed files
-        // holding two such names side by side are not known, track starts across passes if one turns up
+        // in a later pass (#381). `starts` keeps the file's own character starts across the passes, so the form of
+        // another encoding right after such a byte still goes (#382).
+        let mut starts = vec![];
+        if chars == Chars::Cp932 {
+            let mut s = true;
+            for &b in &data {
+                starts.push(s);
+                s = !(s && cp932_lead(b));
+            }
+        }
         let (first, rest): (Vec<_>, Vec<_>) = self
             .text_pairs()
             .into_iter()
@@ -621,6 +629,10 @@ impl Scrub {
         for (needle, new, ends) in first.into_iter().chain(rest) {
             // a form that is itself UTF-8 matches only whole characters of text: CP932 辮田 is E3 90 93 63, and a
             // mojibake name's Latin-1 form ("Ã©") takes every é too, a cost a log can take over a leak
+            //
+            // shortcut: a CP932 file that happens to be valid UTF-8 keeps a name whose CP932 form is not (辮 in
+            // `x辮田`, 78 E3 90 93 63, reads as x㐓c), as that form would also cut real UTF-8 characters; take the
+            // encoding from the file's source if such a log turns up
             if text && !needle.utf8 && std::str::from_utf8(&needle.bytes).is_err() {
                 continue;
             }
@@ -629,9 +641,15 @@ impl Scrub {
                 Ends::Word if !needle.ascii => Ends::Any,
                 e => e,
             };
-            data = replace(&data, &needle.bytes, &needle.fold, ends, chars, |_| {
-                new.to_vec()
-            });
+            data = replace_from(
+                &data,
+                &needle.bytes,
+                &needle.fold,
+                ends,
+                chars,
+                &mut starts,
+                |_| new.to_vec(),
+            );
         }
         if self.folders {
             data = user_folders(&data);
@@ -641,12 +659,20 @@ impl Scrub {
 
     /// A binary file: each match turned into as many underscores, nothing moves, so a snapshot stays a valid file.
     ///
-    /// shortcut: [`Self::short`] at 3 skips a one-character non-ASCII name (辮) and a 2-letter ASCII one in a dump,
-    /// to keep a blank rare; take them once a dump is known to hold one
+    /// A form [`Self::short`] at 3 (one kanji, two ASCII letters) is two or three bytes that data holds by chance,
+    /// so it goes only as a whole string ([`Ends::Whole`]): `USERNAME=Al`, `\\辮\share`.
+    ///
+    /// shortcut: such a short name glued to other text in a dump (`辮さん`, `Al2`) stays; decode the dump's strings
+    /// if one turns up
     pub fn blank(&self, mut data: Vec<u8>) -> Vec<u8> {
         for old in [&self.home, &self.user, &self.pc] {
-            for n in Self::encodings(old, true, 3) {
-                data = replace(&data, &n.bytes, &n.fold, Ends::Any, Chars::Unknown, |m| {
+            let long = Self::encodings(old, true, 3);
+            for n in Self::encodings(old, true, 2) {
+                let ends = match long.iter().any(|l| l.key() == n.key()) {
+                    true => Ends::Any,
+                    false => Ends::Whole(n.wide),
+                };
+                data = replace(&data, &n.bytes, &n.fold, ends, Chars::Unknown, |m| {
                     vec![b'_'; m.len()]
                 });
             }
@@ -656,12 +682,14 @@ impl Scrub {
 }
 
 /// What ends a match: anything (a name may sit inside a word), a byte that is not a letter or digit (a whole word),
-/// or such a byte after it only (a path, which ends the same way in every script, the Japanese one included).
+/// or such a byte after it only (a path, which ends the same way in every script, the Japanese one included), or
+/// what ends a string in a binary file on both sides ([`string_ends`], in UTF-16LE or not).
 #[derive(Clone, Copy, PartialEq)]
 enum Ends {
     Any,
     Word,
     Path,
+    Whole(bool),
 }
 
 /// Which characters `data` is known to hold: this project's own UTF-8 text, a whole file of CP932, or bytes whose
@@ -675,8 +703,8 @@ enum Chars {
 
 /// A name in one encoding: its bytes, which of them may match in either ASCII case (only those of an ASCII
 /// character: a CP932 or UTF-16 byte of a kanji is often an ASCII letter, and 人 is not 伸), whether the form is
-/// ASCII (then it goes as a whole word), whether it is the UTF-8 form (the only one this project's text takes), and
-/// whether it is the CP932 form (an ASCII one is every form).
+/// ASCII (then it goes as a whole word), whether it is the UTF-8 form (the only one this project's text takes),
+/// whether it is the CP932 form (an ASCII one is every form), and whether it is the UTF-16LE form.
 #[derive(Clone, Debug)]
 struct Needle {
     bytes: Vec<u8>,
@@ -684,6 +712,7 @@ struct Needle {
     ascii: bool,
     utf8: bool,
     cp932: bool,
+    wide: bool,
 }
 
 impl Needle {
@@ -701,6 +730,7 @@ impl Needle {
             ascii: form.is_ascii(),
             utf8,
             cp932: form.is_ascii(),
+            wide: false,
         })
     }
 
@@ -790,15 +820,73 @@ fn replace(
     chars: Chars,
     with: impl Fn(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
-    let lead = |b: u8| matches!(b, 0x81..=0x9F | 0xE0..=0xFC);
+    replace_from(data, needle, fold, ends, chars, &mut vec![], with)
+}
+
+/// Whether a string of a binary file can end on this `side` of a short name (the bytes before it, or those `after`
+/// it): at the data's edge, or at a NUL, white space or punctuation, ASCII or Japanese (U+2010-206F, U+3000-303F,
+/// ・ and ー, and the fullwidth and halfwidth forms). A `wide` name reads one UTF-16LE unit, any other a character of UTF-8 or of CP932
+/// (its `81` row, and `A1`-`A5`), whichever the bytes make. Less than a whole character is no end.
+fn string_ends(side: &[u8], after: bool, wide: bool) -> bool {
+    let near = |n: usize| match after {
+        true => side.get(..n),
+        false => side.len().checked_sub(n).map(|p| &side[p..]),
+    };
+    let ascii = |b: u8| b == 0 || b.is_ascii_punctuation() || b.is_ascii_whitespace();
+    let japanese = |c: u32| {
+        matches!(
+            c,
+            0x2010..=0x206F | 0x3000..=0x303F | 0x30FB..=0x30FC | 0xFF01..=0xFF0F | 0xFF1A..=0xFF20 | 0xFF3B..=0xFF40 | 0xFF5B..=0xFF65
+        )
+    };
+    if side.is_empty() {
+        return true;
+    }
+    if wide {
+        return near(2).is_some_and(|u| {
+            let c = u16::from_le_bytes([u[0], u[1]]);
+            u8::try_from(c).is_ok_and(ascii) || japanese(c.into())
+        });
+    }
+    near(1).is_some_and(|u| ascii(u[0]) || matches!(u[0], 0xA1..=0xA5))
+        || near(2).is_some_and(|u| u[0] == 0x81 && u[1] >= 0x40)
+        || near(3)
+            .and_then(|u| std::str::from_utf8(u).ok())
+            .and_then(|s| s.chars().next())
+            .is_some_and(|c| japanese(c.into()))
+}
+
+/// The first byte of a two-byte CP932 character.
+fn cp932_lead(b: u8) -> bool {
+    matches!(b, 0x81..=0x9F | 0xE0..=0xFC)
+}
+
+/// [`replace`] for one pass of several over [`Chars::Cp932`] data: `starts` says for each byte of `data` whether a
+/// character of the file started there before any pass, and comes back fitted to the result.
+fn replace_from(
+    data: &[u8],
+    needle: &[u8],
+    fold: &[bool],
+    ends: Ends,
+    chars: Chars,
+    starts: &mut Vec<bool>,
+    with: impl Fn(&[u8]) -> Vec<u8>,
+) -> Vec<u8> {
+    let lead = cp932_lead;
+    let cp932 = chars == Chars::Cp932;
+    debug_assert!(!cp932 || starts.len() == data.len());
     if needle.is_empty() {
         return data.to_vec();
     }
     let alnum = |b: Option<&u8>| b.is_some_and(u8::is_ascii_alphanumeric);
     let mut out = Vec::with_capacity(data.len());
+    let mut kept = Vec::with_capacity(starts.len());
     let mut i = 0;
     // whether the byte at `i` starts a CP932 character, and whether the one before it is the second byte of one; in
-    // data of unknown characters both stay as they are, so no match is refused for a character it cannot be placed in
+    // data of unknown characters both stay as they are, so no match is refused for a character it cannot be placed in.
+    // Both are read from the last match on: a match of another encoding's form may end inside a character of the
+    // file, and if it was the name, a character starts after it. If it was not, `starts` still has the file's own
+    // characters, and a match may begin at either start.
     let (mut start, mut trail) = (true, false);
     while i < data.len() {
         let end = i + needle.len();
@@ -807,7 +895,7 @@ fn replace(
         // a letter or digit of a word of its own, not the second byte of a kanji (人 is `90 6C`)
         let word = match chars {
             Chars::Text => before,
-            Chars::Cp932 => before && !trail,
+            Chars::Cp932 => before && !(trail || (i > 0 && !starts[i - 1])),
             // the byte before the match may be the second byte of a kanji whose first is two back
             Chars::Unknown => before && !(i >= 2 && lead(data[i - 2])),
         };
@@ -819,32 +907,36 @@ fn replace(
                 .all(|(k, (a, b))| {
                     a == b || (fold.get(k) == Some(&true) && a.eq_ignore_ascii_case(b))
                 })
-            && start
+            && (start || (cp932 && starts[i]))
             && match ends {
                 Ends::Any => true,
                 Ends::Path => !after,
                 Ends::Word => !(word || after),
+                Ends::Whole(wide) => {
+                    string_ends(&data[..i], false, wide) && string_ends(&data[end..], true, wide)
+                }
             };
         if hit {
-            out.extend(with(&data[i..end]));
-            if chars == Chars::Cp932 {
-                // a form of another encoding may end inside a character: the next start follows from its bytes
-                (start, trail) = data[i..end]
-                    .iter()
-                    .fold((true, false), |(s, _), &b| (!(s && lead(b)), !s));
-            } else {
-                trail = false;
+            let new = with(&data[i..end]);
+            if cp932 {
+                kept.extend(std::iter::repeat_n(true, new.len()));
             }
+            out.extend(new);
+            (start, trail) = (true, false);
             i = end;
         } else {
             let (b, was) = (data[i], start);
             out.push(b);
-            i += 1;
-            if chars == Chars::Cp932 {
+            if cp932 {
+                kept.push(starts[i]);
                 start = !(was && lead(b));
                 trail = !was;
             }
+            i += 1;
         }
+    }
+    if cp932 {
+        *starts = kept;
     }
     out
 }
@@ -1349,6 +1441,42 @@ mod tests {
             }
         }
 
+        // #382: a short name goes from a binary file as a whole string, so here each one sits between separators,
+        // Japanese ones included (the test above glues its names, which a short one does not survive).
+        #[test]
+        fn blank_takes_a_short_name_between_separators(
+            user in prop_oneof!["[A-Z0-9]{2}", "[太郎]"],
+            pc in prop_oneof!["[A-Z0-9]{2}", "[太郎]"],
+            (before, mid, after) in (
+                "[ ._\\\\/:,;()#!。「」-]{1,6}",
+                "[ ._\\\\/:,;()#!。「」-]{1,6}",
+                "[ ._\\\\/:,;()#!。「」-]{1,6}",
+            ),
+        ) {
+            let text = format!("{before}{user}{mid}{pc}{after}");
+            let lower = text.to_lowercase();
+            let encs: [Enc; 3] = [utf8, sjis, utf16];
+            let mut dump = vec![];
+            for t in [&text, &lower] {
+                for enc in encs {
+                    dump.extend(enc(t).unwrap());
+                }
+            }
+            let scrub = Scrub {
+                user: user.clone(),
+                pc: pc.clone(),
+                ..Scrub::default()
+            };
+            let out = scrub.blank(dump.clone());
+            prop_assert_eq!(out.len(), dump.len());
+            for n in [&user, &pc] {
+                for enc in encs {
+                    prop_assert!(holds(&dump, n, enc), "{n:?} was never in the dump");
+                    prop_assert!(!holds(&out, n, enc), "{n:?} left in as {:02x?}", enc(n));
+                }
+            }
+        }
+
         // `aimedb.json` keeps the ids; the codes, which would let anyone play as that card, are the only thing that
         // goes. The 20 digits are the game's own code, far too long to sit inside a 64-character hash by accident.
         #[test]
@@ -1502,6 +1630,107 @@ mod tests {
                 assert!(holds(&dump, name, enc) && !holds(&out, name, enc), "{name}");
             }
         }
+    }
+
+    /// #382: a name shorter than a dump's minimum goes where it is a whole string, in each encoding.
+    #[test]
+    fn a_one_kanji_pc_name_leaves_a_dump_in_every_encoding() {
+        let scrub = Scrub {
+            pc: "辮".into(),
+            ..Scrub::default()
+        };
+        let text = "COMPUTERNAME=辮\0\\\\辮\\share\0";
+        let dump = [utf8(text), sjis(text), utf16(text)]
+            .map(Option::unwrap)
+            .concat();
+        let out = scrub.blank(dump.clone());
+        assert_eq!(out.len(), dump.len());
+        let encs: [Enc; 3] = [utf8, sjis, utf16];
+        for enc in encs {
+            assert!(holds(&dump, "辮", enc) && !holds(&out, "辮", enc));
+        }
+        assert!(out.starts_with(b"COMPUTERNAME=___\0\\\\___\\share\0COMPUTERNAME=__\0"));
+    }
+
+    /// #382: Japanese punctuation ends a string as ASCII does, in each encoding; half a UTF-16 unit does not.
+    #[test]
+    fn a_one_kanji_name_beside_japanese_punctuation_leaves_a_dump() {
+        let scrub = Scrub {
+            pc: "辮".into(),
+            ..Scrub::default()
+        };
+        let encs: [Enc; 3] = [utf8, sjis, utf16];
+        for enc in encs {
+            for (pre, post) in [
+                ("=", "。\0"),
+                ("x「", "」x"),
+                ("｢", "｣"),
+                ("※", "・"),
+                ("―", "…"),
+            ] {
+                let (pre, post) = (enc(pre).unwrap(), enc(post).unwrap());
+                let name = enc("辮").unwrap();
+                let dump = [&pre[..], &name, &post].concat();
+                let want = [&pre[..], &vec![b'_'; name.len()], &post].concat();
+                assert_eq!(scrub.blank(dump), want);
+            }
+        }
+        // X, 辮 in UTF-16LE, Z: no unit before or after it, and none after it in `=辮A`
+        let name = utf16("辮").unwrap();
+        for dump in [
+            [b"X".as_slice(), &name, b"Z"].concat(),
+            [&utf16("=辮").unwrap()[..], b"A"].concat(),
+        ] {
+            assert_eq!(scrub.blank(dump.clone()), dump);
+        }
+    }
+
+    /// #382: two letters go as a whole string only, so the same letters in a word or between other bytes stay.
+    #[test]
+    fn a_two_letter_user_name_leaves_a_dump_only_as_a_whole_string() {
+        let scrub = Scrub {
+            user: "Al".into(),
+            ..Scrub::default()
+        };
+        let rest = [
+            b"Also\0\x10Al\x90\0xal\0".as_slice(),
+            &utf16("Also\0").unwrap(),
+        ]
+        .concat();
+        let dump = [
+            b"\x01\x02USERNAME=Al\0".as_slice(),
+            &utf16("USERNAME=al\0").unwrap(),
+            &rest,
+        ]
+        .concat();
+        let want = [
+            b"\x01\x02USERNAME=__\0".as_slice(),
+            &utf16("USERNAME=").unwrap(),
+            b"____\0\0",
+            &rest,
+        ]
+        .concat();
+        assert_eq!(scrub.blank(dump), want);
+    }
+
+    /// #382: in a CP932 file a UTF-8 あ (E3 81 82) ends on the lead byte of the file's next character, and the name
+    /// that starts on that character's second byte still goes, in the same pass and in a later one.
+    #[test]
+    fn a_name_right_after_a_form_that_ends_inside_a_cp932_character_goes() {
+        let scrub = Scrub {
+            user: "あ".into(),
+            pc: "い".into(),
+            ..Scrub::default()
+        };
+        let log = sjis("ログ ").unwrap();
+        // 縺ゅ≠ in CP932: the second あ starts inside ゅ (82 E3)
+        let data = [&log[..], "ああ".as_bytes()].concat();
+        assert!(sjis("ログ 縺ゅ≠").unwrap() == data);
+        assert_eq!(scrub.scrub(data), [&log[..], b"USERUSER"].concat());
+        // 縺ぁ縺А in CP932: once あ is out, 9F reads as a lead byte, and い (E3 81 84) as if it began on its second
+        let data = [&log[..], "あ".as_bytes(), &[0x9F], "い".as_bytes(), b"@"].concat();
+        assert!(sjis("ログ 縺ぁ縺А").unwrap() == data);
+        assert_eq!(scrub.scrub(data), [&log[..], b"USER\x9FPC@"].concat());
     }
 
     #[test]
