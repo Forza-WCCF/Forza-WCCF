@@ -1219,13 +1219,15 @@ fn lost_log_install(base: usize, log: fn(&str)) {
 // `_aligned_malloc` buffer. The announcer queue and the audio thread keep raw pointers to it, while the game frees and
 // replaces those buffers (a new synthesis, match setup, the two-slot flip) with no check that one still plays: the audio
 // thread then reads freed memory, and crashed at client_Release.exe+0xB85783 once the heap had released the page.
-// Every such free goes through the 11 sites below; each now calls `tts_free`, which frees a buffer 10 s after the game
+// The game frees these buffers (match setup's 5 name slots at +0x76C, +0x774, +0x77C, +0x784, +0x848, and the
+// synthesizer's two slots) at the 15 sites below; each now calls `tts_free`, which frees a buffer 10 s after the game
 // let go of it (a spoken name lasts about 1 s).
 
 /// The `call j__aligned_free` of each `push eax; call; add esp, 4` in the synthesizer's slot refill (sub_971170), its
 /// failure paths (sub_971580), the slot flip (sub_971D70), match setup's re-synthesis (sub_968B50), the slots' reset
-/// (sub_9718E0, right after it stops the voice) and the slot destructors (sub_971120; sub_971150, no static caller).
-const TTS_FREE_SITES: [usize; 11] = [
+/// (sub_9718E0, right after it stops the voice), the slot destructors (sub_971120; sub_971150, no static caller), and
+/// the 5 name slots' reset (sub_9688F0, which match setup runs before sub_968B50) and destructor (sub_9687C0).
+const TTS_FREE_SITES: [usize; 15] = [
     0x0097_117D,
     0x0097_15DC,
     0x0097_173B,
@@ -1237,6 +1239,10 @@ const TTS_FREE_SITES: [usize; 11] = [
     0x0097_1938,
     0x0097_112A,
     0x0097_1157,
+    0x0096_892D,
+    0x0096_8942,
+    0x0096_89D3,
+    0x0096_8813,
 ];
 /// j__aligned_free, the game's own (a jump to its CRT's `_aligned_free`).
 const ALIGNED_FREE: usize = 0x00BB_C660;
@@ -1309,9 +1315,10 @@ unsafe fn swap_in_word(at: usize, old: &[u8], new: &[u8]) -> bool {
         .is_ok()
 }
 
-/// Moves the `call rel32` at `call` (bytes `old`) to `to`, every write one cmpxchg8b, so the game's thread finds a whole
-/// instruction there at any moment: one swap when the rel32 fits in an aligned word; else `jmp $+5` over it while each
-/// part of the rel32 changes (that call skipped: one buffer leaked, never a bad jump), then the new call.
+/// Moves the `call rel32` at `call` (bytes `old`) to `to`, every write one cmpxchg8b, so a thread that starts the
+/// instruction after any write finds a whole one: one swap when the rel32 fits in an aligned word; else `jmp $+5` over
+/// it while each part of the rel32 changes (that call skipped: one buffer leaked), then the new call. A thread already
+/// inside the instruction could still fetch a torn one: the install runs before any synthesis, and must stay there.
 fn tts_swap_call(call: usize, old: [u8; 5], to: usize) -> bool {
     let [a, b, c, d] = (to.wrapping_sub(call + 5) as u32).to_le_bytes();
     let new = [0xE8, a, b, c, d];
@@ -1378,12 +1385,13 @@ fn tts_free_install_at(base: usize, log: fn(&str)) -> bool {
         .count();
     if n < TTS_FREE_SITES.len() {
         log(&format!(
-            "tts free: code not writable - {n} of {} sites moved; the rest free a spoken name's buffer at once",
+            "tts free: code not writable - {n} of {} sites moved; the rest free a spoken name's buffer at once (or, \
+             cut off mid-move, never)",
             TTS_FREE_SITES.len()
         ));
         return false;
     }
-    log("tts free: 11 sites - a spoken name's buffer is freed 10 s after the game lets go of it");
+    log("tts free: 15 sites - a spoken name's buffer is freed 10 s after the game lets go of it");
     true
 }
 
@@ -1437,6 +1445,10 @@ mod tests {
             (0x0097_1938, 0x0024_AD23u32),
             (0x0097_112A, 0x0024_B531u32),
             (0x0097_1157, 0x0024_B504u32),
+            (0x0096_892D, 0x0025_3D2Eu32),
+            (0x0096_8942, 0x0025_3D19u32),
+            (0x0096_89D3, 0x0025_3C88u32),
+            (0x0096_8813, 0x0025_3E48u32),
         ] {
             let [a, b, c, d] = rel.to_le_bytes();
             assert!(TTS_FREE_SITES.contains(&va));
@@ -1449,7 +1461,7 @@ mod tests {
         // both ways of moving a call: a rel32 in one aligned word, and one straddling two (the jmp over it)
         assert!(TTS_FREE_SITES.iter().any(|va| (va + 1) % 8 <= 4));
         assert!(TTS_FREE_SITES.iter().any(|va| (va + 1) % 8 > 4));
-        // a fake image: the PE header and the eleven sites at their offsets from the preferred base
+        // a fake image: the PE header and the fifteen sites at their offsets from the preferred base
         let mut img = vec![0u8; 0x0057_2000];
         img[0x3C..0x40].copy_from_slice(&0x100u32.to_le_bytes());
         img[0x108..0x10C].copy_from_slice(&CLIENT_STAMP.0.to_le_bytes());
@@ -1466,7 +1478,7 @@ mod tests {
                 .iter()
                 .all(|&va| img[off(va)..][..9] == tts_site_orig(va))
         };
-        // any byte off at any site (the rel32 included): all eleven untouched, and logged
+        // any byte off at any site (the rel32 included): all fifteen untouched, and logged
         for va in TTS_FREE_SITES {
             for i in 0..9 {
                 img[off(va) + i] ^= 1;
@@ -1493,7 +1505,7 @@ mod tests {
                 .unwrap()
                 .pop()
                 .unwrap()
-                .starts_with("tts free: 11 sites")
+                .starts_with("tts free: 15 sites")
         );
         for va in TTS_FREE_SITES {
             let s = &img[off(va)..][..9];
