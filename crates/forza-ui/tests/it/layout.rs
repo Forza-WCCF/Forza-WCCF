@@ -35,6 +35,37 @@ fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_
     }
 }
 
+/// CLEAN UP's result shows whole on SETUP at the Launcher's size in every language, above the page's bottom (#397: in
+/// Italian it sat on its own line under the button and the scroll area cut it in half).
+#[test]
+fn the_cleanup_result_fits_the_setup_page() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::CleanedUp);
+        let note = st
+            .clean_status
+            .clone()
+            .expect("the scenario has a result")
+            .1;
+        let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let play = forza_ui::text(lang, "launcher.play", &[]);
+        let play = h.get_by_role_and_label(Role::Button, &play).rect();
+        let r = h.get_by_label(&note).rect();
+        // the scroll area ends at the central panel's 14 px margin over the footer, whose 10 px margin sits over PLAY;
+        // the status line's frame runs its bottom margin under the text
+        let bottom = play.top() - 24.0 - f32::from(widgets::STATUS_LINE_MARGIN[3]);
+        assert!(
+            r.top() >= 0.0 && r.bottom() <= bottom && r.right() <= launcher::SIZE.x - 16.0,
+            "{}: the cleanup result {r:?} is not inside the page (bottom {bottom})",
+            lang.code()
+        );
+    }
+}
+
 /// 2017-18 HOST ARCADE's dialog: "List my arcade", the arcade's name, HOST ARCADE and CANCEL over the ONLINE tab.
 /// ONLINE has no PLAY: its JOIN joins the code typed, CONNECT in the Direct address fold plays online; PLAY on the
 /// PLAY tab with Online chosen shows ONLINE instead of playing.

@@ -823,15 +823,17 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                         *act = Some(Action::CleanUp);
                     }
                 });
-                ui.label(
-                    egui::RichText::new(tr!(lang, "launcher.cleanup_hint"))
-                        .font(theme::body(13.0))
-                        .color(theme::TEXT_DIM),
-                );
+                // the result takes the hint's place: on its own line it ran past the page's bottom in Italian (#397)
+                if let Some((tone, text)) = &st.clean_status {
+                    status_line(ui, *tone, text);
+                } else {
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "launcher.cleanup_hint"))
+                            .font(theme::body(13.0))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
             });
-            if let Some((tone, text)) = &st.clean_status {
-                status_line(ui, *tone, text);
-            }
         }
     });
 }
