@@ -1291,17 +1291,20 @@ extern "C" fn tts_free(p: *mut c_void) {
 /// The 8-byte word around `at` is mapped and writable.
 unsafe fn swap_in_word(at: usize, old: &[u8], new: &[u8]) -> bool {
     let (w, o) = (at & !7, at % 8);
-    if o + new.len() > 8 {
+    let end = o + new.len();
+    if end > 8 || old.len() != new.len() {
         return false;
     }
     // SAFETY: aligned, mapped and writable (the caller)
     let word = unsafe { AtomicU64::from_ptr(w as *mut u64) };
     let cur = word.load(SeqCst);
     let mut b = cur.to_le_bytes();
-    if b[o..][..old.len()] != *old {
+    if b.get(o..end) != Some(old) {
         return false;
     }
-    b[o..][..new.len()].copy_from_slice(new);
+    if let Some(s) = b.get_mut(o..end) {
+        s.copy_from_slice(new);
+    }
     word.compare_exchange(cur, u64::from_le_bytes(b), SeqCst, SeqCst)
         .is_ok()
 }
@@ -1329,10 +1332,15 @@ fn tts_swap_call(call: usize, old: [u8; 5], to: usize) -> bool {
             // the rel32 straddles two words, so `call % 8` is 4-6 and `E8 xx` / `EB 03` sit in the first; a failed
             // step (only another writer between the check and here) leaves the jmp: that site's frees leak
             let m = 2 + (8 - (call + 2) % 8).min(3);
-            swap_in_word(call, &old[..2], &jmp)
-                && swap_in_word(call + 2, &old[2..m], &new[2..m])
-                && swap_in_word(call + m, &old[m..], &new[m..])
-                && swap_in_word(call, &jmp, &new[..2])
+            match (old.get(2..m), new.get(2..m), old.get(m..), new.get(m..)) {
+                (Some(o1), Some(n1), Some(o2), Some(n2)) => {
+                    swap_in_word(call, &old[..2], &jmp)
+                        && swap_in_word(call + 2, o1, n1)
+                        && swap_in_word(call + m, o2, n2)
+                        && swap_in_word(call, &jmp, &new[..2])
+                }
+                _ => false, // never: m is 3-5
+            }
         }
     };
     // SAFETY: the protection read above, put back; the instruction cache flushed over the bytes changed
