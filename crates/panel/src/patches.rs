@@ -8,7 +8,8 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{
-    AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed,
+    AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize,
+    Ordering::{Relaxed, SeqCst},
 };
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -1218,12 +1219,13 @@ fn lost_log_install(base: usize, log: fn(&str)) {
 // `_aligned_malloc` buffer. The announcer queue and the audio thread keep raw pointers to it, while the game frees and
 // replaces those buffers (a new synthesis, match setup, the two-slot flip) with no check that one still plays: the audio
 // thread then reads freed memory, and crashed at client_Release.exe+0xB85783 once the heap had released the page.
-// Every such free goes through the 7 sites below; each now calls `tts_free`, which frees a buffer 10 s after the game
+// Every such free goes through the 11 sites below; each now calls `tts_free`, which frees a buffer 10 s after the game
 // let go of it (a spoken name lasts about 1 s).
 
 /// The `call j__aligned_free` of each `push eax; call; add esp, 4` in the synthesizer's slot refill (sub_971170), its
-/// failure paths (sub_971580), the slot flip (sub_971D70) and match setup's re-synthesis (sub_968B50).
-const TTS_FREE_SITES: [usize; 7] = [
+/// failure paths (sub_971580), the slot flip (sub_971D70), match setup's re-synthesis (sub_968B50), the slots' reset
+/// (sub_9718E0, right after it stops the voice) and the slot destructors (sub_971120; sub_971150, no static caller).
+const TTS_FREE_SITES: [usize; 11] = [
     0x0097_117D,
     0x0097_15DC,
     0x0097_173B,
@@ -1231,6 +1233,10 @@ const TTS_FREE_SITES: [usize; 7] = [
     0x0096_8CAE,
     0x0096_8D37,
     0x0096_8D9C,
+    0x0097_1923,
+    0x0097_1938,
+    0x0097_112A,
+    0x0097_1157,
 ];
 /// j__aligned_free, the game's own (a jump to its CRT's `_aligned_free`).
 const ALIGNED_FREE: usize = 0x00BB_C660;
@@ -1260,7 +1266,7 @@ fn tts_due(held: &mut VecDeque<(usize, Instant)>, p: usize, now: Instant) -> Vec
     held.drain(..n).map(|(p, _)| p).collect()
 }
 
-/// The 7 sites call this, on the game's thread, instead of j__aligned_free.
+/// The sites call this, on the game's thread, instead of j__aligned_free.
 extern "C" fn tts_free(p: *mut c_void) {
     let due = tts_due(
         &mut TTS_HELD.lock().unwrap_or_else(PoisonError::into_inner),
@@ -1276,6 +1282,65 @@ extern "C" fn tts_free(p: *mut c_void) {
     for p in due {
         free(p as *mut c_void);
     }
+}
+
+/// Swaps `old` for `new` at `at` with one cmpxchg8b on the aligned 8 bytes holding them; false when they are not
+/// `old` or do not fit in one such word.
+///
+/// # Safety
+/// The 8-byte word around `at` is mapped and writable.
+unsafe fn swap_in_word(at: usize, old: &[u8], new: &[u8]) -> bool {
+    let (w, o) = (at & !7, at % 8);
+    if o + new.len() > 8 {
+        return false;
+    }
+    // SAFETY: aligned, mapped and writable (the caller)
+    let word = unsafe { AtomicU64::from_ptr(w as *mut u64) };
+    let cur = word.load(SeqCst);
+    let mut b = cur.to_le_bytes();
+    if b[o..][..old.len()] != *old {
+        return false;
+    }
+    b[o..][..new.len()].copy_from_slice(new);
+    word.compare_exchange(cur, u64::from_le_bytes(b), SeqCst, SeqCst)
+        .is_ok()
+}
+
+/// Moves the `call rel32` at `call` (bytes `old`) to `to`, every write one cmpxchg8b, so the game's thread finds a whole
+/// instruction there at any moment: one swap when the rel32 fits in an aligned word; else `jmp $+5` over it while each
+/// part of the rel32 changes (that call skipped: one buffer leaked, never a bad jump), then the new call.
+fn tts_swap_call(call: usize, old: [u8; 5], to: usize) -> bool {
+    let [a, b, c, d] = (to.wrapping_sub(call + 5) as u32).to_le_bytes();
+    let new = [0xE8, a, b, c, d];
+    let jmp = [0xEB, 0x03];
+    let (w, len) = (call & !7, 16); // the two aligned words the 5 bytes can touch
+    let mut prot = PAGE_PROTECTION_FLAGS(0);
+    // SAFETY: the bytes checked by the caller, made writable for the swaps
+    if unsafe { VirtualProtect(w as *const c_void, len, PAGE_EXECUTE_READWRITE, &mut prot) }
+        .is_err()
+    {
+        return false;
+    }
+    // SAFETY: both words mapped (the code just checked) and writable now
+    let ok = unsafe {
+        if (call + 1) % 8 <= 4 {
+            swap_in_word(call + 1, &old[1..], &new[1..])
+        } else {
+            // the rel32 straddles two words, so `call % 8` is 4-6 and `E8 xx` / `EB 03` sit in the first; a failed
+            // step (only another writer between the check and here) leaves the jmp: that site's frees leak
+            let m = 2 + (8 - (call + 2) % 8).min(3);
+            swap_in_word(call, &old[..2], &jmp)
+                && swap_in_word(call + 2, &old[2..m], &new[2..m])
+                && swap_in_word(call + m, &old[m..], &new[m..])
+                && swap_in_word(call, &jmp, &new[..2])
+        }
+    };
+    // SAFETY: the protection read above, put back; the instruction cache flushed over the bytes changed
+    unsafe {
+        let _ = VirtualProtect(w as *const c_void, len, prot, &mut prot);
+        let _ = FlushInstructionCache(GetCurrentProcess(), Some(w as *const c_void), len);
+    }
+    ok
 }
 
 /// The image at `base`: every site checked first, then each call moved to [`tts_free`]. One log line.
@@ -1299,17 +1364,18 @@ fn tts_free_install_at(base: usize, log: fn(&str)) -> bool {
     let n = TTS_FREE_SITES
         .iter()
         .filter(|&&va| {
-            patch_code(
-                at(va) + 1,
-                &(hook.wrapping_sub(at(va) + 5) as u32).to_le_bytes(),
-            )
+            let old = tts_site_orig(va);
+            tts_swap_call(at(va), old[1..6].try_into().unwrap_or_default(), hook)
         })
         .count();
     if n < TTS_FREE_SITES.len() {
-        log(&format!("tts free: code not writable - {n} of 7 sites"));
+        log(&format!(
+            "tts free: code not writable - {n} of {} sites moved; the rest free a spoken name's buffer at once",
+            TTS_FREE_SITES.len()
+        ));
         return false;
     }
-    log("tts free: 7 sites - a spoken name's buffer is freed 10 s after the game lets go of it");
+    log("tts free: 11 sites - a spoken name's buffer is freed 10 s after the game lets go of it");
     true
 }
 
@@ -1350,12 +1416,32 @@ mod tests {
 
     #[test]
     fn tts_free_patch_checks_then_writes() {
-        // the bytes of the client studied at the first site
-        assert_eq!(
-            tts_site_orig(0x0097_117D),
-            [0x50, 0xE8, 0xDE, 0xB4, 0x24, 0x00, 0x83, 0xC4, 0x04]
-        );
-        // a fake image: the PE header and the seven sites at their offsets from the preferred base
+        // the bytes of the client studied at every site: `push eax; call <rel32>; add esp, 4`
+        for (va, rel) in [
+            (0x0097_117D, 0x0024_B4DEu32),
+            (0x0097_15DC, 0x0024_B07Fu32),
+            (0x0097_173B, 0x0024_AF20u32),
+            (0x0097_1DB4, 0x0024_A8A7u32),
+            (0x0096_8CAE, 0x0025_39ADu32),
+            (0x0096_8D37, 0x0025_3924u32),
+            (0x0096_8D9C, 0x0025_38BFu32),
+            (0x0097_1923, 0x0024_AD38u32),
+            (0x0097_1938, 0x0024_AD23u32),
+            (0x0097_112A, 0x0024_B531u32),
+            (0x0097_1157, 0x0024_B504u32),
+        ] {
+            let [a, b, c, d] = rel.to_le_bytes();
+            assert!(TTS_FREE_SITES.contains(&va));
+            assert_eq!(
+                tts_site_orig(va),
+                [0x50, 0xE8, a, b, c, d, 0x83, 0xC4, 0x04],
+                "{va:08X}"
+            );
+        }
+        // both ways of moving a call: a rel32 in one aligned word, and one straddling two (the jmp over it)
+        assert!(TTS_FREE_SITES.iter().any(|va| (va + 1) % 8 <= 4));
+        assert!(TTS_FREE_SITES.iter().any(|va| (va + 1) % 8 > 4));
+        // a fake image: the PE header and the eleven sites at their offsets from the preferred base
         let mut img = vec![0u8; 0x0057_2000];
         img[0x3C..0x40].copy_from_slice(&0x100u32.to_le_bytes());
         img[0x108..0x10C].copy_from_slice(&CLIENT_STAMP.0.to_le_bytes());
@@ -1365,12 +1451,14 @@ mod tests {
             img[off(va)..][..9].copy_from_slice(&tts_site_orig(va));
         }
         let base = img.as_mut_ptr() as usize;
+        // the heap's 8-byte alignment: each site splits into words as in the game's 64K-aligned image
+        assert_eq!(base % 8, 0);
         let untouched = |img: &[u8]| {
             TTS_FREE_SITES
                 .iter()
                 .all(|&va| img[off(va)..][..9] == tts_site_orig(va))
         };
-        // one byte off at any site: all seven untouched, and logged
+        // one byte off at any site: all eleven untouched, and logged
         for va in TTS_FREE_SITES {
             img[off(va) + 7] ^= 1;
             assert!(!tts_free_install_at(base, tts_said));
@@ -1395,7 +1483,7 @@ mod tests {
                 .unwrap()
                 .pop()
                 .unwrap()
-                .starts_with("tts free: 7 sites")
+                .starts_with("tts free: 11 sites")
         );
         for va in TTS_FREE_SITES {
             let s = &img[off(va)..][..9];
