@@ -189,6 +189,9 @@ pub enum Slot {
     CupRound(u32),
 }
 
+/// The line that opens a slot's matching table in control's log; the slot's seat pairings follow its tables.
+const MATCH_TBL: &str = "sendMatchingInfo() : match_tbl ";
+
 /// Reads control's log line by line for [`Slot`]s.
 #[derive(Default)]
 pub struct Slots {
@@ -198,7 +201,7 @@ pub struct Slots {
 
 impl Slots {
     pub fn feed(&mut self, line: &str) -> Option<Slot> {
-        if line.contains("sendMatchingInfo() : match_tbl ") {
+        if line.contains(MATCH_TBL) {
             self.table = Some(0);
             return None;
         }
@@ -224,8 +227,8 @@ impl Slots {
 pub const ROUNDS: u32 = 5;
 
 /// The restart gate of one control run, fed control's log: due after the run's last cup (or one whose next cup would
-/// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired before
-/// then is still in a match ([`MATCH_SECS`]).
+/// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired up to
+/// then (the slot that made it due included) is still in a match ([`MATCH_SECS`]).
 pub struct Watch<'a> {
     run: &'a Run,
     slots: Slots,
@@ -234,6 +237,8 @@ pub struct Watch<'a> {
     done: usize,
     paired: Option<i64>,
     due: bool,
+    /// A slot's matching came after the restart was due: its pairings and later ones no longer hold it.
+    later: bool,
 }
 
 impl<'a> Watch<'a> {
@@ -245,13 +250,16 @@ impl<'a> Watch<'a> {
             done: 0,
             paired: None,
             due: false,
+            later: false,
         }
     }
 
     /// One line of control's log, read at `now`; a line to report.
     pub fn line(&mut self, l: &str, now: i64) -> Option<String> {
-        // a seat that pairs once the restart is due (a friendly after the last cup's final) cannot push it later (#338)
-        if !self.due && pairs_a_seat(l) {
+        // a slot's seats pair after its tables (against the CPU at once, seat against seat up to ~2 min later): the
+        // slot that made the restart due still holds it, a later one (a friendly after the final) cannot (#338)
+        self.later |= self.due && l.contains(MATCH_TBL);
+        if !self.later && pairs_a_seat(l) {
             self.paired = Some(now);
         }
         // a cup is over at its final's matching (one pair, or its last round whatever the table shows), or at the
@@ -472,17 +480,31 @@ mod tests {
     }
 
     /// Control's log of a cup with a seat in every round and in the friendly after the final, as (time, lines): the
-    /// final's table with `final_pairs` pairs, or lost (`None`).
+    /// final's table with `final_pairs` pairs, or lost (`None`). A slot's lines in control's order (ovh1's game.log,
+    /// 2026-11-09): its three tables, then the seat's pairing.
     fn cup_log(c: &Cup, final_pairs: Option<usize>) -> Vec<(i64, Vec<String>)> {
         let fin = c.ends - FINAL_SECS;
         let slot = |pairs: usize| {
             let mut v = vec![
-                line("ClientManage::sendMatchingInfo() : friendly_match_tbl "),
-                line("CPU170 Away -> sate1 Home"),
+                line("ClientManage::sendMatchingInfo() : gtMatch_tbl "),
+                line("= NULL"),
+                line("\\n"),
                 line("ClientManage::sendMatchingInfo() : match_tbl "),
             ];
             v.extend((0..pairs).map(|k| line(&format!("[{k}]=(346,357,-187006887), "))));
-            v.push(line("\\n"));
+            if pairs == 0 {
+                v.push(line("= NULL"));
+            }
+            v.extend(
+                [
+                    "\\n",
+                    "ClientManage::sendMatchingInfo() : friendly_match_tbl ",
+                    "= NULL",
+                    "\\n",
+                    "CPU170 Away -> sate1 Home",
+                ]
+                .map(line),
+            );
             v
         };
         let mut log: Vec<_> = [(4, 4), (3, 4), (2, 4), (1, 2)]
@@ -539,17 +561,16 @@ mod tests {
             let r = plan(at(h, 0) - 20 * 60, OVH1);
             let c = &r.cups[0];
             let fin = c.ends - FINAL_SECS;
-            // the whole log read before the gate is: the final's pairing, then the friendly's at fin + 505
-            let mut w = Watch::new(&r);
-            for (t, lines) in cup_log(c, Some(1)) {
-                for l in &lines {
-                    w.line(l, t);
-                }
-            }
-            // the final's seat holds the restart for MATCH_SECS; the friendly's pairing, later in the log, adds
-            // nothing (it pushed the restart to fin + 965 before)
-            assert!(!w.clear(fin + MATCH_SECS - 1), "{h}:00 cup");
-            assert!(w.clear(fin + MATCH_SECS), "{h}:00 cup");
+            // two seats meet in the final and pair a minute after its tables (seat against seat comes late): the gate
+            // is still shut when the friendly after it pairs at fin + 505, which held it to fin + 965 before
+            let mut log = cup_log(c, Some(1));
+            log.push((
+                fin + 60,
+                vec![line(
+                    "send match info : (ip127.0.0.1,port20003,sateID3)Away -> sate2 Home",
+                )],
+            ));
+            assert_eq!(restart(&r, &log), fin + 60 + MATCH_SECS, "{h}:00 cup");
         }
     }
 
@@ -628,7 +649,7 @@ mod tests {
 
     #[test]
     fn slots_from_control_s_log() {
-        // ovh1's game.log, 2026-11-09: a friendly slot, a cup round, the final
+        // a friendly slot, a cup round, the final, in ovh1's game.log order (2026-11-09)
         let log = [
             "ClientManage::sendMatchingInfo() : gtMatch_tbl ",
             "= NULL",
@@ -638,15 +659,21 @@ mod tests {
             "\\n",
             "ClientManage::sendMatchingInfo() : friendly_match_tbl ",
             "= NULL",
+            "\\n",
             "ClientManage::sendMatchingInfo() : match_tbl ",
             "[0]=(346,357,-187006887), ",
             "[1]=(451,359,-2065227398), ",
             "\\n",
             "ClientManage::sendMatchingInfo() : friendly_match_tbl ",
-            "CPU170 Away -> sate1 Home",
+            "= NULL",
+            "\\n",
             "ClientManage::sendMatchingInfo() : match_tbl ",
             "[0]=(357,390,726951777), ",
             "\\n",
+            "ClientManage::sendMatchingInfo() : friendly_match_tbl ",
+            "= NULL",
+            "\\n",
+            "CPU170 Away -> sate1 Home",
         ];
         let mut s = Slots::default();
         let got: Vec<Slot> = log.iter().filter_map(|l| s.feed(&line(l))).collect();

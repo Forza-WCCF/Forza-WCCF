@@ -976,7 +976,7 @@ impl Tail {
 
 /// `cups`: the hourly Universal Cup (2017-18, [`cups`]). Plans a run, writes its `schedule_option.conf`, starts the
 /// arcade (`serve`) at the run's start, and once its last final is over stops it at a moment no seat is in a match
-/// (no pairing in control's log for [`cups::MATCH_SECS`]); then the next run. Stopping this stops the arcade.
+/// (no seat paired up to then, its slot included, for [`cups::MATCH_SECS`]); then the next run. Stopping this stops the arcade.
 fn cups(root: &Path, binary: &Path) -> io::Result<()> {
     // SAFETY: as in serve: a handler that only stores to an atomic
     unsafe {
@@ -1079,7 +1079,7 @@ fn cups(root: &Path, binary: &Path) -> io::Result<()> {
                 }
             }
             if watch.clear(now) {
-                break "the run's cups are over and no seat is in a match";
+                break "the run's cups are over and no seat paired up to then is in a match";
             }
             thread::sleep(Duration::from_secs(2));
         };
