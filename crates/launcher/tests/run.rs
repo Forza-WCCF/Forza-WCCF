@@ -820,6 +820,10 @@ fn rename_import(exe: &mut [u8], old: &[u8], new: &[u8]) {
         .map(|(i, _)| i)
         .collect();
     assert_eq!(at.len(), 1, "one import name {}", String::from_utf8_lossy(old));
+    assert!(
+        new.len() < old.len(),
+        "the new name and its NUL fit in the old one's place"
+    );
     let slot = &mut exe[at[0]..at[0] + old.len()];
     slot.fill(0);
     slot[..new.len()].copy_from_slice(new);
@@ -852,7 +856,11 @@ fn the_guard_reads_the_import_table() {
     let why = check(&plain).unwrap_err();
     assert!(why.contains("does not import wccfnet.dll"), "{why}");
     let why = check(&elsewhere).unwrap_err();
-    assert!(why.contains("imports IpRenewAddress from KERNEL32.dll"), "{why}");
+    // the message lists every call taken from that DLL, so only the blocked one and the DLL are pinned
+    assert!(
+        why.contains("IpRenewAddress") && why.ends_with(" from KERNEL32.dll"),
+        "{why}"
+    );
     check(&guarded).unwrap();
 }
 
