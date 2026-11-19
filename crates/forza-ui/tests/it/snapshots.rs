@@ -403,7 +403,9 @@ fn board_interaction() {
     let _gpu = gpu();
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     let spots = st.board.spots;
-    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    // the 2017-18 board's slots, not the 2010-11 helper's: its clicks missed every card (#398)
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, panel::SIZE);
+    let at = |slot| panel::board_slot_center_1718(sheet, None, &spots, slot);
     let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st)
     });
