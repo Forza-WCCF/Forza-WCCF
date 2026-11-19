@@ -825,7 +825,13 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                 });
                 // the result takes the hint's place: on its own line it ran past the page's bottom in Italian (#397)
                 if let Some((tone, text)) = &st.clean_status {
-                    status_line(ui, *tone, text);
+                    let r = status_line(ui, *tone, text);
+                    // a long failure list still runs under the fold: scroll a new result into view once, never pin it
+                    let shown = egui::Id::new("launcher-clean-shown");
+                    if ui.data(|d| d.get_temp::<String>(shown)).as_ref() != Some(text) {
+                        ui.data_mut(|d| d.insert_temp(shown, text.clone()));
+                        r.scroll_to_me(None);
+                    }
                 } else {
                     ui.label(
                         egui::RichText::new(tr!(lang, "launcher.cleanup_hint"))

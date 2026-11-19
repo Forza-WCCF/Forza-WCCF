@@ -35,34 +35,56 @@ fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_
     }
 }
 
-/// CLEAN UP's result shows whole on SETUP at the Launcher's size in every language, above the page's bottom (#397: in
-/// Italian it sat on its own line under the button and the scroll area cut it in half).
+/// CLEAN UP's result shows whole on SETUP at the Launcher's size in every language (#397: in Italian it sat on its own
+/// row under the button, and its frame and the bottom of its text ran under the scroll area's bottom edge). The success
+/// line fits without scrolling; a long failure list is scrolled into view when it appears.
 #[test]
 fn the_cleanup_result_fits_the_setup_page() {
     use egui::accesskit::Role;
+    use forza_ui::widgets::Tone;
     for lang in Lang::ALL {
-        let mut st =
-            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::CleanedUp);
-        let note = st
-            .clean_status
-            .clone()
-            .expect("the scenario has a result")
-            .1;
-        let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
-            launcher::show(ui, &mut st);
-        });
-        h.run_steps(4);
-        let play = forza_ui::text(lang, "launcher.play", &[]);
-        let play = h.get_by_role_and_label(Role::Button, &play).rect();
-        let r = h.get_by_label(&note).rect();
-        // the scroll area ends at the central panel's 14 px margin over the footer, whose 10 px margin sits over PLAY;
-        // the status line's frame runs its bottom margin under the text
-        let bottom = play.top() - 24.0 - f32::from(widgets::STATUS_LINE_MARGIN[3]);
-        assert!(
-            r.top() >= 0.0 && r.bottom() <= bottom && r.right() <= launcher::SIZE.x - 16.0,
-            "{}: the cleanup result {r:?} is not inside the page (bottom {bottom})",
-            lang.code()
-        );
+        let what = (1..=5)
+            .map(|i| format!(r"data\leftover_{i}.bin: Access is denied. (os error 5)"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let failed = forza_ui::text(lang, "launcher.cleanup_failed", &[("what", &what)]);
+        for failure in [None, Some(failed)] {
+            let mut st = launcher::LauncherState::sample(
+                Edition::E1718,
+                lang,
+                launcher::Scenario::CleanedUp,
+            );
+            if let Some(f) = &failure {
+                st.clean_status = Some((Tone::Refused, f.clone()));
+            }
+            let note = st
+                .clean_status
+                .clone()
+                .expect("the scenario has a result")
+                .1;
+            let mut h = harness(launcher::SIZE, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            // a step is 0.25 s: the scroll to a new result (at most 0.3 s) ends well within these
+            h.run_steps(6);
+            let play = forza_ui::text(lang, "launcher.play", &[]);
+            let play = h.get_by_role_and_label(Role::Button, &play).rect();
+            let tab = forza_ui::text(lang, "launcher.setup", &[]);
+            let tab = h.get_by_role_and_label(Role::RadioButton, &tab).rect();
+            let r = h.get_by_label(&note).rect();
+            let [_, _, top, bottom] = widgets::STATUS_LINE_MARGIN.map(f32::from);
+            // the scroll area ends at the central panel's 14 px margin over the footer, whose 10 px margin sits over
+            // PLAY, and starts 10 px under the tab row; the status line's frame adds its margins around the text
+            let (lo, hi) = (tab.bottom() + 10.0, play.top() - 24.0);
+            assert!(
+                r.top() - top >= lo && r.bottom() + bottom <= hi,
+                "{} failure={}: the result's frame {}..{} is outside the page {lo}..{hi}",
+                lang.code(),
+                failure.is_some(),
+                r.top() - top,
+                r.bottom() + bottom
+            );
+        }
     }
 }
 
