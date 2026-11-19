@@ -266,6 +266,18 @@ fn apply_to_save_data(body: &mut [u8], bought: &[(u32, u32)]) {
     }
 }
 
+/// What the control shows when it has no team ranking: "NO ENTRY" in every name of answer 234, everything else 0.
+const NO_ENTRY: &[u8] = b"NO ENTRY\0";
+/// The name fields of the team ranking answer 234 (1,092 bytes; the control keeps it whole and feeds its ranking
+/// screens from it): u32 +0 / +4 the term (YYYYMMDD from, to), the champion's names char[28] +8, char[56] +36 and
+/// +92, u32 +148 / +152 / +156 its figures, u32 +160 a packed emblem, then 8 rows of 116 bytes from +164: char[56],
+/// char[56], u32.
+fn team_ranking_names() -> impl Iterator<Item = usize> {
+    [8, 36, 92]
+        .into_iter()
+        .chain((0..8).flat_map(|k| [164 + 116 * k, 220 + 116 * k]))
+}
+
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
 /// What an all-zero answer means for a [`RESP`] entry; the guard test (`zero_answers_are_safe_or_pending`) enforces it.
 #[cfg_attr(not(test), allow(dead_code))] // the texts are read by the guard test
@@ -296,7 +308,9 @@ const RESP: &[(u16, usize, Zero)] = &[
         12,
         Zero::Safe("ctl sub_447880: 227 has no sender (ctl sub_447550)"),
     ),
-    (234, 1092, Zero::Pending("C6")),
+    // the control's own defaults (control 0x440844 fills the block with "NO ENTRY" names and zeros); the ranking
+    // itself stays a parity unit (C6)
+    (234, 1092, Zero::Handled),
     (238, 0x5A54, Zero::Handled),
     (240, 12, Zero::Handled),
     (244, 12, Zero::Safe("ctl sub_409920: stored, no reader")),
@@ -1540,6 +1554,17 @@ fn answer(
         // GHOST_TEAM, BEST_ELEVEN: errCode 0 would install an all-zero team; 1 = none, the client plays a CPU team
         // (docs/research/ONLINE-2017-18.md)
         put(&mut body, 4, 1);
+    }
+    if cmd == 233 {
+        // TEAM RANKING: the control copies the whole answer over its defaults whenever the header status is above 0
+        // (control 0x442EC0) and shows it on its ranking screens (RNK_TRM/JCP/ACP/EMB_STATE, 0x471D50..0x472100).
+        // Zeros there showed empty champion and row names and a 0000-00-00 term; the stand-in keeps no team ranking,
+        // so it answers what the control shows without one (its constructor at 0x440844): "NO ENTRY" names, zeros.
+        // +0 is the term start, not a slot (the dispatcher routes 234 without one), so the request is not echoed.
+        body.fill(0);
+        for at in team_ranking_names() {
+            body[at..at + NO_ENTRY.len()].copy_from_slice(NO_ENTRY);
+        }
     }
     if cmd == 249 {
         // GMSVR_RANK: the whole answer is copied into the game state and drives the result and prize screens
@@ -3364,6 +3389,29 @@ mod tests {
         let mut z = a.clone();
         put(&mut z, 3088, 0);
         assert_eq!(u32_at(&a, 3088), sum32(&z), "C2");
+    }
+
+    /// The team ranking answer 234 is the control's own "no ranking" block (control constructor 0x440844): "NO
+    /// ENTRY" in the champion's three names and both names of the 8 rows, every other byte 0, the request not echoed.
+    #[test]
+    fn the_team_ranking_answer_is_the_controls_no_entry_block() {
+        let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+        let log: Log = Arc::new(|_: &str| {});
+        let (body, refused) = ask_for_test(&store, 233, &fixture(233, [5, 0, 0]), &log);
+        assert_eq!(refused, None);
+        assert_eq!(body.len(), 1092);
+        let mut want = vec![0u8; 1092];
+        for at in [8, 36, 92]
+            .into_iter()
+            .chain((0..8).flat_map(|k| [164 + 116 * k, 220 + 116 * k]))
+        {
+            want[at..at + 9].copy_from_slice(b"NO ENTRY\0");
+        }
+        // the last row's second name ends inside the answer: +1,032 + 56 = 1,088, then the row's u32
+        assert_eq!(&body[1032..1041], b"NO ENTRY\0");
+        assert_eq!(&body[..8], &[0; 8], "term from / to");
+        assert_eq!(&body[148..164], &[0; 16], "champion figures and emblem");
+        assert_eq!(body, want);
     }
 
     /// 2026-11-02: the RANK answer says "no Universal Championship result" (+354) instead of all zeros, so the
