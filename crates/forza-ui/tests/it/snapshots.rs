@@ -593,7 +593,8 @@ fn board_mat() {
     let _gpu = gpu();
     let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     let spots = st.board.spots;
-    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, panel::SIZE);
+    let at = |slot| panel::board_slot_center_1718(sheet, None, &spots, slot);
     let st = std::cell::RefCell::new(st);
     let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
@@ -621,7 +622,8 @@ fn board_links() {
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
     st.links = forza_ui::sample::links();
     let spots = st.board.spots;
-    let at = |slot| panel::board_slot_center(panel::SIZE.x, &spots, slot);
+    let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, panel::SIZE);
+    let at = |slot| panel::board_slot_center_1718(sheet, None, &spots, slot);
     let st = std::cell::RefCell::new(st);
     let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
         panel::show(ui, &mut st.borrow_mut())
