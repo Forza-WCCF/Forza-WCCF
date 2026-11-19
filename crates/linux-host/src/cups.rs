@@ -224,8 +224,8 @@ impl Slots {
 pub const ROUNDS: u32 = 5;
 
 /// The restart gate of one control run, fed control's log: due after the run's last cup (or one whose next cup would
-/// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired so far
-/// is still in a match ([`MATCH_SECS`]).
+/// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired before
+/// then is still in a match ([`MATCH_SECS`]).
 pub struct Watch<'a> {
     run: &'a Run,
     slots: Slots,
@@ -250,7 +250,8 @@ impl<'a> Watch<'a> {
 
     /// One line of control's log, read at `now`; a line to report.
     pub fn line(&mut self, l: &str, now: i64) -> Option<String> {
-        if pairs_a_seat(l) {
+        // a seat that pairs once the restart is due (a friendly after the last cup's final) cannot push it later (#338)
+        if !self.due && pairs_a_seat(l) {
             self.paired = Some(now);
         }
         // a cup is over at its final's matching (one pair, or its last round whatever the table shows), or at the
@@ -529,6 +530,26 @@ mod tests {
                 friendly + MATCH_SECS,
                 "{h}:00 cup"
             );
+        }
+    }
+
+    #[test]
+    fn a_friendly_paired_after_the_final_does_not_hold_the_restart() {
+        for h in 0..24 {
+            let r = plan(at(h, 0) - 20 * 60, OVH1);
+            let c = &r.cups[0];
+            let fin = c.ends - FINAL_SECS;
+            // the whole log read before the gate is: the final's pairing, then the friendly's at fin + 505
+            let mut w = Watch::new(&r);
+            for (t, lines) in cup_log(c, Some(1)) {
+                for l in &lines {
+                    w.line(l, t);
+                }
+            }
+            // the final's seat holds the restart for MATCH_SECS; the friendly's pairing, later in the log, adds
+            // nothing (it pushed the restart to fin + 965 before)
+            assert!(!w.clear(fin + MATCH_SECS - 1), "{h}:00 cup");
+            assert!(w.clear(fin + MATCH_SECS), "{h}:00 cup");
         }
     }
 
