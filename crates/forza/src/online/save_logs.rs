@@ -824,8 +824,8 @@ fn replace(
 }
 
 /// Whether a string of a binary file can end on this `side` of a short name (the bytes before it, or those `after`
-/// it): at the data's edge, or at a NUL, white space or punctuation, ASCII or Japanese (U+3000-303F and the
-/// fullwidth and halfwidth forms). A `wide` name reads one UTF-16LE unit, any other a character of UTF-8 or of CP932
+/// it): at the data's edge, or at a NUL, white space or punctuation, ASCII or Japanese (U+2010-206F, U+3000-303F,
+/// ・ and ー, and the fullwidth and halfwidth forms). A `wide` name reads one UTF-16LE unit, any other a character of UTF-8 or of CP932
 /// (its `81` row, and `A1`-`A5`), whichever the bytes make. Less than a whole character is no end.
 fn string_ends(side: &[u8], after: bool, wide: bool) -> bool {
     let near = |n: usize| match after {
@@ -836,7 +836,7 @@ fn string_ends(side: &[u8], after: bool, wide: bool) -> bool {
     let japanese = |c: u32| {
         matches!(
             c,
-            0x3000..=0x303F | 0xFF01..=0xFF0F | 0xFF1A..=0xFF20 | 0xFF3B..=0xFF40 | 0xFF5B..=0xFF65
+            0x2010..=0x206F | 0x3000..=0x303F | 0x30FB..=0x30FC | 0xFF01..=0xFF0F | 0xFF1A..=0xFF20 | 0xFF3B..=0xFF40 | 0xFF5B..=0xFF65
         )
     };
     if side.is_empty() {
@@ -1661,7 +1661,13 @@ mod tests {
         };
         let encs: [Enc; 3] = [utf8, sjis, utf16];
         for enc in encs {
-            for (pre, post) in [("=", "。\0"), ("x「", "」x"), ("｢", "｣")] {
+            for (pre, post) in [
+                ("=", "。\0"),
+                ("x「", "」x"),
+                ("｢", "｣"),
+                ("※", "・"),
+                ("―", "…"),
+            ] {
                 let (pre, post) = (enc(pre).unwrap(), enc(post).unwrap());
                 let name = enc("辮").unwrap();
                 let dump = [&pre[..], &name, &post].concat();
