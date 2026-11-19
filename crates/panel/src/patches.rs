@@ -1268,15 +1268,15 @@ fn tts_due(held: &mut VecDeque<(usize, Instant)>, p: usize, now: Instant) -> Vec
 
 /// The sites call this, on the game's thread, instead of j__aligned_free.
 extern "C" fn tts_free(p: *mut c_void) {
+    let free = TTS_FREE.load(Relaxed);
+    if free == 0 {
+        return; // never: set before any site calls here; checked first so nothing held is dropped unfreed
+    }
     let due = tts_due(
         &mut TTS_HELD.lock().unwrap_or_else(PoisonError::into_inner),
         p as usize,
         Instant::now(),
     );
-    let free = TTS_FREE.load(Relaxed);
-    if free == 0 {
-        return; // never: set before any site calls here
-    }
     // SAFETY: the game's j__aligned_free, its call checked at every site; each pointer one the game freed, freed once
     let free: extern "C" fn(*mut c_void) = unsafe { std::mem::transmute(free) };
     for p in due {
@@ -1458,17 +1458,19 @@ mod tests {
                 .iter()
                 .all(|&va| img[off(va)..][..9] == tts_site_orig(va))
         };
-        // one byte off at any site: all eleven untouched, and logged
+        // any byte off at any site (the rel32 included): all eleven untouched, and logged
         for va in TTS_FREE_SITES {
-            img[off(va) + 7] ^= 1;
-            assert!(!tts_free_install_at(base, tts_said));
-            img[off(va) + 7] ^= 1;
-            assert!(untouched(&img));
-            let said = TTS_SAID.lock().unwrap().pop().unwrap();
-            assert!(
-                said.starts_with(&format!("tts free: {va:08X} is not the code studied")),
-                "{said}"
-            );
+            for i in 0..9 {
+                img[off(va) + i] ^= 1;
+                assert!(!tts_free_install_at(base, tts_said));
+                img[off(va) + i] ^= 1;
+                assert!(untouched(&img));
+                let said = TTS_SAID.lock().unwrap().pop().unwrap();
+                assert!(
+                    said.starts_with(&format!("tts free: {va:08X} is not the code studied")),
+                    "{said}"
+                );
+            }
         }
         // another build: untouched
         img[0x108] ^= 1;
@@ -1501,6 +1503,8 @@ mod tests {
         assert_eq!(TTS_FREE.load(Relaxed), base + ALIGNED_FREE - BASE_1718);
         // a second run finds the moved calls: refused
         assert!(!tts_free_install_at(base, tts_said));
+        // the fake image's j__aligned_free goes with it
+        TTS_FREE.store(0, Relaxed);
     }
 
     #[test]
