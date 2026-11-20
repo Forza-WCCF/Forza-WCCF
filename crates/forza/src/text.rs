@@ -145,6 +145,9 @@ const SWITCHED_ON: [&str; 10] = [
     "MAKE_area",
 ];
 
+/// `spec(ed).originals[STRINGS]` is string_list.bin ([`BIN`]) in both editions.
+const STRINGS: usize = 0;
+
 struct Spec {
     /// player_data.bin: one record's size and the fields' offsets
     rec: usize,
@@ -648,7 +651,37 @@ fn encoded(ed: Edition, jp: &str, text: &str, nl: &[u8]) -> Result<Vec<u8>, Line
     Ok(b)
 }
 
-type Choices = BTreeMap<String, Vec<(String, &'static str)>>;
+/// Where a line's words came from. The order is the note's (`by_line`): the labels' old alphabetical order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Source {
+    Kit,
+    KitItalian,
+    OriginalEnglish,
+    OriginalEuItalian,
+    OriginalItalian,
+    OriginalSecond,
+}
+
+impl Source {
+    /// The kit's own sheets, not the original's lines.
+    fn kit(self) -> bool {
+        matches!(self, Self::Kit | Self::KitItalian)
+    }
+
+    /// Its label in the note under the lines (`text.src_*`).
+    fn line(self) -> Line {
+        Line::key(match self {
+            Self::Kit => "text.src_kit",
+            Self::KitItalian => "text.src_kit_it",
+            Self::OriginalSecond => "text.src_original_second",
+            Self::OriginalEnglish => "text.src_original_english",
+            Self::OriginalItalian => "text.src_original_it",
+            Self::OriginalEuItalian => "text.src_original_eu_it",
+        })
+    }
+}
+
+type Choices = BTreeMap<String, Vec<(String, Source)>>;
 
 impl Ctx {
     /// Each Japanese line's choices, best first. 2010-11: one English line per key (the kit's, else the original's
@@ -662,7 +695,7 @@ impl Ctx {
             if !cell(&r, "english").trim().is_empty() && kit.insert(cell(&r, "key").to_string()) {
                 ch.insert(
                     cell(&r, "key").into(),
-                    vec![(cell(&r, "english").trim_matches('\r').into(), "kit")],
+                    vec![(cell(&r, "english").trim_matches('\r').into(), Source::Kit)],
                 );
             }
         }
@@ -683,17 +716,17 @@ impl Ctx {
                 let c = if !s2.is_empty() && !has_high(s2) {
                     (
                         String::from_utf8_lossy(s2).into_owned(),
-                        "original second column",
+                        Source::OriginalSecond,
                     )
                 } else if let Some(r) = rstring.get(*k) {
-                    (r.clone(), "original European English")
+                    (r.clone(), Source::OriginalEnglish)
                 } else {
                     continue;
                 };
                 ch.entry((*k).clone()).or_default().push(c);
             }
         };
-        let italian = |ch: &mut Choices, folder_sheet: &str, src: &'static str| -> R<()> {
+        let italian = |ch: &mut Choices, folder_sheet: &str, src: Source| -> R<()> {
             for r in self.sheet(folder_sheet, "italian")? {
                 if !cell(&r, "italiano").trim().is_empty() {
                     ch.entry(cell(&r, "key").into())
@@ -705,7 +738,7 @@ impl Ctx {
         };
         if e1718 {
             if lang == Lang::It {
-                italian(&mut ch, "screen_text.tsv", "kit Italian")?;
+                italian(&mut ch, "screen_text.tsv", Source::KitItalian)?;
                 // the original's own Italian column for the place names (Barcellona, Monaco di Baviera), before the
                 // English; the kit's Italian stays first
                 for (k, (_, nums)) in &sorted_keys {
@@ -716,10 +749,10 @@ impl Ctx {
                         && has_high(at(body, nums[0]))
                     {
                         let e = ch.entry((*k).clone()).or_default();
-                        let i = usize::from(e.first().is_some_and(|c| c.1 == "kit Italian"));
+                        let i = usize::from(e.first().is_some_and(|c| c.1 == Source::KitItalian));
                         e.insert(
                             i,
-                            (String::from_utf8_lossy(s3).into_owned(), "original Italian"),
+                            (String::from_utf8_lossy(s3).into_owned(), Source::OriginalItalian),
                         );
                     }
                 }
@@ -728,8 +761,8 @@ impl Ctx {
         } else {
             from_original(&mut ch);
             if lang == Lang::It {
-                italian(&mut ch, "original_rstring.tsv", "original European Italian")?;
-                italian(&mut ch, "screen_text.tsv", "kit Italian")?;
+                italian(&mut ch, "original_rstring.tsv", Source::OriginalEuItalian)?;
+                italian(&mut ch, "screen_text.tsv", Source::KitItalian)?;
             }
         }
         Ok(ch)
@@ -743,7 +776,7 @@ type Slots<'a> = (BTreeMap<String, usize>, Vec<&'a String>, Vec<(i64, i64)>);
 /// What `encode_lines` returns: encoded lines, the choice taken per key, the keys that did not fit, a count.
 type Encoded = (
     BTreeMap<String, Vec<u8>>,
-    HashMap<String, &'static str>,
+    HashMap<String, Source>,
     Vec<Line>,
     usize,
 );
@@ -755,7 +788,7 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
             misfit.extend(
                 options
                     .iter()
-                    .filter(|(_, s)| s.starts_with("kit"))
+                    .filter(|(_, s)| s.kit())
                     .map(|_| {
                         Line::key("text.misfit")
                             .arg("key", k)
@@ -775,10 +808,10 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
                     used.insert(k.clone(), *src);
                     break;
                 }
-                Err(p) if src.starts_with("kit") => misfit.push(if ed == Edition::E1718 {
+                Err(p) if src.kit() => misfit.push(if ed == Edition::E1718 {
                     Line::key("text.misfit_source")
                         .arg("key", k)
-                        .part("source", source_line(src))
+                        .part("source", src.line())
                         .part("why", p)
                 } else {
                     Line::key("text.misfit").arg("key", k).part("why", p)
@@ -790,32 +823,19 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
     (enc, used, misfit, original_bad)
 }
 
-/// Where a line's words came from, for the note under the lines: the label is a text key (`text.src_*`).
-fn source_line(src: &str) -> Line {
-    Line::key(match src {
-        "kit" => "text.src_kit",
-        "kit Italian" => "text.src_kit_it",
-        "original second column" => "text.src_original_second",
-        "original European English" => "text.src_original_english",
-        "original Italian" => "text.src_original_it",
-        "original European Italian" => "text.src_original_eu_it",
-        other => return Line::raw(other),
-    })
-}
-
 /// `%{source} %{count}` for each source, in order: one key for the first, one for each after it.
-fn by_line(by: &BTreeMap<&str, usize>) -> Line {
+fn by_line(by: &BTreeMap<Source, usize>) -> Line {
     let mut it = by.iter();
     let Some((src, n)) = it.next() else {
         return Line::raw("");
     };
     let mut out = Line::key("text.note_by")
-        .part("source", source_line(src))
+        .part("source", src.line())
         .arg("count", n);
     for (src, n) in it {
         out = Line::key("text.note_by_more")
             .part("head", out)
-            .part("source", source_line(src))
+            .part("source", src.line())
             .arg("count", n);
     }
     out
@@ -1075,7 +1095,7 @@ impl Ctx {
             );
         }
         let (new_bin, new_hf, pos) = pack_strings(&raw, &hf_raw, &enc)?;
-        let mut by: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut by: BTreeMap<Source, usize> = BTreeMap::new();
         for k in pos.keys() {
             *by.entry(used[k]).or_default() += 1;
         }
@@ -1650,7 +1670,7 @@ fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> io::Result<()> {
 
 /// The game's `string_list.bin` is the pinned original (or absent): one file hashed (about 1 MB).
 pub(crate) fn text_is_original(ed: Edition, game: &Path) -> bool {
-    let (rel, want) = spec(ed).originals[0];
+    let (rel, want) = spec(ed).originals[STRINGS];
     !fs::read(game.join(rel)).is_ok_and(|d| sha(&d) != want)
 }
 
@@ -2392,7 +2412,10 @@ mod tests {
         let it = c.choices(b"\0", &none, Lang::It).unwrap();
         assert_eq!(
             it["K_BOTH"],
-            [("kit Italian".into(), "kit Italian"), ("kit".into(), "kit")]
+            [
+                ("kit Italian".into(), Source::KitItalian),
+                ("kit".into(), Source::Kit)
+            ]
         );
         assert_eq!(
             it["K_BOTH"][1], en["K_BOTH"][0],
@@ -2403,9 +2426,17 @@ mod tests {
             "a key with no Italian stays English"
         );
         assert!(
-            en.values().flatten().all(|(_, s)| *s == "kit"),
+            en.values().flatten().all(|(_, s)| *s == Source::Kit),
             "English shows no Italian"
         );
+    }
+
+    #[test]
+    fn the_string_list_is_the_first_original_and_kit_sources_are_the_kit_s() {
+        for ed in [Edition::E1011, Edition::E1718] {
+            assert_eq!(spec(ed).originals[STRINGS].0, BIN, "{ed:?}");
+        }
+        assert!(Source::KitItalian.kit() && !Source::OriginalItalian.kit());
     }
 
     #[test]
@@ -2416,8 +2447,8 @@ mod tests {
             Choices::from([(
                 "CLM_X_0000".to_string(),
                 vec![
-                    (first.to_string(), "kit Italian"),
-                    ("$c[FF6633FF]%d$c points".to_string(), "kit"),
+                    (first.to_string(), Source::KitItalian),
+                    ("$c[FF6633FF]%d$c points".to_string(), Source::Kit),
                 ],
             )])
         };
@@ -2427,7 +2458,7 @@ mod tests {
             enc["CLM_X_0000"], b"$c[FF6633FF]%d$c points",
             "lost the colour code"
         );
-        assert_eq!((used["CLM_X_0000"], misfit.len()), ("kit", 1));
+        assert_eq!((used["CLM_X_0000"], misfit.len()), (Source::Kit, 1));
         let (enc, ..) = encode_lines(e, &body, &keys, &c("$c[FF6633FF]%d$c punti"), b"\n");
         assert_eq!(enc["CLM_X_0000"], b"$c[FF6633FF]%d$c punti");
         // a letter outside the game's font (cp932) also falls back
