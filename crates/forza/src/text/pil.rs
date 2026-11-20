@@ -376,12 +376,32 @@ mod tests {
             .flat_map(|y| (0..16u32).map(move |x| ((x * 37 + y * 91) % 256) as u8))
             .collect();
         for (r, sha, bits) in [
-            (0.6, "D00F917D43C2693F756F02FAFAE8536D21178F280BDD74A172ABAB69F43683E6", 0x3D8B_A2EA),
-            (1.0, "240615902B8AF8DB47DB3A3E8E137F06245E65E481307896B4BC786078E20068", 0x3E80_0001),
-            (2.5, "72AB2A26870AAC7B1D6608B0E7217150A212C4FBE284281EECDE22DD83DD89D4", 0x4001_ED7E),
+            (
+                0.6,
+                "D00F917D43C2693F756F02FAFAE8536D21178F280BDD74A172ABAB69F43683E6",
+                0x3D8B_A2EA,
+            ),
+            (
+                1.0,
+                "240615902B8AF8DB47DB3A3E8E137F06245E65E481307896B4BC786078E20068",
+                0x3E80_0001,
+            ),
+            (
+                2.5,
+                "72AB2A26870AAC7B1D6608B0E7217150A212C4FBE284281EECDE22DD83DD89D4",
+                0x4001_ED7E,
+            ),
         ] {
-            assert_eq!(crate::text::sha(&gaussian_blur_l(&src, 16, 16, r)), sha, "radius {r}");
-            assert_eq!(gaussian_box_radius(r as f32, 3).to_bits(), bits, "radius {r}");
+            assert_eq!(
+                crate::text::sha(&gaussian_blur_l(&src, 16, 16, r)),
+                sha,
+                "radius {r}"
+            );
+            assert_eq!(
+                gaussian_box_radius(r as f32, 3).to_bits(),
+                bits,
+                "radius {r}"
+            );
         }
     }
 

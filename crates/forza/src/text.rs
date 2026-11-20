@@ -707,7 +707,10 @@ impl Ctx {
                         let i = usize::from(e.first().is_some_and(|c| c.1 == Source::KitItalian));
                         e.insert(
                             i,
-                            (String::from_utf8_lossy(s3).into_owned(), Source::OriginalItalian),
+                            (
+                                String::from_utf8_lossy(s3).into_owned(),
+                                Source::OriginalItalian,
+                            ),
                         );
                     }
                 }
@@ -740,16 +743,11 @@ fn encode_lines(ed: Edition, body: &[u8], keys: &Keys, ch: &Choices, nl: &[u8]) 
         (BTreeMap::new(), HashMap::new(), vec![], 0);
     for (k, options) in ch {
         let Some((_, nums)) = keys.get(k) else {
-            misfit.extend(
-                options
-                    .iter()
-                    .filter(|(_, s)| s.kit())
-                    .map(|_| {
-                        Line::key("text.misfit")
-                            .arg("key", k)
-                            .part("why", Line::key("text.why_no_line"))
-                    }),
-            );
+            misfit.extend(options.iter().filter(|(_, s)| s.kit()).map(|_| {
+                Line::key("text.misfit")
+                    .arg("key", k)
+                    .part("why", Line::key("text.why_no_line"))
+            }));
             continue;
         };
         if blocked(k) {
@@ -1945,7 +1943,10 @@ mod tests {
         pd[d..d + FIELD].fill(b'A'); // no end byte: the folded name is FIELD bytes, one too many
         let names = rename_players(&mut pd, &s);
         assert_eq!(first(&pd[s.short_kana..s.short_kana + FIELD]), b"C.Ronaldo");
-        assert!(pd[s.rec..2 * s.rec].iter().all(|&b| b == 0), "the empty record keeps its bytes");
+        assert!(
+            pd[s.rec..2 * s.rec].iter().all(|&b| b == 0),
+            "the empty record keeps its bytes"
+        );
         assert_eq!((names.cut, names.unknown), (1, 0));
     }
 
@@ -2036,7 +2037,11 @@ mod tests {
     fn a_line_without_two_numbers_is_refused() {
         let bin = strings().0;
         for hf in [&b"header\r\nA_B_1\r\n"[..], b"header\r\nA_B_1 1\r\n"] {
-            assert!(read_strings(&bin, hf).is_err(), "{:?}", String::from_utf8_lossy(hf));
+            assert!(
+                read_strings(&bin, hf).is_err(),
+                "{:?}",
+                String::from_utf8_lossy(hf)
+            );
         }
         assert!(read_strings(&bin, b"header\r\nA_B_1 1 8\r\n").is_ok());
     }
@@ -2658,7 +2663,10 @@ mod tests {
     /// conversion has no widest value here, so it is refused rather than counted as its own letters.
     fn fixed_len(text: &str, widest: &str) -> Result<usize, String> {
         match FMT.find_iter(text).find(|m| m.as_str() != "%d") {
-            Some(m) => Err(format!("{} has no widest value in FIXED_BUFFERS", m.as_str())),
+            Some(m) => Err(format!(
+                "{} has no widest value in FIXED_BUFFERS",
+                m.as_str()
+            )),
             None => Ok(text.replace("%d", widest).len() + 1),
         }
     }
@@ -2685,7 +2693,9 @@ mod tests {
                 };
                 match fixed_len(cell(r, column), widest) {
                     Ok(n) if n <= *size => {}
-                    Ok(n) => bad.push(format!("{lang} {key}: needs {n} bytes, the game has {size}")),
+                    Ok(n) => bad.push(format!(
+                        "{lang} {key}: needs {n} bytes, the game has {size}"
+                    )),
                     Err(e) => bad.push(format!("{lang} {key}: {e}")),
                 }
             }
