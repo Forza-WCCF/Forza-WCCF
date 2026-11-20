@@ -4897,9 +4897,9 @@ const STAT_NAMES: [&str; 6] = [
 /// (2017-18, `coloured`: [`widgets::stat_color`], as the board's card backs; 2010-11 stays white); SECRET across the column for a secret card.
 fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32, coloured: bool) {
     const SIDE: f32 = 8.0;
-    const ROW: f32 = 20.0;
+    const STAT_ROW: f32 = 20.0;
     let p = ui.painter().clone();
-    let (rect, _) = ui.allocate_exact_size(vec2(w, 6.0 * ROW), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(w, 6.0 * STAT_ROW), Sense::hover());
     p.rect_filled(rect, 4, theme::DEEP);
     if card.secret {
         let t = tr!(lang, "cat.secret");
@@ -4914,8 +4914,8 @@ fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32, coloured: bool) {
     }
     for (i, &stat) in card.stats.iter().enumerate() {
         let c = Rect::from_min_size(
-            rect.min + vec2(SIDE, i as f32 * ROW),
-            vec2(w - 2.0 * SIDE, ROW),
+            rect.min + vec2(SIDE, i as f32 * STAT_ROW),
+            vec2(w - 2.0 * SIDE, STAT_ROW),
         );
         p.text(
             c.left_center(),
