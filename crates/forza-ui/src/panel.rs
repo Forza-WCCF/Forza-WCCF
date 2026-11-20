@@ -3592,6 +3592,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     let mut b = ui.new_child(egui::UiBuilder::new().max_rect(pitch.with_max_y(r.bottom())));
     b.spacing_mut().item_spacing.y = 4.0;
     board::keep_on_table(&b, st.in_match || st.match_seen);
+    board::group_moves(&b, st.edition == Edition::E1718);
     st.board_changed |= board::formation_board(
         &mut b,
         &mut st.board,
@@ -3654,6 +3655,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
     b.spacing_mut().item_spacing.y = 4.0;
     board::keep_on_table(&b, st.in_match || st.match_seen);
+    board::group_moves(&b, st.edition == Edition::E1718);
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
