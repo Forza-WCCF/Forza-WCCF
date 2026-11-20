@@ -488,7 +488,7 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     let report = setup_game(kit, game, spec)?;
     let data = kit.join("data");
     make_dir(&data.join("logs"))?;
-    make_dir(&data.join("save"))?;
+    make_dir(&crate::profile::Profile::Free.save(&data))?;
     merge_settings(&data.join("settings.json"), "game", &game.to_string_lossy())?;
     Ok(report)
 }
