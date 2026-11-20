@@ -148,8 +148,10 @@ pub fn archive_run(folder: &Path, archive: &Path, limit: u64) -> io::Result<bool
         })
         .collect();
     // oldest first by last write: two runs in one second are "run-<t>.zip" and "run-<t> (2).zip", and their names
-    // alone put the newer one first (a space sorts before the dot), so it was the newer that went
-    zips.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    // alone put the newer one first (a space sorts before the dot), so it was the newer that went. Equal times (a
+    // coarse clock) go by the shorter name first, which keeps "run-<t>.zip", " (2)", " (10)" in the order made.
+    // shortcut: the times are the PC clock's; one set back puts a newer zip first, rare enough to leave
+    zips.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| (a.0.len(), &a.0).cmp(&(b.0.len(), &b.0))));
     let size = |n: &String| fs::metadata(archive.join(n)).map(|m| m.len());
     let mut total = 0;
     for (n, _) in &zips {

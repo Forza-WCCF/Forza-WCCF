@@ -293,6 +293,28 @@ fn the_archive_prunes_by_time_not_by_name() {
     );
 }
 
+/// Two zips with the same last write (a coarse clock, a copy): the plain name was made first, so it goes and the
+/// " (2)" stays, where the name alone would sort " (2)" first and prune the newer.
+#[test]
+fn equal_times_prune_the_zip_made_first() {
+    let d = crate::scratch();
+    let arc = d.path().join("logs").join("archive");
+    fs::create_dir_all(&arc).unwrap();
+    let old = arc.join("run-2026-10-09_00-53-21.zip");
+    let newer = arc.join("run-2026-10-09_00-53-21 (2).zip");
+    let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_791_500_000);
+    for (p, seed) in [(&old, 1u32), (&newer, 2u32)] {
+        fs::write(p, data(seed, 60_000)).unwrap();
+        File::options().write(true).open(p).unwrap().set_modified(at).unwrap();
+    }
+    let run = d.path().join("run");
+    fs::create_dir_all(&run).unwrap();
+    fs::write(run.join("run_seat1.txt"), "a run").unwrap();
+    archive_run(&run, &arc, 100_000).unwrap();
+    assert!(newer.exists(), "the \" (2)\" made second stays");
+    assert!(!old.exists(), "the plain name made first goes");
+}
+
 /// A run whose archive could not be made is set aside, not deleted (#356): previous-2\ cannot go (a file in it is
 /// held), so previous\ has nowhere to move, and play.py's path dropped it with no copy in the archive.
 #[test]
