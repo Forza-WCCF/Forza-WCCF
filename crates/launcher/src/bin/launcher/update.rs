@@ -289,10 +289,7 @@ fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> i
         && !me.is_file()
         && let Err(back) = fs::copy(kept, me)
     {
-        return Err(io::Error::new(
-            e.kind(),
-            format!("{e}; {back} ({})", kept.display()),
-        ));
+        return Err(io::Error::new(e.kind(), format!("{e}; {back} ({})", kept.display())));
     }
     if me.is_file() {
         let _ = fs::remove_file(kept); // the kit folder holds its Launcher.exe: the spare goes

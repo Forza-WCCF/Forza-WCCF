@@ -1014,10 +1014,8 @@ mod tests {
 
     #[test]
     fn load_key_takes_only_32_bytes() {
-        let dir = Scratch(std::env::temp_dir().join(format!(
-            "vslink_load_key_{}",
-            std::process::id()
-        )));
+        let dir =
+            Scratch(std::env::temp_dir().join(format!("vslink_load_key_{}", std::process::id())));
         std::fs::create_dir_all(&dir.0).unwrap();
         let path = dir.0.join("vs.key");
         for n in [31, 33] {
