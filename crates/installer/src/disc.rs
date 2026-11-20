@@ -344,7 +344,13 @@ mod tests {
     fn a_hex_key_file_adds_its_16_bytes() {
         let c = key_candidates(b"00112233445566778899aabbccddeeff\r\n");
         assert_eq!(c.len(), 2);
-        assert_eq!(c[1].len(), 16);
+        assert_eq!(
+            c[1][..],
+            [
+                0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+                0xee, 0xff
+            ]
+        );
         assert_eq!(key_candidates(b"abcd").len(), 1);
     }
     use sha2::{Digest, Sha256};

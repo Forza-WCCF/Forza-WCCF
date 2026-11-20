@@ -817,6 +817,9 @@ mod tests {
     #[test]
     fn each_disc_maps_back_to_its_edition() {
         assert_eq!(edition_of("XXXX"), None);
+        // the install roots players already have on disk
+        assert_eq!(Edition::E1011.folder(), "2010-2011");
+        assert_eq!(Edition::E1718.folder(), "2017-2018");
         for d in &disc::DISCS {
             assert_eq!(
                 edition_of(d.edition.game_id()),

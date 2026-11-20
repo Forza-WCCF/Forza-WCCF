@@ -28,7 +28,7 @@ impl Edition {
         }
     }
 
-    /// The folder name under `Games\Forza-WCCF` (the installer's `disc.rs` names).
+    /// The folder name under `Games\Forza-WCCF` (the installer's install roots).
     pub fn folder(self) -> &'static str {
         match self {
             Self::E1011 => "2010-2011",
