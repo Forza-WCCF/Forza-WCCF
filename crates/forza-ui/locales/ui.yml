@@ -1054,7 +1054,7 @@ text.fail_team_name: {en: "the team name for %{file} does not fit", it: "il nome
 text.fail_what_projector: {en: "the projector's client_Release.exe (the original Rev D)", it: "client_Release.exe del proiettore (l'originale Rev D)", ja: "プロジェクターの client_Release.exe（オリジナルの Rev D）"}
 text.fail_what_seat1: {en: "seat 1's client_Release.exe (the copy setup makes)", it: "client_Release.exe del posto 1 (la copia creata dalla configurazione)", ja: "席 1 の client_Release.exe（セットアップが作るコピー）"}
 text.fail_what_server: {en: "the server's control_Release.exe (the original Rev D)", it: "control_Release.exe del server (l'originale Rev D)", ja: "サーバーの control_Release.exe（オリジナルの Rev D）"}
-text.fail_set_up_first: {en: "%{what} is not the expected file - press SET UP in Launcher.exe first", it: "%{what} non è il file previsto: premi CONFIGURA in Launcher.exe", ja: "%{what} は想定されたファイルではありません。Launcher.exe で「設定する」を押してください"}
+text.fail_set_up_first: {en: "%{what} is not the expected file - press SET UP in Launcher.exe first", it: "%{what} non è il file previsto: premi prima CONFIGURA in Launcher.exe", ja: "%{what} は想定されたファイルではありません。先に Launcher.exe で「設定する」を押してください"}
 text.fail_text_expected: {en: "%{what} at %{at} is not the text Forza-WCCF expects", it: "%{what} all'indirizzo %{at} non è il testo previsto da Forza-WCCF", ja: "%{what} の %{at} は Forza-WCCF が想定するテキストではありません"}
 text.fail_text_does_not_fit: {en: "the text at %{at} does not fit", it: "il testo all'indirizzo %{at} non entra", ja: "%{at} のテキストが収まりません"}
 text.fail_would_change_size: {en: "%{what} would change size - nothing written", it: "%{what} cambierebbe dimensione: nulla è stato scritto", ja: "%{what} のサイズが変わってしまうため、何も書き込みませんでした"}
