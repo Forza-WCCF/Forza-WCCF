@@ -1,6 +1,6 @@
 //! WCCF RingEdge disc image -> decrypted game volume, read-only, nothing mounted.
-//! Procedure: ringedge/revd-continuation/DECRYPTION.md (TrueCrypt 4.3a hidden volume at the game slot's tail,
-//! AES-256 / LRW / RIPEMD-160 / 2000 iterations, 16-byte keyfile, empty password).
+//! The layout: a TrueCrypt 4.3a hidden volume at the game slot's tail,
+//! AES-256 / LRW / RIPEMD-160 / 2000 iterations, 16-byte keyfile, empty password.
 use crate::err::{InstallError as E, path};
 use crate::keytable;
 use aes::Aes256;
