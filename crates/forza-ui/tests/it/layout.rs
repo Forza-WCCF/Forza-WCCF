@@ -1319,7 +1319,7 @@ fn lobby_list_fits_a_short_tab() {
     );
 }
 
-/// The big card floating over the pitch (the 1440x900 sheet) takes the pointer only on itself and its FRONT | BACK
+/// The pinned card floating over the pitch (the 1440x900 sheet) takes the pointer at most on itself and its FRONT | BACK
 /// switch: a click and a drag on a mat card under the rest of the pane reach the mat card.
 #[test]
 fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
@@ -1351,9 +1351,11 @@ fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
     h.run_steps(4);
     click(&mut h, centers.iter().find(|c| c.0 == a).unwrap().1);
     let big = area(&h, "board-big").expect("the card shown big");
-    let live = area(&h, "board-big-card")
-        .unwrap()
-        .union(area(&h, "board-big-switch").unwrap());
+    // a card without a back picture (none here) has neither: the whole pane lets the pointer through (#333)
+    let live = [area(&h, "board-big-card"), area(&h, "board-big-switch")]
+        .into_iter()
+        .flatten()
+        .fold(egui::Rect::NOTHING, |a, r| a.union(r));
     let (b, at_b) = *centers
         .iter()
         .find(|(s, p)| *s != a && big.contains(*p) && !live.expand(4.0).contains(*p))

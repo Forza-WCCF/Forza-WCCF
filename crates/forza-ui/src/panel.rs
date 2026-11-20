@@ -854,17 +854,14 @@ pub struct PanelState {
     pub desk: bool,
     /// The game window's frame while the board window shows the board: [`popped_layout`].
     pub popped: bool,
-    /// The card pressed or in hand on the board window last, and when (the frame's time): the game window shows it
-    /// for [`TOUCH_SECS`] after.
-    pub touched: Option<(Card, f64)>,
+    /// The card pressed or in hand on the board window last: the game window shows it, pinned, until Esc there or
+    /// another touch (#333).
+    pub touched: Option<Card>,
     /// The card shown big (the board's pane, or the touched card) on its back: its number ([`board::flip_side`]).
     pub turned: Option<u32>,
     /// FLIP's key was down last frame: a press flips once.
     pub flip_held: bool,
 }
-
-/// How long the game window keeps showing the card touched on the board window, once the touch ended.
-pub const TOUCH_SECS: f64 = 6.0;
 
 impl PanelState {
     /// The panel at rest: the game page, no message, the default keys, the board and the catalogue given.
@@ -1736,6 +1733,17 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         && st.pad_capturing.is_none()
         && !ui.ctx().egui_wants_keyboard_input();
     st.flip_held = held;
+    // Esc lets the pinned card go when no page, dialog or key capture takes it (#333)
+    let esc_free = st.page == Page::Game
+        && st.deal.is_none()
+        && !st.close_warn
+        && st.import_ask.is_none()
+        && !st.import_help
+        && st.formations.is_none()
+        && st.reset_ask.is_none()
+        && st.capturing.is_none()
+        && st.pad_capturing.is_none()
+        && !ui.ctx().egui_wants_keyboard_input();
     let lay = if st.popped {
         popped_layout(
             sheet,
@@ -1766,6 +1774,10 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         divider(ui, st, sheet, lay.board);
     } else {
         ui.data_mut(|d| d.remove::<Rect>(handle_id()));
+    }
+    if esc_free && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        board::close_pin(ui.ctx());
+        st.touched = None;
     }
 }
 
@@ -1981,25 +1993,18 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool
     }
 }
 
-/// The card touched on the board window, its details in `area` (the popped-out column over the deck), until
-/// [`TOUCH_SECS`] after the touch or its last flip (`flip`: FLIP's key, else its FRONT | BACK switch or the card).
+/// The card touched on the board window, pinned in `area` (the popped-out column over the deck) until Esc or another
+/// touch; `flip`: FLIP's key turns it over when it has a back picture (else its FRONT | BACK switch or the card).
 fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, flip: bool, lang: Lang) {
-    let now = ui.input(|i| i.time);
-    st.touched = st.touched.take().filter(|(_, at)| now - at < TOUCH_SECS);
-    let Some((card, at)) = &mut st.touched else {
+    let Some(card) = &st.touched else {
         st.turned = None; // the next card opens on its front
         return;
     };
-    let back = board::flip_side(&mut st.turned, card.number, flip);
-    let clicked = board::card_view(ui, card, area, back, lang);
-    if clicked {
+    let has = board::has_back(ui.ctx(), card.number) == Some(true);
+    let back = board::flip_side(&mut st.turned, card.number, flip && has);
+    if board::card_view(ui, card, area, back, lang) {
         board::flip_side(&mut st.turned, card.number, true);
     }
-    if flip || clicked {
-        *at = now;
-    }
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - *at)));
 }
 
 /// The PAUSED page over the game's picture (the game's last frame stays under it): how to resume and the seconds left
@@ -3652,7 +3657,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
-        st.touched = Some((card, b.input(|i| i.time)));
+        st.touched = Some(card);
     }
     board_foot(&mut b, st, lang);
     if st.formations_desk {
@@ -6618,6 +6623,30 @@ mod tests {
                         );
                     }
                 }
+                // the hover preview (#333), its cursor at each corner of the column as info_panes takes it and in its
+                // middle, on a card there: in the board, clear of the picture, the deck and the card
+                let column = Rect::from_min_max(pitch.min, pos2(pitch.right(), col.bottom()));
+                let size = board::preview_size(1.0, column.width());
+                assert!(size.x > 300.0 && size.y >= 149.0, "{win}: {size:?}");
+                let card = board::card_size(pitch.width());
+                for cursor in [
+                    column.left_top(),
+                    column.right_top(),
+                    column.left_bottom(),
+                    column.right_bottom(),
+                    column.center(),
+                ] {
+                    let min = (cursor - card / 2.0).max(column.min).min(column.max - card);
+                    let hovered = Rect::from_min_size(min, card);
+                    let r = board::preview_place(column, cursor, hovered, size);
+                    let at = format!("{win} cursor {cursor:?}: {r:?}");
+                    assert!(l.board.contains_rect(r), "{at}");
+                    assert!(!r.intersects(l.picture) && !r.intersects(l.deck), "{at}");
+                    assert!(
+                        !r.intersects(hovered),
+                        "{at}: on the hovered card {hovered:?}"
+                    );
+                }
                 let docked = |card_y| {
                     board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
                 };
@@ -7069,8 +7098,9 @@ mod tests {
         out
     }
 
-    /// A card pressed on the board window is the game window's touched card: shown there at once, gone
-    /// [`TOUCH_SECS`] after; the board window shows nothing big and selects nothing.
+    /// A card pressed on the board window is the game window's touched card: shown there at once and kept, pinned,
+    /// until Esc on the game window (#333); FLIP turns over only a card with a back picture; the board window shows
+    /// nothing big and selects nothing.
     #[test]
     fn a_card_touched_on_the_board_window_shows_on_the_game_window() {
         let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
@@ -7108,20 +7138,30 @@ mod tests {
         both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
         assert!(st.touched.is_none());
         both(&mut st, 0.1, vec![press(true)]);
-        assert_eq!(st.touched.as_ref().map(|t| t.0.number), Some(card));
+        assert_eq!(st.touched.as_ref().map(|t| t.number), Some(card));
         assert!(big(&game_ctx), "the game window shows it");
-        // FLIP's key turns it over there
+        // no back picture (no picture folder): FLIP's key leaves it on its front
         st.down[forza::keys::FLIP] = true;
         both(&mut st, 0.15, vec![]);
         st.down[forza::keys::FLIP] = false;
-        assert_eq!(st.turned, Some(card), "FLIP turns the touched card over");
+        assert_eq!(st.turned, None, "FLIP turned a card without a back");
         both(&mut st, 0.2, vec![press(false)]);
         // rested on past the hover delay: still no big card on the board window
         both(&mut st, 3.0, vec![]);
         assert!(!big(&board_ctx), "nothing big on the board window");
-        assert!(st.touched.is_some(), "kept for a while");
-        both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
-        assert!(st.touched.is_none(), "gone after TOUCH_SECS");
+        both(&mut st, 60.0, vec![]);
+        assert!(st.touched.is_some(), "kept, pinned");
+        // Esc on the game window lets it go
+        let esc = egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        frame(&game_ctx, &mut st, 1920.0, 1080.0, 61.0, vec![esc]);
+        frame(&game_ctx, &mut st, 1920.0, 1080.0, 61.1, vec![]);
+        assert!(st.touched.is_none(), "Esc closes it");
         assert!(st.turned.is_none(), "the next card opens on its front");
         // a dock forgets the card touched last
         both(&mut st, 10.0, vec![press(true)]);

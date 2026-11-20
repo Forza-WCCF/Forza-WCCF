@@ -641,13 +641,15 @@ fn paused_page() {
     assert!(st.borrow().pause_asked, "RESUME did not ask");
 }
 
-/// The big card on the docked 2017-18 board at its least width (the divider dragged to 420 points): a click on a mat
-/// card shows it big on its front (the click does not turn it over); its FRONT | BACK switch, a click on the big card
-/// and FLIP's key turn it over and back; another card opens on its front. The pane, its card and its switch stay
-/// inside the board's column, clear of the game's picture.
+/// The pinned card on the docked 2017-18 board at its least width (the divider dragged to 420 points): a click on a mat
+/// card pins it on its front (the click does not turn it over); with a back picture its FRONT | BACK switch, a click on
+/// the big card and FLIP's key turn it over and back; another card opens on its front. A card without a back picture
+/// offers no FRONT | BACK and does not turn over, in a pane as tall (#333). The pane, its card and its switch stay
+/// inside the board's column, clear of the game's picture. Esc lets the pinned card go.
 #[test]
 fn board_card_flips_at_the_least_width() {
     use std::cell::RefCell;
+    let dir = tempfile::tempdir().expect("a temp folder");
     for lang in [Lang::En, Lang::It, Lang::Ja] {
         let size = panel::SIZE;
         let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
@@ -666,11 +668,20 @@ fn board_card_flips_at_the_least_width() {
             .collect();
         let number = |st: &panel::PanelState, s: usize| st.board.number(s).unwrap();
         let (a, b) = (number(&st, slots[0]), number(&st, slots[1]));
+        // a back picture for the first card only
+        image::RgbaImage::from_pixel(256, 357, image::Rgba([40, 90, 160, 255]))
+            .save_with_format(
+                dir.path().join(format!("{a}_b.jpg")),
+                image::ImageFormat::Png,
+            )
+            .expect("a back picture written");
+        let path = dir.path().to_owned();
         let at =
             |s| panel::board_slot_center_1718(sheet, Some(panel::BOARD_MIN), &st.board.spots, s);
         let (at_a, at_b) = (at(slots[0]), at(slots[1]));
         let st = RefCell::new(st);
         let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
             panel::show(ui, &mut st.borrow_mut())
         });
         let (front, back) = match lang {
@@ -686,8 +697,15 @@ fn board_card_flips_at_the_least_width() {
         };
         h.run_steps(4);
         assert!(h.query_by_label(back).is_none(), "nothing big yet");
-        // a mat card clicked: big, on its front
+        // a mat card clicked: big, on its front; its back picture loads on a thread
         click(&mut h, at_a);
+        for _ in 0..40 {
+            if h.query_by_label(back).is_some() {
+                break;
+            }
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
         assert_eq!(st.borrow().turned, None, "a mat card click does not flip");
         let big = h
             .ctx
@@ -740,10 +758,122 @@ fn board_card_flips_at_the_least_width() {
         st.borrow_mut().pad_capturing = None;
         h.run_steps(2);
         assert_eq!(st.borrow().turned, Some(a), "FLIP while a pad is bound");
-        // another card opens on its front
+        // another card, without a back picture: pinned on its front, no FRONT | BACK, in a pane as tall
         click(&mut h, at_b);
-        assert!(h.query_by_label(back).is_some(), "the other card big");
+        h.run_steps(3);
+        let big_b = h
+            .ctx
+            .memory(|m| m.area_rect(egui::Id::unique("board-big")))
+            .expect("the other card big");
+        assert!(
+            h.query_by_label(back).is_none() && h.query_by_label(front).is_none(),
+            "{lang:?}: {b} has no back picture"
+        );
         assert_eq!(st.borrow().turned, None, "{b} opens on its front");
+        assert!(
+            (big_b.height() - big.height()).abs() < 0.5,
+            "{lang:?}: {big_b:?} and {big:?} differ in height"
+        );
+        // neither its big card nor FLIP's key turns it over
+        click(&mut h, egui::pos2(big_b.left() + 40.0, big_b.top() + 60.0));
+        st.borrow_mut().down[forza::keys::FLIP] = true;
+        h.run_steps(2);
+        st.borrow_mut().down[forza::keys::FLIP] = false;
+        h.run_steps(2);
+        assert_eq!(st.borrow().turned, None, "{lang:?}: {b} turned over");
+        // Esc lets it go
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        let pin = h
+            .ctx
+            .data(|d| d.get_temp::<Option<u32>>(egui::Id::unique("board-pin")))
+            .flatten();
+        let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("board-big"));
+        assert!(
+            pin.is_none() && !h.ctx.memory(|m| m.areas().is_visible(&layer)),
+            "{lang:?}: Esc did not close the pinned card ({pin:?})"
+        );
+    }
+}
+
+/// The hover preview on the docked 2017-18 board (#333): it shows for the card the mouse rests on, follows the cursor,
+/// stays in the board's column clear of the game's picture, the deck and the card itself, and takes no pointer (the
+/// card under it keeps its clicks), in English and Japanese. A click pins the card; another card rested on then
+/// previews beside the pin.
+#[test]
+fn board_preview_follows_the_cursor_and_takes_no_pointer() {
+    use std::cell::RefCell;
+    // Japanese: the caption's widest stat names, the drawn pane no wider than placed
+    for lang in [Lang::En, Lang::Ja] {
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, panel::SIZE);
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        st.hover_delay = Some(0.0);
+        let l = panel::layout_at(sheet, false, None);
+        let slots: Vec<usize> = (0..11).filter(|&s| st.board.slots[s].is_some()).collect();
+        let spots = st.board.spots;
+        let at = |s| panel::board_slot_center_1718(sheet, None, &spots, s);
+        let st = RefCell::new(st);
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        let area = |h: &Harness, name: &str| h.ctx.memory(|m| m.area_rect(egui::Id::unique(name)));
+        h.run_steps(4);
+        let mut seen = Vec::new();
+        for &s in &slots {
+            for nudge in [egui::vec2(-6.0, -6.0), egui::vec2(6.0, 6.0)] {
+                let p = at(s) + nudge;
+                h.hover_at(p);
+                h.run_steps(3);
+                let r = area(&h, "board-preview").expect("a preview of the card rested on");
+                let most = forza_ui::board::preview_size(1.0, f32::INFINITY).x;
+                assert!(
+                    r.width() <= most + 0.5,
+                    "{lang:?}: drawn {r:?}, placed {most} wide"
+                );
+                assert!(
+                    l.board.contains_rect(r),
+                    "{lang:?} slot {s}: {r:?} outside {:?}",
+                    l.board
+                );
+                assert!(
+                    !r.intersects(l.picture) && !r.intersects(l.deck),
+                    "{lang:?} slot {s}: {r:?} on the picture or the deck"
+                );
+                assert!(
+                    !r.contains(p),
+                    "{lang:?} slot {s}: the preview under the cursor"
+                );
+                // no pointer: what is under it is the board, not the preview
+                let layer = h.ctx.layer_id_at(r.center());
+                assert!(
+                    layer.is_none_or(|l| l.id != egui::Id::unique("board-preview")),
+                    "{lang:?} slot {s}: the preview takes the pointer"
+                );
+                seen.push(r);
+            }
+        }
+        seen.dedup();
+        assert!(
+            seen.len() >= 3,
+            "the preview did not follow the cursor: {seen:?}"
+        );
+        assert!(area(&h, "board-big").is_none(), "nothing pinned by resting");
+        // a click pins the card; resting on another previews it, the pin stays
+        let (a, b) = (at(slots[0]), at(slots[1]));
+        h.hover_at(a);
+        h.run_steps(2);
+        h.drag_at(a);
+        h.run_steps(1);
+        h.drop_at(a);
+        h.run_steps(3);
+        let pinned = area(&h, "board-big").expect("the clicked card pinned");
+        h.hover_at(b);
+        h.run_steps(3);
+        assert_eq!(area(&h, "board-big"), Some(pinned), "the pin stays put");
+        assert!(
+            area(&h, "board-preview").is_some(),
+            "the other card previewed"
+        );
     }
 }
 

@@ -1615,9 +1615,7 @@ pub fn formation_board(
     let mut removed: Option<(usize, Pos2)> = None;
 
     let hover_id = Id::unique("board-hover");
-    // the card clicked last: shown big while the mouse rests on it or is off the board (a touch leaves no mouse), until
-    // another card shows big, a click on it again or a press off the cards and the big card; so its FRONT | BACK
-    // switch can be reached
+    // the card clicked last, pinned in the info box ([`next_pin`])
     let pin_id = Id::unique("board-pin");
     let mut hovered_card = None;
     let mut drop_target = None;
@@ -1729,7 +1727,7 @@ pub fn formation_board(
                     let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<u32>>(pin_id);
-                        *f = if *f == Some(no) { None } else { Some(no) };
+                        *f = next_pin(*f, PinEvent::Click(no));
                         let s = d.get_temp_mut_or_default::<Option<u32>>(select_id);
                         *s = if clicked_card == Some(no) {
                             None
@@ -1939,16 +1937,16 @@ pub fn formation_board(
         ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
-    // the big card after a resting mouse, else the card clicked last
-    let pinned = ui
+    // the info box (#333): the card clicked last stays pinned where it opened, the card the mouse rests on (past the
+    // hover delay) shows in a preview at the cursor ([`boxes`])
+    let slot_of = |n: u32| (0..16).find(|&s| board.number(s) == Some(n));
+    let mut pin = ui
         .data(|d| d.get_temp::<Option<u32>>(pin_id))
         .flatten()
-        .and_then(|n| (0..16).find(|&s| board.number(s) == Some(n)));
-    let unpin = |ui: &Ui| ui.data_mut(|d| d.remove::<Option<u32>>(pin_id));
-    let pin_shown = pinned.and_then(|s| board.slots[s].map(|ci| (s, ci, rects[s])));
-    let mut show = None;
+        .filter(|&n| slot_of(n).is_some()); // the card left the table: the pin goes with it
+    let mut rested = None;
     match hovered_card {
-        Some((slot, ci, rect)) => {
+        Some((slot, ci, _)) => {
             let since = ui.data_mut(|d| {
                 let e = d.get_temp_mut_or_insert_with(hover_id, || (slot, now));
                 if e.0 != slot {
@@ -1956,13 +1954,10 @@ pub fn formation_board(
                 }
                 e.1
             });
-            // None: CARD HOVER DELAY off, never shown big by resting
+            // None: CARD HOVER DELAY off, no preview
             let left = hover_delay.map(|d| d as f64 - (now - since));
-            if left.is_some_and(|l| l <= 0.0) || pinned == Some(slot) {
-                if pinned != Some(slot) {
-                    unpin(ui); // another card rested on: the clicked one goes
-                }
-                show = Some((slot, ci, rect));
+            if left.is_some_and(|l| l <= 0.0) {
+                rested = Some(board.cards[ci].number);
             } else if let Some(left) = left {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
@@ -1970,7 +1965,7 @@ pub fn formation_board(
         }
         None => {
             ui.data_mut(|d| d.remove::<(usize, f64)>(hover_id));
-            // a press off the cards and off the big card (as drawn last frame) lets the clicked card go
+            // a press off the cards and off the pinned card (as drawn last frame) lets it go
             let big = ui.ctx().memory(|m| m.area_rect(Id::unique("board-big")));
             let off_big = ui.input(|i| {
                 i.pointer.any_pressed()
@@ -1979,25 +1974,31 @@ pub fn formation_board(
                         .is_some_and(|p| !big.is_some_and(|r| r.contains(p)))
             });
             if off_big {
-                unpin(ui);
-            } else if !pointer.is_some_and(|p| {
-                shown.union(bench).contains(p) && !big.is_some_and(|r| r.contains(p))
-            }) {
-                // on the board the selection's partners show, as before the click; off it (or on the big card over
-                // the pitch) the clicked card
-                show = pin_shown;
+                pin = next_pin(pin, PinEvent::Close);
             }
         }
     }
-    let mut shown_big = None;
-    if let Some((_, ci, rect)) = show {
-        let ask = PaneAsk {
-            card: board.cards[ci].clone(),
-            at: rect,
-        };
-        ui.data_mut(|d| d.insert_temp(pane_id(), ask));
-        shown_big = Some(ci);
+    ui.data_mut(|d| d.insert_temp(pin_id, pin));
+    let busy = dragging.is_some() || incoming.is_some() || group_drag || box_area.is_some();
+    let (preview, pinned) = boxes(pin, rested, busy);
+    let ask = |n: u32| {
+        slot_of(n).and_then(|s| {
+            board.slots[s].map(|ci| PaneAsk {
+                card: board.cards[ci].clone(),
+                at: rects[s],
+            })
+        })
+    };
+    if let Some(a) = pinned.and_then(ask) {
+        ui.data_mut(|d| d.insert_temp(pane_id(), a));
     }
+    if let (Some(a), Some(p)) = (preview.and_then(ask), pointer) {
+        ui.data_mut(|d| d.insert_temp(preview_id(), (a, p)));
+    }
+    let shown_big = preview
+        .or(pinned)
+        .and_then(slot_of)
+        .and_then(|s| board.slots[s]);
 
     // the heat zone of the card in hand (or shown big), and the drop target's fit
     let held = dragging
@@ -2408,15 +2409,104 @@ pub fn strip_pane(ppp: f32) -> f32 {
     BIG_FRAME + crate::sizing::hover_face(ppp).y + FLIP_ROW
 }
 
-/// What the board asks [`info_panes`] to show this frame: the card shown big and where it lies.
+/// What the board asks [`info_panes`] to show this frame: a card in the info box and where it lies.
 #[derive(Clone)]
 struct PaneAsk {
     card: Card,
     at: Rect,
 }
 
+/// The pinned card asked for.
 fn pane_id() -> Id {
     Id::unique("board-pane-ask")
+}
+
+/// The previewed card asked for, and the cursor.
+fn preview_id() -> Id {
+    Id::unique("board-preview-ask")
+}
+
+/// What changes the info box's pinned card (#333).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinEvent {
+    /// A plain click on a card.
+    Click(u32),
+    /// Esc, a press off the cards and the pinned card, or the card leaving the table.
+    Close,
+}
+
+/// The pinned card after `e`: a click pins the card, a click on the pinned card lets it go; a close lets it go.
+pub fn next_pin(pin: Option<u32>, e: PinEvent) -> Option<u32> {
+    match e {
+        PinEvent::Click(n) if pin != Some(n) => Some(n),
+        _ => None,
+    }
+}
+
+/// What the info box shows this frame: (the preview's card, the pinned card). Nothing while a card, a group or a box is
+/// in hand (`busy`); the preview is the card rested on past the hover delay (`rested`), unless it is the pinned one.
+fn boxes(pin: Option<u32>, rested: Option<u32>, busy: bool) -> (Option<u32>, Option<u32>) {
+    if busy {
+        return (None, None);
+    }
+    (rested.filter(|&n| Some(n) != pin), pin)
+}
+
+/// Lets the pinned card go (Esc on the game window).
+pub fn close_pin(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(Id::unique("board-pin"), None::<u32>));
+}
+
+/// The hover preview's caption width: the six stats' columns with their Japanese names ([`caption`]).
+const PREVIEW_CAPTION: f32 = 280.0;
+
+/// The hover preview's size at `ppp`, at most `width` wide: the frame, the strip's face and the caption beside it; no
+/// switch row.
+pub fn preview_size(ppp: f32, width: f32) -> Vec2 {
+    let face = crate::sizing::hover_face(ppp);
+    vec2(
+        (BIG_FRAME + face.x + 10.0 + PREVIEW_CAPTION).min(width),
+        BIG_FRAME + face.y,
+    )
+}
+
+/// Where the hover preview (`size`) goes in the board's `column`: 16 points right of and under the `cursor`, on the
+/// first side of the hovered `card` where it fits whole (under, over, right, left), following the cursor along that
+/// side (turned to the cursor's left when it would leave the column) and kept in the column; so it never covers the
+/// card, and never leaves the column for the game's picture or the deck.
+pub fn preview_place(column: Rect, cursor: Pos2, card: Rect, size: Vec2) -> Rect {
+    const GAP: f32 = 16.0;
+    let fit = |v: f32, lo: f32, hi: f32, len: f32| v.clamp(lo, (hi - len).max(lo));
+    // along an axis: after the cursor, or before it when that leaves the column
+    let along = |c: f32, lo: f32, hi: f32, len: f32| {
+        let v = if c + GAP + len <= hi {
+            c + GAP
+        } else {
+            c - GAP - len
+        };
+        fit(v, lo, hi, len)
+    };
+    let x = along(cursor.x, column.left(), column.right(), size.x);
+    let y = along(cursor.y, column.top(), column.bottom(), size.y);
+    let tries = [
+        pos2(x, (card.bottom() + 8.0).max(cursor.y + GAP)),
+        pos2(x, (card.top() - 8.0).min(cursor.y - GAP) - size.y),
+        pos2((card.right() + 8.0).max(cursor.x + GAP), y),
+        pos2((card.left() - 8.0).min(cursor.x - GAP) - size.x, y),
+    ];
+    tries
+        .into_iter()
+        .map(|m| Rect::from_min_size(m, size))
+        .find(|r| column.contains_rect(*r))
+        .unwrap_or_else(|| {
+            Rect::from_min_size(
+                pos2(
+                    fit(x, column.left(), column.right(), size.x),
+                    fit(y, column.top(), column.bottom(), size.y),
+                ),
+                size,
+            )
+        })
 }
 
 /// The selected card's partner list asked for: its number and where it lies.
@@ -2477,9 +2567,9 @@ fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
 }
 
 /// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
-/// `foot`): the card the mouse rests on (after the hover delay) or clicked last, else the selected card's partners.
-/// Both stay inside the board's column ([`pane_place`]). `turned`: the card shown big on its back ([`flip_side`]);
-/// `flip`: the KEYS page's FLIP pressed this frame.
+/// `foot`): the preview of the card the mouse rests on (after the hover delay) at the cursor ([`preview_place`]), and
+/// the pinned card ([`pane_place`]), else the selected card's partners. All stay inside the board's column. `turned`:
+/// the pinned card on its back ([`flip_side`]); `flip`: the KEYS page's FLIP pressed this frame.
 #[allow(clippy::too_many_arguments)]
 pub fn info_panes(
     ui: &Ui,
@@ -2492,14 +2582,22 @@ pub fn info_panes(
     flip: bool,
     lang: Lang,
 ) {
-    let (ask, partners) = ui.data_mut(|d| {
+    let (ask, preview, partners) = ui.data_mut(|d| {
         let ask = d.get_temp::<PaneAsk>(pane_id());
+        let preview = d.get_temp::<(PaneAsk, Pos2)>(preview_id());
         let partners = d.get_temp::<(u32, Rect)>(partners_id());
         d.remove::<PaneAsk>(pane_id());
+        d.remove::<(PaneAsk, Pos2)>(preview_id());
         d.remove::<(u32, Rect)>(partners_id());
-        (ask, partners)
+        (ask, preview, partners)
     });
     let ppp = ui.ctx().pixels_per_point();
+    if let Some((a, cursor)) = preview {
+        let column = Rect::from_min_max(pitch.min, pos2(pitch.right(), foot));
+        let r = preview_place(column, cursor, a.at, preview_size(ppp, column.width()));
+        let face = crate::sizing::hover_face(ppp);
+        info_pane(ui, &a.card, r, Tier::Strip, face, None, true, lang);
+    }
     if let Some(a) = ask {
         let large = large_face(pitch.width(), ppp);
         let strip = crate::sizing::hover_face(ppp);
@@ -2515,8 +2613,18 @@ pub fn info_panes(
             (Tier::Large, Some(f)) => f,
             _ => strip,
         };
-        let back = flip_side(turned, a.card.number, flip);
-        if info_pane(ui, &a.card, pane, tier, face, back, lang) {
+        let has = has_back(ui.ctx(), a.card.number) == Some(true);
+        let back = flip_side(turned, a.card.number, flip && has);
+        if info_pane(
+            ui,
+            &a.card,
+            pane,
+            tier,
+            face,
+            has.then_some(back),
+            false,
+            lang,
+        ) {
             flip_side(turned, a.card.number, true);
         }
         return;
@@ -2544,10 +2652,12 @@ pub fn flip_side(turned: &mut Option<u32>, card: u32, flip: bool) -> bool {
 }
 
 /// A card's info pane at the top of `area` (the game window's column, the board popped out): large when it fits, else
-/// the strip. `back`: on its back; true when its FRONT | BACK switch or the big card was clicked.
+/// the strip. `back`: on its back, when it has a back picture ([`has_back`]); true when its FRONT | BACK switch or the
+/// big card was clicked.
 pub fn card_view(ui: &Ui, card: &Card, area: Rect, back: bool, lang: Lang) -> bool {
     let (pane, tier, face) = card_view_place(area, ui.ctx().pixels_per_point());
-    info_pane(ui, card, pane, tier, face, back, lang)
+    let has = has_back(ui.ctx(), card.number) == Some(true);
+    info_pane(ui, card, pane, tier, face, has.then_some(back), false, lang)
 }
 
 /// [`card_view`]'s pane in `area`, its tier and its face's size.
@@ -2569,17 +2679,22 @@ pub fn card_view_place(area: Rect, ppp: f32) -> (Rect, Tier, Vec2) {
 }
 
 /// The info pane in `pane`: the card's face (its back when turned over) `face` big, the FRONT | BACK switch under it;
-/// large, the position map beside them and the caption under them; a strip, the caption beside them. True when the
-/// switch or the big card was clicked: the caller turns it over.
+/// large, the position map beside them and the caption under them; a strip, the caption beside them. `back`: the side
+/// shown, `None` for a card without a back picture (the switch's row stays, empty, so a late back moves nothing).
+/// `preview`: the hover preview, a strip with no switch row that takes no pointer. True when the switch or the big
+/// card was clicked: the caller turns it over.
+#[allow(clippy::too_many_arguments)]
 fn info_pane(
     ui: &Ui,
     card: &Card,
     pane: Rect,
     tier: Tier,
     face: Vec2,
-    back: bool,
+    back: Option<bool>,
+    preview: bool,
     lang: Lang,
 ) -> bool {
+    let (has, back) = (back.is_some(), back == Some(true));
     let card = &*real(ui.ctx(), card);
     let large = tier == Tier::Large;
     let t = if large { 1.0 } else { 0.9 };
@@ -2589,7 +2704,12 @@ fn info_pane(
     let ppp = ui.ctx().pixels_per_point();
     let (mut card_r, mut switch_r) = (Rect::NOTHING, Rect::NOTHING);
     // click-through: the mat cards under the pane keep their hover, clicks and drags
-    let pane_layer = egui::Area::new(Id::unique("board-big"))
+    let name = if preview {
+        "board-preview"
+    } else {
+        "board-big"
+    };
+    let pane_layer = egui::Area::new(Id::unique(name))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
         .interactable(false)
@@ -2634,9 +2754,14 @@ fn info_pane(
                                 );
                             }
                             // the switch is drawn on its own layer below
-                            switch_r = ui
-                                .allocate_exact_size(vec2(face.x, FLIP_ROW - 6.0), Sense::hover())
-                                .0;
+                            if !preview {
+                                switch_r = ui
+                                    .allocate_exact_size(
+                                        vec2(face.x, FLIP_ROW - 6.0),
+                                        Sense::hover(),
+                                    )
+                                    .0;
+                            }
                         });
                         ui.vertical(|ui| {
                             if large {
@@ -2661,6 +2786,14 @@ fn info_pane(
         })
         .response
         .layer_id;
+    if preview {
+        ui.ctx().move_to_top(pane_layer); // over the pinned card
+        return false;
+    }
+    // without a back picture nothing turns it over
+    if !has {
+        return false;
+    }
     // only the big card and its switch take the pointer, each on a layer just above the pane
     let mut flip = false;
     let mut over = |name: &'static str, at: Rect, add: &mut dyn FnMut(&mut Ui) -> bool| {
@@ -4454,6 +4587,60 @@ mod tests {
         r.drag(&mut b, one, one + vec2(30.0, 0.0));
         assert_ne!(b.spots[0], was[0]);
         assert_eq!(b.spots[1..], was[1..]);
+    }
+
+    /// The info box (#333): the card rested on previews; a click pins it; another card rested on previews beside the
+    /// pin, which stays; a click on the pinned card again or a close lets it go; nothing shows while a card or a box
+    /// is in hand.
+    #[test]
+    fn the_info_box_previews_a_rested_card_and_pins_a_clicked_one() {
+        assert_eq!(boxes(None, Some(7), false), (Some(7), None), "a preview");
+        assert_eq!(boxes(None, None, false), (None, None));
+        let pin = next_pin(None, PinEvent::Click(7));
+        assert_eq!(pin, Some(7), "a click pins");
+        assert_eq!(
+            boxes(pin, Some(7), false),
+            (None, Some(7)),
+            "pinned, not previewed too"
+        );
+        assert_eq!(
+            boxes(pin, Some(8), false),
+            (Some(8), Some(7)),
+            "the pin stays"
+        );
+        assert_eq!(next_pin(pin, PinEvent::Click(8)), Some(8), "another click");
+        assert_eq!(
+            next_pin(pin, PinEvent::Click(7)),
+            None,
+            "a click on it again"
+        );
+        assert_eq!(next_pin(pin, PinEvent::Close), None, "Esc, a press off it");
+        assert_eq!(boxes(pin, Some(8), true), (None, None), "in hand: nothing");
+    }
+
+    /// The pin on the board: a click pins a card, a click on it again or on open pitch lets it go, and a card taken off the table takes its pin with it.
+    #[test]
+    fn a_pin_goes_with_a_click_off_it_or_its_card() {
+        let none = egui::Modifiers::NONE;
+        let mut b = square();
+        let mut r = Rig::new(false, &mut b);
+        let pin = |r: &Rig| {
+            r.ctx
+                .data(|d| d.get_temp::<Option<u32>>(Id::unique("board-pin")))
+                .flatten()
+        };
+        let one = r.at(b.spots[0]);
+        r.click(&mut b, one, none);
+        assert_eq!(pin(&r), Some(1));
+        r.click(&mut b, one, none);
+        assert_eq!(pin(&r), None, "a click on it again");
+        r.click(&mut b, one, none);
+        r.click(&mut b, r.at(pos2(0.05, 0.08)), none);
+        assert_eq!(pin(&r), None, "a click on open pitch");
+        r.click(&mut b, one, none);
+        r.drag(&mut b, one, one + vec2(2000.0, 0.0));
+        assert!(r.removed.is_some(), "taken off");
+        assert_eq!(pin(&r), None, "the pin left with its card");
     }
 
     #[test]

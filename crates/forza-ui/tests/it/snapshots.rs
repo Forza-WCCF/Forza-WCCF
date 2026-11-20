@@ -421,39 +421,45 @@ fn board_interaction() {
     h.snapshot("board_drag_en");
     h.drop_at(to);
     h.run_steps(2);
-    // the big card of a centre back, with its position map and the heat zone on the pitch
+    // the preview of a centre back at the cursor, and the heat zone on the pitch
     h.hover_at(at(2));
     h.run_steps(8); // past the 1 s hover delay at 0.25 s a step
     h.snapshot("board_hover_en");
-    // a click keeps the big card; its BACK shows the back, the position map with the ratings and the stats
+    // a click pins it: no back picture here, so no FRONT | BACK (#333)
     h.drag_at(at(2));
     h.run_steps(1);
     h.drop_at(at(2));
     h.hover_at(at(2));
     h.run_steps(3);
-    h.get_by_label("BACK").click();
-    h.run_steps(3);
-    h.snapshot("board_back_en");
+    h.snapshot("board_pinned_en");
 }
 
-/// The hover pane stays in the board's column: docked under the hint at 1920x1080 (a strip) and 2560x1440 (large), over
-/// the pitch's far half at 1440x900 (the card in the top half: the pane at the pitch's foot).
+/// The hover preview at the cursor, in the board's column (#333), at 1920x1080, 2560x1440 and 1440x900 (a card in the
+/// top half), and in Japanese (the caption's widest words).
 #[test]
 fn hover_pane() {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (size, slot, name) in [
-        (Vec2::new(1920.0, 1080.0), 2, "panel_hover_1080_en"),
-        (Vec2::new(2560.0, 1440.0), 2, "panel_hover_1440p_en"),
-        (panel::SIZE, 9, "panel_hover_1440x900_top_en"),
+    for (size, slot, lang, name) in [
+        (
+            Vec2::new(1920.0, 1080.0),
+            2,
+            Lang::En,
+            "panel_hover_1080_en",
+        ),
+        (
+            Vec2::new(2560.0, 1440.0),
+            2,
+            Lang::En,
+            "panel_hover_1440p_en",
+        ),
+        (panel::SIZE, 9, Lang::En, "panel_hover_1440x900_top_en"),
+        (panel::SIZE, 2, Lang::Ja, "board_preview_ja"),
     ] {
-        let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
-        let col = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false)
-            .board
-            .shrink(16.0);
-        let pitch = forza_ui::board::pitch_rect(col.min, col.width());
-        let at = forza_ui::board::slot_rects(pitch, pitch.bottom() + 12.0, &st.board.spots)[slot]
-            .center();
+        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+        // the 2017-18 board as drawn (the older pitch_rect sum missed the card)
+        let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let at = panel::board_slot_center_1718(sheet, None, &st.board.spots, slot);
         st.hover_delay = Some(0.0);
         let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
         h.run_steps(4);
@@ -519,7 +525,7 @@ fn popout_game_window() {
         st.file.board_window = true;
         st.popped = true;
         let ci = st.board.slots[2].expect("a card in slot 2");
-        st.touched = Some((st.board.cards[ci].clone(), 0.0));
+        st.touched = Some(st.board.cards[ci].clone());
         snap(&mut all, name, Vec2::new(w, h), Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
@@ -1290,10 +1296,8 @@ fn lobby_screens() {
     all.unwrap();
 }
 
-/// The big card on the docked 2017-18 board at its least width (the divider dragged to BOARD_MIN): a click on a mat
-/// card shows it big on its front (the click does not turn it over); its FRONT | BACK switch, a click on the big card
-/// and FLIP's key turn it over and back; another card opens on its front. The pane, its card and its switch stay
-/// inside the board's column, clear of the game's picture.
+/// The pinned card on the docked 2017-18 board at its least width (the divider dragged to BOARD_MIN): a click on a mat
+/// card pins it on its front; with no back picture its switch's row stays empty (#333).
 #[test]
 fn board_card_flips_at_the_least_width() {
     let _gpu = gpu();
@@ -1321,10 +1325,8 @@ fn board_card_flips_at_the_least_width() {
     h.run_steps(4);
     // a mat card clicked: big, on its front
     click(&mut h, at_a);
-    // BACK: the back of the card, its position map with the ratings and the stats
-    h.get_by_label("BACK").click();
-    h.run_steps(3);
-    h.snapshot("board_flip_420_back_en");
+    // pinned, no back picture here: the front, the caption with its facts, the switch's row empty (#333)
+    h.snapshot("board_pinned_420_en");
     all.extend_harness(&mut h);
     all.unwrap();
 }
