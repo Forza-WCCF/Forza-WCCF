@@ -129,7 +129,9 @@ working with released clients (CI and the loopback server test); otherwise it is
 
 CI is the gate, on the candidate:
 
-- the candidate dispatch: build, VirusTotal (Microsoft finds nothing) and the reproducibility job;
+- the candidate dispatch: build and VirusTotal (Microsoft finds nothing); the reproducibility job runs alongside and is
+  informational, since it only lists the PE files that differ from the last release and a source change is a good
+  reason;
 - the PR CI on the `chore(release)` PR, which runs once it is marked ready (it is a draft before the play test, where
   `ci-ok` fails on purpose);
 - the per-file antivirus check on the candidate's files ([Antivirus verdicts](#antivirus-verdicts)): a local
