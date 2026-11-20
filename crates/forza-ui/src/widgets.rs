@@ -709,6 +709,7 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
 /// One step of [`stepper`]: `up` or down to the next multiple of `step` (8 -> 10 -> 15, 10 -> 8), kept in `range`;
 /// `wrap` goes round to the other end instead (a clock: 23:55 -> 00:00).
 pub fn step_value(v: u16, up: bool, range: &RangeInclusive<u16>, step: u16, wrap: bool) -> u16 {
+    assert!(step > 0, "a stepper needs a step");
     let (lo, hi, s) = (
         i32::from(*range.start()),
         i32::from(*range.end()),
