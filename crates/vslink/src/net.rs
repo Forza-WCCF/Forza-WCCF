@@ -964,7 +964,12 @@ mod tests {
         )
         .await
         .expect("exchange hung");
-        server.await.unwrap().unwrap();
+        // bounded too: an exchange that fails before it connects leaves the stand-in waiting in accept
+        timeout(ASK_TIMEOUT, server)
+            .await
+            .expect("stand-in hung")
+            .unwrap()
+            .unwrap();
         r
     }
 
