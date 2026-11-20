@@ -1407,8 +1407,9 @@ const SELECT_HOLD: f64 = 3.0;
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
 /// beside the board names its partners, on the team and not. With `column` the bench is a column at the pitch's right
-/// ([`Mat::column`]), else a strip under it. `pure` (the pop-out board): moves only, no big card, no selection and no
-/// lines; the card pressed or in hand is kept for [`take_touched`]. Returns true when it changed.
+/// ([`Mat::column`]), else a strip under it. `pure` (the pop-out board): moves only, no big card, no link selection
+/// and no lines (a box group still moves, with [`group_moves`]); the card pressed or in hand is kept for
+/// [`take_touched`]. Returns true when it changed.
 pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
