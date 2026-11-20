@@ -427,9 +427,22 @@ struct Item {
     size: u64,
 }
 
-/// A name from the disc must stay inside the destination.
+/// A name from the disc must stay inside the destination, and must not be one Windows rewrites: a trailing space or
+/// dot goes, and `CON`, `NUL` or `COM1` with any extension opens the device, not a file of the kit.
 fn safe(name: &str) -> bool {
-    !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != ".."
+    if name.is_empty()
+        || name.contains(['/', '\\', ':'])
+        || name == "."
+        || name == ".."
+        || name.ends_with([' ', '.'])
+    {
+        return false;
+    }
+    let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    !matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        && !(stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
 }
 
 /// Keep a disc entry: a safe name, and none of the root's own metadata (`$MFT`, `$Bitmap`, `System Volume
@@ -837,7 +850,8 @@ mod tests {
         fs::remove_dir_all(&t).unwrap();
     }
 
-    /// A name from the disc stays inside the destination: no separator, no drive or stream colon, no dot entry.
+    /// A name from the disc stays inside the destination: no separator, no drive or stream colon, no dot entry, and
+    /// nothing Windows rewrites.
     #[test]
     fn a_name_from_the_disc_stays_inside_the_destination() {
         for good in [
@@ -846,11 +860,33 @@ mod tests {
             "WCCF 2017-2018",
             "local",
             "$MFT",
+            // not the devices these begin with
+            "CONSOLE",
+            "COM0",
+            "COM10",
+            "LPT0",
         ] {
             assert!(safe(good), "{good}");
         }
         for bad in ["", ".", "..", "a/b", r"a\b", "C:", "x:y"] {
             assert!(!safe(bad), "{bad}");
+        }
+        // Windows drops a trailing space or dot and opens the device, never the file
+        for bad in [
+            "data ",
+            "data.",
+            ".. ",
+            "CON",
+            "con",
+            "nul.txt",
+            "PRN.log",
+            "aux.",
+            "COM1",
+            "com9.log",
+            "LPT1",
+            "lpt9.dat",
+        ] {
+            assert!(!safe(bad), "{bad:?}");
         }
     }
 
