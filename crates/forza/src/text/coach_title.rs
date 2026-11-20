@@ -19,7 +19,7 @@ const PART: [&str; 2] = ["title", "requirement"];
 type Rec = ([u8; 8], [Vec<u8>; 3], [u8; 32]);
 
 fn read(d: &[u8]) -> R<Vec<Rec>> {
-    let short = || Failed(Line::raw("CoachtitleTableRecord.bin is cut short"));
+    let short = || Failed(Line::key("text.fail_table_cut").arg("file", TITLES));
     let take = |p: &mut usize, n: usize| -> R<&[u8]> {
         let b = d.get(*p..*p + n).ok_or_else(short)?;
         *p += n;
@@ -38,10 +38,11 @@ fn read(d: &[u8]) -> R<Vec<Rec>> {
         recs.push((head, s, take(&mut p, 32)?.try_into().unwrap()));
     }
     if p != d.len() {
-        return fail(Line::raw(format!(
-            "CoachtitleTableRecord.bin has {} bytes after its last title",
-            d.len() - p
-        )));
+        return fail(
+            Line::key("text.fail_titles_tail")
+                .arg("file", TITLES)
+                .arg("count", d.len() - p),
+        );
     }
     Ok(recs)
 }
@@ -94,9 +95,7 @@ fn pack(raw: &[u8], choose: impl Fn(&str) -> Vec<String>) -> R<(Vec<u8>, usize, 
             .zip(&old)
             .any(|(a, b)| a.0 != b.0 || a.1[0] != b.1[0] || a.2 != b.2)
     {
-        return fail(Line::raw(
-            "the built manager titles do not read back as intended - nothing changed",
-        ));
+        return fail(Line::key("text.fail_read_back").part("what", Line::key("text.what_titles")));
     }
     Ok((new, done, misfit))
 }

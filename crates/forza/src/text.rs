@@ -20,7 +20,6 @@ mod coach_title;
 mod pictures;
 mod pil;
 
-const PICTURES_OFF: &str = "pictures stay Japanese";
 use regex::Regex;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -553,7 +552,7 @@ fn read_strings(raw: &[u8], hf_raw: &[u8]) -> R<(Vec<u8>, Keys)> {
             .map(|x| std::str::from_utf8(x).ok().and_then(|x| x.parse().ok()))
             .collect::<Option<Vec<usize>>>();
         let (Some(nums), Ok(k)) = (nums, std::str::from_utf8(k)) else {
-            return fail(Line::raw("string_list.hf: a line is not a key and numbers"));
+            return fail(Line::key("text.fail_hf_line"));
         };
         keys.insert(k.into(), (i, nums));
     }
@@ -839,7 +838,7 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
     let mut own: HashMap<&str, (usize, usize)> = HashMap::new();
     for k in enc.keys() {
         let Some((_, nums)) = keys.get(k) else {
-            return fail(Line::raw(format!("no such line {k}")));
+            return fail(Line::key("text.fail_no_line").arg("key", k));
         };
         let p = nums[0];
         let end = p + at(&body, p).len() + 1;
@@ -881,7 +880,7 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
     for k in spill {
         let b = &enc[k];
         let Some(i) = free.iter().position(|&(s, e)| e - s > b.len() as i64) else {
-            return fail(Line::raw(format!("no room in string_list.bin for {k}")));
+            return fail(Line::key("text.fail_no_room").arg("key", k));
         };
         let s = free[i].0 as usize;
         nbody[s..s + b.len()].copy_from_slice(b);
@@ -937,9 +936,11 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
         }
     }
     if wrong > 0 || new_bin.len() != raw.len() || new_hf[0] != hf_lines[0] {
-        return fail(Line::raw(format!(
-            "the built screen text does not read back as intended ({wrong} places) - nothing changed"
-        )));
+        return fail(
+            Line::key("text.fail_read_back_places")
+                .part("what", Line::key("text.what_screen"))
+                .arg("places", wrong),
+        );
     }
     Ok((new_bin, new_hf.concat(), pos))
 }
@@ -952,7 +953,7 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
     let u32at = |p: usize| {
         d.get(p..p + 4)
             .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-            .ok_or_else(|| Failed(Line::raw("StringListTableRecord.bin is cut short")))
+            .ok_or_else(|| Failed(Line::key("text.fail_table_cut").arg("file", ENUM)))
     };
     let (n, mut p, mut recs) = (u32at(0)?, 4, vec![]);
     for _ in 0..n {
@@ -963,7 +964,7 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
             let ln = u32at(p)? as usize;
             f.push(
                 d.get(p + 4..p + 4 + ln)
-                    .ok_or_else(|| Failed(Line::raw("StringListTableRecord.bin is cut short")))?
+                    .ok_or_else(|| Failed(Line::key("text.fail_table_cut").arg("file", ENUM)))?
                     .to_vec(),
             );
             p += 4 + ln;
@@ -971,10 +972,11 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
         recs.push((id, f));
     }
     if p != d.len() {
-        return fail(Line::raw(format!(
-            "StringListTableRecord.bin has {} bytes after its last line",
-            d.len() - p
-        )));
+        return fail(
+            Line::key("text.fail_table_tail")
+                .arg("file", ENUM)
+                .arg("count", d.len() - p),
+        );
     }
     Ok(recs)
 }
@@ -1019,9 +1021,7 @@ fn pack_enum(
             i == j && b[..2] == o[..2] && b[3..] == o[3..] && b[2] == *done.get(&k).unwrap_or(&o[2])
         });
     if !ok {
-        return fail(Line::raw(
-            "the built client screen text does not read back as intended - nothing changed",
-        ));
+        return fail(Line::key("text.fail_read_back").part("what", Line::key("text.what_client")));
     }
     Ok((new, done.len()))
 }
@@ -1355,10 +1355,10 @@ impl Ctx {
             for r in mine {
                 let off = cell(r, "offset");
                 let o = usize::from_str_radix(off.trim_start_matches("0x"), 16)
-                    .map_err(|_| Failed(Line::raw(format!("exe_text.tsv: bad offset {off}"))))?;
+                    .map_err(|_| Failed(Line::key("text.fail_sheet_offset").arg("cell", off)))?;
                 let n: usize = cell(r, "length")
                     .parse()
-                    .map_err(|_| Failed(Line::raw(format!("exe_text.tsv: bad length at {off}"))))?;
+                    .map_err(|_| Failed(Line::key("text.fail_sheet_length").arg("cell", off)))?;
                 let en = if lang == Lang::It && !cell(r, "italiano").is_empty() {
                     cell(r, "italiano")
                 } else {
@@ -1816,13 +1816,13 @@ pub fn run(
             let spec = std::env::var("WCCF_PICTURES").ok();
             pictures::build(game, sheets, lang == Lang::It, spec.as_deref(), &state)?
         } else {
-            (vec![], vec![PICTURES_OFF.into()])
+            (vec![], vec![Line::key("text.pictures_off")])
         };
         for n in &notes {
             say("  ok    ", n);
         }
         for n in &pnotes {
-            say("  ok    ", &Line::raw(n));
+            say("  ok    ", n);
         }
         if mode == Mode::Check {
             let man = c.load_manifest()?;

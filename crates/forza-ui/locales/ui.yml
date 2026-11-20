@@ -1005,9 +1005,9 @@ setup.pic_making: {en: "Making card pictures from your game files...", it: "Crea
 setup.pic_made: {en: "made %{faces} card pictures from the game and %{fronts} album covers; %{failed} failed", it: "create %{faces} immagini delle carte dal gioco e %{fronts} copertine dell'album; %{failed} non riuscite", ja: "ゲームのカード画像 %{faces} 枚とアルバムの表紙 %{fronts} 枚を作成しました（失敗 %{failed} 枚）。"}
 setup.pic_adding_hq: {en: "Adding high-quality pictures from %{pack}...", it: "Aggiunta delle immagini in alta qualità da %{pack}...", ja: "%{pack} から高画質画像を追加しています..."}
 setup.pic_hq_made: {en: "%{count} high-quality card pictures, %{failed} failed", it: "%{count} immagini carte in alta qualità, %{failed} non riuscite", ja: "高画質カード画像 %{count} 枚、失敗 %{failed} 枚"}
-text.title_on: {en: "Forza-WCCF %{edition} - %{lang} on - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} attivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オン - ゲーム: %{game}"}
-text.title_off: {en: "Forza-WCCF %{edition} - %{lang} off - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} disattivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オフ - ゲーム: %{game}"}
-text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", it: "Forza-WCCF %{edition} - controllo %{lang} - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}の確認 - ゲーム: %{game}"}
+text.title_on: {en: "Forza-WCCF %{edition} - %{lang} on - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} attivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オン - ゲーム：%{game}"}
+text.title_off: {en: "Forza-WCCF %{edition} - %{lang} off - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} disattivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オフ - ゲーム：%{game}"}
+text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", it: "Forza-WCCF %{edition} - controllo %{lang} - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}の確認 - ゲーム：%{game}"}
 text.lang_en: {en: "English", it: "inglese", ja: "英語"}
 text.lang_it: {en: "Italian", it: "italiano", ja: "イタリア語"}
 text.already_original: {en: "Already the original Japanese.", it: "È già il giapponese originale.", ja: "すでにオリジナルの日本語です。"}
@@ -1033,6 +1033,16 @@ text.note_exe: {en: "%{client} texts inside the program, in the projector's and 
 text.note_exe_server: {en: ", and %{count} in the server", it: ", e %{count} nel server", ja: "、サーバーに %{count} 件"}
 text.note_by: {en: "%{source} %{count}", it: "%{source} %{count}", ja: "%{source} %{count}"}
 text.note_by_more: {en: "%{head}, %{source} %{count}", it: "%{head}, %{source} %{count}", ja: "%{head}、%{source} %{count}"}
+# the picture notes under a built text: the writing's language, then the pictures left as the original
+text.note_pictures: {en: "%{count} pictures with their writing in %{lang}", it: "%{count} immagini con la scritta in %{lang}", ja: "%{count} 枚の画像の文字を%{lang}にしました"}
+text.note_pictures_kept: {en: "%{count} pictures stay as they are: %{first}", it: "%{count} immagini restano come sono: %{first}", ja: "%{count} 枚の画像はそのままにしました：%{first}"}
+text.note_pictures_kept_more: {en: "%{count} pictures stay as they are: %{first}, ...", it: "%{count} immagini restano come sono: %{first}, ...", ja: "%{count} 枚の画像はそのままにしました：%{first} など"}
+text.note_picture_no_words: {en: "%{id}: no words at %{at}, the original text stays", it: "%{id}: nessuna parola a %{at}, il testo originale resta", ja: "%{id}：%{at} に言葉がないため、オリジナルのテキストのままです"}
+text.why_not_in_archive: {en: "%{picture} (not in the archive)", it: "%{picture} (non è nell'archivio)", ja: "%{picture}（アーカイブにありません）"}
+text.why_not_the_recipe: {en: "%{picture} (not the picture the recipe is for)", it: "%{picture} (non è l'immagine della ricetta)", ja: "%{picture}（レシピの画像ではありません）"}
+text.pictures_none: {en: "pictures: none chosen, they stay as the original", it: "immagini: nessuna scelta, restano come l'originale", ja: "画像：「なし」が選ばれているため、オリジナルのままです"}
+text.pictures_no_font: {en: "pictures stay as the original: fonts\\%{font} is missing", it: "le immagini restano come l'originale: manca fonts\\%{font}", ja: "フォント fonts\\%{font} がないため、画像はオリジナルのままです"}
+text.pictures_off: {en: "pictures stay Japanese", it: "le immagini restano in giapponese", ja: "画像は日本語のままです"}
 # where a line's words came from, inside the lines note
 text.src_kit: {en: "kit", it: "Forza-WCCF", ja: "Forza-WCCF"}
 text.src_kit_it: {en: "kit Italian", it: "italiano Forza-WCCF", ja: "Forza-WCCF のイタリア語"}
@@ -1054,14 +1064,14 @@ text.fail_team_name: {en: "the team name for %{file} does not fit", it: "il nome
 text.fail_what_projector: {en: "the projector's client_Release.exe (the original Rev D)", it: "client_Release.exe del proiettore (l'originale Rev D)", ja: "プロジェクターの client_Release.exe（オリジナルの Rev D）"}
 text.fail_what_seat1: {en: "seat 1's client_Release.exe (the copy setup makes)", it: "client_Release.exe del posto 1 (la copia creata dalla configurazione)", ja: "席 1 の client_Release.exe（セットアップが作るコピー）"}
 text.fail_what_server: {en: "the server's control_Release.exe (the original Rev D)", it: "control_Release.exe del server (l'originale Rev D)", ja: "サーバーの control_Release.exe（オリジナルの Rev D）"}
-text.fail_set_up_first: {en: "%{what} is not the expected file - press SET UP in Launcher.exe first", it: "%{what} non è il file previsto: premi CONFIGURA in Launcher.exe", ja: "%{what} は想定されたファイルではありません。Launcher.exe で「設定する」を押してください"}
+text.fail_set_up_first: {en: "%{what} is not the expected file - press SET UP in Launcher.exe first", it: "%{what} non è il file previsto: premi prima CONFIGURA in Launcher.exe", ja: "%{what} は想定されたファイルではありません。先に Launcher.exe で「設定する」を押してください"}
 text.fail_text_expected: {en: "%{what} at %{at} is not the text Forza-WCCF expects", it: "%{what} all'indirizzo %{at} non è il testo previsto da Forza-WCCF", ja: "%{what} の %{at} は Forza-WCCF が想定するテキストではありません"}
 text.fail_text_does_not_fit: {en: "the text at %{at} does not fit", it: "il testo all'indirizzo %{at} non entra", ja: "%{at} のテキストが収まりません"}
 text.fail_would_change_size: {en: "%{what} would change size - nothing written", it: "%{what} cambierebbe dimensione: nulla è stato scritto", ja: "%{what} のサイズが変わってしまうため、何も書き込みませんでした"}
-text.fail_unknown_program: {en: "exe_text.tsv names a program Forza-WCCF does not know: %{program}", it: "exe_text.tsv nomina un programma che Forza-WCCF non conosce: %{program}", ja: "exe_text.tsv に Forza-WCCF が知らないプログラムがあります: %{program}"}
+text.fail_unknown_program: {en: "exe_text.tsv names a program Forza-WCCF does not know: %{program}", it: "exe_text.tsv nomina un programma che Forza-WCCF non conosce: %{program}", ja: "exe_text.tsv に Forza-WCCF が知らないプログラムがあります：%{program}"}
 text.fail_backup_list_damaged: {en: "the backup list %{file} is damaged (%{detail}) - left as it is", it: "l'elenco dei backup %{file} è danneggiato (%{detail}): resta com'è", ja: "バックアップ一覧 %{file} が壊れています（%{detail}）。そのままにしました"}
 text.fail_copy_backup: {en: "could not copy %{file} to the backup", it: "impossibile copiare %{file} nel backup", ja: "%{file} をバックアップにコピーできませんでした"}
-text.fail_save_beside: {en: "could not keep the backup beside the game: %{detail}", it: "impossibile tenere il backup accanto al gioco: %{detail}", ja: "ゲームのそばにバックアップを残せませんでした: %{detail}"}
+text.fail_save_beside: {en: "could not keep the backup beside the game: %{detail}", it: "impossibile tenere il backup accanto al gioco: %{detail}", ja: "ゲームのそばにバックアップを残せませんでした：%{detail}"}
 text.fail_no_backup: {en: "%{file} is neither original nor backed up - refusing to replace it", it: "%{file} non è né originale né salvato in backup: non lo sostituisco", ja: "%{file} はオリジナルでもバックアップ済みでもないため、置き換えません"}
 text.fail_not_written: {en: "%{file} did not write correctly - switch the game text back to Japanese", it: "%{file} non è stato scritto correttamente: riporta il testo del gioco in giapponese", ja: "%{file} を正しく書き込めませんでした。ゲームのテキストを日本語に戻してください"}
 text.fail_backup_not_original: {en: "the backup of %{file} is not the original file - left as it is", it: "il backup di %{file} non è il file originale: resta com'è", ja: "%{file} のバックアップがオリジナルのファイルではありません。そのままにしました"}
@@ -1076,6 +1086,29 @@ text.fail_state_damaged: {en: "%{file} is damaged - left as it is", it: "%{file}
 text.fail_state_damaged_detail: {en: "%{file} is damaged (%{detail}) - left as it is", it: "%{file} è danneggiato (%{detail}): resta com'è", ja: "%{file} が壊れています（%{detail}）。そのままにしました"}
 text.fail_state_short: {en: "%{file} is damaged (a short entry) - left as it is", it: "%{file} è danneggiato (una voce tronca): resta com'è", ja: "%{file} が壊れています（エントリが短い）。そのままにしました"}
 text.fail_state_way_back: {en: "%{file} is not the archive's way back - left as it is", it: "%{file} non è la via per tornare indietro dall'archivio: resta com'è", ja: "%{file} はアーカイブを元に戻すための情報ではないため、そのままにしました"}
+# the tables and sheets a build reads, and the read-back check that ends it
+text.fail_hf_line: {en: "string_list.hf: a line is not a key and numbers", it: "string_list.hf: una riga non è una chiave e numeri", ja: "string_list.hf：キーと数値になっていない行があります"}
+text.fail_no_line: {en: "no such line %{key}", it: "nessuna riga %{key} nel testo del gioco", ja: "ゲームのテキストに %{key} という行がありません"}
+text.fail_no_room: {en: "no room in string_list.bin for %{key}", it: "nessuno spazio in string_list.bin per %{key}", ja: "string_list.bin に %{key} を入れる余白がありません"}
+text.fail_table_cut: {en: "%{file} is cut short", it: "%{file} è troncato", ja: "%{file} が途中で切れています"}
+text.fail_table_tail: {en: "%{file} has %{count} bytes after its last line", it: "%{file} ha %{count} byte dopo l'ultima riga", ja: "%{file} の最終行の後に %{count} バイトあります"}
+text.fail_titles_tail: {en: "%{file} has %{count} bytes after its last title", it: "%{file} ha %{count} byte dopo l'ultimo titolo", ja: "%{file} の最後のタイトルの後に %{count} バイトあります"}
+text.fail_sheet_offset: {en: "exe_text.tsv: bad offset %{cell}", it: "exe_text.tsv: posizione errata %{cell}", ja: "exe_text.tsv：オフセット %{cell} が正しくありません"}
+text.fail_sheet_length: {en: "exe_text.tsv: bad length at %{cell}", it: "exe_text.tsv: lunghezza errata a %{cell}", ja: "exe_text.tsv：%{cell} の長さが正しくありません"}
+text.fail_read_back: {en: "%{what} does not read back as intended - nothing changed", it: "%{what} non si rilegge come previsto: nulla è stato cambiato", ja: "%{what} を読み直すと想定どおりではないため、何も変更しませんでした"}
+text.fail_read_back_places: {en: "%{what} does not read back as intended (%{places} places) - nothing changed", it: "%{what} non si rilegge come previsto (%{places} punti): nulla è stato cambiato", ja: "%{what} を読み直すと想定どおりではない箇所が %{places} か所あるため、何も変更しませんでした"}
+text.what_screen: {en: "the built screen text", it: "il testo dello schermo creato", ja: "作成した画面のテキスト"}
+text.what_client: {en: "the built client screen text", it: "il testo dello schermo del client creato", ja: "作成したクライアント画面のテキスト"}
+text.what_titles: {en: "the built manager-title table", it: "la tabella dei titoli di allenatore creata", ja: "作成した監督タイトルの表"}
+# the pictures' sheets and recipes
+text.fail_pictures_list: {en: "english\\pictures.json has no pictures list", it: "english\\pictures.json non ha un elenco di immagini", ja: "english\\pictures.json に画像の一覧がありません"}
+text.fail_pictures_id: {en: "italian\\pictures.json: %{id} is no recipe's id", it: "italian\\pictures.json: %{id} non è l'id di nessuna ricetta", ja: "italian\\pictures.json：%{id} はどのレシピの id でもありません"}
+text.fail_pictures_words: {en: "italian\\pictures.json: %{id} has %{words} words for %{labels} labels", it: "italian\\pictures.json: %{id} ha %{words} parole per %{labels} etichette", ja: "italian\\pictures.json：%{id} は %{labels} 個のラベルに %{words} 語あります"}
+text.fail_picture_area: {en: "the %{fill} area %{area} is outside the picture", it: "l'area %{fill} %{area} è fuori dall'immagine", ja: "%{fill} の範囲 %{area} が画像の外にあります"}
+text.fail_picture_reflection: {en: "the reflection is outside the picture", it: "il riflesso è fuori dall'immagine", ja: "反射が画像の外にあります"}
+text.fail_scene_text: {en: "%{id}: \"%{text}\" does not fit at %{at}", it: "%{id}: \"%{text}\" non entra a %{at}", ja: "%{id}：「%{text}」は %{at} に収まりません"}
+text.fail_picture_size: {en: "the redrawn picture's size %{new} differs from the original's %{old}", it: "l'immagine ridisegnata ha dimensione %{new}, diversa da quella originale %{old}", ja: "描き直した画像のサイズ %{new} がオリジナルの %{old} と違います"}
+text.fail_state_hex: {en: "%{file}: not hex", it: "%{file}: non è esadecimale", ja: "%{file}：16 進数ではありません"}
 text.why_empty: {en: "<empty> would drop the Japanese line's codes", it: "<empty> perderebbe i codici della riga giapponese", ja: "<empty> では日本語の行のコードが失われます"}
 text.why_codes: {en: "codes %{found}, the game's line has %{want}", it: "codici %{found}, la riga del gioco ha %{want}", ja: "コードは %{found} ですが、ゲームの行は %{want} です"}
 text.why_percent: {en: "a % sign that is no printf code - the game would show junk or stop", it: "un segno % che non è un codice printf: il gioco mostrerebbe caratteri estranei o si fermerebbe", ja: "% が printf のコードではありません。ゲームに変な文字が出るか、止まってしまいます"}
