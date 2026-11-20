@@ -184,6 +184,27 @@ pub fn section<R>(ui: &mut Ui, title: &str, accent: Color32, add: impl FnOnce(&m
         .inner
 }
 
+/// The size of a dialog's buttons (CONTINUE and BACK, OK and CANCEL).
+pub const DIALOG_BUTTON: egui::Vec2 = vec2(196.0, 48.0);
+
+/// A dialog over the dimmed window in the look the Launcher's, the installer's and the lobby's dialogs share.
+pub fn modal<R>(
+    ctx: &egui::Context,
+    id: Id,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::ModalResponse<R> {
+    egui::Modal::new(id)
+        .backdrop_color(Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ctx, add)
+}
+
 // ---- cabinet buttons ----
 
 /// What a cabinet button does decides its colour.
@@ -656,10 +677,7 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
     let segs: Vec<(Rect, Response)> = (0..labels.len())
         .map(|i| {
             let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
-            (
-                r,
-                ui.interact(r, row.id.with(("seg", i)), Sense::click()),
-            )
+            (r, ui.interact(r, row.id.with(("seg", i)), Sense::click()))
         })
         .collect();
     // the click lands before the highlight is read, so the frame that turned the switch already lights the new side

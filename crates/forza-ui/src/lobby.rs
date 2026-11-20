@@ -1576,64 +1576,54 @@ fn cup_shown(
 /// both back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let (mut host, mut cancel) = (false, false);
-    let modal = egui::Modal::new(egui::Id::unique("lobby-host"))
-        .backdrop_color(egui::Color32::from_black_alpha(150))
-        .frame(
-            egui::Frame::new()
-                .fill(theme::DEEP)
-                .stroke(Stroke::new(1.0, theme::RIM))
-                .corner_radius(theme::RADIUS_BIG)
-                .inner_margin(20),
-        )
-        .show(ui.ctx(), |ui| {
-            // 480: the cup's four segments fit in Italian (cup_rows_fit_the_launcher)
-            ui.set_width(480.0);
-            ui.label(
-                egui::RichText::new(tr!(lang, "lobby.host_title"))
-                    .font(theme::display(26.0))
-                    .color(theme::TEXT),
-            );
-            ui.add_space(4.0);
-            let hint = tr!(
-                lang,
-                if v.list_arcade {
-                    "lobby.list_arcade_on"
-                } else {
-                    "lobby.list_arcade_off"
-                }
-            );
-            toggle_row(
-                ui,
-                &mut v.list_arcade,
-                &tr!(lang, "lobby.list_arcade"),
-                &hint,
-            );
-            ui.horizontal(|ui| {
-                let label = field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
-                ui.add(
-                    egui::TextEdit::singleline(&mut v.arcade_name)
-                        .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
-                        .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
-                        .desired_width(ui.available_width())
-                        .margin(vec2(10.0, 6.0)),
-                )
-                .labelled_by(label.id);
-            });
-            let now = v.clock.unwrap_or_else(local_clock);
-            let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false, None);
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let size = vec2(216.0, 48.0);
-                host = ui
-                    .add_enabled_ui(!refused, |ui| {
-                        cabinet(ui, size, &tr!(lang, "lobby.host_arcade"), Cab::Go, !refused)
-                    })
-                    .inner
-                    .clicked();
-                cancel =
-                    cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
-            });
+    let modal = super::widgets::modal(ui.ctx(), egui::Id::unique("lobby-host"), |ui| {
+        // 480: the cup's four segments fit in Italian (cup_rows_fit_the_launcher)
+        ui.set_width(480.0);
+        ui.label(
+            egui::RichText::new(tr!(lang, "lobby.host_title"))
+                .font(theme::display(26.0))
+                .color(theme::TEXT),
+        );
+        ui.add_space(4.0);
+        let hint = tr!(
+            lang,
+            if v.list_arcade {
+                "lobby.list_arcade_on"
+            } else {
+                "lobby.list_arcade_off"
+            }
+        );
+        toggle_row(
+            ui,
+            &mut v.list_arcade,
+            &tr!(lang, "lobby.list_arcade"),
+            &hint,
+        );
+        ui.horizontal(|ui| {
+            let label = field(ui, &tr!(lang, "lobby.arcade_name"), 130.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut v.arcade_name)
+                    .hint_text(forza::online::lobby::ARCADE_ROOM_NAME)
+                    .char_limit(forza::online::lobby::ARCADE_NAME_LEN)
+                    .desired_width(ui.available_width())
+                    .margin(vec2(10.0, 6.0)),
+            )
+            .labelled_by(label.id);
         });
+        let now = v.clock.unwrap_or_else(local_clock);
+        let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false, None);
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let size = vec2(216.0, 48.0);
+            host = ui
+                .add_enabled_ui(!refused, |ui| {
+                    cabinet(ui, size, &tr!(lang, "lobby.host_arcade"), Cab::Go, !refused)
+                })
+                .inner
+                .clicked();
+            cancel = cabinet(ui, size, &tr!(lang, "common.cancel"), Cab::Plain, false).clicked();
+        });
+    });
     if host {
         v.host_ask = None;
         *act = Some(LobbyAction::HostArcade);
