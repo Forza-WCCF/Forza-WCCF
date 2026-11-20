@@ -814,10 +814,6 @@ pub struct PanelState {
     /// The last read said a match is being played (the seat's own state, not the card session): the edge that keeps
     /// `before_match`, apart from `in_match`, which the FORMATIONS dialog also sets.
     pub match_seen: bool,
-    /// The seat's match flag as the last frame read it: the edge is the flag turning on, not the flag staying on (the
-    /// game leaves it on after the match until the next sequence writes its own). Starts on: a flag already on when the
-    /// panel starts is one left over, not a match beginning.
-    pub seat_on: bool,
     /// The table differs from `before_match`: RESET LINEUP's hover names the table it goes back to. It is offered
     /// whenever the panel is not in a match and a table was kept, so the flag only feeds that text.
     pub reset_ready: bool,
@@ -940,7 +936,6 @@ impl PanelState {
             match_seen: false,
             before_match_at: None,
             reset_after: None,
-            seat_on: true,
             reset_ready: false,
             reset_lineup: false,
             reset_ask: None,
@@ -1051,7 +1046,6 @@ impl PanelState {
             before_match_at,
             reset_after,
             match_seen,
-            seat_on,
             reset_ready,
             reset_lineup,
             reset_ask,
@@ -1087,7 +1081,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 97] = [
+        let parts: [&dyn std::fmt::Debug; 96] = [
             edition,
             lang,
             page,
@@ -1163,7 +1157,6 @@ impl PanelState {
             before_match_at,
             reset_after,
             match_seen,
-            seat_on,
             reset_ready,
             reset_lineup,
             reset_ask,
@@ -1549,19 +1542,15 @@ pub fn lineup_tick(
     read: Option<(bool, bool)>,
     placed: &[Placed],
 ) {
-    let rising = seat == Some(true) && !st.seat_on;
-    if let Some(on) = seat {
-        st.seat_on = on;
-    }
-    if rising && !st.match_seen {
-        keep_table(st, placed);
-        st.match_seen = true;
-    }
-    if let Some((busy, playing)) = read {
-        if playing && !st.match_seen {
+    // the seat state, read every frame, starts and ends the match; the poll's `playing` only when it is unreadable
+    let playing = seat.or(read.map(|(_, playing)| playing));
+    if let Some(on) = playing {
+        if on && !st.match_seen {
             keep_table(st, placed);
         }
-        st.match_seen = playing;
+        st.match_seen = on;
+    }
+    if let Some((busy, _)) = read {
         st.in_match = busy;
     }
     // RESET LINEUP's UNDO lasts until the table changes or a match begins
@@ -1582,8 +1571,11 @@ pub fn lineup_tick(
     }
 }
 
-/// The table a match begins with, kept for RESET LINEUP, and when.
+/// The table a match begins with, kept for RESET LINEUP, and when. An empty table keeps nothing.
 fn keep_table(st: &mut PanelState, placed: &[Placed]) {
+    if placed.is_empty() {
+        return;
+    }
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
     st.before_match = Some(placed.to_vec());
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
@@ -7946,10 +7938,10 @@ mod tests {
         );
     }
 
-    /// The game leaves the seat's match flag on after a match: out of the match the table is neither kept again nor
+    /// After the match the seat's state leaves loading and the match: out of it the table is neither kept again nor
     /// locked, one read after another.
     #[test]
-    fn a_match_flag_left_on_after_the_match_keeps_nothing_and_locks_nothing() {
+    fn after_the_match_the_table_is_neither_kept_again_nor_locked() {
         let (mut st, _) = importer();
         let at = |slot, no, x, y| Placed { slot, no, x, y };
         let start = vec![at(1, 10, 0.0, 0.5)];
@@ -7958,26 +7950,42 @@ mod tests {
         lineup_tick(&mut st, Some(true), None, &start);
         lineup_tick(&mut st, Some(true), Some((true, true)), &start);
         assert!(st.match_seen && st.in_match);
-        // the match ended: the arcade is idle again, the flag is still on
+        // the match ended: the seat waits again, the arcade is idle
         for _ in 0..3 {
-            lineup_tick(&mut st, Some(true), Some((false, false)), &after);
-            lineup_tick(&mut st, Some(true), None, &after);
+            lineup_tick(&mut st, Some(false), Some((false, false)), &after);
+            lineup_tick(&mut st, Some(false), None, &after);
             assert!(!st.match_seen && !st.in_match);
             assert_eq!(st.before_match.as_deref(), Some(&start[..]));
         }
         assert!(st.reset_ready);
     }
 
-    /// The panel starts with the flag already on from an earlier match: no table is kept as "the start of the last
-    /// match".
+    /// The match ends on the seat state read every frame, not on the next poll: a seat that leaves the match and
+    /// comes back between two polls (a loading given up) keeps the table of its next start.
     #[test]
-    fn a_match_flag_on_when_the_panel_starts_keeps_nothing() {
+    fn reset_lineup_keeps_the_next_match_when_the_seat_leaves_and_returns_between_polls() {
         let (mut st, _) = importer();
+        st.edition = Edition::E1718;
         let at = |slot, no, x, y| Placed { slot, no, x, y };
-        let now = vec![at(1, 10, 0.0, 0.5)];
-        lineup_tick(&mut st, Some(true), Some((false, false)), &now);
-        lineup_tick(&mut st, Some(true), None, &now);
-        assert!(st.before_match.is_none() && !st.match_seen);
+        let a = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
+        let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
+        let b = vec![at(1, 10, 0.0, 0.5)];
+        lineup_tick(&mut st, Some(false), Some((false, false)), &a);
+        lineup_tick(&mut st, Some(true), None, &a);
+        lineup_tick(&mut st, Some(false), None, &subbed);
+        assert!(!st.match_seen);
+        lineup_tick(&mut st, Some(true), None, &b);
+        assert_eq!(st.before_match.as_deref(), Some(&b[..]));
+    }
+
+    /// A match begun with an empty table keeps nothing: RESET LINEUP would clear the board.
+    #[test]
+    fn reset_lineup_keeps_no_empty_table() {
+        let (mut st, _) = importer();
+        st.edition = Edition::E1718;
+        lineup_tick(&mut st, Some(false), None, &[]);
+        lineup_tick(&mut st, Some(true), None, &[]);
+        assert!(st.before_match.is_none());
     }
 
     #[test]
