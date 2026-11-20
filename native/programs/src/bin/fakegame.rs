@@ -18,6 +18,7 @@
 //!       unload           FreeLibrary on the panel: the frames go on without it
 //!       sysmove:MS       MS from now (inside a pause's hold too) the window's Move command (WM_SYSCOMMAND SC_MOVE),
 //!                        then 2 s later an Esc, which ends Windows' move loop if the command got that far
+//!       icon             says whether the window has a big and a small icon of its own ("icon: big set, small set")
 //!
 //! The window says which mouse buttons reach it ("game: left down at X,Y"): what the panel passes on to the game.
 //!
@@ -233,6 +234,16 @@ impl Game {
                     e.raw_os_error().unwrap_or(0)
                 );
             }
+            return 0;
+        }
+        if s == "icon" {
+            // WM_GETICON answers only for an icon set on the window (the panel's WM_SETICON), never the class's
+            let got = |kind: u32| {
+                // SAFETY: a message to our own window, on its thread
+                let i = unsafe { SendMessageA(w, WM_GETICON, WPARAM(kind as usize), LPARAM(0)) };
+                if i.0 != 0 { "set" } else { "none" }
+            };
+            println!("icon: big {}, small {}", got(ICON_BIG), got(ICON_SMALL));
             return 0;
         }
         println!("unknown step: {s}");
