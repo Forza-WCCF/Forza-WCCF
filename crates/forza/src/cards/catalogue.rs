@@ -226,16 +226,16 @@ fn birth_iso(s: &str) -> String {
     String::new()
 }
 
-struct Entry {
-    name: String,
-    path: String,
-    is_file: bool,
-    size: u32,
-    stored: u32,
-    offset: u64,
+pub(super) struct Entry {
+    pub(super) name: String,
+    pub(super) path: String,
+    pub(super) is_file: bool,
+    pub(super) size: u32,
+    pub(super) stored: u32,
+    pub(super) offset: u64,
 }
 
-fn xaf_toc(path: &Path) -> io::Result<Vec<Entry>> {
+pub(super) fn xaf_toc(path: &Path) -> io::Result<Vec<Entry>> {
     let mut f = File::open(path)?;
     let mut hdr = [0u8; 0x100];
     f.read_exact(&mut hdr)?;

@@ -113,44 +113,23 @@ struct Entry {
 }
 
 /// The archive's `data/player_card/` files by lower-case name.
-fn player_cards(xaf: &mut File) -> io::Result<HashMap<String, Entry>> {
-    let mut hdr = [0u8; 0x100];
-    xaf.read_exact(&mut hdr)?;
-    if &hdr[..4] != b"xaf0" {
-        return Err(bad("wccf_data.xaf is not an xaf0 archive"));
-    }
-    let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
-    let (sector, n) = (u64::from(u32_at(&hdr, 8)), u32_at(&hdr, 12) as usize);
-    let len = xaf.metadata()?.len();
-    let toc_len = n
-        .checked_mul(0xB0)
-        .filter(|&b| b as u64 <= len)
-        .ok_or_else(|| bad("xaf0 table larger than the file"))?;
-    let mut toc = vec![0u8; toc_len];
-    xaf.read_exact(&mut toc)?;
-    let ents: Vec<&[u8]> = toc.chunks(0xB0).collect();
-    let name = |e: &[u8]| {
-        let s = &e[..0x80];
-        String::from_utf8_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(0x80)]).to_lowercase()
-    };
-    let parent =
-        |e: &[u8]| usize::try_from(i32::from_le_bytes(e[0x84..0x88].try_into().unwrap())).ok();
-    // the folder data/player_card: named player_card, its parent data, that one at the top
-    let is_dir = |i: usize| {
-        name(ents[i]) == "player_card"
-            && parent(ents[i])
-                .is_some_and(|p| p < n && name(ents[p]) == "data" && parent(ents[p]).is_none())
-    };
-    Ok(ents
-        .iter()
-        .filter(|e| e[0x80] != 0 && parent(e).is_some_and(|p| p < n && is_dir(p)))
+fn player_cards(xaf: &Path) -> io::Result<HashMap<String, Entry>> {
+    Ok(super::catalogue::xaf_toc(xaf)?
+        .into_iter()
+        .filter(|e| {
+            e.is_file
+                && e.path
+                    .to_lowercase()
+                    .strip_prefix("data/player_card/")
+                    .is_some_and(|n| !n.contains('/'))
+        })
         .map(|e| {
             let entry = Entry {
-                offset: u64::from(u32_at(e, 0xA0)) * sector,
-                size: u32_at(e, 0x94) as usize,
-                stored: u32_at(e, 0x98) as usize,
+                offset: e.offset,
+                size: e.size as usize,
+                stored: e.stored as usize,
             };
-            (name(e), entry)
+            (e.name.to_lowercase(), entry)
         })
         .collect())
 }
@@ -264,9 +243,9 @@ fn load(xaf: &mut File, file_len: u64, e: &Entry) -> io::Result<DynamicImage> {
 /// stops the rest.
 pub fn from_game(game: &Path, edition: &str, out: &Path) -> io::Result<Made> {
     let players = fs::read(game.join("prog_data/player_data/player_data.bin"))?;
+    let toc = player_cards(&game.join("data/wccf_data.xaf"))?; // names in lower case: `_F` and `_f` are one
     let mut xaf = File::open(game.join("data/wccf_data.xaf"))?;
     let file_len = xaf.metadata()?.len();
-    let toc = player_cards(&mut xaf)?; // names in lower case: `_F` and `_f` are one
     fs::create_dir_all(out)?;
     let mut made = Made::default();
     for (no, name) in cards(&players, edition)? {
@@ -774,6 +753,23 @@ mod tests {
         xaf.extend(&back);
         fs::create_dir_all(dir.join("data")).unwrap();
         fs::write(dir.join("data/wccf_data.xaf"), xaf).unwrap();
+    }
+
+    #[test]
+    fn a_looping_parent_chain_is_an_error() {
+        let d = tempfile::tempdir().unwrap();
+        let mut xaf = vec![0u8; 0x100];
+        xaf[..4].copy_from_slice(b"xaf0");
+        xaf[12..16].copy_from_slice(&2u32.to_le_bytes());
+        for (name, parent) in [("data", 1i32), ("player_card", 0)] {
+            let mut e = vec![0u8; 0xB0];
+            e[..name.len()].copy_from_slice(name.as_bytes());
+            e[0x84..0x88].copy_from_slice(&parent.to_le_bytes());
+            xaf.extend(e);
+        }
+        let p = d.path().join("wccf_data.xaf");
+        fs::write(&p, xaf).unwrap();
+        assert!(player_cards(&p).is_err());
     }
 
     #[test]
