@@ -1405,8 +1405,8 @@ fn board_card_flips_at_the_least_width() {
 }
 
 /// Create-a-Team's COLLECTION (plan step 1.4, (c)): the start picker, the deal with its 3 RARE cards, the page with the
-/// STARTER and IMPORT marks and a starter card's detail, in English, Italian and Japanese; and the PLAY tab's
-/// COLLECTION button.
+/// STARTER and IMPORT marks and a starter card's detail, the pack store (a Nation pack stepped down) and an opened
+/// pack, in English, Italian and Japanese; and the PLAY tab's COLLECTION button.
 #[test]
 fn launcher_collection() {
     use forza_ui::collection::{CollectionView, Scenario::*};
@@ -1426,6 +1426,9 @@ fn launcher_collection() {
             (Pick, "pick"),
             (Page, "page"),
             (Detail, "detail"),
+            (Spare, "detail_spare"),
+            (Store, "store"),
+            (Open, "open"),
         ] {
             let mut st = state(lang, s);
             snap(

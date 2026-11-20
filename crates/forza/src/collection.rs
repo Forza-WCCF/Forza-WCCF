@@ -632,6 +632,144 @@ pub fn pack<'a>(
     out
 }
 
+/// A pack the store sells (`PLAN.md` 2.3): every season, one season (its first year) or one of [`NATIONS`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pack<'a> {
+    Standard,
+    Season(u16),
+    Nation(&'a str),
+}
+
+impl Pack<'_> {
+    #[must_use]
+    pub fn price(self) -> i64 {
+        match self {
+            Pack::Standard => STANDARD_PACK,
+            Pack::Season(_) => SEASON_PACK,
+            Pack::Nation(_) => NATION_PACK,
+        }
+    }
+
+    /// Whether `card` is in this pack's pool.
+    #[must_use]
+    pub fn has(self, card: &Card) -> bool {
+        match self {
+            Pack::Standard => true,
+            Pack::Season(y) => card.season == y,
+            Pack::Nation(n) => card.nation == n,
+        }
+    }
+
+    /// The log's `why` for the pack's lines, in English as the log is.
+    #[must_use]
+    pub fn why(self) -> String {
+        match self {
+            Pack::Standard => "pack standard".into(),
+            Pack::Season(y) => format!("pack season {y}"),
+            Pack::Nation(n) => format!("pack nation {n}"),
+        }
+    }
+}
+
+/// Each pack card's odds per tier for `kind`'s pool: [`odds_by_card`] of the tiers the pool has.
+#[must_use]
+pub fn pack_odds(pool: &[Card], kind: Pack) -> [[u32; 5]; PACK_CARDS] {
+    odds_by_card(Rarity::ALL.map(|r| pool.iter().any(|c| c.rarity == r && kind.has(c))))
+}
+
+/// Each pack card's odds per tier ([`Rarity::ALL`]' order, tenths of a percent, rounded) when the pool has the tiers
+/// `has` says, card by card as [`pack`] draws them: every card at the match-card odds after the step-down (a tier the
+/// pool lacks passes its odds to the next lower tier it has), and the last card with the guarantee too, which redraws
+/// it from SPECIAL or better at those tiers' stepped-down odds when all the cards came out REGULAR.
+// shortcut: leaves out the no-player-twice rule and the guarantee's fallback to an earlier card, which move only a
+// pool of a few players; a pool that small shows its exact odds once a store measures them
+#[must_use]
+pub fn odds_by_card(has: [bool; 5]) -> [[u32; 5]; PACK_CARDS] {
+    let step = |tiers: &[Rarity]| {
+        let mut out = [0.0_f64; 5];
+        for r in tiers {
+            let i = Rarity::ALL.iter().position(|a| a == r).unwrap_or(0);
+            if let Some(j) = (0..=i)
+                .rev()
+                .find(|&j| has[j] && tiers.contains(&Rarity::ALL[j]))
+            {
+                out[j] += f64::from(r.odds());
+            }
+        }
+        out
+    };
+    let one = step(&Rarity::ALL);
+    let better = step(&Rarity::BETTER);
+    let better_sum: f64 = better.iter().sum();
+    let mut last = one;
+    if better_sum > 0.0 {
+        let all_regular = 1_000.0 * (one[0] / 1_000.0).powi(PACK_CARDS as i32);
+        last[0] -= all_regular;
+        for (t, b) in better.iter().enumerate() {
+            last[t] += all_regular * b / better_sum;
+        }
+    }
+    let round = |o: [f64; 5]| o.map(|x| x.round() as u32);
+    let mut out = [round(one); PACK_CARDS];
+    out[PACK_CARDS - 1] = round(last);
+    out
+}
+
+/// The refusal [`buy_pack`] gives when the balance is under the pack's price.
+pub const NOT_ENOUGH_TOKENS: &str = "not enough tokens";
+
+/// The refusal [`buy_pack`] gives when the pack's pool cannot fill it ([`pack_fills`]).
+pub const TOO_FEW_PLAYERS: &str = "too few players for a pack";
+
+/// Whether every draw of `kind` fills a pack: its lowest tier holds [`PACK_CARDS`] players or more, so a card stepped
+/// down to it always finds a player the pack does not hold yet.
+#[must_use]
+pub fn pack_fills(pool: &[Card], kind: Pack) -> bool {
+    let Some(low) = Rarity::ALL
+        .into_iter()
+        .find(|r| pool.iter().any(|c| c.rarity == *r && kind.has(c)))
+    else {
+        return false;
+    };
+    let mut players: Vec<u32> = pool
+        .iter()
+        .filter(|c| c.rarity == low && kind.has(c))
+        .map(|c| c.player)
+        .collect();
+    players.sort_unstable();
+    players.dedup();
+    players.len() >= PACK_CARDS
+}
+
+/// Buy and open a pack under the log's lock: refused under its price ([`NOT_ENOUGH_TOKENS`]) or when its pool cannot
+/// fill it ([`TOO_FEW_PLAYERS`]), else one `pack` line that pays the price and one `pack` line per card, in one write.
+pub fn buy_pack(
+    log: &Log,
+    at: OffsetDateTime,
+    rng: &mut Rng,
+    pool: &[Card],
+    kind: Pack,
+) -> io::Result<Vec<Entry>> {
+    log.append_lines_at(at, |state| {
+        if state.tokens < kind.price() {
+            return Err(io::Error::other(NOT_ENOUGH_TOKENS));
+        }
+        let cards = pack(rng, pool, |c| kind.has(c));
+        if !pack_fills(pool, kind) || cards.len() < PACK_CARDS {
+            return Err(io::Error::other(TOO_FEW_PLAYERS));
+        }
+        let line = |card: Option<u32>, tokens| Line {
+            kind: Kind::Pack,
+            card,
+            tokens,
+            why: kind.why(),
+        };
+        Ok(std::iter::once(line(None, -kind.price()))
+            .chain(cards.iter().map(|c| line(Some(c.card_no), 0)))
+            .collect())
+    })
+}
+
 /// The starter deal: 1 GK, 4 DF, 4 MF and 2 FW, REGULAR only, one card per player, no secret card (the band needs a
 /// TOTAL). A banded start redraws its 11 until their mean lands in [`STARTER_BAND`], [`STARTER_DEALS`] times at most,
 /// then keeps the deal closest to it; a season start keeps its first deal.
@@ -838,6 +976,15 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut before: Option<&str> = None;
     let mut seq = 0;
     let mut chain = true;
+    // a pack's price line and the cards of it seen so far: a write cut between them took the tokens and lost cards
+    let mut paid: Option<(usize, usize)> = None;
+    let short = |paid: Option<(usize, usize)>, out: &mut Folded| {
+        if let Some((n, got)) = paid.filter(|&(_, got)| got < PACK_CARDS) {
+            out.warnings.push(format!(
+                "line {n}: a pack paid for with {got} of its {PACK_CARDS} card lines after it (an interrupted write)"
+            ));
+        }
+    };
     for (n, line) in lines.lines().enumerate().map(|(n, l)| (n + 1, l)) {
         if line.trim().is_empty() {
             continue;
@@ -871,9 +1018,19 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
                 ));
             }
         }
+        match (&entry.kind, entry.card) {
+            (Kind::Pack, None) => short(paid.replace((n, 0)), &mut out),
+            (Kind::Pack, Some(_)) => {
+                if let Some((_, got)) = &mut paid {
+                    *got += 1;
+                }
+            }
+            _ => short(paid.take(), &mut out),
+        }
         out.state.apply(&entry, this_week);
         before = Some(line);
     }
+    short(paid, &mut out);
     if cut.is_some() && !out.unreadable {
         out.warnings.push(format!(
             "line {} does not parse (cut off by an interrupted write) and is dropped",
@@ -1180,6 +1337,233 @@ pub fn convert(copies: &Copies, card: &Card) -> Result<u32, NoConvert> {
     Ok(value(card) * CONVERT_SHARE / 100)
 }
 
+/// The refusal [`convert_card`] gives when the card has no spare earned copy ([`convert`]'s rule).
+pub const NO_SPARE: &str = "no spare copy";
+
+/// CONVERT (`PLAN.md` 2.6): one `convert` line that takes one spare earned copy of `card` and pays its [`convert`]
+/// amount, under the log's lock. The copy and the tokens are one line, so a write cut off inside it moves both or
+/// neither. Refused without a spare earned copy ([`NO_SPARE`]) and, as every write, on a log the fold cannot read
+/// (`InvalidData`).
+pub fn convert_card(log: &Log, at: OffsetDateTime, card: &Card) -> io::Result<Entry> {
+    let mut out = log.append_lines_at(at, |state| {
+        let pays =
+            convert(&state.copies(card.card_no), card).map_err(|_| io::Error::other(NO_SPARE))?;
+        Ok(vec![Line {
+            kind: Kind::Convert,
+            card: Some(card.card_no),
+            tokens: i64::from(pays),
+            why: "convert".to_owned(),
+        }])
+    })?;
+    Ok(out.remove(0))
+}
+
+/// The refusal [`craft_card`] gives for a tier the release does not craft ([`CRAFT`]).
+pub const NOT_CRAFTED: &str = "this tier is not crafted";
+/// The refusal [`craft_card`] gives for a card the log already holds a copy of: crafting picks an unowned card.
+pub const ALREADY_HELD: &str = "card already held";
+
+/// CRAFT (`PLAN.md` 2.2): one `craft` line that adds `card` and pays its [`craft`] price, under the log's lock. The
+/// spend and the card are one line, so a write cut off inside it loses both or neither. Refused for a tier the release
+/// does not craft ([`NOT_CRAFTED`]), a card already held ([`ALREADY_HELD`]), under its price ([`NOT_ENOUGH_TOKENS`])
+/// and, as every write, on a log the fold cannot read (`InvalidData`).
+pub fn craft_card(log: &Log, at: OffsetDateTime, card: &Card) -> io::Result<Entry> {
+    let price = i64::from(craft(card).ok_or_else(|| io::Error::other(NOT_CRAFTED))?);
+    let mut out = log.append_lines_at(at, |state| {
+        let held = state.copies(card.card_no);
+        if held.earned + held.starter + held.imported > 0 {
+            return Err(io::Error::other(ALREADY_HELD));
+        }
+        if state.tokens < price {
+            return Err(io::Error::other(NOT_ENOUGH_TOKENS));
+        }
+        Ok(vec![Line {
+            kind: Kind::Craft,
+            card: Some(card.card_no),
+            tokens: -price,
+            why: "craft".to_owned(),
+        }])
+    })?;
+    Ok(out.remove(0))
+}
+
+/// The stats file's name, written where the player picks it (`PLAN.md` 2.4).
+pub const STATS_FILE: &str = "create-a-team-stats.json";
+
+/// Counters by tier: what the stats file holds per rarity (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ByTier {
+    pub regular: u32,
+    pub special: u32,
+    pub rare: u32,
+    pub legend: u32,
+    pub all_time_legend: u32,
+}
+
+impl ByTier {
+    fn add(&mut self, rarity: Rarity, n: u32) {
+        let slot = match rarity {
+            Rarity::Regular => &mut self.regular,
+            Rarity::Special => &mut self.special,
+            Rarity::Rare => &mut self.rare,
+            Rarity::Legend => &mut self.legend,
+            Rarity::AllTimeLegend => &mut self.all_time_legend,
+        };
+        *slot += n;
+    }
+}
+
+/// Packs opened, by kind (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Packs {
+    pub standard: u32,
+    pub season: u32,
+    pub nation: u32,
+}
+
+/// One week of the stats file: numbered from 1 at the log's first line, so the file holds no date (`PLAN.md` 2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Week {
+    pub week: u32,
+    pub matches: u32,
+    pub match_tokens: i64,
+    pub packs: Packs,
+    pub crafts: ByTier,
+    pub conversions: u32,
+    pub conversion_tokens: i64,
+    pub stock_buys: ByTier,
+    pub listings: u32,
+    pub sales: u32,
+}
+
+/// The anonymous stats file (`PLAN.md` 2.4): the log's counts only, with no name, key, Aime id, card number, timestamp
+/// or path in it. The player sends it by hand and nothing uploads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Stats {
+    /// The `rules` versions the log's lines name, cheapest first.
+    pub rules: Vec<u32>,
+    pub weeks: Vec<Week>,
+    /// Copies held at the log's end, by tier: a copy out on the market is not held.
+    pub cards: ByTier,
+    /// Spare copies by tier, the copies [`convert`] would take.
+    pub spares: ByTier,
+    pub balance: i64,
+}
+
+/// [`Stats`] of a log read against the catalogue's tiers, in one pass over the lines. It reads and takes nothing but
+/// the log's text and the cards: no name, key, id, date or path reaches its answer. A line that does not parse ends the
+/// log, as it does in the fold.
+#[must_use]
+pub fn stats(lines: &str, cards: &[Card]) -> Stats {
+    let mut out = Stats::default();
+    let mut state = State::default();
+    let mut weeks: Vec<(u32, Week)> = Vec::new();
+    for line in lines.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(entry) = serde_json::from_str::<Entry>(line) else {
+            break;
+        };
+        state.apply(&entry, 0);
+        if !out.rules.contains(&entry.rules) {
+            out.rules.push(entry.rules);
+        }
+        let label = week(entry.at);
+        let at = match weeks.iter().position(|(w, _)| *w == label) {
+            Some(i) => i,
+            None => {
+                let n = weeks.len() as u32 + 1;
+                weeks.push((
+                    label,
+                    Week {
+                        week: n,
+                        ..Week::default()
+                    },
+                ));
+                weeks.len() - 1
+            }
+        };
+        let w = &mut weeks[at].1;
+        // the catalogue's tier of the line's card; a number the catalogue no longer holds counts in no tier
+        let tier = entry
+            .card
+            .and_then(|no| cards.iter().find(|c| c.card_no == no))
+            .map(|c| c.rarity);
+        match entry.kind {
+            Kind::Match => {
+                w.matches += 1;
+                w.match_tokens += entry.tokens;
+            }
+            // a pack's own line carries the price; the card lines after it are its cards, not packs
+            Kind::Pack if entry.card.is_none() => match entry.why.split_whitespace().nth(1) {
+                Some("standard") => w.packs.standard += 1,
+                Some("season") => w.packs.season += 1,
+                Some("nation") => w.packs.nation += 1,
+                _ => {}
+            },
+            Kind::Craft => {
+                if let Some(r) = tier {
+                    w.crafts.add(r, 1);
+                }
+            }
+            Kind::Convert => {
+                w.conversions += 1;
+                w.conversion_tokens += entry.tokens;
+            }
+            Kind::StockBuy => {
+                if let Some(r) = tier {
+                    w.stock_buys.add(r, 1);
+                }
+            }
+            Kind::List => w.listings += 1,
+            Kind::MarketSell => w.sales += 1,
+            _ => {}
+        }
+    }
+    out.weeks = weeks.into_iter().map(|(_, w)| w).collect();
+    out.rules.sort_unstable();
+    for (no, copies) in &state.cards {
+        let Some(card) = cards.iter().find(|c| c.card_no == *no) else {
+            continue;
+        };
+        let held = copies.earned + copies.starter + copies.imported;
+        out.cards
+            .add(card.rarity, held.saturating_sub(copies.listed));
+        out.spares.add(
+            card.rarity,
+            copies
+                .earned
+                .saturating_sub(copies.listed)
+                .saturating_sub(1),
+        );
+    }
+    out.balance = state.tokens;
+    out
+}
+
+/// Write the stats file (`PLAN.md` 2.4) into `folder` and give its path back: the log is read under its shared lock
+/// and never appended to, and the file is the only thing written.
+pub fn write_stats(
+    log: &Log,
+    cards: &[Card],
+    folder: &std::path::Path,
+) -> io::Result<std::path::PathBuf> {
+    write_stats_lines(&log.lines()?, cards, folder)
+}
+
+/// [`write_stats`] of a log already read: the caller that reads the log itself keeps a read failure (the game still
+/// writing it, `WouldBlock`) apart from the write's. The file goes through [`crate::kit::write_atomic`], so a failed or
+/// interrupted write leaves the old file, never half of a new one the player then sends.
+pub fn write_stats_lines(
+    lines: &str,
+    cards: &[Card],
+    folder: &std::path::Path,
+) -> io::Result<std::path::PathBuf> {
+    let mut text = serde_json::to_string_pretty(&stats(lines, cards)).map_err(io::Error::other)?;
+    text.push('\n');
+    let file = folder.join(STATS_FILE);
+    crate::kit::write_atomic(&file, text.as_bytes())?;
+    Ok(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1219,6 +1603,18 @@ mod tests {
 
     impl Fixture {
         fn add(&mut self, at: &str, kind: Kind, card: Option<u32>, tokens: i64) -> &mut Self {
+            self.add_why(at, kind, card, tokens, &format!("{kind:?} {card:?}"))
+        }
+
+        /// The same line with its own "why", as a pack's or the start's line carries it.
+        fn add_why(
+            &mut self,
+            at: &str,
+            kind: Kind,
+            card: Option<u32>,
+            tokens: i64,
+            why: &str,
+        ) -> &mut Self {
             self.seq += 1;
             let entry = Entry {
                 seq: self.seq,
@@ -1227,7 +1623,7 @@ mod tests {
                 kind,
                 card,
                 tokens,
-                why: format!("{kind:?} {card:?}"),
+                why: why.to_owned(),
                 prev: self.text.lines().next_back().map(hash).unwrap_or_default(),
             };
             self.text.push_str(&entry.line());
@@ -1236,7 +1632,7 @@ mod tests {
         }
     }
 
-    /// A fixed log of 10 lines, all on one business day except the last two.
+    /// A fixed log of 12 lines (a whole pack among them), all on one business day except the last two.
     fn fixed() -> Fixture {
         let mut f = Fixture::default();
         f.add("2026-11-11T12:00:00+01:00", Kind::Starter, Some(1), 0)
@@ -1250,11 +1646,401 @@ mod tests {
                 -STANDARD_PACK,
             )
             .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(4), 0)
+            .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(5), 0)
+            .add("2026-11-11T12:03:00+01:00", Kind::Pack, Some(6), 0)
             .add("2026-11-11T12:04:00+01:00", Kind::Convert, Some(3), 48)
             .add("2026-11-11T12:05:00+01:00", Kind::Import, Some(1), 0)
             .add("2026-11-11T12:06:00+01:00", Kind::List, Some(2), 0)
             .add("2026-11-11T12:07:00+01:00", Kind::Unlist, Some(2), 0);
         f
+    }
+
+    /// What the fixture's lines say about the player, club and machine: none of it may reach the stats file.
+    const CLUB: &str = r"AC Milan, Aime A69E-01, key 7f3a9c, E:\wccf\profiles\club-one";
+
+    /// The stats fixture's catalogue: the cards its log names, one row each, on numbers a reader could pick out of a
+    /// file.
+    fn stats_cards() -> Vec<Card<'static>> {
+        let row = |card_no: u32, rarity: Rarity| Card {
+            card_no,
+            rarity,
+            ..card(rarity, 90)
+        };
+        vec![
+            row(91734, Rarity::Regular),
+            row(91735, Rarity::Regular),
+            row(91736, Rarity::Special),
+            row(91737, Rarity::Rare),
+            row(91738, Rarity::Legend),
+            row(91739, Rarity::Regular),
+            row(91740, Rarity::Special),
+        ]
+    }
+
+    /// A log of 3 weeks for the stats file (step 2.4): a pack of each kind, two crafts in different tiers, two
+    /// conversions, a listing sold and a stock bought, and the club, key, Aime id and folder path in its lines.
+    fn three_weeks() -> Fixture {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Starter,
+            Some(91734),
+            0,
+            CLUB,
+        )
+        .add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        );
+        for _ in 0..7 {
+            f.add(
+                "2026-11-03T12:00:00+01:00",
+                Kind::Match,
+                Some(91734),
+                MATCH_TOKENS,
+            );
+        }
+        f.add_why(
+            "2026-11-04T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -STANDARD_PACK,
+            "pack standard",
+        )
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91736), 0)
+        .add("2026-11-04T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add_why(
+            "2026-11-05T12:00:00+01:00",
+            Kind::Craft,
+            Some(91739),
+            -40,
+            "craft",
+        )
+        // week 2
+        .add(
+            "2026-11-09T12:00:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add_why(
+            "2026-11-10T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -SEASON_PACK,
+            "pack season 2014",
+        )
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add("2026-11-10T12:00:00+01:00", Kind::Pack, Some(91737), 0)
+        .add("2026-11-11T12:00:00+01:00", Kind::Convert, Some(91734), 48)
+        .add("2026-11-12T12:00:00+01:00", Kind::List, Some(91735), 0)
+        .add(
+            "2026-11-12T13:00:00+01:00",
+            Kind::MarketSell,
+            Some(91735),
+            0,
+        )
+        // week 3
+        .add(
+            "2026-11-16T12:00:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add(
+            "2026-11-16T12:05:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add_why(
+            "2026-11-17T12:00:00+01:00",
+            Kind::Craft,
+            Some(91740),
+            -160,
+            "craft",
+        )
+        .add_why(
+            "2026-11-18T12:00:00+01:00",
+            Kind::Pack,
+            None,
+            -NATION_PACK,
+            "pack nation Italy",
+        )
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91740), 0)
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91735), 0)
+        .add("2026-11-18T12:00:00+01:00", Kind::Pack, Some(91738), 0)
+        .add(
+            "2026-11-18T13:00:00+01:00",
+            Kind::StockBuy,
+            Some(91737),
+            -90,
+        )
+        .add("2026-11-19T12:00:00+01:00", Kind::Convert, Some(91735), 48);
+        f
+    }
+
+    /// (a) step 2.4: a log of 3 weeks gives the counts the file holds, week by week from 1.
+    #[test]
+    fn the_stats_count_three_weeks() {
+        let s = stats(&three_weeks().text, &stats_cards());
+        assert_eq!(s.rules, [RULES]);
+        assert_eq!(
+            s.weeks.iter().map(|w| w.week).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        let (w1, w2, w3) = (&s.weeks[0], &s.weeks[1], &s.weeks[2]);
+        assert_eq!((w1.matches, w1.match_tokens), (7, 350));
+        assert_eq!(
+            w1.packs,
+            Packs {
+                standard: 1,
+                season: 0,
+                nation: 0
+            }
+        );
+        assert_eq!(
+            w1.crafts,
+            ByTier {
+                regular: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!((w1.conversions, w1.conversion_tokens), (0, 0));
+        assert_eq!((w1.listings, w1.sales), (0, 0));
+        assert_eq!((w2.matches, w2.match_tokens), (1, 50));
+        assert_eq!(
+            w2.packs,
+            Packs {
+                standard: 0,
+                season: 1,
+                nation: 0
+            }
+        );
+        assert_eq!((w2.conversions, w2.conversion_tokens), (1, 48));
+        assert_eq!((w2.listings, w2.sales), (1, 1));
+        assert_eq!((w3.matches, w3.match_tokens), (2, 100));
+        assert_eq!(
+            w3.packs,
+            Packs {
+                standard: 0,
+                season: 0,
+                nation: 1
+            }
+        );
+        assert_eq!(
+            w3.crafts,
+            ByTier {
+                special: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!(
+            w3.stock_buys,
+            ByTier {
+                rare: 1,
+                ..ByTier::default()
+            }
+        );
+        assert_eq!((w3.conversions, w3.conversion_tokens), (1, 48));
+        // the cards and the spare copies at the log's end, by the catalogue's tiers, and the balance: every match
+        // and pack line grants a copy, so the ten matches on 91734 leave ten spare REGULAR copies
+        assert_eq!(
+            s.cards,
+            ByTier {
+                regular: 14,
+                special: 3,
+                rare: 2,
+                legend: 1,
+                all_time_legend: 0
+            }
+        );
+        assert_eq!(
+            s.spares,
+            ByTier {
+                regular: 10,
+                special: 1,
+                rare: 1,
+                legend: 0,
+                all_time_legend: 0
+            }
+        );
+        assert_eq!(s.balance, 360 - 52 - 302);
+    }
+
+    /// (b) step 2.4: the file holds none of the club name, key, Aime id, card numbers, timestamps or the folder path,
+    /// and only the documented fields.
+    #[test]
+    fn the_stats_file_holds_its_fields_and_no_identity() {
+        let f = three_weeks();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(Log::new(dir.path()).path(), &f.text).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let file = write_stats(&Log::new(dir.path()), &stats_cards(), out.path()).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        for secret in [
+            "AC Milan", "A69E-01", "7f3a9c", r"E:\wccf", "club-one", "2026", "91734", "91735",
+            "91736", "91737", "91738", "91739", "91740",
+        ] {
+            assert!(!text.contains(secret), "{secret:?} is in the file:\n{text}");
+        }
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        /// The object's keys, sorted: the file's fields are compared as a set.
+        fn keys(v: &serde_json::Value) -> Vec<&str> {
+            let mut out: Vec<&str> = v
+                .as_object()
+                .unwrap_or_else(|| panic!("not an object: {v}"))
+                .keys()
+                .map(String::as_str)
+                .collect();
+            out.sort_unstable();
+            out
+        }
+        assert_eq!(keys(&v), ["balance", "cards", "rules", "spares", "weeks"]);
+        let tier = ["all_time_legend", "legend", "rare", "regular", "special"];
+        assert_eq!(keys(&v["cards"]), tier);
+        assert_eq!(keys(&v["spares"]), tier);
+        assert_eq!(
+            keys(&v["weeks"][0]),
+            [
+                "conversion_tokens",
+                "conversions",
+                "crafts",
+                "listings",
+                "match_tokens",
+                "matches",
+                "packs",
+                "sales",
+                "stock_buys",
+                "week"
+            ]
+        );
+        assert_eq!(
+            keys(&v["weeks"][0]["packs"]),
+            ["nation", "season", "standard"]
+        );
+        assert_eq!(keys(&v["weeks"][0]["crafts"]), tier);
+        assert_eq!(keys(&v["weeks"][0]["stock_buys"]), tier);
+    }
+
+    /// (c) step 2.4: writing the file appends nothing to the log, and the count takes no network type.
+    #[test]
+    fn the_stats_write_reads_the_log_only() {
+        let f = three_weeks();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        std::fs::write(log.path(), &f.text).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let file = write_stats(&log, &stats_cards(), out.path()).unwrap();
+        assert_eq!(file.file_name().unwrap(), STATS_FILE);
+        assert_eq!(std::fs::read(log.path()).unwrap(), f.text.as_bytes());
+        // twice running: the same file, and the log still as it was
+        let again = write_stats(&log, &stats_cards(), out.path()).unwrap();
+        assert_eq!(
+            std::fs::read(&again).unwrap(),
+            std::fs::read(&file).unwrap()
+        );
+        assert_eq!(std::fs::read(log.path()).unwrap(), f.text.as_bytes());
+        // the count takes the log's text and the cards and nothing else: its own source names no network type
+        // the path in two pieces: a whole file name in quotes reads as a text key to the text test's scan
+        let src = include_str!(concat!("collection", ".rs"));
+        let head = "pub fn stats(lines: &str, cards: &[Card]) -> Stats";
+        let start = src.find(head).expect("the count's signature");
+        let body = &src[start..start + src[start..].find("\n}\n").expect("the count's end")];
+        for word in [
+            "online", "http", "Http", "Tcp", "socket", "Socket", "reqwest", "curl", "Server",
+        ] {
+            assert!(!body.contains(word), "the count names {word}");
+        }
+    }
+
+    /// step 2.4: a copy out on the market at the log's end is neither a held card nor a spare.
+    #[test]
+    fn a_copy_on_the_market_leaves_the_cards_and_the_spares() {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        )
+        .add("2026-11-02T12:01:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-02T12:02:00+01:00", Kind::Pack, Some(91734), 0)
+        .add("2026-11-02T12:03:00+01:00", Kind::List, Some(91734), 0);
+        let s = stats(&f.text, &stats_cards());
+        // two earned copies, one of them listed: one card held, and no spare (a listed copy does not convert)
+        assert_eq!(s.cards.regular, 1, "{s:?}");
+        assert_eq!(s.spares.regular, 0, "{s:?}");
+        assert_eq!(s.weeks[0].listings, 1);
+    }
+
+    /// step 2.4: a torn last line and a card the catalogue no longer holds give counts and no panic: the lines before
+    /// the tear count, and the lost card's craft counts in no tier.
+    #[test]
+    fn a_torn_line_and_a_lost_card_count_up_to_the_tear() {
+        let mut f = Fixture::default();
+        f.add_why(
+            "2026-11-02T12:00:00+01:00",
+            Kind::Welcome,
+            None,
+            WELCOME,
+            "welcome",
+        )
+        .add(
+            "2026-11-02T12:01:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        .add(
+            "2026-11-02T12:02:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        )
+        // a card number the catalogue lost (a rebuild), then a line the interrupted write cut off
+        .add("2026-11-02T12:03:00+01:00", Kind::Craft, Some(99999), -40)
+        .add(
+            "2026-11-02T12:04:00+01:00",
+            Kind::Match,
+            Some(91734),
+            MATCH_TOKENS,
+        );
+        let whole = f.text.trim_end_matches('\n');
+        let s = stats(&whole[..whole.len() - 40], &stats_cards());
+        assert_eq!(s.weeks.len(), 1);
+        assert_eq!(s.weeks[0].matches, 2, "the torn line is dropped");
+        assert_eq!(
+            s.weeks[0].crafts,
+            ByTier::default(),
+            "a card the catalogue lost counts in no tier"
+        );
+        assert_eq!(s.cards.regular, 2, "the two matches' copies");
+        assert_eq!(s.spares.regular, 1);
+        assert_eq!(s.balance, WELCOME + 2 * MATCH_TOKENS - 40);
+    }
+
+    /// step 2.4: the file is replaced whole: a write that fails leaves the old file as it was.
+    #[test]
+    fn a_failed_stats_write_keeps_the_old_file() {
+        let out = tempfile::tempdir().unwrap();
+        let file = out.path().join(STATS_FILE);
+        std::fs::write(&file, "the file before").unwrap();
+        // the temporary file beside it in the way: the write fails before it can touch the stats file
+        std::fs::create_dir(file.with_extension("tmp")).unwrap();
+        let f = three_weeks();
+        assert!(write_stats_lines(&f.text, &stats_cards(), out.path()).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "the file before",
+            "the old file stays whole"
+        );
     }
 
     /// (3.1) the fold's copies per source, the balance and the week's match tokens; a torn last line dropped.
@@ -1264,7 +2050,7 @@ mod tests {
         let folded = fold_at(&f.text, this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         let s = &folded.state;
-        assert_eq!(s.seq, 10);
+        assert_eq!(s.seq, 12);
         assert_eq!(
             s.copies(1),
             Copies {
@@ -1301,7 +2087,7 @@ mod tests {
         assert_eq!(s.match_week, 100);
         assert!(s.copies(3).owned());
 
-        // A torn last line (line 10): dropped with a warning, the 9 lines before it kept.
+        // A torn last line (line 12): dropped with a warning, the 11 lines before it kept.
         let mut torn = f.text.clone();
         torn.truncate(torn[..torn.len() - 1].rfind('\n').unwrap() + 1);
         torn.push_str("{\"seq\": 99, \"at\": \"2026-11-11T0");
@@ -1312,11 +2098,11 @@ mod tests {
         );
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
-            folded.warnings[0].starts_with("line 10 does not parse"),
+            folded.warnings[0].starts_with("line 12 does not parse"),
             "{:?}",
             folded.warnings
         );
-        assert_eq!(folded.state.seq, 9);
+        assert_eq!(folded.state.seq, 11);
         assert_eq!(
             folded.state.tokens, s.tokens,
             "the torn line moved no token"
@@ -1341,7 +2127,7 @@ mod tests {
             folded.warnings
         );
         assert_eq!(
-            folded.state.seq, 10,
+            folded.state.seq, 12,
             "the lines after the break are still read"
         );
     }
@@ -1921,6 +2707,261 @@ mod tests {
                 cards.iter().any(|c| c.rarity == Rarity::Special),
                 "{cards:?}"
             );
+        }
+    }
+
+    /// The store's fixture: Korea Republic short as the catalogue is (its 2 SPECIAL cards belong to players who also
+    /// have a REGULAR card, review N5's case, here with 4 REGULAR players so it comes up often), Chile and Japan in
+    /// 2014, Italy in 2006.
+    fn store_pool() -> Vec<Card<'static>> {
+        let mut pool: Vec<Card> = vec![];
+        two_per_player(&mut pool, 0, 8, Rarity::Regular, "Korea Republic", 2010);
+        two_per_player(&mut pool, 0, 4, Rarity::Special, "Korea Republic", 2010);
+        two_per_player(&mut pool, 200, 20, Rarity::Regular, "Chile", 2014);
+        two_per_player(&mut pool, 300, 5, Rarity::Special, "Chile", 2014);
+        two_per_player(&mut pool, 400, 2, Rarity::Rare, "Chile", 2014);
+        two_per_player(&mut pool, 500, 12, Rarity::Regular, "Italy", 2006);
+        two_per_player(&mut pool, 600, 3, Rarity::Special, "Italy", 2006);
+        two_per_player(&mut pool, 700, 6, Rarity::Regular, "Japan", 2014);
+        pool
+    }
+
+    /// 2.1 (b), (c): 10,000 seeded packs of each kind, Korea Republic included, each hold 1 SPECIAL or better, only
+    /// the pack's season or nation, and no player twice.
+    #[test]
+    fn every_pack_keeps_its_guarantee_and_its_pool() {
+        let pool = store_pool();
+        let mut rng = Rng::new(0x2026_1121);
+        for kind in [
+            Pack::Standard,
+            Pack::Season(2014),
+            Pack::Nation("Korea Republic"),
+            Pack::Nation("Chile"),
+        ] {
+            for _ in 0..10_000 {
+                let cards = pack(&mut rng, &pool, |c| kind.has(c));
+                assert_eq!(cards.len(), PACK_CARDS, "{kind:?}");
+                assert!(
+                    cards.iter().any(|c| c.rarity != Rarity::Regular),
+                    "{kind:?}: {cards:?}"
+                );
+                assert!(cards.iter().all(|c| kind.has(c)), "{kind:?}: {cards:?}");
+                let mut players: Vec<u32> = cards.iter().map(|c| c.player).collect();
+                players.sort_unstable();
+                players.dedup();
+                assert_eq!(players.len(), PACK_CARDS, "{kind:?}: {cards:?}");
+            }
+        }
+    }
+
+    /// 2.1: the odds the store shows per card, after the step-down; the last card's with the guarantee (#374: it
+    /// comes out REGULAR about 37 % of the time, not 68 %).
+    #[test]
+    fn pack_odds_step_down() {
+        let pool = store_pool();
+        let korea = pack_odds(&pool, Pack::Nation("Korea Republic"));
+        assert_eq!(korea[0], [680, 320, 0, 0, 0]);
+        assert_eq!(korea[1], korea[0]);
+        assert_eq!(korea[2], [366, 634, 0, 0, 0]);
+        let chile = pack_odds(&pool, Pack::Nation("Chile"));
+        assert_eq!(chile[0], [680, 260, 60, 0, 0]);
+        assert_eq!(chile[2][0], 366);
+        assert_eq!(pack_odds(&pool, Pack::Season(2006))[0], [680, 320, 0, 0, 0]);
+        assert_eq!(pack_odds(&[], Pack::Standard), [[0; 5]; PACK_CARDS]);
+        // a pool with no SPECIAL or better has no guarantee to give
+        assert_eq!(
+            odds_by_card([true, false, false, false, false])[2],
+            [1_000, 0, 0, 0, 0]
+        );
+        for card in pack_odds(&pool, Pack::Standard) {
+            assert!(
+                (999..=1_001).contains(&card.iter().sum::<u32>()),
+                "{card:?}"
+            );
+        }
+    }
+
+    /// #374: the odds the store shows are the ones 20,000 packs come out at, card by card (within 1.5 points).
+    #[test]
+    fn pack_odds_match_the_draw() {
+        let pool = store_pool();
+        let mut rng = Rng::new(0x374);
+        for kind in [Pack::Standard, Pack::Nation("Chile")] {
+            let shown = pack_odds(&pool, kind);
+            let mut seen = [[0u32; 5]; PACK_CARDS];
+            let n = 20_000;
+            for _ in 0..n {
+                for (slot, c) in pack(&mut rng, &pool, |c| kind.has(c)).iter().enumerate() {
+                    let t = Rarity::ALL.iter().position(|r| *r == c.rarity).unwrap();
+                    seen[slot][t] += 1;
+                }
+            }
+            for slot in 0..PACK_CARDS {
+                for t in 0..5 {
+                    let got = seen[slot][t] * 1_000 / n;
+                    assert!(
+                        got.abs_diff(shown[slot][t]) <= 15,
+                        "{kind:?} card {}: tier {t} shown {} drawn {got}",
+                        slot + 1,
+                        shown[slot][t]
+                    );
+                }
+            }
+        }
+    }
+
+    /// 2.1 (a): 99 tokens buy nothing and leave the log as it was; 100 write the price line and 3 card lines.
+    #[test]
+    fn a_pack_costs_its_price() {
+        let pool = store_pool();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        log.append_at(
+            when("2026-11-11T12:00:00+01:00"),
+            Kind::Welcome,
+            None,
+            99,
+            "welcome",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let mut rng = Rng::new(5);
+        let e = buy_pack(
+            &log,
+            when("2026-11-11T12:01:00+01:00"),
+            &mut rng,
+            &pool,
+            Pack::Standard,
+        )
+        .unwrap_err();
+        assert_eq!(e.to_string(), NOT_ENOUGH_TOKENS);
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        log.append_at(
+            when("2026-11-11T12:02:00+01:00"),
+            Kind::Convert,
+            Some(1),
+            1,
+            "convert",
+        )
+        .unwrap();
+        let wrote = buy_pack(
+            &log,
+            when("2026-11-11T12:03:00+01:00"),
+            &mut rng,
+            &pool,
+            Pack::Standard,
+        )
+        .unwrap();
+        assert_eq!(wrote.len(), 1 + PACK_CARDS);
+        assert!(
+            wrote
+                .iter()
+                .all(|e| e.kind == Kind::Pack && e.why == "pack standard")
+        );
+        assert_eq!((wrote[0].card, wrote[0].tokens), (None, -STANDARD_PACK));
+        assert!(wrote[1..].iter().all(|e| e.card.is_some() && e.tokens == 0));
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(folded.state.tokens, 0);
+        for e in &wrote[1..] {
+            assert_eq!(folded.state.copies(e.card.unwrap()).earned, 1);
+        }
+        // a pool that cannot fill a pack takes nothing either
+        log.append_at(
+            when("2026-11-11T12:04:00+01:00"),
+            Kind::Convert,
+            Some(1),
+            200,
+            "convert",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        assert!(
+            buy_pack(
+                &log,
+                when("2026-11-11T12:05:00+01:00"),
+                &mut rng,
+                &pool,
+                Pack::Nation("Ghana")
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+    }
+
+    /// #374: BUY needs a pool that fills every pack, not only 3 cards: 1 REGULAR player and 3 SPECIAL ones draw a short
+    /// pack whenever the second card rolls REGULAR.
+    #[test]
+    fn a_pack_fills_only_with_three_players_in_its_lowest_tier() {
+        let pool = store_pool();
+        assert!(pack_fills(&pool, Pack::Nation("Korea Republic")));
+        assert!(pack_fills(&pool, Pack::Standard));
+        assert!(!pack_fills(&pool, Pack::Nation("Ghana")));
+        let mut thin: Vec<Card> = vec![];
+        two_per_player(&mut thin, 0, 1, Rarity::Regular, "Ghana", 2010);
+        two_per_player(&mut thin, 100, 5, Rarity::Special, "Ghana", 2010);
+        assert!(!pack_fills(&thin, Pack::Nation("Ghana")));
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 300, "welcome")
+            .unwrap();
+        let e = buy_pack(&log, at, &mut Rng::new(1), &thin, Pack::Nation("Ghana")).unwrap_err();
+        assert_eq!(e.to_string(), TOO_FEW_PLAYERS);
+    }
+
+    /// #374: a write cut between a pack's price line and its card lines is said when the log is read.
+    #[test]
+    fn a_pack_cut_from_its_cards_is_said() {
+        let pool = store_pool();
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 300, "welcome")
+            .unwrap();
+        let mut rng = Rng::new(5);
+        for _ in 0..2 {
+            buy_pack(&log, at, &mut rng, &pool, Pack::Standard).unwrap();
+        }
+        let text = log.lines().unwrap();
+        assert!(fold_at(&text, this_week()).warnings.is_empty());
+        // the first pack keeps 1 card line, the second none: the log ends on its price line
+        let lines: Vec<&str> = text.lines().collect();
+        let cut = [&lines[..3], &lines[5..6]].concat().join("\n") + "\n";
+        let warnings = fold_at(&cut, this_week()).warnings;
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.starts_with("line 2: a pack paid for with 1 of its 3")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.starts_with("line 4: a pack paid for with 0 of its 3")),
+            "{warnings:?}"
+        );
+    }
+
+    /// 2.1 (d): the Nation picker's 24, none of the 7 dropped.
+    #[test]
+    fn the_nation_list() {
+        assert_eq!(NATIONS.len(), 24);
+        let mut sorted = NATIONS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 24);
+        for out in [
+            "SAMURAI BLUE",
+            "Mexico",
+            "Romania",
+            "Paraguay",
+            "Cote d'Ivoire",
+            "Ghana",
+            "Greece",
+            "Nigeria",
+        ] {
+            assert!(!NATIONS.contains(&out), "{out}");
         }
     }
 
@@ -2554,5 +3595,227 @@ mod tests {
                 .is_empty()
         );
         assert!(!mark.exists());
+    }
+
+    /// 2.2 (a), (d): a craft pays the card's value and adds one earned copy in one `craft` line: a black at TOTAL 95
+    /// costs 640, a white at 85 60, a secret white 40.
+    #[test]
+    fn a_craft_pays_the_value_and_adds_one_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 740, "welcome")
+            .unwrap();
+        let secret_white = Card {
+            card_no: 3,
+            secret: true,
+            ..card(Rarity::Regular, 100)
+        };
+        for (c, price) in [
+            (
+                Card {
+                    card_no: 1,
+                    ..card(Rarity::Special, 95)
+                },
+                640,
+            ),
+            (
+                Card {
+                    card_no: 2,
+                    ..card(Rarity::Regular, 85)
+                },
+                60,
+            ),
+            (secret_white, 40),
+        ] {
+            let before = fold_at(&log.lines().unwrap(), this_week()).state;
+            let e = craft_card(&log, at, &c).unwrap();
+            assert_eq!(
+                (e.kind, e.card, e.tokens),
+                (Kind::Craft, Some(c.card_no), -price)
+            );
+            let after = fold_at(&log.lines().unwrap(), this_week()).state;
+            assert_eq!(after.tokens, before.tokens - price);
+            assert_eq!(
+                after.copies(c.card_no),
+                Copies {
+                    earned: 1,
+                    ..Copies::default()
+                }
+            );
+            assert_eq!(after.seq, before.seq + 1, "one line");
+        }
+        assert_eq!(fold_at(&log.lines().unwrap(), this_week()).state.tokens, 0);
+    }
+
+    /// 2.2 (a): a write cut off inside the craft line loses the spend and the card together, and the next write goes on.
+    #[test]
+    fn a_craft_cut_off_keeps_the_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 200, "welcome")
+            .unwrap();
+        let before = log.lines().unwrap();
+        let black = Card {
+            card_no: 7,
+            ..card(Rarity::Special, 84)
+        };
+        craft_card(&log, at, &black).unwrap();
+        let whole = log.lines().unwrap();
+        let line = &whole[before.len()..];
+        for cut in [1, line.len() / 2, line.len() - 2] {
+            std::fs::write(log.path(), format!("{before}{}", &line[..cut])).unwrap();
+            let folded = fold_at(&log.lines().unwrap(), this_week());
+            assert!(!folded.unreadable, "cut at {cut}");
+            assert_eq!(folded.state.tokens, 200, "cut at {cut}: no token lost");
+            assert!(
+                !folded.state.copies(7).owned(),
+                "cut at {cut}: no card either"
+            );
+        }
+        craft_card(&log, at, &black).unwrap();
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(7).earned),
+            (40, 1)
+        );
+    }
+
+    /// 2.2 (b), (c): one token short, a card already held, a RARE or a legend-class card, or an unreadable log: refused
+    /// with its own error, and the log stays as it was.
+    #[test]
+    fn a_craft_is_refused_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Welcome, None, 159, "welcome")
+            .unwrap();
+        log.append_at(at, Kind::Starter, Some(5), 0, "starter")
+            .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let black = Card {
+            card_no: 4,
+            ..card(Rarity::Special, 80)
+        };
+        let refused = |c: &Card| craft_card(&log, at, c).unwrap_err().to_string();
+        assert_eq!(refused(&black), NOT_ENOUGH_TOKENS, "one token short");
+        assert_eq!(
+            refused(&Card {
+                card_no: 5,
+                ..card(Rarity::Regular, 70)
+            }),
+            ALREADY_HELD
+        );
+        for rarity in [Rarity::Rare, Rarity::Legend, Rarity::AllTimeLegend] {
+            assert_eq!(
+                refused(&Card {
+                    card_no: 6,
+                    ..card(rarity, 70)
+                }),
+                NOT_CRAFTED,
+                "{rarity:?}"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        std::fs::write(log.path(), format!("not a line\n{before}")).unwrap();
+        let e = craft_card(
+            &log,
+            at,
+            &Card {
+                card_no: 8,
+                ..card(Rarity::Regular, 70)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
+    }
+
+    /// 2.3 (a): CONVERT writes one line that takes one spare earned copy and pays 20 % of the value; a write cut off
+    /// inside it moves neither the copy nor the tokens, and the next write goes on.
+    #[test]
+    fn a_convert_takes_a_spare_and_a_cut_off_keeps_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        let black = Card {
+            card_no: 7,
+            ..card(Rarity::Special, 87)
+        };
+        for _ in 0..2 {
+            log.append_at(at, Kind::Pack, Some(7), 0, "pack").unwrap();
+        }
+        let before = log.lines().unwrap();
+        let e = convert_card(&log, at, &black).unwrap();
+        assert_eq!((e.kind, e.card, e.tokens), (Kind::Convert, Some(7), 48));
+        let whole = log.lines().unwrap();
+        let line = &whole[before.len()..];
+        assert_eq!(line.lines().count(), 1, "one line");
+        for cut in [1, line.len() / 2, line.len() - 2] {
+            std::fs::write(log.path(), format!("{before}{}", &line[..cut])).unwrap();
+            let folded = fold_at(&log.lines().unwrap(), this_week());
+            assert!(!folded.unreadable, "cut at {cut}");
+            assert_eq!(
+                (folded.state.tokens, folded.state.copies(7).earned),
+                (0, 2),
+                "cut at {cut}: no token without the copy leaving"
+            );
+        }
+        convert_card(&log, at, &black).unwrap();
+        let folded = fold_at(&log.lines().unwrap(), this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(7).earned),
+            (48, 1)
+        );
+    }
+
+    /// 2.3 (b): the last earned copy, a card held only as a starter or imported copy, and a card not held never
+    /// convert; an unreadable log is refused as every write is. The log stays as it was.
+    #[test]
+    fn a_convert_is_refused_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let at = when("2026-11-11T12:00:00+01:00");
+        log.append_at(at, Kind::Pack, Some(3), 0, "pack").unwrap();
+        for _ in 0..2 {
+            log.append_at(at, Kind::Starter, Some(5), 0, "starter")
+                .unwrap();
+        }
+        log.append_at(at, Kind::Starter, Some(3), 0, "starter")
+            .unwrap();
+        let before = std::fs::read_to_string(log.path()).unwrap();
+        let refused = |no: u32| {
+            convert_card(
+                &log,
+                at,
+                &Card {
+                    card_no: no,
+                    ..card(Rarity::Special, 87)
+                },
+            )
+            .unwrap_err()
+            .to_string()
+        };
+        assert_eq!(
+            refused(3),
+            NO_SPARE,
+            "the last earned copy, a starter beside it"
+        );
+        assert_eq!(refused(5), NO_SPARE, "starter copies only");
+        assert_eq!(refused(9), NO_SPARE, "not held");
+        assert_eq!(std::fs::read_to_string(log.path()).unwrap(), before);
+        std::fs::write(log.path(), format!("not a line\n{before}")).unwrap();
+        let e = convert_card(
+            &log,
+            at,
+            &Card {
+                card_no: 3,
+                ..card(Rarity::Special, 87)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
     }
 }

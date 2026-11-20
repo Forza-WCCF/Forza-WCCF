@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use forza::board::Card;
 use forza::cards::collection_cards;
-use forza::collection::{self as c, LEAGUES, Log, Rarity};
-use forza_ui::collection::{Choice, CollectionView, Filter, StartRow, Step};
+use forza::collection::{self as c, LEAGUES, Log, NATIONS, Rarity};
+use forza_ui::collection::{Choice, CollectionView, Filter, Offer, PackChoice, StartRow, Step};
 use launcher::Kit;
 use launcher::run;
 
@@ -61,15 +61,22 @@ pub fn starts(catalogue: &[Card]) -> Vec<StartRow> {
 /// The view of the log in `dir` against the catalogue. `old` keeps the page's filter and open card, and a start being
 /// chosen or a deal not taken yet. A line that cannot be read shows the cards before it, marked damaged, so a started
 /// collection still plays (reset, `PLAN.md` 1.5, is the way to a whole file again).
+#[cfg(test)]
 pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::Result<CollectionView> {
-    let folded = c::fold(&Log::new(dir).lines()?);
+    Ok(view_of(catalogue, dir, c::fold(&Log::new(dir).lines()?), old))
+}
+
+/// [`view`] of a log already read and folded (the Launcher logs the fold's warnings from the same read).
+pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<CollectionView>) -> CollectionView {
     let s = folded.state;
+    let pool = collection_cards(catalogue);
     let started = s.cards.values().any(|k| k.starter > 0);
     let (filter, open, step) = match old {
         Some(o) => (o.filter, o.open, o.step),
         None => (Filter::default(), None, Step::Page),
     };
     let step = match step {
+        kept @ (Step::Store { .. } | Step::Open { .. } | Step::Craft { .. }) if started => kept,
         _ if started => Step::Page,
         _ if let Some((choice, dealt, rares)) = pending(catalogue, dir) => Step::Pick {
             choice,
@@ -84,7 +91,7 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         },
         kept => kept,
     };
-    Ok(CollectionView {
+    CollectionView {
         step,
         cards: catalogue
             .iter()
@@ -101,7 +108,85 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
         open,
         problem: None,
         damaged: folded.unreadable,
-    })
+        offers: offers_of(&pool),
+        // the page's held rule: a card whose copies all left (sold) is offered again
+        craftable: catalogue
+            .iter()
+            .zip(&pool)
+            .filter(|(_, row)| {
+                let n = s.copies(row.card_no);
+                c::craft(row).is_some() && n.earned + n.starter + n.imported == 0
+            })
+            .map(|(k, _)| k.clone())
+            .collect(),
+    }
+}
+
+/// The store's packs of the catalogue.
+#[cfg(test)]
+pub fn offers(catalogue: &[Card]) -> Vec<Offer> {
+    offers_of(&collection_cards(catalogue))
+}
+
+/// The store's packs (`PLAN.md` 2.3) from the catalogue's pool (`view_of` builds it once per view): Standard, each
+/// season, the 24 nations with their card counts; each with one card's odds after the step-down.
+fn offers_of(pool: &[c::Card]) -> Vec<Offer> {
+    let mut seasons: Vec<u16> = pool.iter().map(|c| c.season).filter(|&y| y > 0).collect();
+    seasons.sort_unstable();
+    seasons.dedup();
+    std::iter::once(PackChoice::Standard)
+        .chain(seasons.into_iter().map(PackChoice::Season))
+        .chain((0..NATIONS.len()).map(PackChoice::Nation))
+        .map(|pack| Offer {
+            pack,
+            cards: pool.iter().filter(|c| pack.pack().has(c)).count() as u32,
+            odds: c::pack_odds(pool, pack.pack()),
+            fills: c::pack_fills(pool, pack.pack()),
+        })
+        .collect()
+}
+
+/// BUY: the pack paid and drawn from a fresh seed under the log's lock; the cards' numbers, in the order drawn.
+pub fn buy(catalogue: &[Card], dir: &Path, choice: PackChoice) -> io::Result<Vec<u32>> {
+    let pool = collection_cards(catalogue);
+    let mut rng = c::Rng::new(std::hash::RandomState::new().hash_one(Instant::now()));
+    std::fs::create_dir_all(dir)?;
+    let lines = c::buy_pack(&Log::new(dir), c::now(), &mut rng, &pool, choice.pack())?;
+    Ok(lines.iter().filter_map(|e| e.card).collect())
+}
+
+/// CRAFT: the catalogue's card `no` at its value, one `craft` line under the log's lock (`forza::collection::craft_card`).
+pub fn craft(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> {
+    let card = catalogue
+        .iter()
+        .find(|k| k.number == no)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("card {no} is not in the catalogue")))?;
+    std::fs::create_dir_all(dir)?;
+    c::craft_card(
+        &Log::new(dir),
+        c::now(),
+        &collection_cards(std::slice::from_ref(card))[0],
+    )
+}
+
+/// CONVERT: one spare earned copy of the catalogue's card `no` into tokens, one `convert` line under the log's lock
+/// (`forza::collection::convert_card`).
+pub fn convert(catalogue: &[Card], dir: &Path, no: u32) -> io::Result<c::Entry> {
+    let card = catalogue
+        .iter()
+        .find(|k| k.number == no)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("card {no} is not in the catalogue")))?;
+    c::convert_card(
+        &Log::new(dir),
+        c::now(),
+        &collection_cards(std::slice::from_ref(card))[0],
+    )
+}
+
+/// SAVE STATS (`PLAN.md` 2.4): the log's lines folded into counts into `folder`, as `create-a-team-stats.json`. The
+/// caller reads the log, so a log the game is still writing keeps its own message apart from the write's.
+pub fn stats(catalogue: &[Card], lines: &str, folder: &Path) -> io::Result<PathBuf> {
+    c::write_stats_lines(lines, &collection_cards(catalogue), folder)
 }
 
 /// The deal on disk as catalogue cards: `None` when there is none, the catalogue no longer holds one of its numbers
@@ -542,5 +627,281 @@ mod tests {
         let r = reset_kit(&kit);
         assert!(matches!(r, Err(ResetRefused::NoSeat)), "{r:?}");
         assert!(coll.is_dir(), "the profile stays without a seat folder");
+    }
+
+    /// 2.1 through the tab: the store offers Standard, each season and the 24 nations (none of the 7 dropped); the
+    /// welcome's 150 buy one Standard pack and not a second; the opened pack shows its 3 cards with their copies, and a
+    /// view made again keeps the opened pack on the screen.
+    #[test]
+    fn the_store_sells_packs() {
+        let cat = catalogue();
+        let o = offers(&cat);
+        assert_eq!((o[0].pack, o[0].cards), (PackChoice::Standard, cat.len() as u32));
+        assert!(o[0].fills);
+        let pool = collection_cards(&cat);
+        assert!(
+            o.iter().all(|x| x.fills == c::pack_fills(&pool, x.pack.pack())),
+            "BUY waits for a pool that fills a pack"
+        );
+        assert!(
+            o.iter().any(|x| !x.fills),
+            "a pool too small for a pack is offered without BUY"
+        );
+        assert_eq!(
+            o.iter()
+                .filter(|x| matches!(x.pack, PackChoice::Season(_)))
+                .map(|x| x.pack)
+                .collect::<Vec<_>>(),
+            [PackChoice::Season(2013), PackChoice::Season(2014)]
+        );
+        let nations: Vec<&str> = o
+            .iter()
+            .filter_map(|x| match x.pack {
+                PackChoice::Nation(i) => Some(NATIONS[i]),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(nations.len(), 24);
+        for out in [
+            "SAMURAI BLUE",
+            "Mexico",
+            "Romania",
+            "Paraguay",
+            "Cote d'Ivoire",
+            "Ghana",
+            "Greece",
+            "Nigeria",
+        ] {
+            assert!(!nations.contains(&out), "{out}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("no deal on the screen")
+        };
+        let step = Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: Some(0),
+        };
+        take(&coll, &data, &step).unwrap();
+        let cards = buy(&cat, &coll, PackChoice::Standard).unwrap();
+        assert_eq!(cards.len(), c::PACK_CARDS);
+        let e = buy(&cat, &coll, PackChoice::Standard).unwrap_err();
+        assert_eq!(e.to_string(), c::NOT_ENOUGH_TOKENS);
+        let mut v = view(&cat, &coll, None).unwrap();
+        assert_eq!(v.tokens, c::WELCOME - c::STANDARD_PACK);
+        v.step = Step::Store { chosen: 0 };
+        v.open_pack(&cards);
+        let Step::Open { cards: opened, .. } = &v.step else {
+            panic!("the pack is not open")
+        };
+        assert_eq!(opened.iter().map(|k| k.card.number).collect::<Vec<_>>(), cards);
+        assert!(opened.iter().all(|k| k.copies >= 1));
+        let again = view(&cat, &coll, Some(v)).unwrap();
+        assert!(
+            matches!(again.step, Step::Open { .. }),
+            "a view made again keeps the pack open"
+        );
+    }
+
+    /// #374 review 3: a pool that holds cards whose lowest tier has two players cannot fill a pack (the step-down has
+    /// nowhere to go), where an empty pool only meets the same rule trivially; three players can.
+    #[test]
+    fn a_pool_of_two_players_does_not_fill_a_pack() {
+        let card = |player, number| c::Card {
+            card_no: number,
+            player,
+            rarity: c::Rarity::Regular,
+            total: 80,
+            series: "",
+            secret: false,
+            season: 2017,
+            nation: "Italy",
+            club: "",
+            position: c::Position::Mf,
+        };
+        let two = [card(1, 7001), card(1, 7002), card(2, 7003)];
+        assert!(two.iter().all(|k| c::Pack::Standard.has(k)), "cards, not an empty pool");
+        assert!(!c::pack_fills(&two, c::Pack::Standard), "two players cannot fill 3");
+        let three = [card(1, 7001), card(2, 7002), card(3, 7003)];
+        assert!(c::pack_fills(&three, c::Pack::Standard));
+    }
+
+    /// 2.2: CRAFT offers the white and black cards not held, never a RARE; a craft pays the value, adds the card and
+    /// takes it off the list, and the view made again stays on CRAFT.
+    #[test]
+    fn craft_offers_unheld_white_and_black_cards_and_makes_one() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("no deal on the screen")
+        };
+        take(
+            &coll,
+            &data,
+            &Step::Pick {
+                choice,
+                dealt,
+                rares,
+                picked: Some(0),
+            },
+        )
+        .unwrap();
+        let mut v = view(&cat, &coll, None).unwrap();
+        let held: Vec<u32> = v.cards.iter().map(|(k, _)| k.number).collect();
+        assert!(!v.craftable.is_empty());
+        assert!(
+            v.craftable
+                .iter()
+                .all(|k| k.rarity == R::Regular && !held.contains(&k.number))
+        );
+        assert_eq!(
+            v.craftable.len(),
+            cat.iter().filter(|k| k.rarity == R::Regular).count() - 11
+        );
+        let no = v.craftable[0].number;
+        let e = craft(&cat, &coll, no).unwrap();
+        assert_eq!((e.kind, e.card), (c::Kind::Craft, Some(no)));
+        v.step = Step::Craft { picked: Some(no) };
+        let again = view(&cat, &coll, Some(v)).unwrap();
+        assert!(
+            matches!(again.step, Step::Craft { .. }),
+            "the view made again stays on CRAFT"
+        );
+        assert_eq!(again.tokens, c::WELCOME + e.tokens);
+        assert!(again.cards.iter().any(|(k, n)| k.number == no && n.earned == 1));
+        assert!(
+            again.craftable.iter().all(|k| k.number != no),
+            "a held card is no longer offered"
+        );
+        assert_eq!(craft(&cat, &coll, no).unwrap_err().to_string(), c::ALREADY_HELD);
+    }
+
+    /// REVIEW-22 minor: a card sold down to no copy keeps a zeroed entry in the fold, and CRAFT offers it again by the
+    /// page's held rule (the page does not show it).
+    #[test]
+    fn craft_offers_a_card_sold_down_to_no_copy() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, _) = profile(dir.path());
+        let sold = cat.iter().find(|k| k.rarity == R::Regular).unwrap().number;
+        let log = Log::new(&coll);
+        std::fs::create_dir_all(&coll).unwrap();
+        for kind in [c::Kind::Pack, c::Kind::MarketSell] {
+            log.append_at(c::now(), kind, Some(sold), 0, "test").unwrap();
+        }
+        assert!(
+            c::fold(&log.lines().unwrap()).state.cards.contains_key(&sold),
+            "a zeroed entry"
+        );
+        let v = view(&cat, &coll, None).unwrap();
+        assert!(
+            v.craftable.iter().any(|k| k.number == sold),
+            "a sold card is offered again"
+        );
+        assert!(v.cards.iter().all(|(k, _)| k.number != sold), "and not shown as held");
+    }
+
+    /// 2.3: the detail's copies by source are the fold's; CONVERT takes one spare earned copy at 20 % of the value
+    /// and never the last nor a starter copy.
+    #[test]
+    fn convert_takes_a_spare_and_the_view_follows_the_fold() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let held: Vec<u32> = view(&cat, &coll, None)
+            .unwrap()
+            .cards
+            .iter()
+            .map(|(k, _)| k.number)
+            .collect();
+        let mut free = cat
+            .iter()
+            .filter(|k| k.rarity == R::Regular && !held.contains(&k.number));
+        let spare = free.next().unwrap().number;
+        let log = Log::new(&coll);
+        let at = c::now();
+        for _ in 0..2 {
+            log.append_at(at, c::Kind::Pack, Some(spare), 0, "test").unwrap();
+        }
+        let check = |v: &forza_ui::collection::CollectionView| {
+            let s = c::fold(&log.lines().unwrap()).state;
+            for (k, n) in &v.cards {
+                assert_eq!(*n, s.copies(k.number), "card {}: copies by source", k.number);
+            }
+            s
+        };
+        check(&view(&cat, &coll, None).unwrap());
+        let row = &collection_cards(std::slice::from_ref(cat.iter().find(|k| k.number == spare).unwrap()))[0];
+        let e = convert(&cat, &coll, spare).unwrap();
+        assert_eq!((e.kind, e.card), (c::Kind::Convert, Some(spare)));
+        assert_eq!(e.tokens, i64::from(c::value(row) * c::CONVERT_SHARE / 100));
+        let v = view(&cat, &coll, None).unwrap();
+        let s = check(&v);
+        assert_eq!(s.copies(spare).earned, 1);
+        assert_eq!(v.tokens, c::WELCOME + e.tokens);
+        assert_eq!(
+            convert(&cat, &coll, spare).unwrap_err().to_string(),
+            c::NO_SPARE,
+            "the last earned copy stays"
+        );
+        assert_eq!(
+            convert(&cat, &coll, held[0]).unwrap_err().to_string(),
+            c::NO_SPARE,
+            "a starter copy"
+        );
+    }
+    /// 2.4: SAVE STATS writes the file into the folder the player picks from the profile's log, and the log is only
+    /// read: the same bytes before and after, and no path in the file.
+    #[test]
+    fn the_stats_file_goes_to_the_picked_folder_and_the_log_stays() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let log = Log::new(&coll);
+        let before = log.lines().unwrap();
+        let picked = tempfile::tempdir().unwrap();
+        let file = stats(&cat, &before, picked.path()).unwrap();
+        assert_eq!(file.file_name().unwrap(), c::STATS_FILE);
+        assert_eq!(log.lines().unwrap(), before, "the log is only read");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains(&coll.display().to_string()),
+            "no folder path in the file"
+        );
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["balance"], c::WELCOME);
+        assert_eq!(v["weeks"].as_array().unwrap().len(), 1);
+        let tiers = ["regular", "special", "rare", "legend", "all_time_legend"];
+        let cards: i64 = tiers.iter().map(|t| v["cards"][t].as_i64().unwrap()).sum();
+        assert_eq!(cards, 12, "the first start's 12 cards");
+        assert!(
+            tiers.iter().all(|t| v["spares"][t].as_i64() == Some(0)),
+            "no spare copy yet"
+        );
     }
 }
