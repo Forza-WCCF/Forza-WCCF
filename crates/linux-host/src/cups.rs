@@ -57,6 +57,9 @@ const HOUR: i64 = 3600;
 const ENTRIES: u32 = 40;
 /// A seat paired by the control plays until its slot ends: matching comes about 91 s into a slot of at most 530 s.
 pub const MATCH_SECS: i64 = 460;
+/// Seat against seat pairs this long after its slot's tables at most (28-115 s in local friendlies): a final with no
+/// pairing at its tables holds the restart this long (#396).
+const LATE_PAIRING_SECS: i64 = 120;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cup {
@@ -228,7 +231,8 @@ pub const ROUNDS: u32 = 5;
 
 /// The restart gate of one control run, fed control's log: due after the run's last cup (or one whose next cup would
 /// miss its time; when the log says nothing, half an hour after the plan's end), then clear once no seat paired up to
-/// then (the slot that made it due included) is still in a match ([`MATCH_SECS`]).
+/// then (the slot that made it due included) is still in a match ([`MATCH_SECS`]) and, when a cup's final made it due,
+/// that final's seats had [`LATE_PAIRING_SECS`] to pair.
 pub struct Watch<'a> {
     run: &'a Run,
     slots: Slots,
@@ -237,6 +241,8 @@ pub struct Watch<'a> {
     done: usize,
     paired: Option<i64>,
     due: bool,
+    /// When a cup's final made the restart due: its seats may still pair seat against seat.
+    tables: Option<i64>,
     /// A slot's matching came after the restart was due: its pairings and later ones no longer hold it.
     later: bool,
 }
@@ -250,6 +256,7 @@ impl<'a> Watch<'a> {
             done: 0,
             paired: None,
             due: false,
+            tables: None,
             later: false,
         }
     }
@@ -264,7 +271,7 @@ impl<'a> Watch<'a> {
         }
         // a cup is over at its final's matching (one pair, or its last round whatever the table shows), or at the
         // friendly after it should a final escape both: that friendly's seats then hold the restart a match more (#338)
-        let ended = match self.slots.feed(l)? {
+        let (ended, fin) = match self.slots.feed(l)? {
             Slot::CupRound(n) if self.rounds == 0 && n > 1 => {
                 self.rounds = 1;
                 return Some(format!(
@@ -274,14 +281,21 @@ impl<'a> Watch<'a> {
             }
             Slot::CupRound(n) if self.rounds > 0 => {
                 self.rounds += 1;
-                (n == 1 || self.rounds == ROUNDS).then_some(now + FINAL_SECS)?
+                (
+                    (n == 1 || self.rounds == ROUNDS).then_some(now + FINAL_SECS)?,
+                    true,
+                )
             }
-            Slot::Friendly if self.rounds > 0 => now - MATCHING_SECS,
+            // the friendly ending a lost-final cup gets no late-pairing hold: it would push the next cup off the hour
+            Slot::Friendly if self.rounds > 0 => (now - MATCHING_SECS, false),
             _ => return None,
         };
         self.rounds = 0;
         self.done += 1;
         let keep = next_on_time(self.run, self.done, ended, OVH1);
+        if fin && !keep && !self.due {
+            self.tables = Some(now);
+        }
         self.due |= !keep;
         Some(format!(
             "cup {} of the run over (its last slot ends about {}); {}",
@@ -298,7 +312,9 @@ impl<'a> Watch<'a> {
     /// Whether the control may stop now.
     pub fn clear(&mut self, now: i64) -> bool {
         self.due |= now >= self.run.ends() + 1800;
-        self.due && self.paired.is_none_or(|t| now - t >= MATCH_SECS)
+        self.due
+            && self.paired.is_none_or(|t| now - t >= MATCH_SECS)
+            && self.tables.is_none_or(|t| now - t >= LATE_PAIRING_SECS)
     }
 }
 
@@ -545,7 +561,9 @@ mod tests {
                 target(at(h + 1, 0)),
                 "{h}:00 cup"
             );
-            // a final lost from the log: the friendly after it ends the cup, and its seat's match is not cut
+            // a final lost from the log: the friendly after it ends the cup, and its seat paired against the CPU at its
+            // tables takes no late-pairing hold: a seat-against-seat pairing that arrives before the gate clears still
+            // holds it a match, as before (#396)
             let friendly = fin + FINAL_SECS + MATCHING_SECS;
             assert_eq!(
                 restart(&r, &cup_log(c, None)),
@@ -561,8 +579,8 @@ mod tests {
             let r = plan(at(h, 0) - 20 * 60, OVH1);
             let c = &r.cups[0];
             let fin = c.ends - FINAL_SECS;
-            // two seats meet in the final and pair a minute after its tables (seat against seat comes late): the gate
-            // is still shut when the friendly after it pairs at fin + 505, which held it to fin + 965 before
+            // a seat also pairs a minute after the final's tables (seat against seat comes late; the fixture's CPU
+            // pairing at the tables stays): the friendly after it pairs at fin + 505, which held it to fin + 965 before
             let mut log = cup_log(c, Some(1));
             log.push((
                 fin + 60,
@@ -571,6 +589,45 @@ mod tests {
                 )],
             ));
             assert_eq!(restart(&r, &log), fin + 60 + MATCH_SECS, "{h}:00 cup");
+        }
+    }
+
+    /// Drops the seat pairings logged at `t`.
+    fn unpaired(log: &mut [(i64, Vec<String>)], t: i64) {
+        let (_, lines) = log.iter_mut().find(|(at, _)| *at == t).unwrap();
+        lines.retain(|l| !pairs_a_seat(l));
+    }
+
+    #[test]
+    fn a_seat_against_seat_final_that_pairs_after_its_tables_holds_the_restart() {
+        for h in 0..24 {
+            let r = plan(at(h, 0) - 20 * 60, OVH1);
+            let c = &r.cups[0];
+            let fin = c.ends - FINAL_SECS;
+            // no pairing at the final's tables, two seats meet 115 s later (#396): was cut at fin
+            let mut log = cup_log(c, Some(1));
+            unpaired(&mut log, fin);
+            let mut late = log.clone();
+            late.push((
+                fin + 115,
+                vec![line(
+                    "send match info : (ip127.0.0.1,port20003,sateID3)Away -> sate2 Home",
+                )],
+            ));
+            let held = restart(&r, &late);
+            assert_eq!(held, fin + 115 + MATCH_SECS, "{h}:00 cup");
+            assert_eq!(
+                plan(held, OVH1).cups[0].target,
+                target(at(h + 1, 0)),
+                "{h}:00 cup"
+            );
+            // a final nobody pairs in waits out the late-pairing window only
+            assert_eq!(restart(&r, &log), fin + LATE_PAIRING_SECS, "{h}:00 cup");
+            // the friendly ending a lost-final cup keeps today's rule: no pairing at its tables, a restart at once
+            let friendly = fin + FINAL_SECS + MATCHING_SECS;
+            let mut lost = cup_log(c, None);
+            unpaired(&mut lost, friendly);
+            assert_eq!(restart(&r, &lost), friendly, "{h}:00 cup");
         }
     }
 
