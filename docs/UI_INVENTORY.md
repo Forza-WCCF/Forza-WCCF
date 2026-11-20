@@ -80,6 +80,8 @@ over the picture one at a time, and while a page is open its keys do not reach t
   - Range sliders: OFF, DEF, TEC, POW, SPD, STA (1–20), TOTAL (60–100); RESET.
   - Results with card pictures; a stats pane for the card under the mouse (position, club, country, TOTAL, six stats
     with bars, an inferred role labelled as inferred).
+  - Card sizes and the 5 % rule that lets a card-shaped picture fill its slot are shared: 2010–11's catalogue draws
+    with the same.
   - Messages: added, already on the table, table full (16).
   - Typing searches; Backspace; the wheel scrolls.
 - **Keys**: 16 actions (START, PRESS, SHOOT, KEEPER, DATA, KEY PLAYER, CARD, COIN, UP, DOWN, LEFT, RIGHT, TEST,
