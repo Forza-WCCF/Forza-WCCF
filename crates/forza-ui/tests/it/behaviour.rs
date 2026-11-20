@@ -37,6 +37,36 @@ fn launcher_on_a_short_screen() {
     }
 }
 
+/// The banner's label for `text` on the game page in `lang`.
+fn banner_label(lang: Lang, text: &str) -> egui::Rect {
+    let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+    st.banner = Some(panel::Note::banner(text.into()));
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(8);
+    h.get_by_label(text).rect()
+}
+
+/// A full arcade notice (#328: 140 characters under the longest prefixes, Italian and Japanese) is read whole at the
+/// top of the picture: Italian in three lines of the banner, Japanese's wide characters in four.
+#[test]
+fn a_full_arcade_notice_fits_the_banner() {
+    for (lang, word, lines) in [
+        (Lang::It, "Sala aperta ", 3.0),
+        (Lang::Ja, "本日営業中です。", 4.0),
+    ] {
+        let host: String = word.chars().cycle().take(140).collect();
+        let text = forza_ui::text(lang, "launcher.arcade_notice", &[("text", &host)]);
+        let line = banner_label(lang, word).height();
+        let r = banner_label(lang, &text);
+        assert!(
+            r.height() <= lines * line + 1.0 && r.right() <= panel::SIZE.x,
+            "{lang:?}: {r:?}, one line {line}"
+        );
+    }
+}
+
 /// The server's notice sits at the top of the game picture.
 #[test]
 fn server_notice() {
