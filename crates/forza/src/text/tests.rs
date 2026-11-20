@@ -505,7 +505,8 @@ fn the_hook_import_rename_is_a_pure_name_swap() {
     let orig = pe(SYS_DLL);
     let hooked = rename_import(&orig, SYS_DLL, HOOK_DLL).unwrap();
     assert_eq!(hooked.len(), orig.len());
-    assert!(orig.iter().zip(&hooked).filter(|(a, b)| a != b).count() <= SYS_DLL.len());
+    // The name's nine bytes change, not its NUL: a write over the terminator must fail this.
+    assert!(orig.iter().zip(&hooked).filter(|(a, b)| a != b).count() < SYS_DLL.len());
     assert!(
         !hooked
             .to_ascii_lowercase()
