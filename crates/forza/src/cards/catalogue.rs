@@ -161,11 +161,11 @@ fn va_to_offset(d: &[u8], va: u32) -> io::Result<usize> {
         let (sva, rsz, roff) = (u32_at(d, o + 12), u32_at(d, o + 16), u32_at(d, o + 20));
         let lo = base.wrapping_add(sva);
         if lo <= va && va < lo.wrapping_add(rsz) {
-            let off = roff as usize + (va - lo) as usize;
-            return if off < d.len() {
-                Ok(off)
-            } else {
-                Err(bad("VA points past the file"))
+            // checked: usize is 32-bit in the i686 panel build
+            let off = (roff as usize).checked_add((va - lo) as usize);
+            return match off {
+                Some(off) if off < d.len() => Ok(off),
+                _ => Err(bad("VA points past the file")),
             };
         }
     }
