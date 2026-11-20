@@ -6,6 +6,7 @@ use crate::keytable;
 use aes::Aes256;
 use aes::cipher::{Array, BlockCipherDecrypt, KeyInit};
 use anyhow::{Result, bail, ensure};
+use forza::Edition;
 use ripemd::Ripemd160;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -13,8 +14,7 @@ use std::path::Path;
 
 pub struct Disc {
     pub name: &'static str,
-    pub game_id: &'static str,
-    pub edition: &'static str,
+    pub edition: Edition,
     pub iso_size: u64,
     pub slot_start: u64,
     pub slot_end: u64,
@@ -24,16 +24,14 @@ pub struct Disc {
 pub const DISCS: [Disc; 2] = [
     Disc {
         name: "WCCF 2010–2011 (Rev D)",
-        game_id: "SBWG",
-        edition: "2010-2011",
+        edition: Edition::E1011,
         iso_size: 5_034_770_432,
         slot_start: 0x378000,
         slot_end: 0x10D5F8000,
     },
     Disc {
         name: "WCCF 2017–2018 v2.00.00 (DVR-5059A)",
-        game_id: "SDDY",
-        edition: "2017-2018",
+        edition: Edition::E1718,
         iso_size: 5_921_865_728,
         slot_start: 0x1FCB8000,
         slot_end: 0x160F38000,
@@ -268,7 +266,7 @@ pub fn open_with(
     let mut raw = [0u8; 512];
     f.seek(SeekFrom::Start(disc.slot_end - HIDDEN_HEADER_OFFSET))?;
     f.read_exact(&mut raw)?;
-    let header = pick_header(&raw, keyfile, disc.game_id, rows)?;
+    let header = pick_header(&raw, keyfile, disc.edition.game_id(), rows)?;
     let size = header.hidden_size;
     ensure!(
         size > 0
@@ -482,12 +480,12 @@ mod tests {
     fn supported_layouts_select_the_game_slot() {
         let old = by_size(5_034_770_432).unwrap();
         assert_eq!(
-            (old.game_id, old.slot_start, old.slot_end),
+            (old.edition.game_id(), old.slot_start, old.slot_end),
             ("SBWG", 0x378000, 0x10D5F8000)
         );
         let new = by_size(5_921_865_728).unwrap();
         assert_eq!(
-            (new.game_id, new.slot_start, new.slot_end),
+            (new.edition.game_id(), new.slot_start, new.slot_end),
             ("SDDY", 0x1FCB8000, 0x160F38000)
         );
         assert_eq!((new.slot_end - new.slot_start) / SEGMENT, 20_554);
@@ -502,7 +500,7 @@ mod tests {
     fn first_mib_matches_known_decryption() {
         let key = std::fs::read(std::env::var("WCCF_KEY").unwrap()).unwrap();
         let (mut vol, _) = open(Path::new(&std::env::var("WCCF_ISO").unwrap()), &key).unwrap();
-        let (size, expected) = match vol.disc.game_id {
+        let (size, expected) = match vol.disc.edition.game_id() {
             "SBWG" => (
                 4_001_366_016,
                 "18910a50c7d76ed0905b3ad075294c9db70592674e8a5edbb5dbe601a6f10d08",

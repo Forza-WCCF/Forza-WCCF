@@ -46,10 +46,10 @@ pub enum Event {
 
 fn game_id_in(game: &Path) -> Option<&'static str> {
     let mut ids = disc::DISCS.iter().filter(|d| {
-        game.join(format!("local/{}_Table.dat", d.game_id))
+        game.join(format!("local/{}_Table.dat", d.edition.game_id()))
             .is_file()
     });
-    let id = ids.next()?.game_id;
+    let id = ids.next()?.edition.game_id();
     ids.next().is_none().then_some(id)
 }
 
@@ -57,9 +57,9 @@ fn game_id_in(game: &Path) -> Option<&'static str> {
 pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
     let disc = disc::DISCS
         .iter()
-        .find(|d| d.game_id == id)
+        .find(|d| d.edition.game_id() == id)
         .ok_or(E::UnknownEdition)?;
-    let root = dest.join(disc.edition);
+    let root = dest.join(disc.edition.folder());
     let legacy = dest.join(LEGACY_GAME_DIR);
     if !root.exists() && game_id_in(&legacy) == Some(id) {
         return Ok((dest.to_path_buf(), legacy)); // preserve older installs in place
@@ -76,7 +76,7 @@ pub fn install_folder(picked: &Path) -> PathBuf {
         .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("Forza-WCCF"));
     let holds_install = disc::DISCS
         .iter()
-        .map(|d| d.edition)
+        .map(|d| d.edition.folder())
         .chain([LEGACY_GAME_DIR])
         .any(|d| picked.join(d).is_dir());
     if named || holds_install {
@@ -93,13 +93,13 @@ pub fn game_present(dest: &Path, id: &str) -> bool {
 }
 
 pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
-    let mut ids = disc::DISCS.iter().filter(|d| game_present(dest, d.game_id));
-    let id = ids.next()?.game_id;
+    let mut ids = disc::DISCS.iter().filter(|d| game_present(dest, d.edition.game_id()));
+    let id = ids.next()?.edition.game_id();
     ids.next().is_none().then_some(id)
 }
 
 /// The edition a game id belongs to.
-fn edition_of(game_id: &str) -> Option<Edition> {
+pub(crate) fn edition_of(game_id: &str) -> Option<Edition> {
     [Edition::E1011, Edition::E1718]
         .into_iter()
         .find(|e| e.game_id() == game_id)
@@ -207,7 +207,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
         .as_ref()
         .and_then(|p| fs::metadata(p).ok())
         .and_then(|m| disc::by_size(m.len()))
-        .map(|d| d.game_id);
+        .map(|d| d.edition.game_id());
     ensure!(
         detected.is_none() || plan.game_id.is_none() || detected == plan.game_id,
         E::EditionMismatch
@@ -253,7 +253,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     // disc is opened, after this check
     let extract = disc::DISCS
         .iter()
-        .find(|d| d.game_id == id)
+        .find(|d| d.edition.game_id() == id)
         .filter(|_| plan.iso.is_some())
         .map_or(0, |d| d.slot_end - d.slot_start);
     // setup's headroom only when it makes the card pictures: a new game, or an install without them
@@ -274,7 +274,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     if let Some((_, (vol, _))) = &vol {
         emit(Event::Log(format!(
             "Detected {} ({})",
-            vol.disc.name, vol.disc.game_id
+            vol.disc.name, vol.disc.edition.game_id()
         )));
     }
     let mut kit = kit.cloned();
@@ -808,6 +808,14 @@ mod lnk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_disc_maps_back_to_its_edition() {
+        assert_eq!(edition_of("XXXX"), None);
+        for d in &disc::DISCS {
+            assert_eq!(edition_of(d.edition.game_id()), Some(d.edition), "{}", d.name);
+        }
+    }
 
     /// A failed step's detail is its `FAIL` line, not an ok line that only mentions the word.
     #[test]
