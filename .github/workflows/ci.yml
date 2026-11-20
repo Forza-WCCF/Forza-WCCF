@@ -75,9 +75,9 @@ jobs:
           else
             echo code=false >> "$GITHUB_OUTPUT"
           fi
-          # the snapshots job runs when the UI crate or the locked crates changed (a main push then also saves the
-          # job's cache, keyed on Cargo.lock), on schedule and on dispatch
-          if printf '%s\n' "$files" | grep -qE '^(crates/forza-ui/|Cargo\.lock$)'; then
+          # the snapshots job runs when the UI crate, the fonts or the logo, or the locked crates changed (a main push
+          # then also saves the job's cache, keyed on Cargo.lock), on schedule and on dispatch
+          if printf '%s\n' "$files" | grep -qE '^(crates/forza-ui/|assets/|Cargo\.lock$)'; then
             echo ui=true >> "$GITHUB_OUTPUT"
           else
             echo ui=false >> "$GITHUB_OUTPUT"

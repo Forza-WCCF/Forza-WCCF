@@ -56,6 +56,7 @@ fn snap(
 
 /// [`snap`] on a screen of another density: Windows at 125, 150 or 200 %, where the panel's own rounding and
 /// letterboxing bite and at 100 % they do not.
+// no failing pixel is allowed (kittest's default) on purpose: the stored pictures come only from CI's WARP renderer
 fn snap_at(
     all: &mut SnapshotResults,
     name: &str,
