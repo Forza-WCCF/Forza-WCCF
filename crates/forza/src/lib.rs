@@ -28,7 +28,7 @@ impl Edition {
         }
     }
 
-    /// The folder name under `Games\Forza-WCCF` (the installer's `disc.rs` names).
+    /// The folder name under `Games\Forza-WCCF` (the installer's install roots).
     pub fn folder(self) -> &'static str {
         match self {
             Self::E1011 => "2010-2011",
@@ -49,6 +49,14 @@ impl Edition {
         match self {
             Self::E1011 => "SBWG",
             Self::E1718 => "SDDY",
+        }
+    }
+
+    /// "1011" or "1718": the card site's and the card pictures' edition code.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::E1011 => "1011",
+            Self::E1718 => "1718",
         }
     }
 }

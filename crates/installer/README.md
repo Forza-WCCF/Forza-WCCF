@@ -36,9 +36,8 @@ the game slot. The system/OS-update slot is never extracted.
    The default base folder is `C:\Games\Forza-WCCF`.
 
 Existing game folders are **never replaced**. Reuse them in the wizard, or choose
-another destination. Cancelled/failed extraction can leave a
-`game.partial` staging folder inside its edition root; a retry replaces that
-staging folder, not an existing game folder. Earlier installations are detected
+another destination. A cancelled or failed extraction removes its `game.partial`
+staging folder. Earlier installations are detected
 and reused in place; no existing files or saves are moved. Back up saves before
 using any external package.
 
@@ -117,8 +116,9 @@ Offline or a GitHub error: the wizard says so and keeps the manual choice. `--no
 Flags: `--no-verify` skips data-block CRC checks (header/metadata validation
 still runs); `--no-setup` ignores a supplied package; `--english` requires package
 setup. Headless mode does not create shortcuts. Errors return a nonzero exit code.
-Because this is a Windows GUI-subsystem application, use `Start-Process -Wait -PassThru`
-when you need to wait for headless completion from PowerShell.
+It is a Windows GUI-subsystem program: a console shows none of its output (`--help` too)
+and does not wait. Use `Start-Process -Wait -PassThru -RedirectStandardOutput out.txt
+-RedirectStandardError err.txt` and read the files and `.ExitCode`.
 
 ## Build and test
 

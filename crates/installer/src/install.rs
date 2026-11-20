@@ -46,10 +46,10 @@ pub enum Event {
 
 fn game_id_in(game: &Path) -> Option<&'static str> {
     let mut ids = disc::DISCS.iter().filter(|d| {
-        game.join(format!("local/{}_Table.dat", d.game_id))
+        game.join(format!("local/{}_Table.dat", d.edition.game_id()))
             .is_file()
     });
-    let id = ids.next()?.game_id;
+    let id = ids.next()?.edition.game_id();
     ids.next().is_none().then_some(id)
 }
 
@@ -57,9 +57,9 @@ fn game_id_in(game: &Path) -> Option<&'static str> {
 pub fn version_paths(dest: &Path, id: &str) -> Result<(PathBuf, PathBuf)> {
     let disc = disc::DISCS
         .iter()
-        .find(|d| d.game_id == id)
+        .find(|d| d.edition.game_id() == id)
         .ok_or(E::UnknownEdition)?;
-    let root = dest.join(disc.edition);
+    let root = dest.join(disc.edition.folder());
     let legacy = dest.join(LEGACY_GAME_DIR);
     if !root.exists() && game_id_in(&legacy) == Some(id) {
         return Ok((dest.to_path_buf(), legacy)); // preserve older installs in place
@@ -76,7 +76,7 @@ pub fn install_folder(picked: &Path) -> PathBuf {
         .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("Forza-WCCF"));
     let holds_install = disc::DISCS
         .iter()
-        .map(|d| d.edition)
+        .map(|d| d.edition.folder())
         .chain([LEGACY_GAME_DIR])
         .any(|d| picked.join(d).is_dir());
     if named || holds_install {
@@ -93,13 +93,15 @@ pub fn game_present(dest: &Path, id: &str) -> bool {
 }
 
 pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
-    let mut ids = disc::DISCS.iter().filter(|d| game_present(dest, d.game_id));
-    let id = ids.next()?.game_id;
+    let mut ids = disc::DISCS
+        .iter()
+        .filter(|d| game_present(dest, d.edition.game_id()));
+    let id = ids.next()?.edition.game_id();
     ids.next().is_none().then_some(id)
 }
 
 /// The edition a game id belongs to.
-fn edition_of(game_id: &str) -> Option<Edition> {
+pub(crate) fn edition_of(game_id: &str) -> Option<Edition> {
     [Edition::E1011, Edition::E1718]
         .into_iter()
         .find(|e| e.game_id() == game_id)
@@ -163,15 +165,18 @@ pub fn free_space(path: &Path) -> Option<u64> {
     if let Some(free) = FREE.get() {
         return Some(free);
     }
-    path.ancestors()
-        .find(|p| p.exists())
-        .and_then(|p| fs4::available_space(p).ok())
+    on_disk(path, |p| fs4::available_space(p))
 }
 
 pub fn total_space(path: &Path) -> Option<u64> {
+    on_disk(path, |p| fs4::total_space(p))
+}
+
+/// `f` on the nearest folder of `path` that exists (the install folder may not yet).
+fn on_disk(path: &Path, f: impl Fn(&Path) -> std::io::Result<u64>) -> Option<u64> {
     path.ancestors()
         .find(|p| p.exists())
-        .and_then(|p| fs4::total_space(p).ok())
+        .and_then(|p| f(p).ok())
 }
 
 fn check(cancel: &AtomicBool) -> Result<()> {
@@ -206,7 +211,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
         .as_ref()
         .and_then(|p| fs::metadata(p).ok())
         .and_then(|m| disc::by_size(m.len()))
-        .map(|d| d.game_id);
+        .map(|d| d.edition.game_id());
     ensure!(
         detected.is_none() || plan.game_id.is_none() || detected == plan.game_id,
         E::EditionMismatch
@@ -252,7 +257,7 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     // disc is opened, after this check
     let extract = disc::DISCS
         .iter()
-        .find(|d| d.game_id == id)
+        .find(|d| d.edition.game_id() == id)
         .filter(|_| plan.iso.is_some())
         .map_or(0, |d| d.slot_end - d.slot_start);
     // setup's headroom only when it makes the card pictures: a new game, or an install without them
@@ -273,7 +278,8 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     if let Some((_, (vol, _))) = &vol {
         emit(Event::Log(format!(
             "Detected {} ({})",
-            vol.disc.name, vol.disc.game_id
+            vol.disc.name,
+            vol.disc.edition.game_id()
         )));
     }
     let mut kit = kit.cloned();
@@ -670,7 +676,7 @@ fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(forza::Say) -> i32) -> Resul
     // the installer's log is English (support reads it)
     let say = |lead: &str, l: &forza::Line| {
         let line = &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l));
-        if line.contains("FAIL") {
+        if lead.trim() == "FAIL" {
             *failed.borrow_mut() = Some(line.trim().to_owned());
         }
         emit(Event::Log(line.to_owned()));
@@ -699,11 +705,7 @@ fn pictures(
         let line = forza_ui::text(lang, "installer.log_pictures_no_game", &[]);
         return emit(Event::Missed(line));
     };
-    let ed = if edition == Edition::E1011 {
-        "1011"
-    } else {
-        "1718"
-    };
+    let ed = edition.code();
     let cards = dest.join(edition.layout().cache).join("cards");
     let lines = |lead: &str, l: &forza::Line| {
         say(&format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l)))
@@ -811,6 +813,44 @@ mod lnk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_disc_maps_back_to_its_edition() {
+        assert_eq!(edition_of("XXXX"), None);
+        // the install roots players already have on disk
+        assert_eq!(Edition::E1011.folder(), "2010-2011");
+        assert_eq!(Edition::E1718.folder(), "2017-2018");
+        for d in &disc::DISCS {
+            assert_eq!(
+                edition_of(d.edition.game_id()),
+                Some(d.edition),
+                "{}",
+                d.name
+            );
+        }
+    }
+
+    /// A failed step's detail is its `FAIL` line, not an ok line that only mentions the word.
+    #[test]
+    fn a_failed_kit_step_reports_its_fail_line() {
+        use forza::Line::Raw;
+        let detail = |fail: bool| {
+            let e = kit_step(&|_| {}, |say| {
+                say("  ok    ", &Raw("no FAIL".into()));
+                if fail {
+                    say("  FAIL  ", &Raw("x".into()));
+                }
+                1
+            })
+            .unwrap_err();
+            match e.downcast_ref::<E>() {
+                Some(E::Script { detail }) => detail.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(detail(true).ends_with('x'), "{}", detail(true));
+        assert_eq!(detail(false), "exit 1");
+    }
 
     #[cfg(windows)]
     #[test]
@@ -1019,9 +1059,10 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn kit_is_optional_and_never_applied_to_sddy() {
-        let root = std::env::temp_dir().join(format!("optional-kit-test-{}", std::process::id()));
+    /// An extracted 2017-18 game (exe, table, a file beside it) under a fresh root, and a plan that reuses it.
+    fn sddy_game(name: &str) -> (PathBuf, Plan, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
         fs::create_dir(&root).unwrap();
         let (edition_root, game) = version_paths(&root, "SDDY").unwrap();
         fs::create_dir_all(game.join("local")).unwrap();
@@ -1032,7 +1073,7 @@ mod tests {
             b"do not touch on extraction-only installs",
         )
         .unwrap();
-        let mut plan = Plan {
+        let plan = Plan {
             dest: root.clone(),
             iso: None,
             key: None,
@@ -1044,12 +1085,12 @@ mod tests {
             kit: None,
             latest: false,
         };
-        let cancel = AtomicBool::new(false);
-        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // no kit, even with setup's default true
-        assert_eq!(GAME_DIR, "game");
-        assert!(game_present(&root, "SDDY"));
-        assert_eq!(installed_game_id(&root), Some("SDDY"));
-        let (old_root, old_game) = version_paths(&root, "SBWG").unwrap();
+        (root, plan, edition_root, game)
+    }
+
+    /// A 2010-11 game beside it, and a save in each edition's tree. Returns its edition root and game folder.
+    fn add_sbwg(root: &Path) -> (PathBuf, PathBuf) {
+        let (old_root, old_game) = version_paths(root, "SBWG").unwrap();
         fs::create_dir_all(old_game.join("local")).unwrap();
         fs::write(
             old_game.join("client_Release.exe"),
@@ -1057,6 +1098,7 @@ mod tests {
         )
         .unwrap();
         fs::write(old_game.join("local/SBWG_Table.dat"), b"SBWG").unwrap();
+        let edition_root = version_paths(root, "SDDY").unwrap().0;
         for (dir, bytes) in [
             (&old_root, b"old save".as_slice()),
             (&edition_root, b"new save".as_slice()),
@@ -1064,16 +1106,56 @@ mod tests {
             fs::create_dir_all(dir.join("data/save")).unwrap();
             fs::write(dir.join("data/save/club.bin"), bytes).unwrap();
         }
+        (old_root, old_game)
+    }
+
+    /// A 2010-11 kit (never run: it is refused or ignored first).
+    fn sbwg_kit(root: &Path) -> PathBuf {
+        let kit = root.join("kit.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
+        for n in ["Launcher.exe", "programs/wccfk.dll"] {
+            zip.start_file(n, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"not executed").unwrap();
+        }
+        zip.finish().unwrap();
+        kit
+    }
+
+    #[test]
+    fn no_kit_install_runs_with_setup_on() {
+        let (root, plan, ..) = sddy_game("no-kit-test");
+        let cancel = AtomicBool::new(false);
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // no kit, even with setup's default true
+        assert_eq!(GAME_DIR, "game");
+        assert!(game_present(&root, "SDDY"));
+        assert_eq!(installed_game_id(&root), Some("SDDY"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn two_editions_need_game() {
+        let (root, mut plan, edition_root, _) = sddy_game("two-editions-test");
+        let (old_root, _) = add_sbwg(&root);
         assert_ne!(old_root, edition_root);
         assert!(game_present(&root, "SBWG"));
         assert_eq!(installed_game_id(&root), None); // never choose an edition silently
         plan.game_id = None;
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
                 .to_string()
                 .contains("--game")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reuse_keeps_each_editions_files() {
+        let (root, mut plan, edition_root, _) = sddy_game("reuse-both-test");
+        let (old_root, old_game) = add_sbwg(&root);
+        let cancel = AtomicBool::new(false);
         plan.game_id = Some("SBWG");
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         plan.game_id = Some("SDDY");
@@ -1090,16 +1172,14 @@ mod tests {
             fs::read(edition_root.join("data/save/club.bin")).unwrap(),
             b"new save"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
 
-        let kit = root.join("kit.zip");
-        let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
-        for n in ["Launcher.exe", "programs/wccfk.dll"] {
-            zip.start_file(n, zip::write::SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"not executed").unwrap();
-        }
-        zip.finish().unwrap();
-        plan.kit = Some(kit);
+    #[test]
+    fn kit_of_other_edition_is_refused() {
+        let (root, mut plan, edition_root, _) = sddy_game("other-kit-test");
+        plan.kit = Some(sbwg_kit(&root));
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
@@ -1107,13 +1187,29 @@ mod tests {
                 .contains("is for 2010–11")
         );
         assert!(!edition_root.join("scripts").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn no_setup_ignores_kit_and_english_needs_setup() {
+        let (root, mut plan, ..) = sddy_game("no-setup-test");
+        plan.kit = Some(sbwg_kit(&root));
         plan.setup = false;
+        let cancel = AtomicBool::new(false);
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // --no-setup ignores a supplied kit
         plan.english = true;
         assert!(run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).is_err());
-        plan.english = false;
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extract_never_replaces_a_game() {
+        let (root, mut plan, edition_root, game) = sddy_game("no-replace-test");
+        plan.kit = Some(sbwg_kit(&root));
+        plan.setup = false;
         plan.iso = Some(root.join("not-read.iso"));
         plan.key = Some(root.join("not-read.key"));
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
@@ -1129,7 +1225,14 @@ mod tests {
             fs::read(edition_root.join(".probe-a")).unwrap(),
             b"do not touch on extraction-only installs"
         );
-        // The old flat install remains usable; installing the other edition gets its own root.
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The old flat install remains usable; installing the other edition gets its own root.
+    #[test]
+    fn legacy_flat_install_is_reused() {
+        let (root, mut plan, edition_root, game) = sddy_game("legacy-flat-test");
+        let (old_root, _) = add_sbwg(&root);
         let legacy = root.join(LEGACY_GAME_DIR);
         fs::rename(&game, &legacy).unwrap();
         fs::remove_dir_all(&edition_root).unwrap();
@@ -1138,9 +1241,8 @@ mod tests {
             (root.clone(), legacy.clone())
         );
         assert!(game_present(&root, "SDDY"));
-        plan.iso = None;
-        plan.key = None;
-        plan.kit = None;
+        plan.setup = false;
+        let cancel = AtomicBool::new(false);
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(version_paths(&root, "SBWG").unwrap().0, old_root);
         assert_eq!(

@@ -90,21 +90,6 @@ fn gb(b: u64) -> String {
     }
 }
 
-fn game_id(e: Edition) -> &'static str {
-    match e {
-        Edition::E1011 => "SBWG",
-        Edition::E1718 => "SDDY",
-    }
-}
-
-fn edition_of(id: &str) -> Edition {
-    if id == "SDDY" {
-        Edition::E1718
-    } else {
-        Edition::E1011
-    }
-}
-
 impl App {
     fn new() -> Self {
         App {
@@ -171,8 +156,8 @@ impl App {
         let st = &mut self.st;
         st.installed = disc::DISCS
             .iter()
-            .filter(|d| install::game_present(&dest, d.game_id))
-            .map(|d| edition_of(d.game_id))
+            .filter(|d| install::game_present(&dest, d.edition.game_id()))
+            .map(|d| d.edition)
             .collect();
         if st.installed.is_empty() {
             st.reuse = false;
@@ -183,7 +168,7 @@ impl App {
         }
         let size = std::fs::metadata(clean(&st.iso)).ok().map(|m| m.len());
         let found = size.and_then(disc::by_size);
-        st.detected = found.map(|d| edition_of(d.game_id));
+        st.detected = found.map(|d| d.edition);
         st.unsupported = size.is_some() && found.is_none();
         let latest = st.use_latest
             && matches!(st.latest, Latest::Found(_))
@@ -224,11 +209,6 @@ impl App {
         }
     }
 
-    /// A dropped or added file, in the row [`row_for`] picks.
-    fn place(&mut self, p: &Path) {
-        self.set_file(row_for(p), p);
-    }
-
     /// A picked file is a new input even when its row already names that path: the file at it may have been replaced.
     fn set_file(&mut self, field: Field, p: &Path) {
         *self.slot(field) = p.display().to_string();
@@ -245,7 +225,7 @@ impl App {
             )
             .pick_files();
         for p in picked.into_iter().flatten() {
-            self.place(&p);
+            self.set_file(row_for(&p), &p);
         }
     }
 
@@ -284,7 +264,7 @@ impl App {
         if let (true, Some(kit)) = (self.setup_enabled(), self.kit()) {
             // as headless (install::run): a kit zip, of the game's edition
             install::check_kit_zip(&kit)
-                .and_then(|kit| install::check_setup(self.st.target().map(game_id), kit))
+                .and_then(|kit| install::check_setup(self.st.target().map(Edition::game_id), kit))
                 .map_err(|e| err::localize(&e, self.st.lang))?;
         }
         Ok(())
@@ -293,14 +273,14 @@ impl App {
     fn start(&mut self, ctx: &egui::Context) {
         let setup = self.setup_enabled();
         let st = &self.st;
-        let id = st.target().map(game_id);
+        let id = st.target().map(Edition::game_id);
         let reuse = st.reuse;
         let lang = st.lang;
         let plan = Plan {
             dest: self.dest(),
             iso: (!reuse).then(|| clean(&st.iso)),
             key: (!reuse).then(|| clean(&st.key)),
-            game_id: reuse.then_some(game_id(st.edition)),
+            game_id: reuse.then_some(st.edition.game_id()),
             verify: st.options[0],
             setup,
             english: st.options[2] && setup,
@@ -475,10 +455,12 @@ impl App {
             Ok(()) if page == Page::Files => self.start(ctx),
             Ok(()) => {
                 if page == Page::Where {
-                    if let Some(id) = install::installed_game_id(&self.dest()) {
-                        self.st.edition = edition_of(id);
+                    if let Some(e) =
+                        install::installed_game_id(&self.dest()).and_then(install::edition_of)
+                    {
+                        self.st.edition = e;
                     }
-                    self.st.reuse = install::game_present(&self.dest(), game_id(self.st.edition));
+                    self.st.reuse = install::game_present(&self.dest(), self.st.edition.game_id());
                 }
                 self.st.page = match page {
                     Page::Welcome => Page::Where,
@@ -528,7 +510,7 @@ fn key_check(iso: &Path, disc: Option<&disc::Disc>, key: &Path) -> Option<KeyChe
     }
     let raw = std::fs::read(key).ok()?;
     // the table's rows for this disc, parsed once: the image probe below uses them instead of parsing again
-    let rows = keytable::candidates(&raw, disc.map_or("", |d| d.game_id));
+    let rows = keytable::candidates(&raw, disc.map_or("", |d| d.edition.game_id()));
     if rows.is_none() && !keytable::is_key(&raw) {
         return Some(KeyCheck::NotKeyList);
     }
@@ -586,7 +568,7 @@ impl eframe::App for App {
         self.poll();
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
             if self.st.page == Page::Files {
-                self.place(f.path());
+                self.set_file(row_for(f.path()), f.path());
             }
         }
         self.look_up_latest(&ctx);
@@ -655,9 +637,10 @@ fn parse_headless(args: &[String]) -> anyhow::Result<Option<Plan>> {
                 plan.game_id = Some(
                     disc::DISCS
                         .iter()
-                        .find(|d| d.game_id == value)
+                        .find(|d| d.edition.game_id() == value)
                         .context("--game requires SBWG (2010–2011) or SDDY (2017–2018).")?
-                        .game_id,
+                        .edition
+                        .game_id(),
                 );
                 continue;
             }
@@ -968,7 +951,7 @@ mod tests {
                 .unwrap();
         }
         z.finish().unwrap();
-        app.place(&package); // dropped again
+        app.set_file(row_for(&package), &package); // dropped again
         app.refresh_if_changed();
         assert_eq!(app.st.package_check, Some(PackageCheck::Ok(Edition::E1011)));
         std::fs::remove_dir_all(dir).unwrap();
@@ -1010,7 +993,7 @@ mod tests {
         assert_eq!(row_for(&page), Field::Key);
         let mut app = App::new();
         for p in [&page, &package, &iso] {
-            app.place(p);
+            app.set_file(row_for(p), p);
         }
         assert_eq!(
             [&app.st.iso, &app.st.key, &app.st.package].map(PathBuf::from),
@@ -1052,7 +1035,7 @@ mod tests {
     #[test]
     fn a_key_list_without_the_disc_says_no_key_for_this_disc() {
         let (dir, [iso, _, keys, page]) = sample_files("no-key");
-        let sddy = disc::DISCS.iter().find(|d| d.game_id == "SDDY");
+        let sddy = disc::DISCS.iter().find(|d| d.edition == Edition::E1718);
         for k in [&keys, &page] {
             assert_eq!(key_check(&iso, sddy, k), Some(KeyCheck::NoKey));
             assert_eq!(key_check(&iso, None, k), None, "no disc image yet");
