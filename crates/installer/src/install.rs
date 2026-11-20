@@ -1046,9 +1046,10 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn kit_is_optional_and_never_applied_to_sddy() {
-        let root = std::env::temp_dir().join(format!("optional-kit-test-{}", std::process::id()));
+    /// An extracted 2017-18 game (exe, table, a file beside it) under a fresh root, and a plan that reuses it.
+    fn sddy_game(name: &str) -> (PathBuf, Plan, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
         fs::create_dir(&root).unwrap();
         let (edition_root, game) = version_paths(&root, "SDDY").unwrap();
         fs::create_dir_all(game.join("local")).unwrap();
@@ -1059,7 +1060,7 @@ mod tests {
             b"do not touch on extraction-only installs",
         )
         .unwrap();
-        let mut plan = Plan {
+        let plan = Plan {
             dest: root.clone(),
             iso: None,
             key: None,
@@ -1071,12 +1072,12 @@ mod tests {
             kit: None,
             latest: false,
         };
-        let cancel = AtomicBool::new(false);
-        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // no kit, even with setup's default true
-        assert_eq!(GAME_DIR, "game");
-        assert!(game_present(&root, "SDDY"));
-        assert_eq!(installed_game_id(&root), Some("SDDY"));
-        let (old_root, old_game) = version_paths(&root, "SBWG").unwrap();
+        (root, plan, edition_root, game)
+    }
+
+    /// A 2010-11 game beside it, and a save in each edition's tree. Returns its edition root and game folder.
+    fn add_sbwg(root: &Path) -> (PathBuf, PathBuf) {
+        let (old_root, old_game) = version_paths(root, "SBWG").unwrap();
         fs::create_dir_all(old_game.join("local")).unwrap();
         fs::write(
             old_game.join("client_Release.exe"),
@@ -1084,6 +1085,7 @@ mod tests {
         )
         .unwrap();
         fs::write(old_game.join("local/SBWG_Table.dat"), b"SBWG").unwrap();
+        let edition_root = version_paths(root, "SDDY").unwrap().0;
         for (dir, bytes) in [
             (&old_root, b"old save".as_slice()),
             (&edition_root, b"new save".as_slice()),
@@ -1091,16 +1093,56 @@ mod tests {
             fs::create_dir_all(dir.join("data/save")).unwrap();
             fs::write(dir.join("data/save/club.bin"), bytes).unwrap();
         }
+        (old_root, old_game)
+    }
+
+    /// A 2010-11 kit (never run: it is refused or ignored first).
+    fn sbwg_kit(root: &Path) -> PathBuf {
+        let kit = root.join("kit.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
+        for n in ["Launcher.exe", "programs/wccfk.dll"] {
+            zip.start_file(n, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"not executed").unwrap();
+        }
+        zip.finish().unwrap();
+        kit
+    }
+
+    #[test]
+    fn no_kit_install_runs_with_setup_on() {
+        let (root, plan, ..) = sddy_game("no-kit-test");
+        let cancel = AtomicBool::new(false);
+        run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // no kit, even with setup's default true
+        assert_eq!(GAME_DIR, "game");
+        assert!(game_present(&root, "SDDY"));
+        assert_eq!(installed_game_id(&root), Some("SDDY"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn two_editions_need_game() {
+        let (root, mut plan, edition_root, _) = sddy_game("two-editions-test");
+        let (old_root, _) = add_sbwg(&root);
         assert_ne!(old_root, edition_root);
         assert!(game_present(&root, "SBWG"));
         assert_eq!(installed_game_id(&root), None); // never choose an edition silently
         plan.game_id = None;
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
                 .to_string()
                 .contains("--game")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reuse_keeps_each_editions_files() {
+        let (root, mut plan, edition_root, _) = sddy_game("reuse-both-test");
+        let (old_root, old_game) = add_sbwg(&root);
+        let cancel = AtomicBool::new(false);
         plan.game_id = Some("SBWG");
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         plan.game_id = Some("SDDY");
@@ -1117,16 +1159,14 @@ mod tests {
             fs::read(edition_root.join("data/save/club.bin")).unwrap(),
             b"new save"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
 
-        let kit = root.join("kit.zip");
-        let mut zip = zip::ZipWriter::new(File::create(&kit).unwrap());
-        for n in ["Launcher.exe", "programs/wccfk.dll"] {
-            zip.start_file(n, zip::write::SimpleFileOptions::default())
-                .unwrap();
-            zip.write_all(b"not executed").unwrap();
-        }
-        zip.finish().unwrap();
-        plan.kit = Some(kit);
+    #[test]
+    fn kit_of_other_edition_is_refused() {
+        let (root, mut plan, edition_root, _) = sddy_game("other-kit-test");
+        plan.kit = Some(sbwg_kit(&root));
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
@@ -1134,13 +1174,29 @@ mod tests {
                 .contains("is for 2010–11")
         );
         assert!(!edition_root.join("scripts").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn no_setup_ignores_kit_and_english_needs_setup() {
+        let (root, mut plan, ..) = sddy_game("no-setup-test");
+        plan.kit = Some(sbwg_kit(&root));
         plan.setup = false;
+        let cancel = AtomicBool::new(false);
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap(); // --no-setup ignores a supplied kit
         plan.english = true;
         assert!(run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).is_err());
-        plan.english = false;
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extract_never_replaces_a_game() {
+        let (root, mut plan, edition_root, game) = sddy_game("no-replace-test");
+        plan.kit = Some(sbwg_kit(&root));
+        plan.setup = false;
         plan.iso = Some(root.join("not-read.iso"));
         plan.key = Some(root.join("not-read.key"));
+        let cancel = AtomicBool::new(false);
         assert!(
             run(&plan, &cancel, forza_ui::Lang::En, &|_| {})
                 .unwrap_err()
@@ -1156,7 +1212,14 @@ mod tests {
             fs::read(edition_root.join(".probe-a")).unwrap(),
             b"do not touch on extraction-only installs"
         );
-        // The old flat install remains usable; installing the other edition gets its own root.
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The old flat install remains usable; installing the other edition gets its own root.
+    #[test]
+    fn legacy_flat_install_is_reused() {
+        let (root, mut plan, edition_root, game) = sddy_game("legacy-flat-test");
+        let (old_root, _) = add_sbwg(&root);
         let legacy = root.join(LEGACY_GAME_DIR);
         fs::rename(&game, &legacy).unwrap();
         fs::remove_dir_all(&edition_root).unwrap();
@@ -1165,9 +1228,8 @@ mod tests {
             (root.clone(), legacy.clone())
         );
         assert!(game_present(&root, "SDDY"));
-        plan.iso = None;
-        plan.key = None;
-        plan.kit = None;
+        plan.setup = false;
+        let cancel = AtomicBool::new(false);
         run(&plan, &cancel, forza_ui::Lang::En, &|_| {}).unwrap();
         assert_eq!(version_paths(&root, "SBWG").unwrap().0, old_root);
         assert_eq!(
