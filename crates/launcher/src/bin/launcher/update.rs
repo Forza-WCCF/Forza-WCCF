@@ -275,8 +275,7 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
                 &[("path", "Launcher.exe"), ("error", &e.to_string())],
             )
         };
-        swap_self(&me, &kept, || self_replace::self_replace(top.join("Launcher.exe")))
-            .map_err(failed)
+        swap_self(&me, &kept, || self_replace::self_replace(top.join("Launcher.exe"))).map_err(failed)
     })
 }
 

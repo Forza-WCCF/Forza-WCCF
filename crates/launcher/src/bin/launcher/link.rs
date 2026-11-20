@@ -255,9 +255,15 @@ mod tests {
         let t = crate::scratch();
         let (here, link) = (t.path().join("Jürgen kit"), t.path().join("Games").join("link"));
         fs::create_dir_all(&here).unwrap();
-        assert!(matches!(first_run_at(&link, &here, true), Outcome::InPlace { warn: None }));
+        assert!(matches!(
+            first_run_at(&link, &here, true),
+            Outcome::InPlace { warn: None }
+        ));
         assert!(fs::symlink_metadata(&link).is_err());
-        assert!(matches!(first_run_at(&link, &link, false), Outcome::InPlace { warn: None }));
+        assert!(matches!(
+            first_run_at(&link, &link, false),
+            Outcome::InPlace { warn: None }
+        ));
         assert!(fs::symlink_metadata(&link).is_err());
     }
 
