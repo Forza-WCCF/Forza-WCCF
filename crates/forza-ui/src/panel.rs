@@ -240,6 +240,12 @@ pub fn docked_mats(board: Rect) -> [board::Mat; 2] {
     ]
 }
 
+/// The 2017-18 docked board in `board`: the bench at the pitch's right (`right`, BENCH POSITION RIGHT) or under it.
+fn docked_mat(board: Rect, right: bool) -> board::Mat {
+    let [r, below] = docked_mats(board);
+    if right { r } else { below }
+}
+
 /// The pop-out board's room for itself in `room`: 16 points in from its edges, the DOCK row under it.
 fn desk_inner(room: Rect) -> Rect {
     let r = room.shrink(16.0);
@@ -3540,8 +3546,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     // 2017-18: the bench at the pitch's right or under it (#270); 2010-11 keeps it under, the board as wide as the
     // strip, or as its height can use, centred
     let mat = if st.edition == Edition::E1718 {
-        let [right, below] = docked_mats(ui.max_rect());
-        if st.file.bench_right() { right } else { below }
+        docked_mat(ui.max_rect(), st.file.bench_right())
     } else {
         let w = r
             .width()
@@ -6895,7 +6900,10 @@ mod tests {
         ] {
             let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / board_scale(w, h, 96.0));
             assert!(desk_bench_right(room, true, true), "{w}x{h}: 2017-18");
-            assert!(!desk_bench_right(room, true, false), "{w}x{h}: 2017-18 BELOW");
+            assert!(
+                !desk_bench_right(room, true, false),
+                "{w}x{h}: 2017-18 BELOW"
+            );
             let side = desk_bench_right(room, false, true);
             let b = desk_board_rect(room, side);
             let at = format!("{w}x{h}: {room:?} {b:?}");
@@ -6923,6 +6931,28 @@ mod tests {
                 board::row_height(b.width()) / b.width()
             };
             assert!((b.height() / b.width() - ratio).abs() < 1e-3, "{at}");
+        }
+    }
+
+    /// BENCH POSITION reaches the docked board (#361): BELOW (`bench=below`) lays the bench under the pitch, RIGHT and
+    /// no `bench=` line at its right.
+    #[test]
+    fn the_docked_bench_follows_bench_position() {
+        let strip = layout_at(sheet_of(1440.0, 900.0), false, None).board;
+        for (bench, right) in [(None, true), (Some(true), true), (Some(false), false)] {
+            let file = PanelFile {
+                bench,
+                ..PanelFile::default()
+            };
+            let m = docked_mat(strip, file.bench_right());
+            let at = format!("{bench:?}: {m:?}");
+            if right {
+                assert!(m.bench.left() >= m.shown.right(), "{at}");
+                assert!(m.bench.top() < m.shown.bottom(), "{at}");
+            } else {
+                assert!(m.bench.top() >= m.shown.bottom(), "{at}");
+                assert!(m.bench.left() < m.shown.right(), "{at}");
+            }
         }
     }
 

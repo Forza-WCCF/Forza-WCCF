@@ -1032,6 +1032,17 @@ fn bench_position_above_the_settings_fold_1718() {
                 lang.code()
             );
         }
+        // RIGHT and BELOW only, no AUTO
+        let row = h
+            .get_by_role_and_label(Role::RadioButton, &below)
+            .rect()
+            .center()
+            .y;
+        let segments = h
+            .get_all_by_role(Role::RadioButton)
+            .filter(|n| (n.rect().center().y - row).abs() < 1.0)
+            .count();
+        assert_eq!(segments, 2, "{}: BENCH POSITION's segments", lang.code());
     }
 }
 
