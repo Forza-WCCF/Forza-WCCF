@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 pub const XAF: &str = "data/wccf_data.xaf";
 pub const STATE: &str = "wccf_data.xaf.json";
-pub const FONT: &str = "BarlowCondensed-Bold.ttf";
+const FONT: &str = "BarlowCondensed-Bold.ttf";
 const SECTOR: u64 = 2048;
 const ENTRY: usize = 0xB0;
 const TOC_AT: u64 = 0x100;
@@ -522,12 +522,8 @@ impl Line {
     }
 }
 
-fn get<'a>(st: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
-    st.get(k)
-}
-
 fn getf(st: &Map<String, Value>, k: &str, d: f64) -> f64 {
-    get(st, k).map_or(d, num)
+    st.get(k).map_or(d, num)
 }
 
 /// One picture of RGB `c` with the alpha `a` composited over `im` (Pillow `Image.merge` + `alpha_composite`).
@@ -559,14 +555,14 @@ fn draw(
     refh: i64,
 ) -> R<()> {
     let (x0, y0, x1, y1) = b;
-    let halo = get(st, "halo").filter(|v| truthy(Some(v)));
+    let halo = st.get("halo").filter(|v| truthy(Some(v)));
     let pad = if halo.is_some() {
         getf(st, "halo_px", 0.0) as i64
     } else {
         0
     };
     let w = x1 - x0 + 1 - 2 * pad;
-    let h = if truthy(get(st, "size")) {
+    let h = if truthy(st.get("size")) {
         getf(st, "size", 0.0) as i64
     } else {
         y1 - y0 + 1 - 2 * pad
@@ -580,7 +576,7 @@ fn draw(
     let mw = pyround(mw0 as f64 * sx / S as f64).max(1);
     let mh = pyround(mh0 as f64 * u / S as f64).max(1);
     let m = pil::resize_lanczos_l(&m, mw0 as u32, mh0 as u32, mw as u32, mh as u32);
-    let x = match get(st, "align").and_then(Value::as_str).unwrap_or("center") {
+    let x = match st.get("align").and_then(Value::as_str).unwrap_or("center") {
         "left" => x0 + pad,
         "right" => x1 - pad + 1 - mw,
         _ => x0 + (x1 - x0 + 1 - mw).div_euclid(2),
@@ -839,7 +835,7 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
 
 // ---------------------------------------------------------------- YS packing (the exact inverse of lzw)
 /// YS LZW as the archive packs: early width change, a fresh table after 3,840 codes.
-pub fn ys_pack(data: &[u8]) -> Vec<u8> {
+fn ys_pack(data: &[u8]) -> Vec<u8> {
     let mut out = b"YS\x02\x00".to_vec();
     let (mut acc, mut nb) = (0u64, 0u32);
     let (mut i, n) = (0, data.len());
@@ -958,7 +954,7 @@ fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
 }
 
 /// The redrawn pictures in the recipes' order: (entry number, path, new entry data).
-pub type Pics = Vec<(usize, String, Vec<u8>)>;
+type Pics = Vec<(usize, String, Vec<u8>)>;
 
 /// The font file: the kit's `fonts\`, or the repository's `assets/fonts` beside `editions/<ed>`.
 fn font_path(sheets: &Path) -> Option<PathBuf> {

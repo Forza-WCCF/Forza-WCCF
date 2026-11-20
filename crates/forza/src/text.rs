@@ -34,7 +34,7 @@ use unicode_normalization::{UnicodeNormalization, char::canonical_combining_clas
 /// A refusal or a failed check; nothing changed. Its words are a [`Line`] like the notes': the player reads them in
 /// their language (`forza_ui::line`). A `Raw` one is a path or a system or file-format error, the same everywhere.
 #[derive(Debug)]
-pub struct Failed(pub Line);
+struct Failed(pub Line);
 
 impl Failed {
     /// `%{file}: %{detail}`: a failure in a file, or the error its reader gave.
@@ -244,7 +244,7 @@ pub(crate) fn sha(d: &[u8]) -> String {
 
 // ---------------------------------------------------------------- the working set
 /// A game folder, the backup folder (`data/english_backup` of the kit) and the edition's sheets (`editions/<ed>`).
-pub struct Ctx {
+struct Ctx {
     ed: Edition,
     spec: Spec,
     game: PathBuf,
@@ -261,7 +261,7 @@ const SHEETS: &str = "sheets.txt";
 
 /// A SHA-256 over the kit's sheet folders (2017-18 `english/` and `italian/`, 2010-11 `languages/`): every file's
 /// path and bytes, in name order.
-pub fn sheets_hash(ed: Edition, sheets: &Path) -> String {
+fn sheets_hash(ed: Edition, sheets: &Path) -> String {
     fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) {
         for e in fs::read_dir(dir).into_iter().flatten().flatten() {
             let (p, name) = (e.path(), e.file_name().to_string_lossy().into_owned());
@@ -309,7 +309,7 @@ fn cell<'a>(r: &'a Row, k: &str) -> &'a str {
 }
 
 impl Ctx {
-    pub fn new(ed: Edition, game: &Path, backup: &Path, sheets: &Path) -> R<Self> {
+    fn new(ed: Edition, game: &Path, backup: &Path, sheets: &Path) -> R<Self> {
         let mut c = Self {
             ed,
             spec: spec(ed),
@@ -1416,7 +1416,7 @@ impl Ctx {
         ))
     }
 
-    pub fn build_all(&self, lang: Lang) -> R<Built> {
+    fn build_all(&self, lang: Lang) -> R<Built> {
         let (mut files, mut notes) = (vec![], vec![]);
         let mut add = |(f, n): Built| {
             files.extend(f);
@@ -1534,7 +1534,7 @@ impl Ctx {
     }
 
     /// Back each file up (the first time), then replace it in ONE step; the game's file is never missing.
-    pub fn turn_on(&self, files: &[(String, Vec<u8>)], lang: Lang) -> R<()> {
+    fn turn_on(&self, files: &[(String, Vec<u8>)], lang: Lang) -> R<()> {
         let mut man = self.load_manifest()?;
         // not listed, or its backup gone (an "off" stopped half way): a backup is needed
         let unsaved = |man: &Map<String, Value>, rel: &str| {
@@ -1577,7 +1577,7 @@ impl Ctx {
     }
 
     /// The originals back, one step each. Returns how many files the manifest named.
-    pub fn turn_off(&self) -> R<usize> {
+    fn turn_off(&self) -> R<usize> {
         let man = self.load_manifest()?;
         let mut lost = vec![];
         for (k, h) in &man {
@@ -1621,7 +1621,7 @@ impl Ctx {
 
 /// 2017-18: the backup is also kept here, next to the game (`original\text`, beside `game\` and the original
 /// programs), so a Forza-WCCF folder that never switched this game still finds the originals.
-pub fn beside(game: &Path) -> PathBuf {
+fn beside(game: &Path) -> PathBuf {
     game.parent().unwrap_or(game).join("original").join("text")
 }
 
