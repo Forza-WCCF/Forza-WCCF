@@ -464,7 +464,8 @@ fn popout_board_foot_buttons_apart() {
         let size = Vec2::new(w, h);
         let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
         let (room, _) = panel::desk_parts(sheet, buttons, false);
-        let board = panel::desk_board_rect(room, panel::desk_bench_right(room, true, None, None));
+        // the bench at the pitch's right, the sample's (no bench= line)
+        let board = panel::desk_board_rect(room, true);
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.desk = true;
@@ -1729,10 +1730,7 @@ fn card_badges_keep_off_the_club_name() {
         for buttons in [false, true] {
             let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
             let (room, _) = panel::desk_parts(sheet, buttons, false);
-            assert!(
-                panel::desk_bench_right(room, true, None, None),
-                "{w}x{h}: bench beside"
-            );
+            // the sample's bench: at the pitch's right (no bench= line)
             let at = panel::desk_board_rect(room, true);
             let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
             let rects = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots);

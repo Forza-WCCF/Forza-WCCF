@@ -497,7 +497,6 @@ settings.board_window: {en: "OWN WINDOW", it: "IN FINESTRA", ja: "別ウィン�
 settings.msg_board_window: {en: "Formation board in its own window: move it to another screen", it: "Formazione in una finestra a parte: spostala su un altro schermo", ja: "フォーメーションを別ウィンドウに表示：別の画面へ移動できます"}
 settings.msg_board_docked: {en: "The formation board is back with the game.", it: "La formazione è di nuovo con il gioco.", ja: "フォーメーションをゲーム画面に戻しました"}
 settings.bench: {en: "BENCH POSITION", it: "POSIZIONE PANCHINA", ja: "ベンチの位置"}
-settings.bench_auto: {en: "AUTO", it: "AUTO", ja: "自動"}
 settings.bench_right: {en: "RIGHT", it: "A DESTRA", ja: "右"}
 settings.bench_below: {en: "BELOW", it: "SOTTO", ja: "下"}
 settings.board_buttons: {en: "Buttons on the board window", it: "Pulsanti nella finestra della formazione", ja: "フォーメーションのウィンドウにもボタン"}

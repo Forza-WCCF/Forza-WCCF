@@ -50,11 +50,6 @@ const BOARD_EXTRA_1718: f32 = 112.0;
 /// The 2010-11 pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its
 /// room is at least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
-/// 2017-18 (issue #270): Auto puts the bench at the pitch's right unless that makes the cards more than this much
-/// smaller than with the bench under the pitch; [`BENCH_HYSTERESIS`] either side of it keeps a dragged divider from
-/// flipping it back and forth.
-const BENCH_SHRINK: f32 = 0.15;
-const BENCH_HYSTERESIS: f32 = 0.02;
 /// The pop-out board's foot: a gap 4 and one row for DOCK and UNDO 24.
 const DESK_FOOT: f32 = 28.0;
 /// The foot's buttons and hint keep this much of the board at their sides, the margin the board itself keeps in its
@@ -230,31 +225,8 @@ pub fn desk_parts(sheet: Rect, buttons: bool, both: bool) -> (Rect, Option<(Rect
     (sheet.with_max_y(deck.top()), Some((deck, s, false)))
 }
 
-/// Whether a 2017-18 board's bench goes at the pitch's right (`choice`: panel.txt bench=, None Auto). Auto compares
-/// the pitch (and so its cards) with the bench at the right, `right` wide, and under it, `below` wide: right unless
-/// that is more than [`BENCH_SHRINK`] smaller; `was` (the side last drawn) moves the edge [`BENCH_HYSTERESIS`] away
-/// from it.
-pub fn bench_right(choice: Option<bool>, right: f32, below: f32, was: Option<bool>) -> bool {
-    choice.unwrap_or_else(|| {
-        let band = match was {
-            Some(true) => -BENCH_HYSTERESIS,
-            Some(false) => BENCH_HYSTERESIS,
-            None => 0.0,
-        };
-        right >= (1.0 - BENCH_SHRINK + band) * below
-    })
-}
-
-/// The bench's side this frame, `now` given the side this window drew last frame (kept in its egui memory).
-fn bench_side(ui: &Ui, now: impl FnOnce(Option<bool>) -> bool) -> bool {
-    let id = egui::Id::unique("bench-right");
-    let side = now(ui.data(|d| d.get_temp::<bool>(id)));
-    ui.data_mut(|d| d.insert_temp(id, side));
-    side
-}
-
 /// The 2017-18 docked board in the layout's `board` strip, with its bench at the pitch's right and under it: as wide
-/// as the strip, or as its height can use, centred ([`bench_right`] picks one).
+/// as the strip, or as its height can use, centred (SETTINGS' BENCH POSITION picks one, panel.txt bench=).
 pub fn docked_mats(board: Rect) -> [board::Mat; 2] {
     let r = board.shrink(16.0);
     let room = board.height() - BOARD_EXTRA_1718;
@@ -274,17 +246,14 @@ fn desk_inner(room: Rect) -> Rect {
     r.with_max_y(r.bottom() - DESK_FOOT)
 }
 
-/// Whether the pop-out board in `room` lays its bench beside the pitch: 2017-18 ([`bench_right`], `choice` and `was`
-/// as there), 2010-11 from 2:3 wide ([`BENCH_BESIDE`]).
-pub fn desk_bench_right(room: Rect, e1718: bool, choice: Option<bool>, was: Option<bool>) -> bool {
-    if !e1718 {
-        let r = desk_inner(room);
-        return r.width() >= BENCH_BESIDE * r.height();
+/// Whether the pop-out board in `room` lays its bench beside the pitch: 2017-18 as SETTINGS' BENCH POSITION says
+/// (`right`), 2010-11 from 2:3 wide ([`BENCH_BESIDE`]).
+pub fn desk_bench_right(room: Rect, e1718: bool, right: bool) -> bool {
+    if e1718 {
+        return right;
     }
-    // the pitch's width each way (the row's board is its pitch's width)
-    let right = board::Mat::column(Pos2::ZERO, desk_board_rect(room, true).width());
-    let below = desk_board_rect(room, false).width();
-    bench_right(choice, right.pitch.width(), below, was)
+    let r = desk_inner(room);
+    r.width() >= BENCH_BESIDE * r.height()
 }
 
 /// The pop-out board in `room` (16 points in from its edges, the DOCK row under it): its rect, as large as the room
@@ -1713,18 +1682,16 @@ pub fn board_slot_center(width: f32, spots: &[Pos2; 11], slot: usize) -> Pos2 {
     board::slot_rects(pitch, pitch.bottom() + 12.0, spots)[slot].center()
 }
 
-/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`, the bench on Auto:
-/// the board as [`board_strip`] lays it out ([`docked_mats`]).
+/// [`board_slot_center`] for the 2017-18 docked board on `sheet` with the divider's width `board_w`, the bench at the
+/// pitch's right (the default): the board as [`board_strip`] lays it out ([`docked_mats`]).
 pub fn board_slot_center_1718(
     sheet: Rect,
     board_w: Option<f32>,
     spots: &[Pos2; 11],
     slot: usize,
 ) -> Pos2 {
-    let [right, below] = docked_mats(layout_at(sheet, false, board_w).board);
-    let side = bench_right(None, right.pitch.width(), below.pitch.width(), None);
-    let mat = if side { right } else { below };
-    mat.slot_rects(spots)[slot].center()
+    let [right, _] = docked_mats(layout_at(sheet, false, board_w).board);
+    right.slot_rects(spots)[slot].center()
 }
 
 pub fn show(ui: &mut Ui, st: &mut PanelState) {
@@ -3574,12 +3541,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
     // strip, or as its height can use, centred
     let mat = if st.edition == Edition::E1718 {
         let [right, below] = docked_mats(ui.max_rect());
-        let (a, b, choice) = (right.pitch.width(), below.pitch.width(), st.file.bench);
-        if bench_side(ui, |was| bench_right(choice, a, b, was)) {
-            right
-        } else {
-            below
-        }
+        if st.file.bench_right() { right } else { below }
     } else {
         let w = r
             .width()
@@ -3647,8 +3609,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     if st.crash {
         return crash_screen(&mut c, st, lang);
     }
-    let (e1718, choice) = (st.edition == Edition::E1718, st.file.bench);
-    let beside = bench_side(ui, |was| desk_bench_right(room, e1718, choice, was));
+    let beside = desk_bench_right(room, st.edition == Edition::E1718, st.file.bench_right());
     let at = desk_board_rect(room, beside);
     let mut b =
         c.new_child(egui::UiBuilder::new().max_rect(at.with_max_y(at.bottom() + DESK_FOOT)));
@@ -5444,21 +5405,19 @@ fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                 );
             }
             if st.edition == Edition::E1718 {
-                // the bench at the pitch's right unless the cards get much smaller, or always there or under it (#270)
+                // the bench at the pitch's right or under it (#270, #361: no AUTO, the right never gave smaller cards)
                 field(ui, &tr!(lang, "settings.bench"), w);
-                const BENCH: [Option<bool>; 3] = [None, Some(true), Some(false)];
-                let mut i = BENCH.iter().position(|&b| b == st.file.bench).unwrap_or(0);
+                let mut i = usize::from(!st.file.bench_right());
                 if segmented(
                     ui,
                     &mut i,
                     &[
-                        &tr!(lang, "settings.bench_auto"),
                         &tr!(lang, "settings.bench_right"),
                         &tr!(lang, "settings.bench_below"),
                     ],
                     w,
                 ) {
-                    st.file.bench = BENCH[i];
+                    st.file.bench = Some(i == 0);
                     st.file_changed = true;
                 }
             }
@@ -6574,11 +6533,9 @@ mod tests {
             for compact in [false, true] {
                 let l = layout(sheet_of(w, h), compact);
                 let col = l.board.shrink(16.0);
-                // the 2017-18 board as board_strip lays it out, its bench on Auto (#270): the pitch as drawn and the
-                // bench at its right or under it
-                let [right, below] = docked_mats(l.board);
-                let side = bench_right(None, right.pitch.width(), below.pitch.width(), None);
-                let mat = if side { right } else { below };
+                // the 2017-18 board as board_strip lays it out, its bench at the pitch's right (the default): the
+                // pitch as drawn and the bench
+                let [mat, _] = docked_mats(l.board);
                 let pitch = mat.shown.with_max_x(mat.bench.right());
                 // the foot 8 under the board, the row of buttons 32 (drawn taller than their 22-point rects) and the
                 // hint's 24-point line FOOT_GAP under them, as board_strip and board_foot lay them out
@@ -6924,8 +6881,8 @@ mod tests {
     }
 
     /// The board window: the board as large as the window allows, centred (bars on two sides only), its bench beside
-    /// the pitch from 2:3 wide, under it on taller windows (2010-11); 2017-18 on Auto keeps it beside in every one of
-    /// these shapes, its cards no smaller than with the bench under the pitch (#270).
+    /// the pitch from 2:3 wide, under it on taller windows (2010-11); 2017-18 as BENCH POSITION says, its cards beside
+    /// no smaller than with the bench under the pitch (#270).
     #[test]
     fn the_board_window_fills_its_shape() {
         for (w, h, beside_1011) in [
@@ -6937,8 +6894,9 @@ mod tests {
             (700.0, 1400.0, false),
         ] {
             let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / board_scale(w, h, 96.0));
-            assert!(desk_bench_right(room, true, None, None), "{w}x{h}: 2017-18");
-            let side = desk_bench_right(room, false, None, None);
+            assert!(desk_bench_right(room, true, true), "{w}x{h}: 2017-18");
+            assert!(!desk_bench_right(room, true, false), "{w}x{h}: 2017-18 BELOW");
+            let side = desk_bench_right(room, false, true);
             let b = desk_board_rect(room, side);
             let at = format!("{w}x{h}: {room:?} {b:?}");
             assert_eq!(side, beside_1011, "{at}");
@@ -6968,27 +6926,55 @@ mod tests {
         }
     }
 
-    /// Auto's edge (#270): the bench at the right while the pitch there is at least 85 % as wide as with the bench under
-    /// it, else under it; once drawn on one side the edge moves 2 points away from it, so a divider dragged across the
-    /// edge does not flip the bench back and forth. RIGHT and BELOW take no sizes into account.
+    /// Why BENCH POSITION has no AUTO (#361): on every docked strip and board window the 2017-18 board meets, the
+    /// pitch with the bench at its right is at least as wide as with the bench under it (the column takes the place of
+    /// the artwork's side margins), so a size rule would always have picked RIGHT.
     #[test]
-    fn the_bench_rule_has_an_edge_and_a_band() {
-        let b = 100.0;
-        assert!(bench_right(None, 85.5, b, None));
-        assert!(!bench_right(None, 84.5, b, None));
-        // inside the band each side stays
-        assert!(bench_right(None, 84.0, b, Some(true)));
-        assert!(!bench_right(None, 86.0, b, Some(false)));
-        // past it, it moves
-        assert!(!bench_right(None, 82.5, b, Some(true)));
-        assert!(bench_right(None, 87.5, b, Some(false)));
-        assert!(bench_right(Some(true), 10.0, b, Some(false)));
-        assert!(!bench_right(Some(false), 200.0, b, Some(true)));
+    fn the_bench_at_the_right_never_shrinks_the_pitch() {
+        let sheets = [
+            (1280.0, 800.0),
+            (1440.0, 900.0),
+            (1600.0, 900.0),
+            (1920.0, 1009.0),
+            (1920.0, 1080.0),
+            (2560.0, 1373.0),
+            (2560.0, 1440.0),
+            (3440.0, 1440.0),
+        ];
+        for (w, h) in sheets {
+            for compact in [false, true] {
+                for board_w in [None, Some(BOARD_MIN), Some(BOARD_W + 200.0)] {
+                    let strip = layout_at(sheet_of(w, h), compact, board_w).board;
+                    let [right, below] = docked_mats(strip);
+                    assert!(
+                        right.pitch.width() >= below.pitch.width(),
+                        "{w}x{h} compact {compact} {board_w:?}: docked {right:?} against {below:?}"
+                    );
+                }
+            }
+        }
+        for (w, h) in sheets.into_iter().chain([
+            (960.0, 1232.0),
+            (1080.0, 1920.0),
+            (2360.0, 1640.0),
+            (1640.0, 2360.0),
+            (700.0, 1400.0),
+            (900.0, 901.0),
+        ]) {
+            let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h) / board_scale(w, h, 96.0));
+            let right = board::Mat::column(Pos2::ZERO, desk_board_rect(room, true).width());
+            let below = desk_board_rect(room, false).width();
+            assert!(
+                right.pitch.width() >= below,
+                "{w}x{h}: board window {} against {below}",
+                right.pitch.width()
+            );
+        }
     }
 
-    /// The 2017-18 docked board at 1440x900 (#270), the divider at its default and at its least: on Auto the bench is a
-    /// column right of the pitch inside the strip, and its cards are no more than 15 % smaller than with the bench under
-    /// the pitch (larger: the column takes the place of the pitch artwork's side margins); BELOW puts it under.
+    /// The 2017-18 docked board at 1440x900 (#270), the divider at its default and at its least: at the right the bench
+    /// is a column right of the pitch inside the strip, its cards no more than 15 % smaller than with the bench under
+    /// the pitch (larger: the column takes the place of the pitch artwork's side margins).
     #[test]
     fn the_docked_bench_sits_right_of_the_pitch() {
         let sheet = sheet_of(1440.0, 900.0);
@@ -7011,9 +6997,6 @@ mod tests {
                 card(r),
                 card(b)
             );
-            assert!(bench_right(None, r, b, None), "{at}");
-            assert!(!bench_right(Some(false), r, b, None), "{at}");
-            assert!(bench_right(Some(true), r, b, None), "{at}");
         }
     }
 
@@ -7083,7 +7066,7 @@ mod tests {
         }
         let (w, h) = (960.0, 1232.0);
         let room = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
-        assert!(desk_bench_right(room, true, None, None));
+        assert!(desk_bench_right(room, true, true));
         let at = desk_board_rect(room, true);
         let slot = (0..11).find(|&s| st.board.slots[s].is_some()).unwrap();
         let card = st.board.cards[st.board.slots[slot].unwrap()].number;
