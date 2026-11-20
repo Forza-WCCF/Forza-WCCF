@@ -459,17 +459,18 @@ mod tests {
         );
     }
 
-    /// A header that asks for a newer TrueCrypt than 4.3a is a version message, never a wrong key (#358).
+    /// A header that asks for a newer TrueCrypt than 4.3a is a version message, never a wrong key (#358), also through
+    /// the key picking that tries one candidate after another (#361).
     #[test]
     fn a_newer_truecrypt_header_is_refused() {
         let key = hex_to_bytes("00112233445566778899aabbccddeeff");
         let newer = sealed_header(&key, PROGRAM_VERSION + 1);
-        let refused = read_header(&newer, &key).unwrap().err().unwrap();
+        let refused = pick_header(&newer, &key, "SDDY", None).err().unwrap();
         assert_eq!(refused.downcast_ref::<E>(), Some(&E::NewerTrueCrypt));
         // the same header at the version this reads opens
         let same = sealed_header(&key, PROGRAM_VERSION);
         assert_eq!(
-            read_header(&same, &key).unwrap().unwrap().hidden_size,
+            pick_header(&same, &key, "SDDY", None).unwrap().hidden_size,
             512 * 100
         );
     }

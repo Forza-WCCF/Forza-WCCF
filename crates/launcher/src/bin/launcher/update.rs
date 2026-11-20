@@ -265,9 +265,9 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     log(&tf("launcher.msg_copying", &[("tag", &r.tag)]));
     say(tf("launcher.msg_copying", &[("tag", &r.tag)]), 950);
     // this running Launcher.exe last: self-replace swaps it for the new one, which the next start runs.  It moves the
-    // running one away first: if it then fails, the copy kept in data\update goes back
+    // running one away first: if it then fails, the copy kept beside it goes back
     let me = dir.join("Launcher.exe");
-    let kept = work.join("Launcher.exe");
+    let kept = dir.join("Launcher.exe.old");
     install(&top, dir, &work, || {
         let failed = |e: io::Error| {
             tf(
@@ -280,12 +280,19 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
 }
 
 /// The Launcher.exe swap: `me` goes into `kept` first, so it goes back when the swap has already moved it away and then
-/// fails (the folder would hold no Launcher.exe at all).
+/// fails (the folder would hold no Launcher.exe at all).  When even that copy fails, both errors are reported and the copy
+/// stays: `kept` sits beside `me`, since data\update goes on a rollback.
 fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     fs::copy(me, kept)?;
     let done = swap();
-    if done.is_err() && !me.is_file() {
-        let _ = fs::copy(kept, me);
+    if let Err(e) = &done
+        && !me.is_file()
+        && let Err(back) = fs::copy(kept, me)
+    {
+        return Err(io::Error::new(e.kind(), format!("{e}; {back} ({})", kept.display())));
+    }
+    if me.is_file() {
+        let _ = fs::remove_file(kept); // the kit folder holds its Launcher.exe: the spare goes
     }
     done
 }
@@ -609,5 +616,26 @@ mod tests {
         .unwrap_err();
         assert_eq!(e.to_string(), "the kit folder is locked");
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// When the kept copy cannot go back either, both errors are reported and the copy stays: it is then the only
+    /// Launcher.exe left.
+    #[test]
+    fn a_failed_swap_that_cannot_go_back_reports_both_and_keeps_the_copy() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        fs::write(&me, b"the running launcher").unwrap();
+        let e = swap_self(&me, &kept, || {
+            fs::remove_file(&me)?; // self_replace renames it away first
+            fs::create_dir(&me)?; // and it will not take the copy back
+            Err(io::Error::other("the kit folder is locked"))
+        })
+        .unwrap_err();
+        let e = e.to_string();
+        assert!(
+            e.contains("the kit folder is locked") && e.contains("Launcher.exe.old"),
+            "{e}"
+        );
+        assert_eq!(fs::read(&kept).unwrap(), b"the running launcher");
     }
 }

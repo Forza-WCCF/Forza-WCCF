@@ -947,7 +947,7 @@ mod tests {
         assert_eq!(token_bytes(p.token), [127, 9, 8, 7, 0x23, 0x4E]);
     }
 
-    /// `Gmsvr::exchange` against a stand-in gmsvr on 127.0.0.1 that reads the 900 request and writes `answer`.
+    /// `Gmsvr::exchange` against a stand-in gmsvr on 127.0.0.1 that checks the 900 request and writes `answer`.
     async fn exchange_with(answer: Vec<u8>) -> io::Result<Vec<u8>> {
         let l = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let addr = l.local_addr()?;
@@ -955,7 +955,8 @@ mod tests {
             let (mut s, _) = l.accept().await?;
             let mut req = [0u8; 43];
             s.read_exact(&mut req).await?;
-            s.write_all(&answer).await
+            s.write_all(&answer).await?;
+            Ok::<[u8; 43], io::Error>(req)
         });
         let mut conn = None;
         let r = timeout(
@@ -965,11 +966,14 @@ mod tests {
         .await
         .expect("exchange hung");
         // bounded too: an exchange that fails before it connects leaves the stand-in waiting in accept
-        timeout(ASK_TIMEOUT, server)
+        let req = timeout(ASK_TIMEOUT, server)
             .await
             .expect("stand-in hung")
             .unwrap()
             .unwrap();
+        let mut want = gamesvr::header(900, 7, 0, 3, 0).to_vec();
+        want.extend_from_slice(b"abc");
+        assert_eq!(&req[..], &want[..], "the request exchange sends");
         r
     }
 
@@ -999,11 +1003,21 @@ mod tests {
         }
     }
 
+    /// A scratch folder that goes when the test ends, an assert that fails on the way included.
+    struct Scratch(PathBuf);
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn load_key_takes_only_32_bytes() {
-        let dir = std::env::temp_dir().join(format!("vslink_load_key_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("vs.key");
+        let dir =
+            Scratch(std::env::temp_dir().join(format!("vslink_load_key_{}", std::process::id())));
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let path = dir.0.join("vs.key");
         for n in [31, 33] {
             std::fs::write(&path, vec![9u8; n]).unwrap();
             let e = load_key(&path).expect_err("not 32 bytes");
@@ -1012,6 +1026,5 @@ mod tests {
         }
         std::fs::write(&path, [9u8; 32]).unwrap();
         assert_eq!(load_key(&path).unwrap().to_bytes(), [9u8; 32]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

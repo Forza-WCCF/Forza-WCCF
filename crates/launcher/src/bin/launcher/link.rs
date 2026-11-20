@@ -7,7 +7,7 @@
 //! `decide` is the rule, a pure function over what `probe` saw; `apply` does it.
 
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
+use std::{env, ffi::OsString, fs, io};
 
 use launcher::{Edition, Kit};
 use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumeInformationW};
@@ -164,7 +164,13 @@ pub enum Outcome {
 
 /// `here` is this kit folder as the process was started, never resolved.
 pub fn first_run(here: &Path, edition: Edition) -> Outcome {
-    first_run_at(&link_path(edition), here, env::var_os(LINKED).is_some())
+    first_run_at(&link_path(edition), here, flagged(|name| env::var_os(name)))
+}
+
+/// Whether the environment `env` carries the `LINKED` flag: `restart` hands it to the copy it starts, `first_run`
+/// reads it back here, so the two sides cannot drift apart.
+fn flagged(env: impl Fn(&str) -> Option<OsString>) -> bool {
+    env(LINKED).is_some()
 }
 
 /// `link` is the installer's place for the edition; `restarted` is the `LINKED` flag a copy started from `link` carries,
@@ -195,11 +201,14 @@ fn first_run_at(link: &Path, here: &Path, restarted: bool) -> Outcome {
 
 /// Starts the copy in the link, which is then the one that runs.
 pub fn restart(link: &Path) -> bool {
-    std::process::Command::new(link.join(Kit::exe_name()))
-        .current_dir(link)
-        .env(LINKED, "1")
-        .spawn()
-        .is_ok()
+    restarted_at(link).spawn().is_ok()
+}
+
+/// The copy in the link, to be started: its whole folder and the `LINKED` flag, which [`flagged`] reads back.
+fn restarted_at(link: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(link.join(Kit::exe_name()));
+    cmd.current_dir(link).env(LINKED, "1");
+    cmd
 }
 
 #[cfg(test)]
@@ -265,6 +274,22 @@ mod tests {
             Outcome::InPlace { warn: None }
         ));
         assert!(fs::symlink_metadata(&link).is_err());
+    }
+
+    /// The wiring the guard depends on: the environment `restart` gives the copy carries the flag, and `first_run`
+    /// reads that environment as the copy's own.
+    #[test]
+    fn the_restart_hands_on_the_flag_first_run_reads() {
+        let t = crate::scratch();
+        let cmd = restarted_at(t.path());
+        let given: Vec<(String, Option<OsString>)> = cmd
+            .get_envs()
+            .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_owned())))
+            .collect();
+        assert_eq!(given, [(LINKED.to_owned(), Some("1".into()))]);
+        let seen = |name: &str| given.iter().find(|(k, _)| k == name)?.1.clone();
+        assert!(flagged(seen), "the copy runs with the flag it was given");
+        assert!(!flagged(|_| None), "a plain start carries nothing");
     }
 
     #[test]
