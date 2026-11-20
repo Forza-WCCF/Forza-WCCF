@@ -156,7 +156,12 @@ fn launcher_host_dialog() {
         let v = &mut st.lobby;
         (v.arcade_rooms, v.kind, v.list_arcade) = (true, lobby::Kind::Arcades, true);
         (v.cup.mode, v.cup.minutes, v.clock) = (lobby::CupMode::In, 10, Some(14 * 3600));
-        v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
+        v.host_ask = Some((
+            false,
+            String::new(),
+            String::new(),
+            lobby::CupChoice::default(),
+        ));
         snap(
             &mut all,
             &format!("launcher_host_dialog_{}", lang.code()),

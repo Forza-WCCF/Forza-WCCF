@@ -153,7 +153,12 @@ fn cup_rows_fit_the_launcher() {
                 (mode, 150, 23 * 60 + 55, Some(14 * 3600));
             if dialog {
                 (v.arcade_rooms, v.kind) = (true, lobby::Kind::Arcades);
-                v.host_ask = Some((false, String::new(), lobby::CupChoice::default()));
+                v.host_ask = Some((
+                    false,
+                    String::new(),
+                    String::new(),
+                    lobby::CupChoice::default(),
+                ));
             }
             let cup = v.cup;
             let mut h = harness(size, 1.0, Edition::E1718, |ui| {
@@ -1188,6 +1193,7 @@ fn lobby_arcade_rooms() {
     use lobby::LobbyAction::*;
     let mut start = lobby::LobbyView::sample(lobby::Scenario::ArcadeNoRoom);
     (start.notice, start.code) = (None, String::new());
+    start.arcade_notice = "Open till 23:00".into();
     let v = std::cell::RefCell::new(start);
     let got = std::cell::RefCell::new(None);
     let mut h = harness(lobby::SIZE, 1.0, Edition::E1718, |ui| {
@@ -1209,10 +1215,32 @@ fn lobby_arcade_rooms() {
     h.run_steps(2);
     assert_eq!(v.borrow().cup.minutes, 15);
     h.get_by_label("In 15 min");
+    // the notice box takes one line of at most HOST_NOTICE_LEN characters; CANCEL puts the earlier text back
+    h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Arcade notice")
+        .focus();
+    h.run_steps(1);
+    h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Arcade notice")
+        .type_text(&"n".repeat(200));
+    h.run_steps(2);
+    let typed = v.borrow().arcade_notice.clone();
+    assert!(
+        typed.contains("Open till 23:00") && typed.contains("nnn"),
+        "{typed}"
+    );
+    assert_eq!(
+        typed.chars().count(),
+        forza::online::lobby::HOST_NOTICE_LEN,
+        "the box stops at HOST_NOTICE_LEN"
+    );
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(got.take(), None);
     assert!(v.borrow().host_ask.is_none() && !v.borrow().list_arcade);
+    assert_eq!(
+        v.borrow().arcade_notice,
+        "Open till 23:00",
+        "CANCEL puts the notice back"
+    );
     assert_eq!(
         v.borrow().cup,
         lobby::CupChoice::default(),

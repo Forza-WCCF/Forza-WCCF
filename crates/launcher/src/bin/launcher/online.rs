@@ -262,7 +262,9 @@ impl Online {
             }
         }
         if let Some((n, project)) = &self.notices {
-            n.ask(self.play_on.as_ref().filter(|_| st.running).unwrap_or(project));
+            // an arcade guest's seat plays on the host's desk, through the run's tunnel (#328)
+            let desk = notice::tunnel_desk().or_else(|| self.play_on.clone());
+            n.ask(desk.as_ref().filter(|_| st.running).unwrap_or(project));
         }
         if st.running
             && let Some(l) = &mut self.last

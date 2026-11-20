@@ -119,8 +119,13 @@ while the game runs, so a new notice reaches a running game within about a minut
 - 2017-18 only. The Launcher asks the lobby it is pointed at for the notice (`WCCF_LOBBY`, else the default
   `lobby.wccf.it`). While a seat plays on another server's desk (a LAN arcade, or a seat that a listed server
   reserved), it asks that desk instead, so the seat shows the notice of the server it plays on: that desk's own file
-  (`WCCF_NOTICE`, else `notice.json` in its `--store` folder). A Launcher text box for a self-hosted arcade's own
-  notice comes later.
+  (`WCCF_NOTICE`, else `notice.json` in its `--store` folder). A seat shows that notice under an "Arcade notice:"
+  prefix; when that desk has none, the project server's notice stays.
+- HOST ARCADE (2017-18): the host dialog's "Arcade notice" box takes one line of up to 140 characters, saved as
+  `arcade_notice` in `data\settings.json`. The run writes it to `data\host_notice.json` under a fresh id (`h` and the
+  Unix time) and points its desk's `WCCF_NOTICE` there; an empty box removes the file. Guests who joined through the
+  tunnel ask the host's desk through it once a minute while their run lasts, so each guest's panel shows the notice
+  once per hosting session. The text is set at HOST ARCADE; control, invisible and bidi characters are dropped.
 
 ### The 2017-18 arcade
 

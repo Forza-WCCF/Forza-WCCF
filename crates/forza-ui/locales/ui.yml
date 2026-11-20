@@ -120,6 +120,7 @@ launcher.msg_not_guarded: {en: "The game did not start. Press SET UP first.", it
 launcher.msg_rooms_full: {en: "No VS room free. Try again in a minute.", it: "Nessuna stanza VS libera. Riprova tra un minuto.", ja: "サーバーに対戦ルームの空きがありません。1 分後にもう一度お試しください。"}
 launcher.msg_no_arcade_room: {en: "Could not open the arcade: %{error}", it: "Impossibile aprire la sala: %{error}", ja: "ゲームセンターを開けません：%{error}"}
 launcher.msg_arcade_stays: {en: "The arcade stays open while guests play. It closes when they leave, or now with STOP THE GAME.", it: "La sala resta aperta finché ci sono ospiti. Si chiude quando escono, o subito con FERMA IL GIOCO.", ja: "ゲストがいる間、ゲームセンターは開いたままです。全員が抜けると閉じます。「ゲームを終了」ですぐに閉じます。"}
+launcher.arcade_notice: {en: "Arcade notice: %{text}", it: "Avviso della sala: %{text}", ja: "ゲームセンターのお知らせ：%{text}"}
 launcher.club_in: {en: "Your club came along to this arcade. It goes back home after every match and when you leave.", it: "Il tuo club è venuto con te in questa sala. Torna a casa dopo ogni partita e quando esci.", ja: "あなたのクラブをこのゲームセンターに持ち込みました。試合のたびと退出時にホームへ戻ります。"}
 launcher.club_not_in: {en: "Your club stays at home this time; in this arcade your card plays with the arcade's club.", it: "Questa volta il tuo club resta a casa; in questa sala la tua carta gioca con il club della sala.", ja: "今回はクラブを持ち込めませんでした。このゲームセンターでは、カードにゲームセンター側のクラブを使います。"}
 launcher.club_kept: {en: "Your last arcade visit ended before your club came home. Your home club is kept as it was; the arcade's last copy is in %{path}.", it: "L'ultima visita in sala è finita prima che il club tornasse a casa. Il tuo club di casa resta com'era; l'ultima copia della sala è in %{path}.", ja: "前回のゲームセンタープレイは、クラブがホームに戻る前に終了しました。ホームのクラブはそのまま残しています。ゲームセンター側の最新コピーは %{path} にあります。"}
@@ -669,6 +670,8 @@ lobby.language: {en: "Language:", it: "Lingua:", ja: "言語:"}
 lobby.list_arcade: {en: "List my arcade when I host", it: "Elenca la mia sala quando la apro", ja: "ゲームセンターを開くとき一覧に表示"}
 lobby.list_arcade_on: {en: "Others can find and join your arcade from the list.", it: "Gli altri trovano la tua sala nell'elenco e possono entrare.", ja: "ほかのプレイヤーが一覧からゲームセンターを見つけて参加できます。"}
 lobby.arcade_name: {en: "Arcade name", it: "Nome della sala", ja: "ゲームセンター名"}
+lobby.arcade_notice: {en: "Arcade notice", it: "Avviso della sala", ja: "お知らせ"}
+lobby.arcade_notice_hint: {en: "Your guests see this while they play", it: "I tuoi ospiti lo vedono mentre giocano", ja: "プレイ中のゲストに表示されます"}
 lobby.list_arcade_off: {en: "Only players with the code can join.", it: "Entra solo chi ha il codice.", ja: "コードを知っているプレイヤーだけが参加できます。"}
 lobby.cup: {en: "Universal Cup", it: "Universal Cup", ja: "ユニバーサルカップ"}
 lobby.cup_game_times: {en: "Usual times", it: "Orari soliti", ja: "通常の時間"}

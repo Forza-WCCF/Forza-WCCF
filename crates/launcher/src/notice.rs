@@ -2,12 +2,16 @@
 //! `LOBBY` at the start and every [`EVERY`] (a game running too), the ONLINE lobby's own answers from that server feed
 //! it as well, and each change goes to `data\notice.json` for the panel, which shows each id once. The project server
 //! is asked (`lobby::project_server`), or the LAN arcade's desk while a seat plays there ([`Notices::ask`]): a seat
-//! shows the notice of the server it plays on. The ask carries the edition and nothing else.
+//! shows the notice of the server it plays on. The ask carries the edition and nothing else. An arcade guest asks the
+//! host's desk through the run's tunnel ([`TUNNEL_DESK`]); another server's notice shows under an "Arcade notice:"
+//! prefix, and the project server's stays when that server has none ([`round`]).
 
 use crate::lobby::{Wake, socket};
 use forza::online::lobby::{self, Lobby, ServerNotice};
 use forza::service::Log;
-use std::path::PathBuf;
+use forza_ui::Lang;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,6 +27,69 @@ const FRESH: Duration = Duration::from_secs(50);
 const FIRST_WAIT: Duration = Duration::from_secs(8);
 /// How often the first wait looks again for that poll's answer.
 const FIRST_STEP: Duration = Duration::from_secs(1);
+
+/// The loopback port of the host's desk behind the arcade tunnel this PC's seat plays through, 0 with none: the run
+/// sets it once the tunnel is up (never assumed to be 20030: a server on this PC moves it) and clears it as it stops.
+pub static TUNNEL_DESK: AtomicU16 = AtomicU16::new(0);
+
+/// The host's desk through the run's arcade tunnel (`127.0.0.1:port`), while one is up ([`TUNNEL_DESK`]).
+pub fn tunnel_desk() -> Option<String> {
+    let port = TUNNEL_DESK.load(Ordering::Relaxed);
+    (port != 0).then(|| format!("127.0.0.1:{port}"))
+}
+
+/// HOST ARCADE: the host's notice (`text`, data\settings.json `arcade_notice`, at most
+/// [`lobby::HOST_NOTICE_LEN`] characters kept) into `file` for its desk (`WCCF_NOTICE`), under an id of this hosting
+/// session (`now`, Unix seconds), so each guest's panel shows it once; the file is removed when the text is empty.
+/// True when the file holds a notice.
+pub fn write_host_notice(file: &Path, text: &str, now: u64) -> std::io::Result<bool> {
+    let n = ServerNotice {
+        id: format!("h{now}"),
+        en: text.chars().take(lobby::HOST_NOTICE_LEN).collect(),
+        ..ServerNotice::default()
+    }
+    .clean();
+    match n {
+        Some(n) => {
+            crate::choices::write(file, &serde_json::to_string(&n).expect("plain data serializes")).map(|()| true)
+        }
+        None => remove(file).map(|()| false),
+    }
+}
+
+/// `file` gone, whether it was there or not.
+fn remove(file: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(file) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// One round's answer from `asked` (`get` asks a server). From a server other than `project` (an arcade's desk, a
+/// LAN arcade, a listed server's seat), its notice under the "Arcade notice:" prefix; with none there, the project
+/// server is asked in the same round and its notice kept. `None` when an ask failed: the last notice stays.
+fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Lobby> {
+    let mut l = get(asked)?;
+    if asked != project {
+        l.notice = match l.notice.take().and_then(ServerNotice::clean) {
+            Some(n) => arcade_notice(&n),
+            None => get(project)?.notice,
+        };
+    }
+    Some(l)
+}
+
+/// A peer's notice under the prefix that says whose it is, in each language, cut to a notice's length again.
+fn arcade_notice(n: &ServerNotice) -> Option<ServerNotice> {
+    let say = |lang: Lang| forza_ui::text(lang, "launcher.arcade_notice", &[("text", n.text(lang.code()))]);
+    ServerNotice {
+        id: n.id.clone(),
+        en: say(Lang::En),
+        it: Some(say(Lang::It)),
+        ja: Some(say(Lang::Ja)),
+    }
+    .clean()
+}
 
 struct Inner {
     file: PathBuf,
@@ -55,6 +122,7 @@ impl Notices {
     /// while no other answer came within [`FRESH`]; it ends when the last other copy of this box is dropped. `log`
     /// hears about each change and each write that failed.
     pub fn watch(&self, server: String, edition: &'static str, every: Duration, wake: Wake, log: Log) {
+        let project = server.clone();
         self.lock().server = server;
         let me = self.clone();
         thread::spawn(move || {
@@ -71,9 +139,9 @@ impl Notices {
                     let i = me.lock();
                     (i.server.clone(), i.at.is_none_or(|t| t.elapsed() >= FRESH))
                 };
+                let get = |s: &str| socket(s).and_then(|a| lobby::fetch(a, edition).ok());
                 if due
-                    && let Some(a) = socket(&server)
-                    && let Ok(l) = lobby::fetch(a, edition)
+                    && let Some(l) = round(&server, &project, get)
                     && me.heard(&l, log.as_ref())
                 {
                     wake();
@@ -83,9 +151,9 @@ impl Notices {
         });
     }
 
-    /// An answer from the project server: its notice (cleaned again: it came over the network) replaces the last; a
-    /// change is written to the file, and a write that failed is tried again on the next answer. True when the
-    /// notice changed.
+    /// An answer from the server asked ([`round`]) or the ONLINE lobby's polls: its notice (cleaned again: it came over
+    /// the network) replaces the last; a change is written to the file, and a write that failed is tried again on the
+    /// next answer. True when the notice changed.
     pub fn heard(&self, l: &Lobby, log: &dyn Fn(&str)) -> bool {
         let n = l.notice.clone().and_then(ServerNotice::clean);
         let mut i = self.lock();
@@ -150,10 +218,7 @@ impl Inner {
     fn save(&self) -> std::io::Result<()> {
         match &self.notice {
             Some(n) => crate::choices::write(&self.file, &serde_json::to_string(n).expect("plain data serializes")),
-            None => match std::fs::remove_file(&self.file) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-                _ => Ok(()),
-            },
+            None => remove(&self.file),
         }
     }
 
@@ -256,6 +321,103 @@ mod tests {
         assert!(n.lock().at.is_some(), "the same server: no extra ask");
         n.ask("lobby.wccf.it:20032");
         assert_eq!(n.server(), "lobby.wccf.it:20032");
+    }
+
+    /// An arcade guest (#328): the host's notice replaces the project server's, under the prefix in each language; a
+    /// desk with none keeps the project's; after the run the project's is back.
+    #[test]
+    fn a_seat_shows_its_arcades_notice_over_the_projects() {
+        let project = "lobby.wccf.it:20032";
+        let desk = "127.0.0.1:20041";
+        let ours = ServerNotice {
+            id: "n1".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        };
+        let host = ServerNotice {
+            id: "h17".into(),
+            en: "Open till 23:00".into(),
+            ..ServerNotice::default()
+        };
+        // the project server answers with `ours`, the desk with `hosts`
+        fn answers<'a>(
+            project: &'a str,
+            ours: &'a ServerNotice,
+            hosts: Option<&'a ServerNotice>,
+        ) -> impl Fn(&str) -> Option<Lobby> + 'a {
+            move |s| {
+                Some(answer(if s == project {
+                    Some(ours.clone())
+                } else {
+                    hosts.cloned()
+                }))
+            }
+        }
+        let n = Notices::new(dir("arcade").join("notice.json"));
+        n.heard(
+            &round(project, project, answers(project, &ours, Some(&host))).unwrap(),
+            &|_| {},
+        );
+        assert_eq!(n.text("en").as_deref(), Some("Server update at 23:00"));
+        n.ask(desk);
+        assert!(n.heard(
+            &round(desk, project, answers(project, &ours, Some(&host))).unwrap(),
+            &|_| {}
+        ));
+        assert_eq!(n.text("en").as_deref(), Some("Arcade notice: Open till 23:00"));
+        assert_eq!(n.text("it").as_deref(), Some("Avviso della sala: Open till 23:00"));
+        assert_eq!(
+            n.text("ja").as_deref(),
+            Some("ゲームセンターのお知らせ：Open till 23:00")
+        );
+        assert_eq!(n.lock().notice.as_ref().map(|n| n.id.as_str()), Some("h17"));
+        // a full host notice and the longest prefix still fit a notice
+        let long = ServerNotice {
+            en: "x".repeat(lobby::HOST_NOTICE_LEN),
+            ..host.clone()
+        };
+        let l = round(desk, project, answers(project, &ours, Some(&long))).unwrap();
+        assert!(
+            l.notice
+                .unwrap()
+                .text("it")
+                .ends_with(&"x".repeat(lobby::HOST_NOTICE_LEN))
+        );
+        // the desk sets none: the project's stays; the project server not answering keeps the last
+        let l = round(desk, project, answers(project, &ours, None)).unwrap();
+        assert_eq!(l.notice.as_ref().map(|n| n.id.as_str()), Some("n1"));
+        assert!(round(desk, project, |s| (s == desk).then(|| answer(None))).is_none());
+        n.ask(project);
+        assert!(n.heard(
+            &round(project, project, answers(project, &ours, Some(&host))).unwrap(),
+            &|_| {}
+        ));
+        assert_eq!(
+            n.text("en").as_deref(),
+            Some("Server update at 23:00"),
+            "the run is over"
+        );
+    }
+
+    /// HOST ARCADE's notice file: a fresh id and the text as typed (bounded), removed when the box is empty.
+    #[test]
+    fn the_host_writes_its_notice_for_its_desk() {
+        let file = dir("host").join("host_notice.json");
+        assert!(write_host_notice(&file, &format!("  Open till 23:00\u{202E}{}", "y".repeat(300)), 17).unwrap());
+        let n: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(n.id, "h17");
+        assert!(n.en.starts_with("Open till 23:00y"), "{}", n.en);
+        assert_eq!(
+            n.en.chars().count(),
+            lobby::HOST_NOTICE_LEN - 3,
+            "cut as typed, then trimmed and stripped"
+        );
+        assert!(!write_host_notice(&file, " \t ", 18).unwrap());
+        assert!(!file.exists(), "no notice: no file");
+        assert!(
+            !write_host_notice(&file, "", 19).unwrap(),
+            "removing a missing file is fine"
+        );
     }
 
     /// The one-ask-first race: the watcher waits for the window's own poll before its first ask, so the two never
