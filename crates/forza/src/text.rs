@@ -1270,6 +1270,49 @@ fn utf16(f: &[u8]) -> String {
         .into()
 }
 
+/// Each player record's short name in folded Latin (the kana initial in front, as the game's card shows it), its
+/// card name the full Latin name and its Japanese skill name the English one; empty records stay as they are.
+fn rename_players(pd: &mut [u8], s: &Spec) -> NameFaults {
+    let set = |pd: &mut [u8], at: usize, v: &[u8]| {
+        let n = put_field(&pd[at..at + FIELD], v, FIELD);
+        pd[at..at + FIELD].copy_from_slice(&n);
+    };
+    let mut names = NameFaults::default();
+    for i in 0..pd.len() / s.rec {
+        let r = i * s.rec;
+        let kana = cp932(first(&pd[r + s.short_kana..r + s.short_kana + FIELD]));
+        let mut latin = utf16(&pd[r + s.short_latin..r + s.short_latin + FIELD]);
+        if let (true, Some(d)) = (latin.is_empty(), s.display) {
+            latin = String::from_utf8_lossy(first(&pd[r + d..r + d + FIELD])).into_owned();
+        }
+        if latin.is_empty() {
+            continue;
+        }
+        let mut name = fold(&latin);
+        let mut kc = kana.chars();
+        if let (Some(a @ 'Ａ'..='Ｚ'), Some('．')) = (kc.next(), kc.next()) {
+            let ini = format!("{}.", char::from_u32(a as u32 - 0xFEE0).unwrap());
+            if !name.starts_with(&ini) {
+                name = ini + &name;
+            }
+        }
+        names.add(&name);
+        set(pd, r + s.short_kana, name.as_bytes());
+        if let Some((full_latin, card_name)) = s.full {
+            let full = fold(&utf16(&pd[r + full_latin..r + full_latin + FIELD]));
+            if !full.is_empty() {
+                names.add(&full);
+                set(pd, r + card_name, full.as_bytes());
+            }
+        }
+        let sk = first(&pd[r + s.skill_en..r + s.skill_en + FIELD]).to_vec();
+        if !sk.is_empty() && sk.iter().all(|c| (32..127).contains(c)) && !sk.contains(&b'%') {
+            set(pd, r + s.skill_jp, &sk);
+        }
+    }
+    names
+}
+
 impl Ctx {
     fn build_names(&self, lang: Lang) -> R<Built> {
         let s = &self.spec;
@@ -1287,43 +1330,7 @@ impl Ctx {
                     ),
             );
         }
-        let set = |pd: &mut Vec<u8>, at: usize, v: &[u8]| {
-            let n = put_field(&pd[at..at + FIELD], v, FIELD);
-            pd[at..at + FIELD].copy_from_slice(&n);
-        };
-        let mut names = NameFaults::default();
-        for i in 0..pd.len() / s.rec {
-            let r = i * s.rec;
-            let kana = cp932(first(&pd[r + s.short_kana..r + s.short_kana + FIELD]));
-            let mut latin = utf16(&pd[r + s.short_latin..r + s.short_latin + FIELD]);
-            if let (true, Some(d)) = (latin.is_empty(), s.display) {
-                latin = String::from_utf8_lossy(first(&pd[r + d..r + d + FIELD])).into_owned();
-            }
-            if latin.is_empty() {
-                continue;
-            }
-            let mut name = fold(&latin);
-            let mut kc = kana.chars();
-            if let (Some(a @ 'Ａ'..='Ｚ'), Some('．')) = (kc.next(), kc.next()) {
-                let ini = format!("{}.", char::from_u32(a as u32 - 0xFEE0).unwrap());
-                if !name.starts_with(&ini) {
-                    name = ini + &name;
-                }
-            }
-            names.add(&name);
-            set(&mut pd, r + s.short_kana, name.as_bytes());
-            if let Some((full_latin, card_name)) = s.full {
-                let full = fold(&utf16(&pd[r + full_latin..r + full_latin + FIELD]));
-                if !full.is_empty() {
-                    names.add(&full);
-                    set(&mut pd, r + card_name, full.as_bytes());
-                }
-            }
-            let sk = first(&pd[r + s.skill_en..r + s.skill_en + FIELD]).to_vec();
-            if !sk.is_empty() && sk.iter().all(|c| (32..127).contains(c)) && !sk.contains(&b'%') {
-                set(&mut pd, r + s.skill_jp, &sk);
-            }
-        }
+        let names = rename_players(&mut pd, s);
         let n_players = pd.len() / s.rec;
         let mut files = vec![(PLAYERS.to_string(), pd)];
         let mut skipped = vec![];
@@ -1961,6 +1968,23 @@ mod tests {
         assert!(!ja.contains("%{"), "every argument is filled: {ja}");
         assert!(!ja.contains("expected file"), "{ja}");
         assert_ne!(ja, it, "the Japanese is its own text");
+    }
+
+    #[test]
+    fn rename_players_puts_the_initial_and_keeps_empty_records() {
+        let s = spec(Edition::E1718);
+        let mut pd = vec![0u8; 3 * s.rec];
+        let (kana, ..) = encoding_rs::SHIFT_JIS.encode("Ｃ．");
+        pd[s.short_kana..][..kana.len()].copy_from_slice(&kana);
+        for (i, u) in "Ronaldo".encode_utf16().enumerate() {
+            pd[s.short_latin + 2 * i..][..2].copy_from_slice(&u.to_le_bytes());
+        }
+        let d = 2 * s.rec + s.display.unwrap();
+        pd[d..d + FIELD].fill(b'A'); // no end byte: the folded name is FIELD bytes, one too many
+        let names = rename_players(&mut pd, &s);
+        assert_eq!(first(&pd[s.short_kana..s.short_kana + FIELD]), b"C.Ronaldo");
+        assert!(pd[s.rec..2 * s.rec].iter().all(|&b| b == 0), "the empty record keeps its bytes");
+        assert_eq!((names.cut, names.unknown), (1, 0));
     }
 
     #[test]
