@@ -63,11 +63,11 @@ pub fn is_key(raw: &[u8]) -> bool {
     raw.len() == 16 || hex16(&strip(raw)).is_some()
 }
 
-fn strip(raw: &[u8]) -> String {
+pub(crate) fn strip(raw: &[u8]) -> String {
     String::from_utf8_lossy(raw).split_whitespace().collect()
 }
 
-fn hex16(s: &str) -> Option<[u8; 16]> {
+pub(crate) fn hex16(s: &str) -> Option<[u8; 16]> {
     let s = s.trim();
     if s.len() != 32 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;

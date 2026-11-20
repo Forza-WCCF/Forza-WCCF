@@ -163,15 +163,16 @@ pub fn free_space(path: &Path) -> Option<u64> {
     if let Some(free) = FREE.get() {
         return Some(free);
     }
-    path.ancestors()
-        .find(|p| p.exists())
-        .and_then(|p| fs4::available_space(p).ok())
+    on_disk(path, |p| fs4::available_space(p))
 }
 
 pub fn total_space(path: &Path) -> Option<u64> {
-    path.ancestors()
-        .find(|p| p.exists())
-        .and_then(|p| fs4::total_space(p).ok())
+    on_disk(path, |p| fs4::total_space(p))
+}
+
+/// `f` on the nearest folder of `path` that exists (the install folder may not yet).
+fn on_disk(path: &Path, f: impl Fn(&Path) -> std::io::Result<u64>) -> Option<u64> {
+    path.ancestors().find(|p| p.exists()).and_then(|p| f(p).ok())
 }
 
 fn check(cancel: &AtomicBool) -> Result<()> {
@@ -670,7 +671,7 @@ fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(forza::Say) -> i32) -> Resul
     // the installer's log is English (support reads it)
     let say = |lead: &str, l: &forza::Line| {
         let line = &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l));
-        if line.contains("FAIL") {
+        if lead.trim() == "FAIL" {
             *failed.borrow_mut() = Some(line.trim().to_owned());
         }
         emit(Event::Log(line.to_owned()));
@@ -811,6 +812,28 @@ mod lnk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed step's detail is its `FAIL` line, not an ok line that only mentions the word.
+    #[test]
+    fn a_failed_kit_step_reports_its_fail_line() {
+        use forza::Line::Raw;
+        let detail = |fail: bool| {
+            let e = kit_step(&|_| {}, |say| {
+                say("  ok    ", &Raw("no FAIL".into()));
+                if fail {
+                    say("  FAIL  ", &Raw("x".into()));
+                }
+                1
+            })
+            .unwrap_err();
+            match e.downcast_ref::<E>() {
+                Some(E::Script { detail }) => detail.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(detail(true).ends_with('x'), "{}", detail(true));
+        assert_eq!(detail(false), "exit 1");
+    }
 
     #[cfg(windows)]
     #[test]

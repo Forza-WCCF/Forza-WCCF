@@ -129,19 +129,7 @@ fn password_from_keyfile(data: &[u8]) -> [u8; 64] {
 /// The key file may be the raw 16 bytes or its 32 hex digits as text (how the public key lists print it).
 fn key_candidates(raw: &[u8]) -> Vec<Vec<u8>> {
     let mut out = vec![raw.to_vec()];
-    let text: String = String::from_utf8_lossy(raw).split_whitespace().collect();
-    if text.len() >= 2
-        && text.len().is_multiple_of(2)
-        && text.bytes().all(|b| b.is_ascii_hexdigit())
-    {
-        let bytes = text.as_bytes().chunks(2).map(|d| {
-            std::str::from_utf8(d)
-                .ok()
-                .and_then(|d| u8::from_str_radix(d, 16).ok())
-        });
-        // every pair is two hex digits (checked above)
-        out.extend(bytes.collect::<Option<Vec<u8>>>());
-    }
+    out.extend(keytable::hex16(&keytable::strip(raw)).map(Vec::from));
     out
 }
 
@@ -353,6 +341,14 @@ impl Seek for Volume {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hex_key_file_adds_its_16_bytes() {
+        let c = key_candidates(b"00112233445566778899aabbccddeeff\r\n");
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[1].len(), 16);
+        assert_eq!(key_candidates(b"abcd").len(), 1);
+    }
     use sha2::{Digest, Sha256};
 
     /// Bitwise reference: K * index, schoolbook, as GfMul128Basic does it.

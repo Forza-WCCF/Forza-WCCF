@@ -224,11 +224,6 @@ impl App {
         }
     }
 
-    /// A dropped or added file, in the row [`row_for`] picks.
-    fn place(&mut self, p: &Path) {
-        self.set_file(row_for(p), p);
-    }
-
     /// A picked file is a new input even when its row already names that path: the file at it may have been replaced.
     fn set_file(&mut self, field: Field, p: &Path) {
         *self.slot(field) = p.display().to_string();
@@ -245,7 +240,7 @@ impl App {
             )
             .pick_files();
         for p in picked.into_iter().flatten() {
-            self.place(&p);
+            self.set_file(row_for(&p), &p);
         }
     }
 
@@ -586,7 +581,7 @@ impl eframe::App for App {
         self.poll();
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
             if self.st.page == Page::Files {
-                self.place(f.path());
+                self.set_file(row_for(f.path()), f.path());
             }
         }
         self.look_up_latest(&ctx);
@@ -968,7 +963,7 @@ mod tests {
                 .unwrap();
         }
         z.finish().unwrap();
-        app.place(&package); // dropped again
+        app.set_file(row_for(&package), &package); // dropped again
         app.refresh_if_changed();
         assert_eq!(app.st.package_check, Some(PackageCheck::Ok(Edition::E1011)));
         std::fs::remove_dir_all(dir).unwrap();
@@ -1010,7 +1005,7 @@ mod tests {
         assert_eq!(row_for(&page), Field::Key);
         let mut app = App::new();
         for p in [&page, &package, &iso] {
-            app.place(p);
+            app.set_file(row_for(p), p);
         }
         assert_eq!(
             [&app.st.iso, &app.st.key, &app.st.package].map(PathBuf::from),
