@@ -2441,6 +2441,7 @@ fn check_text(root: &Path) -> Result<()> {
     let mut failed = vec![];
     scrub(root, &mut failed)?;
     no_script_host(root, &mut failed)?;
+    no_nul(root, &mut failed)?;
     let src = root.join("crates/installer");
     if let Err(e) = no_kit_word(&[src.join("README.md"), src.join("CHANGELOG.md")]) {
         eprintln!("installer docs say kit: {e:#}");
@@ -2822,6 +2823,24 @@ fn no_script_host(root: &Path, failed: &mut Vec<String>) -> Result<()> {
         println!("script host: none in xtask, no tracked .ps1");
     } else {
         failed.push(format!("script host ({} places)", bad.len()));
+    }
+    Ok(())
+}
+
+/// A NUL byte in a tracked Rust file makes grep call it binary (#308): write `\0` instead.
+fn no_nul(root: &Path, failed: &mut Vec<String>) -> Result<()> {
+    let sh = Shell::new()?;
+    sh.change_dir(root);
+    let files = cmd!(sh, "git ls-files -- *.rs").read()?;
+    let bad: Vec<&str> = files
+        .lines()
+        .filter(|f| fs::read(root.join(f)).is_ok_and(|b| b.contains(&0)))
+        .collect();
+    for b in &bad {
+        println!("NUL byte: {b}");
+    }
+    if !bad.is_empty() {
+        failed.push(format!("NUL bytes ({} files)", bad.len()));
     }
     Ok(())
 }

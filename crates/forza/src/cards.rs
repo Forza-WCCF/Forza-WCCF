@@ -75,7 +75,7 @@ pub fn bench_band(y: f32) -> usize {
 /// finite number (NaN or an infinity would put the card on no bench and no spot). The rows past the board's 16 are kept:
 /// the board shows the first 16 and the rest stay in the file, as FPR_Emu's slots go up to 20.
 pub fn parse_table(text: &[u8]) -> Vec<Placed> {
-    // ponytail: a number with trailing junk ("3x") is skipped, where the C panel's sscanf took its leading digits
+    // shortcut: "3x" is skipped where the C panel's sscanf read 3; take leading digits if a table with such rows turns up
     String::from_utf8_lossy(text)
         .lines()
         .filter_map(|line| {

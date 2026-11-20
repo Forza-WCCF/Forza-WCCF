@@ -161,7 +161,12 @@ fn va_to_offset(d: &[u8], va: u32) -> io::Result<usize> {
         let (sva, rsz, roff) = (u32_at(d, o + 12), u32_at(d, o + 16), u32_at(d, o + 20));
         let lo = base.wrapping_add(sva);
         if lo <= va && va < lo.wrapping_add(rsz) {
-            return Ok((roff + va - lo) as usize);
+            // checked: usize is 32-bit in the i686 panel build
+            let off = (roff as usize).checked_add((va - lo) as usize);
+            return match off {
+                Some(off) if off < d.len() => Ok(off),
+                _ => Err(bad("VA points past the file")),
+            };
         }
     }
     Err(bad(format!(
@@ -221,16 +226,16 @@ fn birth_iso(s: &str) -> String {
     String::new()
 }
 
-struct Entry {
-    name: String,
-    path: String,
-    is_file: bool,
-    size: u32,
-    stored: u32,
-    offset: u64,
+pub(super) struct Entry {
+    pub(super) name: String,
+    pub(super) path: String,
+    pub(super) is_file: bool,
+    pub(super) size: u32,
+    pub(super) stored: u32,
+    pub(super) offset: u64,
 }
 
-fn xaf_toc(path: &Path) -> io::Result<Vec<Entry>> {
+pub(super) fn xaf_toc(path: &Path) -> io::Result<Vec<Entry>> {
     let mut f = File::open(path)?;
     let mut hdr = [0u8; 0x100];
     f.read_exact(&mut hdr)?;
@@ -1620,6 +1625,22 @@ mod tests {
     }
 
     #[test]
+    fn va_offsets_stay_in_the_file() {
+        let image = |roff: u32| {
+            let mut d = vec![0u8; 0x200];
+            d[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+            d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section, optional header size 0
+            d[0x74..0x78].copy_from_slice(&0x40_0000u32.to_le_bytes()); // image base
+            d[0x64..0x68].copy_from_slice(&0x1000u32.to_le_bytes()); // section VA
+            d[0x68..0x6C].copy_from_slice(&0x100u32.to_le_bytes()); // raw size
+            d[0x6C..0x70].copy_from_slice(&roff.to_le_bytes());
+            d
+        };
+        assert_eq!(va_to_offset(&image(0x100), 0x40_1010).unwrap(), 0x110);
+        assert!(va_to_offset(&image(0xFFFF_FF00), 0x40_1010).is_err());
+    }
+
+    #[test]
     fn record_1718_fields() {
         let mut r = vec![0u8; REC_1718];
         r[0x288..0x28A].copy_from_slice(&7049u16.to_le_bytes());
@@ -1628,7 +1649,7 @@ mod tests {
         r[0x29F] = 5;
         r[0x3B9] = 3;
         r[0x3D7..0x3DD].copy_from_slice(&[20, 8, 20, 16, 19, 15]);
-        r[0x3BA..0x3C4].copy_from_slice(b"1987/6/24 ");
+        r[0x3BA..0x3C4].copy_from_slice(b"1987/6/24\0");
         for (i, c) in "MESSI".encode_utf16().enumerate() {
             r[0x370 + 2 * i..0x372 + 2 * i].copy_from_slice(&c.to_le_bytes());
         }
