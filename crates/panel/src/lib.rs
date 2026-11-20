@@ -3892,16 +3892,21 @@ fn retitle(h: HWND) {
     } else {
         "Client"
     };
-    let title: Vec<u16> = format!("{}\0", game_title(who, edition))
-        .encode_utf16()
-        .collect();
+    // static, not local: a WM_SETTEXT the game's thread already took keeps running after the timeout, and in-process
+    // sends pass the pointer as is (no copy), so the buffer must outlive this call. One role per process, set once.
+    static TITLE: OnceLock<Vec<u16>> = OnceLock::new();
+    let title = TITLE.get_or_init(|| {
+        format!("{}\0", game_title(who, edition))
+            .encode_utf16()
+            .collect()
+    });
     // the game's window may not take a message at once: a few tries (callers are worker threads)
     let send = |msg: u32, wp: WPARAM, lp: LPARAM| {
         (0..5).any(|i| {
             if i > 0 {
                 std::thread::sleep(Duration::from_millis(300));
             }
-            // SAFETY: `lp` points at `title` or is an icon handle, both outliving the call
+            // SAFETY: `lp` points at the static `TITLE` or is an icon handle ([`logo_icons`]), both live for the process
             unsafe { SendMessageTimeoutW(h, msg, wp, lp, SMTO_ABORTIFHUNG, 1000, None) }.0 != 0
         })
     };
