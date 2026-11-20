@@ -2627,6 +2627,23 @@ mod tests {
         ("INF_084_TOPICS_message_0001", 64, "-2147483648"),
     ];
 
+    /// The bytes sprintf_s writes for `text`, its NUL included, with every `%d` as wide as `widest`; any other
+    /// conversion has no widest value here, so it is refused rather than counted as its own letters.
+    fn fixed_len(text: &str, widest: &str) -> Result<usize, String> {
+        match FMT.find_iter(text).find(|m| m.as_str() != "%d") {
+            Some(m) => Err(format!("{} has no widest value in FIXED_BUFFERS", m.as_str())),
+            None => Ok(text.replace("%d", widest).len() + 1),
+        }
+    }
+
+    #[test]
+    fn fixed_len_counts_every_conversion() {
+        assert_eq!(fixed_len("%d/%d", "99"), Ok(6));
+        for t in ["%s", "%u", "%2d"] {
+            assert!(fixed_len(t, "99").is_err(), "{t}");
+        }
+    }
+
     #[test]
     fn the_2017_18_texts_fit_the_game_s_fixed_buffers() {
         let mut c = Ctx::new_bare(Edition::E1718, Path::new("g"), Path::new("b"));
@@ -2639,12 +2656,10 @@ mod tests {
                     bad.push(format!("{lang} {key}: no row"));
                     continue;
                 };
-                let out = cell(r, column).replace("%d", widest);
-                if out.len() + 1 > *size {
-                    bad.push(format!(
-                        "{lang} {key}: \"{out}\" needs {} bytes, the game has {size}",
-                        out.len() + 1
-                    ));
+                match fixed_len(cell(r, column), widest) {
+                    Ok(n) if n <= *size => {}
+                    Ok(n) => bad.push(format!("{lang} {key}: needs {n} bytes, the game has {size}")),
+                    Err(e) => bad.push(format!("{lang} {key}: {e}")),
                 }
             }
         }
