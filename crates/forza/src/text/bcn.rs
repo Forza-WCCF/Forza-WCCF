@@ -3,7 +3,7 @@
 //! Reads: DXT5, and uncompressed RGBA 32-bit (ARGB masks) / 16-bit (4444 masks).
 //! Writes: DXT5 blocks from RGBA8 (no header).
 
-fn u32le(d: &[u8], o: usize) -> u32 {
+pub(super) fn u32le(d: &[u8], o: usize) -> u32 {
     u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]])
 }
 

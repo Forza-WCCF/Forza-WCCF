@@ -419,66 +419,20 @@ fn team_file(f: &str) -> String {
 }
 
 // ---------------------------------------------------------------- the programs' hook import (helpers/hook.py)
-const HOOK_DLL: &[u8] = b"wccfk.dll";
-const SYS_DLL: &[u8] = b"WINMM.dll";
+// NUL-ended and equally long, as `setup::rename_import` takes them (setup/e1011.rs has the same pair).
+const HOOK_DLL: &[u8] = b"wccfk.dll\0";
+const SYS_DLL: &[u8] = b"WINMM.dll\0";
 
-/// File offset of the import-descriptor name equal to `dll` (any case).
-fn import_name_offset(d: &[u8], dll: &[u8]) -> Option<usize> {
-    let u32at = |o: usize| {
-        Some(u32::from_le_bytes(
-            d.get(o..o.checked_add(4)?)?.try_into().ok()?,
-        ))
-    };
-    let u16at =
-        |o: usize| Some(u16::from_le_bytes(d.get(o..o.checked_add(2)?)?.try_into().ok()?) as usize);
-    let pe = u32at(0x3C)? as usize;
-    let opt = pe + 24;
-    let sec0 = opt + u16at(pe + 20)?;
-    let imp_rva = u32at(opt + 104)?;
-    let secs: Vec<(u32, u32, u32, u32)> = (0..u16at(pe + 6)?)
-        .map(|i| {
-            Some((
-                u32at(sec0 + 40 * i + 8)?,
-                u32at(sec0 + 40 * i + 12)?,
-                u32at(sec0 + 40 * i + 16)?,
-                u32at(sec0 + 40 * i + 20)?,
-            ))
-        })
-        .collect::<Option<_>>()?;
-    let off = |rva: u32| {
-        secs.iter()
-            .find(|(vs, va, rs, _)| *va <= rva && rva < va + (*vs).max(*rs))
-            .map(|(_, va, _, raw)| (rva - va + raw) as usize)
-    };
-    let mut p = off(imp_rva)?;
-    loop {
-        let name_rva = u32at(p + 12)?;
-        if u32at(p)? == 0 && name_rva == 0 {
-            return None;
-        }
-        if name_rva != 0
-            && let Some(s) = off(name_rva)
-            && let Some(n) = d.get(s..).and_then(|t| t.iter().position(|&b| b == 0))
-            && d[s..s + n].eq_ignore_ascii_case(dll)
-        {
-            return Some(s);
-        }
-        p += 20;
-    }
-}
-
+/// The program with its one import of `frm` renamed to `to`; refused when it has `to` already or no `frm`.
 fn rename_import(d: &[u8], frm: &[u8], to: &[u8]) -> R<Vec<u8>> {
-    let Some(s) = import_name_offset(d, frm) else {
-        return fail(if import_name_offset(d, to).is_some() {
-            Line::key("text.fail_already_renamed").arg("name", String::from_utf8_lossy(to))
+    let name = |n: &[u8]| String::from_utf8_lossy(&n[..n.len() - 1]).into_owned();
+    crate::setup::rename_import(d, frm, to).map_err(|_| {
+        Failed(if crate::setup::imports(d, to) {
+            Line::key("text.fail_already_renamed").arg("name", name(to))
         } else {
-            Line::key("text.fail_no_import").arg("name", String::from_utf8_lossy(frm))
-        });
-    };
-    let mut out = d.to_vec();
-    out[s..s + frm.len()].fill(0);
-    out[s..s + to.len()].copy_from_slice(to);
-    Ok(out)
+            Line::key("text.fail_no_import").arg("name", name(frm))
+        })
+    })
 }
 
 fn is_exe(rel: &str) -> bool {
@@ -486,7 +440,7 @@ fn is_exe(rel: &str) -> bool {
 }
 
 fn norm(d: Vec<u8>, rel: &str) -> R<Vec<u8>> {
-    if is_exe(rel) && import_name_offset(&d, HOOK_DLL).is_some() {
+    if is_exe(rel) && crate::setup::imports(&d, HOOK_DLL) {
         rename_import(&d, HOOK_DLL, SYS_DLL)
     } else {
         Ok(d)
@@ -497,7 +451,7 @@ fn norm(d: Vec<u8>, rel: &str) -> R<Vec<u8>> {
 fn apply_hook(rel: &str, path: &Path) -> R<()> {
     if is_exe(rel) {
         let d = fs::read(path)?;
-        if import_name_offset(&d, HOOK_DLL).is_none() {
+        if !crate::setup::imports(&d, HOOK_DLL) {
             put(path, &rename_import(&d, SYS_DLL, HOOK_DLL)?)?;
         }
     }
@@ -2138,7 +2092,7 @@ mod tests {
         let orig = pe(SYS_DLL);
         let hooked = rename_import(&orig, SYS_DLL, HOOK_DLL).unwrap();
         assert_ne!(hooked, orig);
-        assert!(import_name_offset(&hooked, HOOK_DLL).is_some());
+        assert!(crate::setup::imports(&hooked, HOOK_DLL));
         assert_eq!(norm(hooked, "client_Release.exe").unwrap(), orig);
         assert_eq!(norm(orig.clone(), "client_Release.exe").unwrap(), orig);
         assert!(rename_import(&orig, HOOK_DLL, SYS_DLL).is_err());
