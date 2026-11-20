@@ -279,7 +279,7 @@ fn team_ranking_names() -> impl Iterator<Item = usize> {
 }
 
 const MAGIC: [u8; 8] = [0xF1, 0xC0, 0x80, 0x44, 0xB4, 0x9E, 0xDA, 0x3C];
-/// What an all-zero answer means for a [`RESP`] entry; the guard test (`zero_answers_are_safe_or_pending`) enforces it.
+/// What an all-zero answer means for a [`RESP`] entry; the guard test (`zero_answers_are_handled_or_safe`) enforces it.
 #[cfg_attr(not(test), allow(dead_code))] // the texts are read by the guard test
 enum Zero {
     /// The stand-in fills the answer: it must not be all zero.
@@ -287,8 +287,6 @@ enum Zero {
     /// Zero is right: the text names the parser (`sub_`/`0x` address) and why. A stale entry (the answer is not
     /// zero) fails the test.
     Safe(&'static str),
-    /// Zero is wrong or partial and a parity unit still owes the work (the unit or decision): listed, not failed.
-    Pending(&'static str),
 }
 
 /// Response command, payload size and zero-ness (control.c response dispatcher 0x408C50 and the message table).
@@ -340,7 +338,13 @@ const RESP: &[(u16, usize, Zero)] = &[
         10080,
         Zero::Safe("ctl sub_4431E0 0x44323C: kind 0 is not registered"),
     ),
-    (266, 200, Zero::Pending("D7")),
+    (
+        266,
+        200,
+        Zero::Safe(
+            "ctl 0x436150: no-server default is 200 zero bytes, forwarded unread; client 0x8083E0 only matches ids",
+        ),
+    ),
     (
         268,
         33600,
@@ -380,7 +384,13 @@ const RESP: &[(u16, usize, Zero)] = &[
         16,
         Zero::Safe("client sub_658B00: failure screen, unreachable without a QR camera"),
     ),
-    (300, 8, Zero::Pending("C6")),
+    (
+        300,
+        8,
+        Zero::Safe(
+            "ctl sub_408C50 case 300: errCode only; deletions do not stick, a card can always be registered again",
+        ),
+    ),
     (
         302,
         8,
@@ -3280,10 +3290,9 @@ mod tests {
         r
     }
 
-    /// Every [`RESP`] answer is filled, or all zero with a parser address that proves zero is safe, or pending
-    /// (listed with --nocapture).
+    /// Every [`RESP`] answer is filled, or all zero with a parser address that proves zero is safe.
     #[test]
-    fn zero_answers_are_safe_or_pending() {
+    fn zero_answers_are_handled_or_safe() {
         let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
         let log: Log = Arc::new(|_: &str| {});
         let vs = Vs {
@@ -3332,7 +3341,6 @@ mod tests {
         put(&mut lookup, 0, 0x0100_007F);
         lookup[4..6].copy_from_slice(&1111u16.to_le_bytes());
 
-        let mut pending = vec![];
         for (rcmd, _, zero) in RESP {
             let cmd = rcmd - 1;
             let payload = match cmd {
@@ -3344,10 +3352,7 @@ mod tests {
             assert_eq!(refused, None, "{rcmd}: the fixture is refused");
             let is_zero = body[4..].iter().all(|b| *b == 0);
             match zero {
-                Zero::Handled => assert!(
-                    !is_zero,
-                    "{rcmd} is all zero and not marked Safe or Pending"
-                ),
+                Zero::Handled => assert!(!is_zero, "{rcmd} is all zero and not marked Safe"),
                 Zero::Safe(why) => {
                     assert!(
                         why.contains("sub_") || why.contains("0x"),
@@ -3358,10 +3363,8 @@ mod tests {
                         "{rcmd} is marked Safe but the answer is not zero (stale entry)"
                     );
                 }
-                Zero::Pending(unit) => pending.push(format!("{rcmd} ({unit})")),
             }
         }
-        eprintln!("pending: {}", pending.join(", "));
     }
 
     /// 2026-11-06: a Universal Cup winner's saved championship entry date comes back as 0 in the 276, so MATCH
