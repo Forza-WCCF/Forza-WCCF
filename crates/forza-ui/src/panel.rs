@@ -3083,8 +3083,9 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
     // the deck grows to fill the room it is given (the popped-out column); its print keeps the size it was drawn at and
-    // shrinks with a deck drawn smaller, or the names run past their buttons and the keycaps under them drop
-    let k = s.min(1.0);
+    // shrinks with a deck drawn smaller, or the names run past their buttons and the keycaps under them drop (2017-18;
+    // 2010-11 keeps its look)
+    let k = if st.edition == Edition::E1718 { s.min(1.0) } else { 1.0 };
     widgets::smooth_deck_art(ui.ctx(), st.edition == Edition::E1718);
     // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
     let down = if st.edition == Edition::E1718 {
