@@ -12,7 +12,7 @@ fn main() {
         && let Some(res) = version_rc::make_with(
             "forza_panel.dll",
             "the in-game panel: board, catalogue, keys, settings and club card in seat 1's window",
-            None,
+            Some("../../assets/logo/forza-wccf-small.ico"), // resource 1: the 2017-18 windows' icon (#342)
             &version,
         )
     {

@@ -147,6 +147,8 @@ static VK_DOWN: Mutex<Vec<(u32, bool)>> = Mutex::new(Vec::new());
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 static EXE_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DLL_DIR: OnceLock<PathBuf> = OnceLock::new();
+/// forza_panel.dll's module handle (DllMain's): its icon resource ([`logo_icons`]).
+static MODULE: AtomicIsize = AtomicIsize::new(0);
 static FILES: OnceLock<kit::Files> = OnceLock::new();
 static CATALOGUE: OnceLock<Arc<[Card]>> = OnceLock::new();
 /// The players' affinity from the game's own files (`prog_data\player_data\` beside the program), when readable.
@@ -282,6 +284,7 @@ fn clock_text(t: &windows::Win32::Foundation::SYSTEMTIME) -> String {
 #[unsafe(no_mangle)]
 extern "system" fn DllMain(inst: HINSTANCE, reason: u32, reserved: *mut c_void) -> BOOL {
     if reason == DLL_PROCESS_ATTACH {
+        MODULE.store(inst.0 as isize, Relaxed);
         let mut buf = [0u16; 1024];
         // SAFETY: our own module handle and a buffer we own
         let n = unsafe {
@@ -3892,25 +3895,58 @@ fn retitle(h: HWND) {
     let title: Vec<u16> = format!("{}\0", game_title(who, edition))
         .encode_utf16()
         .collect();
-    // the game's window may not take it at once: a few tries (callers are worker threads)
-    for _ in 0..5 {
-        // SAFETY: `title` is a NUL-terminated UTF-16 string that outlives the call
-        let ok = unsafe {
-            SendMessageTimeoutW(
-                h,
-                WM_SETTEXT,
-                WPARAM(0),
-                LPARAM(title.as_ptr() as isize),
-                SMTO_ABORTIFHUNG,
-                1000,
-                None,
-            )
-        };
-        if ok.0 != 0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(300));
+    // the game's window may not take a message at once: a few tries (callers are worker threads)
+    let send = |msg: u32, wp: WPARAM, lp: LPARAM| {
+        (0..5).any(|i| {
+            if i > 0 {
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            // SAFETY: `lp` points at `title` or is an icon handle, both outliving the call
+            unsafe { SendMessageTimeoutW(h, msg, wp, lp, SMTO_ABORTIFHUNG, 1000, None) }.0 != 0
+        })
+    };
+    send(WM_SETTEXT, WPARAM(0), LPARAM(title.as_ptr() as isize));
+    // 2017-18: Forza-WCCF's logo in the title bar, the taskbar and Alt-Tab instead of the original's class icon
+    if FILES
+        .get()
+        .is_some_and(|f| f.edition == theme::Edition::E1718)
+        && let Some((big, small)) = logo_icons()
+    {
+        // icons that live as long as the process ([`logo_icons`])
+        let icon = |kind: u32, i: isize| send(WM_SETICON, WPARAM(kind as usize), LPARAM(i));
+        let set = icon(ICON_BIG, big) & icon(ICON_SMALL, small); // `&`: both sent even when one fails
+        log(&format!("window icon: Forza-WCCF logo set {set}"));
     }
+}
+
+/// The logo (resource 1, `assets/logo/forza-wccf-small.ico`) at the big and small icon sizes, loaded once: the window
+/// keeps the handles, so they are never destroyed. Not LR_SHARED: a shared icon goes when its module unloads.
+fn logo_icons() -> Option<(isize, isize)> {
+    static ICONS: OnceLock<Option<(isize, isize)>> = OnceLock::new();
+    *ICONS.get_or_init(|| {
+        let inst = HINSTANCE(MODULE.load(Relaxed) as *mut c_void);
+        let load = |cx: SYSTEM_METRICS_INDEX, cy: SYSTEM_METRICS_INDEX| {
+            // SAFETY: our own module and a resource id (MAKEINTRESOURCE(1)); sizes from GetSystemMetrics
+            unsafe {
+                LoadImageW(
+                    Some(inst),
+                    windows::core::PCWSTR(1 as _),
+                    IMAGE_ICON,
+                    GetSystemMetrics(cx),
+                    GetSystemMetrics(cy),
+                    LR_DEFAULTCOLOR,
+                )
+            }
+            .map(|i| i.0 as isize)
+        };
+        match (load(SM_CXICON, SM_CYICON), load(SM_CXSMICON, SM_CYSMICON)) {
+            (Ok(big), Ok(small)) => Some((big, small)),
+            (Err(e), _) | (_, Err(e)) => {
+                log(&format!("window icon: no logo in forza_panel.dll ({e})"));
+                None
+            }
+        }
+    })
 }
 
 /// The title for the game's own windows, ASCII only: they are ANSI windows (CreateWindowExA), and Windows converts a

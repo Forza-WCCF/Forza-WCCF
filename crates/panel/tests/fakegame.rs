@@ -183,6 +183,7 @@ fn import_help_dialog_dll_side() {
         "wait:300".to_owned(),
         "key:27".to_owned(), // Esc: closed, nothing imported
         "wait:400".to_owned(),
+        "icon".to_owned(), // 2017-18: the logo on the window (#342)
     ];
     let out = Command::new(seat.join("fakegame.exe"))
         .env("WCCFPANEL_FULLSCREEN", "0")
@@ -204,9 +205,11 @@ fn import_help_dialog_dll_side() {
         "edition 2017–18",
         "import: lineup page copied true",
         "import: would open https://db.wccf.it/#/board",
+        "window icon: Forza-WCCF logo set true",
     ] {
         assert!(log.contains(line), "the panel's log has no '{line}'");
     }
+    assert!(said.contains("icon: big set, small set"), "no window icon");
     assert_eq!(
         fs::read_to_string(t.join("lineup.txt.copy")).unwrap(),
         "https://db.wccf.it/#/board"
@@ -928,6 +931,7 @@ fn projector_role_and_money() {
             "wait:800",
             "key:27", // Esc: out of it
             "wait:800",
+            "icon",  // 2010-11: the original's class icon stays (#342)
             "close", // the window's X: its close message gets a line in the log
         ])
         .output()
@@ -937,6 +941,10 @@ fn projector_role_and_money() {
     println!("fakegame:\n{said}\nforza_panel_projector.log:\n{log}");
     assert!(out.status.success(), "fakegame ended with {}", out.status);
     assert!(log.contains("the PROJECTOR"), "not taken for the projector");
+    assert!(
+        said.contains("icon: big none, small none"),
+        "2010-11 window took an icon"
+    );
     assert!(
         log.contains("money: off - not the game (fakegame.exe)"),
         "money not off"
