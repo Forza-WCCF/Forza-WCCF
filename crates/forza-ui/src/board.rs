@@ -1745,7 +1745,9 @@ pub fn formation_board(
         && ui.input(|i| i.pointer.any_released())
         && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
     {
-        if !pointer.is_some_and(|p| shown.contains(drag_centre(p, grab, card))) {
+        // by the pointer, not the card's centre: a card held by its lower edge has its centre on the pitch while the
+        // pointer is over the bench already
+        if !pointer.is_some_and(|p| shown.contains(p)) {
             for &(m, at) in &group_origin {
                 board.spots[m] = at;
             }
@@ -4586,6 +4588,21 @@ mod tests {
             assert_eq!(b.slots, square().slots, "keep {keep}");
             assert!(r.removed.is_none(), "keep {keep}: taken off");
         }
+    }
+
+    /// A member held by its lower edge and let go with the pointer just over the bench (its centre still on the
+    /// pitch): the group goes back.
+    #[test]
+    fn a_group_let_go_over_the_bench_goes_back() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        box_square(&mut r, &mut b);
+        let was = b.spots;
+        let from = r.at(was[0]) + vec2(0.0, 40.0);
+        r.drag(&mut b, from, pos2(from.x, r.pitch.bottom() + 6.0));
+        assert_eq!(b.spots, was);
+        assert_eq!(b.slots, square().slots);
+        assert!(r.removed.is_none());
     }
 
     #[test]
