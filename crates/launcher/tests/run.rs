@@ -856,11 +856,7 @@ fn the_guard_reads_the_import_table() {
     let why = check(&plain).unwrap_err();
     assert!(why.contains("does not import wccfnet.dll"), "{why}");
     let why = check(&elsewhere).unwrap_err();
-    // the message lists every call taken from that DLL, so only the blocked one and the DLL are pinned
-    assert!(
-        why.contains("IpRenewAddress") && why.ends_with(" from KERNEL32.dll"),
-        "{why}"
-    );
+    assert_eq!(why, "it imports IpRenewAddress from KERNEL32.dll");
     check(&guarded).unwrap();
 }
 

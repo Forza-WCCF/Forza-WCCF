@@ -88,6 +88,11 @@ pub fn hashes(record: &Path, files: &[(PathBuf, Vec<String>)]) -> Result<(), Str
 /// anywhere else.
 pub fn imports(exe: &[u8]) -> Result<(), String> {
     let list = import_list(exe).map_err(|e| format!("not a 32-bit Windows program ({e})"))?;
+    import_rules(&list)
+}
+
+/// [`imports`]' rules over the import list; a refusal names only the blocked calls, not the DLL's other ones.
+fn import_rules(list: &[(String, Vec<String>)]) -> Result<(), String> {
     if list.iter().any(|(lib, _)| lib.eq_ignore_ascii_case("iphlpapi.dll")) {
         return Err("it still imports IPHLPAPI.DLL: this is not the guarded copy".into());
     }
@@ -98,7 +103,12 @@ pub fn imports(exe: &[u8]) -> Result<(), String> {
         .iter()
         .find(|(lib, name)| !lib.eq_ignore_ascii_case(WCCFNET) && name.iter().any(|n| BLOCKED.contains(&n.as_str())))
     {
-        return Err(format!("it imports {} from {lib}", name.join(", ")));
+        let blocked: Vec<&str> = name
+            .iter()
+            .map(String::as_str)
+            .filter(|n| BLOCKED.contains(n))
+            .collect();
+        return Err(format!("it imports {} from {lib}", blocked.join(", ")));
     }
     Ok(())
 }
@@ -245,6 +255,23 @@ mod tests {
         assert!(why.contains("does not load wccfk.dll"), "{why}");
         let why = hook_1011(&[dir.path().join("gone.exe")]).unwrap_err();
         assert!(why.contains("gone.exe"), "{why}");
+    }
+
+    /// A blocked call taken from another DLL is refused, and the refusal names it but not that DLL's allowed calls.
+    #[test]
+    fn a_refusal_names_only_the_blocked_calls() {
+        let list = |calls: &[&str]| {
+            vec![
+                (WCCFNET.to_string(), vec!["IpReleaseAddress".to_string()]),
+                (
+                    "KERNEL32.dll".to_string(),
+                    calls.iter().map(|c| c.to_string()).collect(),
+                ),
+            ]
+        };
+        let why = import_rules(&list(&["ExitProcess", "IpRenewAddress"])).unwrap_err();
+        assert_eq!(why, "it imports IpRenewAddress from KERNEL32.dll");
+        import_rules(&list(&["ExitProcess", "Sleep"])).unwrap();
     }
 
     #[test]
