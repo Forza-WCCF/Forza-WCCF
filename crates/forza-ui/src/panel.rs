@@ -2999,7 +2999,10 @@ fn deck_label(
     if cap_w > 0.0 {
         let at = deck_label_rect(rect, side, vec2(size.x + 4.0 * k + cap_w, size.y), plate, k);
         let cap_at = Rect::from_min_size(
-            pos2(at.left() + size.x + 4.0 * k, at.center().y - KEYCAP_H * k / 2.0),
+            pos2(
+                at.left() + size.x + 4.0 * k,
+                at.center().y - KEYCAP_H * k / 2.0,
+            ),
             vec2(cap_w, KEYCAP_H * k),
         );
         return (name, Rect::from_min_size(at.min, size), Some(cap_at));
@@ -3010,11 +3013,9 @@ fn deck_label(
         pos2(rect.center().x, at.bottom() + 2.0 * k + KEYCAP_H * k / 2.0),
         vec2(w, KEYCAP_H * k),
     );
-    let cap_at = (fit
-        && side == Dir::Down
-        && w > 0.0
-        && below.bottom() <= plate.bottom() - 4.0 * k)
-        .then_some(below);
+    let cap_at =
+        (fit && side == Dir::Down && w > 0.0 && below.bottom() <= plate.bottom() - 4.0 * k)
+            .then_some(below);
     (name, at, cap_at)
 }
 
@@ -3028,7 +3029,10 @@ fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect, k: f32)
         Dir::Left => (rect.left() - 4.0 * k - w, rect.center().y),
         Dir::Right => (rect.right() + 4.0 * k, rect.center().y),
     };
-    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 * k - w), cy - h / 2.0), size)
+    Rect::from_min_size(
+        pos2(left.min(plate.right() - 4.0 * k - w), cy - h / 2.0),
+        size,
+    )
 }
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
@@ -3062,14 +3066,26 @@ fn keycap_width(p: &egui::Painter, text: &str, max: f32, k: f32) -> f32 {
     if text.is_empty() {
         return 0.0;
     }
-    let g = widgets::fit(p, text, theme::body(10.0 * k), theme::TEXT_DIM, max - 8.0 * k);
+    let g = widgets::fit(
+        p,
+        text,
+        theme::body(10.0 * k),
+        theme::TEXT_DIM,
+        max - 8.0 * k,
+    );
     (g.size().x + 8.0 * k).max(KEYCAP_H * k)
 }
 
 fn paint_keycap(p: &egui::Painter, r: Rect, text: &str, k: f32) {
     p.rect_filled(r, 3, theme::DEEP);
     p.rect_stroke(r, 3, Stroke::new(1.0, theme::RIM), StrokeKind::Inside);
-    let g = widgets::fit(p, text, theme::body(10.0 * k), theme::TEXT_DIM, r.width() - 8.0 * k);
+    let g = widgets::fit(
+        p,
+        text,
+        theme::body(10.0 * k),
+        theme::TEXT_DIM,
+        r.width() - 8.0 * k,
+    );
     p.galley(r.center() - g.size() / 2.0, g, theme::TEXT_DIM);
 }
 
@@ -3085,7 +3101,11 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     // the deck grows to fill the room it is given (the popped-out column); its print keeps the size it was drawn at and
     // shrinks with a deck drawn smaller, or the names run past their buttons and the keycaps under them drop (2017-18;
     // 2010-11 keeps its look)
-    let k = if st.edition == Edition::E1718 { s.min(1.0) } else { 1.0 };
+    let k = if st.edition == Edition::E1718 {
+        s.min(1.0)
+    } else {
+        1.0
+    };
     widgets::smooth_deck_art(ui.ctx(), st.edition == Edition::E1718);
     // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
     let down = if st.edition == Edition::E1718 {
