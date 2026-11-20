@@ -161,7 +161,12 @@ fn va_to_offset(d: &[u8], va: u32) -> io::Result<usize> {
         let (sva, rsz, roff) = (u32_at(d, o + 12), u32_at(d, o + 16), u32_at(d, o + 20));
         let lo = base.wrapping_add(sva);
         if lo <= va && va < lo.wrapping_add(rsz) {
-            return Ok((roff + va - lo) as usize);
+            let off = roff as usize + (va - lo) as usize;
+            return if off < d.len() {
+                Ok(off)
+            } else {
+                Err(bad("VA points past the file"))
+            };
         }
     }
     Err(bad(format!(
@@ -1617,6 +1622,22 @@ mod tests {
         assert_eq!(e[&0], "WCCF 2016-1718");
         assert_eq!(e[&1], "not players");
         assert_eq!(e[&2], "test");
+    }
+
+    #[test]
+    fn va_offsets_stay_in_the_file() {
+        let image = |roff: u32| {
+            let mut d = vec![0u8; 0x200];
+            d[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+            d[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // one section, optional header size 0
+            d[0x74..0x78].copy_from_slice(&0x40_0000u32.to_le_bytes()); // image base
+            d[0x64..0x68].copy_from_slice(&0x1000u32.to_le_bytes()); // section VA
+            d[0x68..0x6C].copy_from_slice(&0x100u32.to_le_bytes()); // raw size
+            d[0x6C..0x70].copy_from_slice(&roff.to_le_bytes());
+            d
+        };
+        assert_eq!(va_to_offset(&image(0x100), 0x40_1010).unwrap(), 0x110);
+        assert!(va_to_offset(&image(0xFFFF_FF00), 0x40_1010).is_err());
     }
 
     #[test]
