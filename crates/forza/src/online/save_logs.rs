@@ -843,6 +843,10 @@ fn string_ends(side: &[u8], after: bool, wide: bool) -> bool {
         return true;
     }
     if wide {
+        // less than a whole UTF-16 unit on this side: a tail cut mid-character ends the string there too
+        if side.len() < 2 {
+            return true;
+        }
         return near(2).is_some_and(|u| {
             let c = u16::from_le_bytes([u[0], u[1]]);
             u8::try_from(c).is_ok_and(ascii) || japanese(c.into())
@@ -1652,7 +1656,8 @@ mod tests {
         assert!(out.starts_with(b"COMPUTERNAME=___\0\\\\___\\share\0COMPUTERNAME=__\0"));
     }
 
-    /// #382: Japanese punctuation ends a string as ASCII does, in each encoding; half a UTF-16 unit does not.
+    /// #382: Japanese punctuation ends a string as ASCII does, in each encoding; one stray byte at a dump's edge is a
+    /// cut of a unit, which ends it too (#361).
     #[test]
     fn a_one_kanji_name_beside_japanese_punctuation_leaves_a_dump() {
         let scrub = Scrub {
@@ -1675,14 +1680,19 @@ mod tests {
                 assert_eq!(scrub.blank(dump), want);
             }
         }
-        // X, 辮 in UTF-16LE, Z: no unit before or after it, and none after it in `=辮A`
+        // X, 辮 in UTF-16LE, Z: one byte either side is a cut at the dump's edge, as a tail cut is, and the name goes;
+        // `=辮A` has the whole unit of its `=` before it
         let name = utf16("辮").unwrap();
-        for dump in [
-            [b"X".as_slice(), &name, b"Z"].concat(),
-            [&utf16("=辮").unwrap()[..], b"A"].concat(),
-        ] {
-            assert_eq!(scrub.blank(dump.clone()), dump);
-        }
+        let blank = vec![b'_'; name.len()];
+        assert_eq!(
+            scrub.blank([b"X".as_slice(), &name, b"Z"].concat()),
+            [b"X".as_slice(), &blank, b"Z"].concat()
+        );
+        let eq = utf16("=").unwrap();
+        assert_eq!(
+            scrub.blank([&eq[..], &name, b"A"].concat()),
+            [&eq[..], &blank, b"A"].concat()
+        );
     }
 
     /// #382: two letters go as a whole string only, so the same letters in a word or between other bytes stay.
@@ -1710,6 +1720,23 @@ mod tests {
             &rest,
         ]
         .concat();
+        assert_eq!(scrub.blank(dump), want);
+    }
+
+    /// #382: a dump whose tail was cut mid-character leaves one stray byte after the name, which still ends it (#361).
+    #[test]
+    fn a_stray_byte_after_a_wide_name_ends_it() {
+        let scrub = Scrub {
+            user: "Al".into(),
+            ..Scrub::default()
+        };
+        let dump = [
+            &utf16("USERNAME=").unwrap()[..],
+            &utf16("Al").unwrap(),
+            b"\x90",
+        ]
+        .concat();
+        let want = [&utf16("USERNAME=").unwrap()[..], b"____\x90"].concat();
         assert_eq!(scrub.blank(dump), want);
     }
 
