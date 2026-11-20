@@ -826,7 +826,8 @@ fn replace(
 /// Whether a string of a binary file can end on this `side` of a short name (the bytes before it, or those `after`
 /// it): at the data's edge, or at a NUL, white space or punctuation, ASCII or Japanese (U+2010-206F, U+3000-303F,
 /// ・ and ー, and the fullwidth and halfwidth forms). A `wide` name reads one UTF-16LE unit, any other a character of UTF-8 or of CP932
-/// (its `81` row, and `A1`-`A5`), whichever the bytes make. Less than a whole character is no end.
+/// (its `81` row, and `A1`-`A5`), whichever the bytes make. Less than a whole character is no end, except for a
+/// `wide` name, where a lone byte is a cut unit and ends the string.
 fn string_ends(side: &[u8], after: bool, wide: bool) -> bool {
     let near = |n: usize| match after {
         true => side.get(..n),
