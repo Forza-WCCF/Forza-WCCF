@@ -93,7 +93,9 @@ pub fn game_present(dest: &Path, id: &str) -> bool {
 }
 
 pub fn installed_game_id(dest: &Path) -> Option<&'static str> {
-    let mut ids = disc::DISCS.iter().filter(|d| game_present(dest, d.edition.game_id()));
+    let mut ids = disc::DISCS
+        .iter()
+        .filter(|d| game_present(dest, d.edition.game_id()));
     let id = ids.next()?.edition.game_id();
     ids.next().is_none().then_some(id)
 }
@@ -172,7 +174,9 @@ pub fn total_space(path: &Path) -> Option<u64> {
 
 /// `f` on the nearest folder of `path` that exists (the install folder may not yet).
 fn on_disk(path: &Path, f: impl Fn(&Path) -> std::io::Result<u64>) -> Option<u64> {
-    path.ancestors().find(|p| p.exists()).and_then(|p| f(p).ok())
+    path.ancestors()
+        .find(|p| p.exists())
+        .and_then(|p| f(p).ok())
 }
 
 fn check(cancel: &AtomicBool) -> Result<()> {
@@ -274,7 +278,8 @@ fn resolve(plan: &Plan, cancel: &AtomicBool, emit: &dyn Fn(Event)) -> Result<Res
     if let Some((_, (vol, _))) = &vol {
         emit(Event::Log(format!(
             "Detected {} ({})",
-            vol.disc.name, vol.disc.edition.game_id()
+            vol.disc.name,
+            vol.disc.edition.game_id()
         )));
     }
     let mut kit = kit.cloned();
@@ -813,7 +818,12 @@ mod tests {
     fn each_disc_maps_back_to_its_edition() {
         assert_eq!(edition_of("XXXX"), None);
         for d in &disc::DISCS {
-            assert_eq!(edition_of(d.edition.game_id()), Some(d.edition), "{}", d.name);
+            assert_eq!(
+                edition_of(d.edition.game_id()),
+                Some(d.edition),
+                "{}",
+                d.name
+            );
         }
     }
 
