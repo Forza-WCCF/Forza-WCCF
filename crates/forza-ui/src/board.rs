@@ -1329,6 +1329,12 @@ pub fn group_moves(ui: &Ui, on: bool) {
     ui.data_mut(|d| d.insert_temp(group_on_id(), on));
 }
 
+/// Whether the card on `slot` may join a group: a pitch card off the keeper's spot (the keeper is drawn on its box
+/// whatever its spot, so a moved keeper would show still while the game sees it move).
+fn groupable(board: &Board, slot: usize) -> bool {
+    slot < 11 && board.slots[slot].is_some() && zone(board.spots[slot]) != Position::Gk
+}
+
 /// The pitch slots whose card centre lies in `area` (the box let go on open pitch).
 fn boxed(rects: &[Rect], filled: impl Fn(usize) -> bool, area: Rect) -> Vec<usize> {
     (0..11)
@@ -1454,7 +1460,13 @@ pub fn formation_board(
         .data(|d| d.get_temp::<Vec<u32>>(group_id()))
         .unwrap_or_default()
         .into_iter()
-        .filter(|n| group_on && (0..11).any(|s| board.number(s) == Some(*n)))
+        .filter(|n| {
+            // a card dropped on the keeper's spot leaves the group once let go
+            group_on
+                && (0..11).any(|s| {
+                    board.number(s) == Some(*n) && (dragging.is_some() || groupable(board, s))
+                })
+        })
         .collect();
     let in_group =
         |b: &Board, g: &[u32], s: usize| s < 11 && b.number(s).is_some_and(|n| g.contains(&n));
@@ -1617,7 +1629,7 @@ pub fn formation_board(
         if r.drag_stopped() {
             ui.data_mut(|d| d.remove::<Pos2>(box_start_id));
             if let Some(area) = box_area.take() {
-                group = boxed(&rects, |s| board.slots[s].is_some(), area)
+                group = boxed(&rects, |s| groupable(board, s), area)
                     .into_iter()
                     .filter_map(|s| board.number(s))
                     .collect();
@@ -1683,7 +1695,7 @@ pub fn formation_board(
                 // Ctrl- or Shift-click: the pitch card joins or leaves the group, nothing shows big; a plain click on
                 // a card outside the group lets the group go
                 let toggle = ui.input(|i| i.modifiers.command || i.modifiers.shift);
-                if resp.clicked() && group_on && slot < 11 && toggle {
+                if resp.clicked() && group_on && groupable(board, slot) && toggle {
                     if let Some(i) = group.iter().position(|&n| n == c.number) {
                         group.remove(i);
                     } else {
@@ -1693,7 +1705,7 @@ pub fn formation_board(
                     group.clear();
                 }
                 // a click shows the card big and selects it (and lets both go); only the big card turns over
-                if resp.clicked() && !pure && !(group_on && slot < 11 && toggle) {
+                if resp.clicked() && !pure && !(group_on && groupable(board, slot) && toggle) {
                     let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<u32>>(pin_id);
@@ -4603,6 +4615,25 @@ mod tests {
         assert_eq!(b.spots, was);
         assert_eq!(b.slots, square().slots);
         assert!(r.removed.is_none());
+    }
+
+    /// The keeper never joins a group, by the box or by Ctrl-click.
+    #[test]
+    fn the_keeper_never_joins_a_group() {
+        let mut b = square();
+        b.spots[4] = pos2(0.5, 0.95);
+        let mut r = Rig::new(true, &mut b);
+        let keeper = r
+            .ctx
+            .read_response(Id::unique(("board-slot", 4)))
+            .expect("the keeper")
+            .rect
+            .center();
+        let from = pos2(r.pitch.left() + 2.0, r.at(pos2(0.05, 0.08)).y);
+        r.drag(&mut b, from, r.pitch.right_bottom() - vec2(2.0, 2.0));
+        assert_eq!(r.group(), [1, 2, 3, 4]);
+        r.click(&mut b, keeper, egui::Modifiers::COMMAND);
+        assert_eq!(r.group(), [1, 2, 3, 4], "the keeper joined");
     }
 
     #[test]
