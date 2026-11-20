@@ -50,13 +50,7 @@ pub const ARCADE_ROOM_NAME: &str = "Arcade room";
 /// An arcade room's name as the words carry it: no control characters, single spaces, at most [`ARCADE_NAME_LEN`]
 /// characters; empty when nothing is left.
 pub fn arcade_name(s: &str) -> String {
-    // invisible and bidi format characters could show a listed name reversed or blank
-    let seen: String = s
-        .chars()
-        .filter(|c| {
-            !matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
-        })
-        .collect();
+    let seen: String = s.chars().filter(|&c| shown(c)).collect();
     let words = seen.split_whitespace().collect::<Vec<_>>().join(" ");
     let name: String = words
         .chars()
@@ -64,6 +58,11 @@ pub fn arcade_name(s: &str) -> String {
         .take(ARCADE_NAME_LEN)
         .collect();
     name.trim_end().to_owned()
+}
+
+/// Not an invisible or bidi format character: those could show a peer's text reversed or blank.
+fn shown(c: char) -> bool {
+    !matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}')
 }
 
 /// The desk's answer to `RESERVE id` (or `RESERVE id n`): `TICKET t n`, `FULL`, `TAKEN` (the seat asked for is
@@ -467,6 +466,9 @@ pub struct Lobby {
 pub const NOTICE_ID_LEN: usize = 64;
 /// A notice's text, in each language: at most this many characters (three lines of the panel's message line).
 pub const NOTICE_TEXT_LEN: usize = 160;
+/// A self-hosted arcade's notice as its host types it: at most this many characters, so the guest's "Arcade notice:"
+/// prefix fits in [`NOTICE_TEXT_LEN`].
+pub const HOST_NOTICE_LEN: usize = 140;
 
 /// A short notice from the server's operator ("server update at 23:00"), in English and maybe Italian and Japanese.
 /// The Launcher shows it and hands it to the panel (`data\notice.json`), which shows each `id` once.
@@ -481,12 +483,13 @@ pub struct ServerNotice {
 }
 
 impl ServerNotice {
-    /// Bounded and on one line: control characters become spaces, each part trimmed and cut to its length; an empty
-    /// `it`/`ja` is missing. `None` when the id or the English text is empty.
+    /// Bounded and on one line: control characters become spaces, invisible and bidi format characters go, each part
+    /// trimmed and cut to its length; an empty `it`/`ja` is missing. `None` when the id or the English text is empty.
     pub fn clean(self) -> Option<ServerNotice> {
         fn line(s: &str, max: usize) -> String {
             let s: String = s
                 .chars()
+                .filter(|&c| shown(c))
                 .map(|c| if c.is_control() { ' ' } else { c })
                 .collect();
             s.trim()
@@ -816,6 +819,16 @@ mod tests {
             ..ServerNotice::default()
         };
         assert_eq!(blank.clean(), None);
+        // a peer's text (a self-hosted arcade's) cannot show reversed or hide words
+        let peer = ServerNotice {
+            id: "h1".into(),
+            en: format!("open \u{202E}late\u{200B} tonight {}", "y".repeat(400)),
+            ..ServerNotice::default()
+        }
+        .clean()
+        .unwrap();
+        assert!(peer.en.starts_with("open late tonight y"), "{}", peer.en);
+        assert_eq!(peer.en.chars().count(), NOTICE_TEXT_LEN);
         assert!(n.unseen(None) && n.unseen(Some("n1")));
         assert!(!n.unseen(Some("n2\n")));
     }
