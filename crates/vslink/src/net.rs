@@ -946,4 +946,51 @@ mod tests {
         assert_eq!((p.id, p.remote_seat()), ([5; 32], Some(3)));
         assert_eq!(token_bytes(p.token), [127, 9, 8, 7, 0x23, 0x4E]);
     }
+
+    /// `Gmsvr::exchange` against a stand-in gmsvr on 127.0.0.1 that reads the 900 request and writes `answer`.
+    async fn exchange_with(answer: Vec<u8>) -> io::Result<Vec<u8>> {
+        let l = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let addr = l.local_addr()?;
+        let server = tokio::spawn(async move {
+            let (mut s, _) = l.accept().await?;
+            let mut req = [0u8; 43];
+            s.read_exact(&mut req).await?;
+            s.write_all(&answer).await
+        });
+        let mut conn = None;
+        let r = timeout(
+            ASK_TIMEOUT,
+            Gmsvr::exchange(&mut conn, addr, 900, 7, b"abc"),
+        )
+        .await
+        .expect("exchange hung");
+        server.await.unwrap().unwrap();
+        r
+    }
+
+    #[tokio::test]
+    async fn exchange_refuses_a_bad_answer_header() {
+        let answer = |cmd: u16, len: Option<u32>| {
+            let mut a = gamesvr::header(cmd, 7, 0, 3, 0).to_vec();
+            if let Some(n) = len {
+                a[16..20].copy_from_slice(&n.to_le_bytes());
+            }
+            a.extend_from_slice(b"xyz");
+            a
+        };
+        assert_eq!(exchange_with(answer(901, None)).await.unwrap(), b"xyz");
+        let max = u32::try_from(gamesvr::MAX_FRAME).unwrap();
+        for (what, a) in [
+            ("the request's command echoed", answer(900, None)),
+            ("length under the header", answer(901, Some(39))),
+            ("length over MAX_FRAME", answer(901, Some(max + 1))),
+        ] {
+            let e = exchange_with(a).await.expect_err(what);
+            assert_eq!(
+                (e.kind(), e.to_string()),
+                (io::ErrorKind::InvalidData, "bad answer to 900".into()),
+                "{what}"
+            );
+        }
+    }
 }
