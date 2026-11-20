@@ -924,26 +924,33 @@ fn pack_strings(raw: &[u8], hf_raw: &[u8], enc: &BTreeMap<String, Vec<u8>>) -> R
 /// original comment, japanese, english, italian, spanish, french, german.
 type Rec = (u32, Vec<Vec<u8>>);
 
+/// The `n` bytes at `*p` of the table `file`, `*p` moved past them; a table cut short fails.
+fn take<'a>(d: &'a [u8], p: &mut usize, n: usize, file: &str) -> R<&'a [u8]> {
+    let b = d
+        .get(*p..p.saturating_add(n))
+        .ok_or_else(|| Failed(Line::key("text.fail_table_cut").arg("file", file)))?;
+    *p += n;
+    Ok(b)
+}
+
+/// A little-endian u32 taken as [`take`] does.
+fn take_u32(d: &[u8], p: &mut usize, file: &str) -> R<u32> {
+    Ok(bcn::u32le(take(d, p, 4, file)?, 0))
+}
+
+/// A string taken as [`take`] does: its u32 length, then its bytes.
+fn take_str<'a>(d: &'a [u8], p: &mut usize, file: &str) -> R<&'a [u8]> {
+    let n = take_u32(d, p, file)? as usize;
+    take(d, p, n, file)
+}
+
 fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
-    let u32at = |p: usize| {
-        d.get(p..p + 4)
-            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-            .ok_or_else(|| Failed(Line::key("text.fail_table_cut").arg("file", ENUM)))
-    };
-    let (n, mut p, mut recs) = (u32at(0)?, 4, vec![]);
-    for _ in 0..n {
-        let id = u32at(p)?;
-        p += 4;
-        let mut f = vec![];
-        for _ in 0..8 {
-            let ln = u32at(p)? as usize;
-            f.push(
-                d.get(p + 4..p + 4 + ln)
-                    .ok_or_else(|| Failed(Line::key("text.fail_table_cut").arg("file", ENUM)))?
-                    .to_vec(),
-            );
-            p += 4 + ln;
-        }
+    let (mut p, mut recs) = (0, vec![]);
+    for _ in 0..take_u32(d, &mut p, ENUM)? {
+        let id = take_u32(d, &mut p, ENUM)?;
+        let f = (0..8)
+            .map(|_| take_str(d, &mut p, ENUM).map(<[u8]>::to_vec))
+            .collect::<R<_>>()?;
         recs.push((id, f));
     }
     if p != d.len() {
@@ -2066,6 +2073,7 @@ mod tests {
         };
         let raw = write_enum(&[f("A_B_1", "jp one"), f("A_B_9", "other")]);
         assert_eq!(write_enum(&read_enum(&raw).unwrap()), raw);
+        assert!(read_enum(&raw[..raw.len() - 1]).is_err(), "cut short");
         let (_, keys) = read_strings(&strings().0, &strings().1).unwrap();
         let body = strings().0[8..].to_vec();
         let (new, n) = pack_enum(
