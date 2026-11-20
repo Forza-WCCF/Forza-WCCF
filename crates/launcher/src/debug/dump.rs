@@ -136,12 +136,13 @@ pub fn dump_running(game: &Path, folder: &Path) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// Seven snapshots of one kind: the five newest stay, the two oldest go, and the other kind and other files are left.
+    /// Two more snapshots of one kind than `DUMPS_KEEP`: the newest `DUMPS_KEEP` stay, the two oldest go, and the other
+    /// kind and other files are left.
     #[test]
     fn pruning_keeps_the_newest_dumps() {
         let t = crate::scratch();
         let folder = t.path();
-        let name = |i: usize| format!("2026010{i}-120000_Client_Release_100_lean.dmp");
+        let name = |i: usize| format!("202601{i:02}-120000_Client_Release_100_lean.dmp");
         for i in 1..=DUMPS_KEEP + 2 {
             fs::write(folder.join(name(i)), b"x").unwrap();
         }
