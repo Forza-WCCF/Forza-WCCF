@@ -11,7 +11,8 @@
 
 #![allow(clippy::useless_conversion)] // FreeType's FT_Pos is a C long: i64 here, i32 on Windows
 
-use super::{R, bcn, fail, pil, sha};
+use super::bcn::{self, u32le};
+use super::{R, fail, pil, sha};
 use crate::cards::pictures::lzw;
 use freetype::face::LoadFlag;
 use serde_json::{Map, Value, json};
@@ -22,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 pub const XAF: &str = "data/wccf_data.xaf";
 pub const STATE: &str = "wccf_data.xaf.json";
-pub const FONT: &str = "BarlowCondensed-Bold.ttf";
+const FONT: &str = "BarlowCondensed-Bold.ttf";
 const SECTOR: u64 = 2048;
 const ENTRY: usize = 0xB0;
 const TOC_AT: u64 = 0x100;
@@ -522,12 +523,8 @@ impl Line {
     }
 }
 
-fn get<'a>(st: &'a Map<String, Value>, k: &str) -> Option<&'a Value> {
-    st.get(k)
-}
-
 fn getf(st: &Map<String, Value>, k: &str, d: f64) -> f64 {
-    get(st, k).map_or(d, num)
+    st.get(k).map_or(d, num)
 }
 
 /// One picture of RGB `c` with the alpha `a` composited over `im` (Pillow `Image.merge` + `alpha_composite`).
@@ -559,14 +556,14 @@ fn draw(
     refh: i64,
 ) -> R<()> {
     let (x0, y0, x1, y1) = b;
-    let halo = get(st, "halo").filter(|v| truthy(Some(v)));
+    let halo = st.get("halo").filter(|v| truthy(Some(v)));
     let pad = if halo.is_some() {
         getf(st, "halo_px", 0.0) as i64
     } else {
         0
     };
     let w = x1 - x0 + 1 - 2 * pad;
-    let h = if truthy(get(st, "size")) {
+    let h = if truthy(st.get("size")) {
         getf(st, "size", 0.0) as i64
     } else {
         y1 - y0 + 1 - 2 * pad
@@ -580,7 +577,7 @@ fn draw(
     let mw = pyround(mw0 as f64 * sx / S as f64).max(1);
     let mh = pyround(mh0 as f64 * u / S as f64).max(1);
     let m = pil::resize_lanczos_l(&m, mw0 as u32, mh0 as u32, mw as u32, mh as u32);
-    let x = match get(st, "align").and_then(Value::as_str).unwrap_or("center") {
+    let x = match st.get("align").and_then(Value::as_str).unwrap_or("center") {
         "left" => x0 + pad,
         "right" => x1 - pad + 1 - mw,
         _ => x0 + (x1 - x0 + 1 - mw).div_euclid(2),
@@ -767,10 +764,6 @@ fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<super::Line>) -> R<()> {
 }
 
 // ---------------------------------------------------------------- DDS: the original's format, size and mips
-fn u32_at(d: &[u8], o: usize) -> u32 {
-    u32::from_le_bytes(d[o..o + 4].try_into().unwrap())
-}
-
 fn pack_pixels(im: &[u8], bits: u32, masks: [u32; 4]) -> Vec<u8> {
     if bits == 32 && masks == [0xFF_0000, 0xFF00, 0xFF, 0xFF00_0000] {
         return im
@@ -801,9 +794,9 @@ fn pack_pixels(im: &[u8], bits: u32, masks: [u32; 4]) -> Vec<u8> {
 
 /// A DDS like `orig` (its 128-byte header kept): same format, size and mip count; the mips made from `im`.
 fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
-    let nm = u32_at(orig, 28).max(1);
-    let (pf_flags, fourcc, bits) = (u32_at(orig, 80), &orig[84..88], u32_at(orig, 88));
-    let masks = [92, 96, 100, 104].map(|o| u32_at(orig, o));
+    let nm = u32le(orig, 28).max(1);
+    let (pf_flags, fourcc, bits) = (u32le(orig, 80), &orig[84..88], u32le(orig, 88));
+    let masks = [92, 96, 100, 104].map(|o| u32le(orig, o));
     let mut out = orig[..128].to_vec();
     let mut lv = im.clone();
     for n in 0..nm {
@@ -839,7 +832,7 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
 
 // ---------------------------------------------------------------- YS packing (the exact inverse of lzw)
 /// YS LZW as the archive packs: early width change, a fresh table after 3,840 codes.
-pub fn ys_pack(data: &[u8]) -> Vec<u8> {
+fn ys_pack(data: &[u8]) -> Vec<u8> {
     let mut out = b"YS\x02\x00".to_vec();
     let (mut acc, mut nb) = (0u64, 0u32);
     let (mut i, n) = (0, data.len());
@@ -908,7 +901,7 @@ fn toc(f: &mut File) -> R<HashMap<String, usize>> {
     if &hdr[..4] != b"xaf0" {
         return fail(super::Line::key("text.fail_xaf_archive").arg("file", "data\\wccf_data.xaf"));
     }
-    let n = u32_at(&hdr, 12) as usize;
+    let n = u32le(&hdr, 12) as usize;
     // a damaged count must not size the allocation: the table has to fit in the file
     let len = f.seek(SeekFrom::End(0))?;
     if (n as u64).saturating_mul(ENTRY as u64) > len.saturating_sub(TOC_AT) {
@@ -945,8 +938,8 @@ fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
             super::Line::key("text.fail_state_short").arg("file", STATE),
         ));
     }
-    let (size, stored) = (u32_at(e, 0x94) as usize, u32_at(e, 0x98) as usize);
-    let at = u64::from(u32_at(e, 0xA0)) * SECTOR;
+    let (size, stored) = (u32le(e, 0x94) as usize, u32le(e, 0x98) as usize);
+    let at = u64::from(u32le(e, 0xA0)) * SECTOR;
     // a damaged size must not size the allocation: the data has to fit in the file
     if at.saturating_add(stored as u64) > f.seek(SeekFrom::End(0))? {
         return fail(super::Line::key("text.fail_xaf_size").arg("file", "data\\wccf_data.xaf"));
@@ -958,7 +951,7 @@ fn read_entry(f: &mut File, e: &[u8]) -> R<Vec<u8>> {
 }
 
 /// The redrawn pictures in the recipes' order: (entry number, path, new entry data).
-pub type Pics = Vec<(usize, String, Vec<u8>)>;
+type Pics = Vec<(usize, String, Vec<u8>)>;
 
 /// The font file: the kit's `fonts\`, or the repository's `assets/fonts` beside `editions/<ed>`.
 fn font_path(sheets: &Path) -> Option<PathBuf> {
@@ -1168,7 +1161,7 @@ pub fn state_matches(game: &Path, state_path: &Path) -> bool {
             TOC_AT + (i + 1) * ENTRY as u64 <= length
                 && f.seek(SeekFrom::Start(TOC_AT + i * ENTRY as u64)).is_ok()
                 && f.read_exact(&mut e).is_ok()
-                && u64::from(u32_at(&e, 0xA0)) * SECTOR >= length
+                && u64::from(u32le(&e, 0xA0)) * SECTOR >= length
         })
     })
 }
@@ -1876,7 +1869,7 @@ mod tests {
         );
         let ne = &on[TOC_AT as usize + ENTRY..][..ENTRY];
         assert_eq!(
-            u32_at(ne, 0xA0) as usize,
+            u32le(ne, 0xA0) as usize,
             n / SECTOR as usize,
             "the entry points at the added picture"
         );

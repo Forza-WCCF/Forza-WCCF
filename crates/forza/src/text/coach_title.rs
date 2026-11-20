@@ -6,7 +6,7 @@
 //! are `title_NNNN` and `requirement_NNNN`, NNNN the record's id (the ids run 0, 1, 2...; the original keys are
 //! romanised Japanese and one holds the publisher's name).
 
-use super::{Built, Ctx, Failed, Lang, Line, R, cell, fail, sha};
+use super::{Built, Ctx, Lang, Line, R, cell, fail, sha, take, take_str, take_u32};
 
 pub(super) const TITLES: &str = "prog_data/enumdata/CoachtitleTableRecord.bin";
 pub(super) const TITLES_SHA: &str =
@@ -19,23 +19,14 @@ const PART: [&str; 2] = ["title", "requirement"];
 type Rec = ([u8; 8], [Vec<u8>; 3], [u8; 32]);
 
 fn read(d: &[u8]) -> R<Vec<Rec>> {
-    let short = || Failed(Line::key("text.fail_table_cut").arg("file", TITLES));
-    let take = |p: &mut usize, n: usize| -> R<&[u8]> {
-        let b = d.get(*p..*p + n).ok_or_else(short)?;
-        *p += n;
-        Ok(b)
-    };
-    let mut p = 0;
-    let n = u32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap());
-    let mut recs = vec![];
-    for _ in 0..n {
-        let head = take(&mut p, 8)?.try_into().unwrap();
+    let (mut p, mut recs) = (0, vec![]);
+    for _ in 0..take_u32(d, &mut p, TITLES)? {
+        let head = take(d, &mut p, 8, TITLES)?.try_into().unwrap();
         let mut s: [Vec<u8>; 3] = Default::default();
         for x in &mut s {
-            let ln = u32::from_le_bytes(take(&mut p, 4)?.try_into().unwrap()) as usize;
-            *x = take(&mut p, ln)?.to_vec();
+            *x = take_str(d, &mut p, TITLES)?.to_vec();
         }
-        recs.push((head, s, take(&mut p, 32)?.try_into().unwrap()));
+        recs.push((head, s, take(d, &mut p, 32, TITLES)?.try_into().unwrap()));
     }
     if p != d.len() {
         return fail(
