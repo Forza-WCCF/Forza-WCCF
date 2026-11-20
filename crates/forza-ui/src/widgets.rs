@@ -650,16 +650,15 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
 /// One choice of several, joined in a row; the chosen one is lit amber. Returns true when the choice changed.
 pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32) -> bool {
     let h = 34.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    // the row's own id, not the ui's: two rows in one ui would share each segment's id
+    let (rect, row) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let w = width / labels.len() as f32;
-    let segs: Vec<(Rect, Response)> = labels
-        .iter()
-        .enumerate()
-        .map(|(i, label)| {
+    let segs: Vec<(Rect, Response)> = (0..labels.len())
+        .map(|i| {
             let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
             (
                 r,
-                ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click()),
+                ui.interact(r, row.id.with(("seg", i)), Sense::click()),
             )
         })
         .collect();
