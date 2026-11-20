@@ -16,6 +16,10 @@ use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 /// The width of a row's label on the Where and Files pages; the text boxes and the notes under them start after it.
 const ROW_LABEL: f32 = 120.0;
+/// The width of the page rail on the left.
+pub const RAIL_W: f32 = 196.0;
+/// The height of the footer with the page's buttons.
+pub const FOOTER_H: f32 = 64.0;
 
 pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);
 
@@ -312,7 +316,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
     let win = ui.max_rect();
     let mut out = None;
     egui::Panel::left("installer-rail")
-        .exact_size(196.0)
+        .exact_size(RAIL_W)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
@@ -321,7 +325,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
             rail(ui, st.page, lang)
         });
     egui::Panel::bottom("installer-footer")
-        .exact_size(64.0)
+        .exact_size(FOOTER_H)
         .show_separator_line(false)
         .frame(
             egui::Frame::new()
