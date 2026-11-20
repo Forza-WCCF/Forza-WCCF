@@ -580,8 +580,7 @@ fn ask_each(kit: &Kit, _p: &Params, word: &str, ui: &dyn Ui) -> Option<i32> {
 /// The game's programs running from this game's folders that no run of this kit holds (left by an older kit): said,
 /// never stopped by name.
 fn outside(kit: &Kit, p: &Params, ui: &dyn Ui) -> i32 {
-    let Some(game) = game_folder(kit, p) else { return OK };
-    let left = strays(&game, p);
+    let left = strays_of(kit, p);
     if left.is_empty() {
         return OK;
     }
@@ -759,6 +758,11 @@ fn championship_notice(opens: SystemTime) -> Text {
 
 // ---- the start ----------------------------------------------------------------------------------------------------
 
+/// The seat folder of the game setup recorded (START OVER parks Create-a-Team's table from it), if one is set up.
+pub fn seat_of(kit: &Kit) -> Option<PathBuf> {
+    game_folder(kit, &Params::of(kit)).map(|g| seat_dir(&g))
+}
+
 /// The game folder setup recorded, found by the run's program names; 2017-18 without a record: `game\` beside the kit
 /// (the 2017-18 setup's runtime: `kit\`, `game\`, `seat1\`).
 fn game_folder(kit: &Kit, p: &Params) -> Option<PathBuf> {
@@ -828,6 +832,12 @@ fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
             false
         }
     }
+}
+
+/// [`strays`] of the game folder setup recorded (none without one): a start refuses while there is one, and so does
+/// START OVER (a game started by hand writes the profile's log and seat table).
+pub fn strays_of(kit: &Kit, p: &Params) -> Vec<procs::Proc> {
+    game_folder(kit, p).map_or_else(Vec::new, |g| strays(&g, p))
 }
 
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.
@@ -987,6 +997,15 @@ fn money_line(panel: bool) -> Text {
 
 /// 2017-18: the panel's role, said outright (WCCFPANEL_ROLE).  A program started through a run junction
 /// (`alias::for_dir`) is not in WCCF_GAME's folder, so the panel cannot tell the projector by its folder.
+/// Create-a-Team: the panel saves the match card in the profile's collection (`WCCF_COLLECTION`). A 2017-18 run of that
+/// profile only: free play and 2010-11 get no variable (the deal is only shown).
+fn collection_env(edition: Edition, profile: forza::profile::Profile, data: &Path) -> Option<(String, String)> {
+    (edition == Edition::E1718)
+        .then(|| profile.collection(data))
+        .flatten()
+        .map(|dir| ("WCCF_COLLECTION".into(), dir.display().to_string()))
+}
+
 fn panel_role(edition: Edition, role: Role) -> Option<(String, String)> {
     let r = match (edition, role) {
         (Edition::E1718, Role::Projector) => "projector",
@@ -1359,13 +1378,15 @@ impl Run<'_> {
     fn kit_env(&self) -> Vec<(String, String)> {
         let s = |p: PathBuf| p.display().to_string();
         let cache = self.kit.cache();
-        vec![
+        let mut env = vec![
             ("WCCF_GAME".into(), s(self.game.clone())),
             ("WCCF_LOGS".into(), s(self.logs())),
             ("MXHOOK_LOG_DIR".into(), s(self.logs().join("hook"))),
             ("WCCF_CATALOGUE".into(), s(cache.join("catalogue.tsv"))),
             ("WCCF_CARDS".into(), s(cache.join("cards"))),
-        ]
+        ];
+        env.extend(collection_env(self.edition, self.kit.profile(), &self.kit.data()));
+        env
     }
 
     /// `cmd` in the job, its output to data\logs\<log>; its exit code and output once it ends within `limit`.
@@ -3498,6 +3519,27 @@ mod tests {
         for r in [Role::Server, Role::Projector, Role::Seat] {
             assert_eq!(role(Edition::E1011, r), None, "2010-11 stays as it is");
         }
+    }
+
+    /// Finding 4: only a 2017-18 Create-a-Team run tells the panel its collection; 2010-11 has no profiles.
+    #[test]
+    fn only_a_2017_18_create_a_team_run_gets_the_collection() {
+        use super::{Edition, collection_env};
+        use forza::profile::Profile;
+        let data = Path::new(r"C:\kit\data");
+        assert_eq!(
+            collection_env(Edition::E1718, Profile::CreateATeam, data),
+            Some((
+                "WCCF_COLLECTION".into(),
+                r"C:\kit\data\profiles\create-a-team\collection".into()
+            ))
+        );
+        assert_eq!(collection_env(Edition::E1718, Profile::Free, data), None);
+        assert_eq!(
+            collection_env(Edition::E1011, Profile::CreateATeam, data),
+            None,
+            "2010-11 stays as it is"
+        );
     }
 
     #[test]

@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use time::OffsetDateTime;
+/// The log's time type, for callers without their own `time` dependency (the panel).
+pub use time::OffsetDateTime;
 
 /// The economy table's version: every line states the table it was written under, and the market refuses an older one.
 pub const RULES: u32 = 2;
@@ -825,11 +826,15 @@ pub struct Folded {
 
 /// Fold a log into the state, counting the week's match tokens against `this_week`, a [`week`] label (YYYYWW) and never
 /// a [`day`] one (YYYYMMDD): both are `u32`, so a `day` argument compiles and the cap then never applies. A line that
-/// does not parse ends the fold, a `seq` that is not one more than the line before it and a `prev` that does not match
-/// that line are warnings, and the lines around them are kept.
+/// does not parse ends the fold (a last line cut off before its newline is only dropped, with a warning), a `seq` that
+/// is not one more than the line before it and a `prev` that does not match that line are warnings, and the lines
+/// around them are kept.
 #[must_use]
 pub fn fold_at(lines: &str, this_week: u32) -> Folded {
     let mut out = Folded::default();
+    // a last line cut short by an interrupted write is dropped here as the next append drops it, not read as a break
+    let cut = cut_off(lines);
+    let lines = cut.map_or(lines, |c| &lines[..c]);
     let mut before: Option<&str> = None;
     let mut seq = 0;
     let mut chain = true;
@@ -869,7 +874,21 @@ pub fn fold_at(lines: &str, this_week: u32) -> Folded {
         out.state.apply(&entry, this_week);
         before = Some(line);
     }
+    if cut.is_some() && !out.unreadable {
+        out.warnings.push(format!(
+            "line {} does not parse (cut off by an interrupted write) and is dropped",
+            lines.lines().count() + 1
+        ));
+    }
     out
+}
+
+/// Where a last line cut short by an interrupted write starts: the text after the last newline, when it does not
+/// parse. A whole last line that only lost its newline is no cut.
+fn cut_off(text: &str) -> Option<usize> {
+    let complete = text.rfind('\n').map_or(0, |i| i + 1);
+    (complete < text.len() && serde_json::from_str::<Entry>(&text[complete..]).is_err())
+        .then_some(complete)
 }
 
 impl State {
@@ -1045,11 +1064,7 @@ impl Log {
         let mut text = String::new();
         file.seek(io::SeekFrom::Start(0))?;
         file.read_to_string(&mut text)?;
-        // A last line cut short by an interrupted write is dropped; a whole one that only lost its newline is kept.
-        let complete = text.rfind('\n').map_or(0, |i| i + 1);
-        let cut = (complete < text.len()
-            && serde_json::from_str::<Entry>(&text[complete..]).is_err())
-        .then_some(complete);
+        let cut = cut_off(&text);
         if let Some(complete) = cut {
             text.truncate(complete);
         }
@@ -1095,6 +1110,52 @@ impl Log {
         file.sync_data()?;
         Ok(out)
     }
+}
+
+/// The welcome mark's file, in `data\` beside `market.key` (`PLAN.md` 3.1): outside the profile, so a reset keeps it
+/// and the welcome pays once per installation.
+pub const WELCOME_MARK: &str = "market.welcome";
+
+/// The first start (`PLAN.md` 2.4): one `starter` line per card (the 11 dealt and the RARE picked) and, when `mark`
+/// is not there yet, the [`WELCOME`] line, under one lock; then the mark. A log that already holds a starter copy gets
+/// nothing (an empty result). `why` names the choice ("starter All seasons").
+pub fn first_start(
+    log: &Log,
+    mark: &std::path::Path,
+    at: OffsetDateTime,
+    cards: &[u32],
+    why: &str,
+) -> io::Result<Vec<Entry>> {
+    let welcome = !mark.exists();
+    let out = log.append_lines_at(at, |state| {
+        if state.cards.values().any(|c| c.starter > 0) {
+            return Ok(vec![]);
+        }
+        let mut lines: Vec<Line> = cards
+            .iter()
+            .map(|&no| Line {
+                kind: Kind::Starter,
+                card: Some(no),
+                tokens: 0,
+                why: why.to_owned(),
+            })
+            .collect();
+        if welcome {
+            lines.push(Line {
+                kind: Kind::Welcome,
+                card: None,
+                tokens: WELCOME,
+                why: "welcome".to_owned(),
+            });
+        }
+        Ok(lines)
+    })?;
+    if out.iter().any(|e| e.kind == Kind::Welcome) {
+        // shortcut: a crash between the log's write and this one leaves no mark, so a later reset pays the welcome
+        // again; the market refuses a second welcome per key (3.1b). Upgrade if local tokens ever matter alone.
+        std::fs::write(mark, format!("{}\n", at.unix_timestamp()))?;
+    }
+    Ok(out)
 }
 
 /// Why a copy cannot convert; the caller words it.
@@ -1245,6 +1306,10 @@ mod tests {
         torn.truncate(torn[..torn.len() - 1].rfind('\n').unwrap() + 1);
         torn.push_str("{\"seq\": 99, \"at\": \"2026-11-11T0");
         let folded = fold_at(&torn, this_week());
+        assert!(
+            !folded.unreadable,
+            "a cut-off last line is dropped, not a break"
+        );
         assert_eq!(folded.warnings.len(), 1, "{:?}", folded.warnings);
         assert!(
             folded.warnings[0].starts_with("line 10 does not parse"),
@@ -2425,5 +2490,69 @@ mod tests {
         let folded = fold_at(&log.lines().unwrap(), this_week());
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert_eq!(folded.state.match_week, 100);
+    }
+
+    /// 1.4 (a), (b): the first start writes 12 `starter` lines of the choice and 1 `welcome` under the release rules,
+    /// then the mark; a second start writes nothing; a new log (a reset) gets its starters again but no welcome.
+    #[test]
+    fn the_first_start_writes_once_and_the_welcome_once_per_installation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mark = dir.path().join(WELCOME_MARK);
+        let log = Log::new(dir.path().join("a"));
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        let at = when("2026-11-11T12:00:00+01:00");
+        let cards: Vec<u32> = (101..=112).collect();
+        let out = first_start(&log, &mark, at, &cards, "starter All seasons").unwrap();
+        assert_eq!(out.len(), 13);
+        let text = log.lines().unwrap();
+        let entries: Vec<Entry> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let starters: Vec<&Entry> = entries.iter().filter(|e| e.kind == Kind::Starter).collect();
+        assert_eq!(starters.len(), 12);
+        assert!(
+            starters
+                .iter()
+                .all(|e| e.why == "starter All seasons" && e.tokens == 0)
+        );
+        assert_eq!(
+            starters.iter().map(|e| e.card.unwrap()).collect::<Vec<_>>(),
+            cards
+        );
+        let welcome: Vec<&Entry> = entries.iter().filter(|e| e.kind == Kind::Welcome).collect();
+        assert_eq!((welcome.len(), welcome[0].tokens), (1, WELCOME));
+        assert!(entries.iter().all(|e| e.rules == RULES));
+        assert!(mark.is_file());
+        let folded = fold_at(&text, this_week());
+        assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
+        assert_eq!(
+            (folded.state.tokens, folded.state.copies(112).starter),
+            (150, 1)
+        );
+
+        // (b) a second start: nothing written
+        assert!(
+            first_start(&log, &mark, at, &cards, "starter 2013")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(log.lines().unwrap(), text);
+
+        // a reset's new log: the starters again, the welcome not
+        let fresh = Log::new(dir.path().join("b"));
+        std::fs::create_dir_all(dir.path().join("b")).unwrap();
+        let out = first_start(&fresh, &mark, at, &cards, "starter 2013").unwrap();
+        assert_eq!(out.len(), 12);
+        assert!(out.iter().all(|e| e.kind == Kind::Starter));
+
+        // the reset-after-crash path: starters in the log and the mark gone, so no second welcome
+        std::fs::remove_file(&mark).unwrap();
+        assert!(
+            first_start(&log, &mark, at, &cards, "starter 2013")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!mark.exists());
     }
 }

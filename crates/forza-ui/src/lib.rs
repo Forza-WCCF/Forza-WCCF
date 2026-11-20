@@ -40,6 +40,7 @@ pub fn line(lang: Lang, line: &forza::Line) -> String {
 }
 
 pub mod board;
+pub mod collection;
 pub mod idle;
 pub mod installer;
 pub mod launcher;
