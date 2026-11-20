@@ -973,7 +973,9 @@ fn read_enum(d: &[u8]) -> R<Vec<Rec>> {
     }
     if p != d.len() {
         return fail(
-            Line::key("text.fail_table_tail").arg("file", ENUM).arg("count", d.len() - p),
+            Line::key("text.fail_table_tail")
+                .arg("file", ENUM)
+                .arg("count", d.len() - p),
         );
     }
     Ok(recs)

@@ -827,7 +827,9 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
     }
     if out.len() != orig.len() {
         return fail(
-            super::Line::key("text.fail_picture_size").arg("new", out.len()).arg("old", orig.len()),
+            super::Line::key("text.fail_picture_size")
+                .arg("new", out.len())
+                .arg("old", orig.len()),
         );
     }
     Ok(out)
@@ -975,10 +977,7 @@ pub fn build(
 ) -> R<(Pics, Vec<super::Line>)> {
     let names = wanted(spec);
     if names.as_ref().is_some_and(HashSet::is_empty) {
-        return Ok((
-            Pics::new(),
-            vec![super::Line::key("text.pictures_none")],
-        ));
+        return Ok((Pics::new(), vec![super::Line::key("text.pictures_none")]));
     }
     let Some(fp) = font_path(sheets) else {
         return Ok((
@@ -1012,9 +1011,7 @@ pub fn build(
             }
             seen = true;
             let Some(&i) = index.get(p) else {
-                skipped.push(
-                    super::Line::key("text.why_not_in_archive").arg("picture", p),
-                );
+                skipped.push(super::Line::key("text.why_not_in_archive").arg("picture", p));
                 continue;
             };
             let e = match saved.get(&i.to_string()).and_then(Value::as_str) {
@@ -1028,9 +1025,7 @@ pub fn build(
             };
             let data = read_entry(&mut f, &e)?;
             if sha(&data) != r["sha256"].as_str().unwrap_or("").to_uppercase() {
-                skipped.push(
-                    super::Line::key("text.why_not_the_recipe").arg("picture", p),
-                );
+                skipped.push(super::Line::key("text.why_not_the_recipe").arg("picture", p));
                 continue;
             }
             out.push((
@@ -1067,7 +1062,9 @@ pub fn build(
 
 fn hex(s: &str) -> R<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
-        return Err(super::Failed(super::Line::key("text.fail_state_hex").arg("file", STATE)));
+        return Err(super::Failed(
+            super::Line::key("text.fail_state_hex").arg("file", STATE),
+        ));
     }
     (0..s.len() / 2)
         .map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2).unwrap_or("zz"), 16))

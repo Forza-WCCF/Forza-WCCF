@@ -39,7 +39,9 @@ fn read(d: &[u8]) -> R<Vec<Rec>> {
     }
     if p != d.len() {
         return fail(
-            Line::key("text.fail_titles_tail").arg("file", TITLES).arg("count", d.len() - p),
+            Line::key("text.fail_titles_tail")
+                .arg("file", TITLES)
+                .arg("count", d.len() - p),
         );
     }
     Ok(recs)
