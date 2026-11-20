@@ -432,6 +432,13 @@ fn safe(name: &str) -> bool {
     !name.is_empty() && !name.contains(['/', '\\', ':']) && name != "." && name != ".."
 }
 
+/// Keep a disc entry: a safe name, and none of the root's own metadata (`$MFT`, `$Bitmap`, `System Volume
+/// Information`), which is not game data.
+fn keep(dir: &Path, name: &str) -> bool {
+    let root = dir.as_os_str().is_empty();
+    safe(name) && !(root && (name.starts_with('$') || name == "System Volume Information"))
+}
+
 fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
     let mut out = Vec::new();
     let mut stack = vec![(
@@ -459,10 +466,7 @@ fn scan<T: Read + Seek>(ntfs: &Ntfs, fs: &mut T) -> Result<Vec<Item>> {
             }
         }
         for (name, is_dir, rec) in kids {
-            let root = dir.as_os_str().is_empty();
-            if !safe(&name)
-                || (root && (name.starts_with('$') || name == "System Volume Information"))
-            {
+            if !keep(&dir, &name) {
                 continue;
             }
             let size = match ntfs.file(fs, rec)?.data(fs, "") {
@@ -831,6 +835,38 @@ mod tests {
             "{partial:?} is still there"
         );
         fs::remove_dir_all(&t).unwrap();
+    }
+
+    /// A name from the disc stays inside the destination: no separator, no drive or stream colon, no dot entry.
+    #[test]
+    fn a_name_from_the_disc_stays_inside_the_destination() {
+        for good in [
+            "data",
+            "client_Release.exe",
+            "WCCF 2017-2018",
+            "local",
+            "$MFT",
+        ] {
+            assert!(safe(good), "{good}");
+        }
+        for bad in ["", ".", "..", "a/b", r"a\b", "C:", "x:y"] {
+            assert!(!safe(bad), "{bad}");
+        }
+    }
+
+    /// The root's own metadata is skipped; a `$` name below the root is game data and stays.
+    #[test]
+    fn the_root_metadata_is_skipped() {
+        let root = Path::new("");
+        let below = Path::new("data");
+        for name in ["$MFT", "$Bitmap", "$Extend", "System Volume Information"] {
+            assert!(!keep(root, name), "{name}");
+            assert!(keep(below, name), "{name}");
+        }
+        for name in ["data", "client_Release.exe"] {
+            assert!(keep(root, name), "{name}");
+        }
+        assert!(!keep(root, ".."), "a bad name is no game data either");
     }
 
     #[test]
