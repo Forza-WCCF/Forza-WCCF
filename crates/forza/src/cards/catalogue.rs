@@ -1628,7 +1628,7 @@ mod tests {
         r[0x29F] = 5;
         r[0x3B9] = 3;
         r[0x3D7..0x3DD].copy_from_slice(&[20, 8, 20, 16, 19, 15]);
-        r[0x3BA..0x3C4].copy_from_slice(b"1987/6/24 ");
+        r[0x3BA..0x3C4].copy_from_slice(b"1987/6/24\0");
         for (i, c) in "MESSI".encode_utf16().enumerate() {
             r[0x370 + 2 * i..0x372 + 2 * i].copy_from_slice(&c.to_le_bytes());
         }
