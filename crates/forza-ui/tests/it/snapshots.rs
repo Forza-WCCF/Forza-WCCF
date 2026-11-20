@@ -1224,13 +1224,6 @@ fn card_deal() {
     });
     h.run_steps(4);
     h.snapshot("panel_deal_en");
-    // a click on the card turns it over
-    let r = h.get_by_label_contains("NEW PLAYER CARD").rect();
-    let card = egui::pos2(r.center().x, r.top() + 200.0);
-    h.drag_at(card);
-    h.drop_at(card);
-    h.run_steps(2);
-    h.snapshot("panel_deal_back_en");
 }
 
 /// The PAUSED page over the game's picture (Japanese: the longest lines), and RESUME on the page bar asking for the

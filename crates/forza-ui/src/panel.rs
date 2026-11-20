@@ -2575,17 +2575,11 @@ pub const DEAL_SECS: f64 = 20.0;
 pub struct Deal {
     pub card: usize,
     pub until: Option<f64>,
-    /// Turned over: its back.
-    pub back: bool,
 }
 
 impl Deal {
     pub fn new(card: usize) -> Deal {
-        Deal {
-            card,
-            until: None,
-            back: false,
-        }
+        Deal { card, until: None }
     }
 }
 
@@ -2605,7 +2599,6 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_secs_f64(until - now));
-    let back = d.back;
     let rare = cards::deal_class(&card) == 0;
     let col = match cards::deal_class(&card) {
         0 => theme::GOLD,
@@ -2655,11 +2648,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 pos2(r.center().x, r.top() + 60.0 + 140.0),
                 vec2(200.0, 280.0),
             );
-            if back {
-                board::card_back(&p, face, &card, lang);
-            } else {
-                board::card_face(&p, face, &card, board::Look::default());
-            }
+            board::card_face(&p, face, &card, board::Look::default());
             let mut y = face.bottom() + 12.0;
             let g = widgets::fit(
                 &p,
@@ -2701,19 +2690,12 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 g,
                 theme::TEXT_DIM,
             );
-            // a click on the card turns it over; anywhere else closes the window
-            let on_card = resp.clicked()
-                && resp
-                    .interact_pointer_pos()
-                    .is_some_and(|p| face.contains(p));
-            (resp, on_card)
+            resp
         })
         .inner;
-    if resp.0.clicked() {
-        match st.deal.as_mut() {
-            Some(d) if resp.1 => d.back = !d.back,
-            _ => st.deal = None,
-        }
+    // a click anywhere on it closes it (no back to turn to: the drawn back is gone, #333)
+    if resp.clicked() {
+        st.deal = None;
     }
 }
 
@@ -4557,17 +4539,19 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         None => (1, sizing::exact(sizing::ALBUM, 1, room, ppp).unwrap_or(0.5)),
     };
     let size = sizing::ALBUM * k / ppp;
+    // a card without a back picture: its front alone, no FRONT | BACK (#333)
+    let with_back = board::has_back(ui.ctx(), card.number) == Some(true);
     // the head row: back to the list, the side toggle (one side only), the place in the results
     let head = Rect::from_min_size(body.min, vec2(body.width(), 32.0));
     let mut back_to_list = close;
     let mut go: i32 = i32::from(next) - i32::from(prev);
-    let mut flip = flip && n == 1;
+    let mut flip = flip && n == 1 && with_back;
     ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
         ui.horizontal_centered(|ui| {
             back_to_list |= action(ui, &tr!(lang, "cat.view_list")).clicked();
         });
     });
-    if n == 1 {
+    if n == 1 && with_back {
         let mut r = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(Rect::from_center_size(head.center(), vec2(240.0, 32.0))),
@@ -4599,11 +4583,12 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         c.view_back = !c.view_back;
     }
     // the pictures, centred, their top left on a whole pixel
+    let n = if with_back { n } else { 1 };
     let w = n as f32 * size.x + (n as f32 - 1.0) * sizing::PAIR_GAP;
     let left = body.center().x - w / 2.0;
     let sides: &[bool] = if n == 2 {
         &[false, true]
-    } else if c.view_back {
+    } else if c.view_back && with_back {
         &[true]
     } else {
         &[false]
@@ -4614,7 +4599,7 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             body.top() + 48.0,
         );
         let r = Rect::from_min_size(min.round_to_pixels(ppp), size);
-        board::card_side(ui.painter(), r, card, back, k >= 2.0, lang);
+        board::card_side(ui.painter(), r, card, back, k >= 2.0);
     }
     // the caption row under them
     let cap = Rect::from_min_max(
@@ -4780,15 +4765,6 @@ fn stats_pane(
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
             let w = ui.available_width();
-            let mut side = usize::from(*back);
-            if segmented(
-                ui,
-                &mut side,
-                &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
-                w,
-            ) {
-                *back = side == 1;
-            }
             // the other side loads once this card has been the pane's for two frames: BACK then shows its picture on
             // the click's frame, not the drawn stand-in for the frames a first load takes, and a mouse swept across
             // the grid starts no load per card passed
@@ -4801,6 +4777,26 @@ fn stats_pane(
                     now
                 }
             };
+            // FRONT | BACK only for a card with a back picture; its row stays without one, so nothing moves (#333)
+            let with_back = (now - first >= 2)
+                .then(|| board::has_back(ui.ctx(), card.number))
+                .flatten();
+            let mut side = usize::from(*back);
+            if with_back == Some(true) {
+                if segmented(
+                    ui,
+                    &mut side,
+                    &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+                    w,
+                ) {
+                    *back = side == 1;
+                }
+            } else {
+                ui.allocate_exact_size(vec2(w, widgets::SEGMENTED_H), Sense::hover());
+                if with_back == Some(false) {
+                    *back = false;
+                }
+            }
             let other = (now - first >= 2)
                 .then(|| board::card_picture_px(ui.ctx(), card.number, !*back, false))
                 .flatten();
@@ -4834,14 +4830,7 @@ fn stats_pane(
                 .round_to_pixels(ppp),
                 size,
             );
-            let real = board::card_side(
-                ui.painter(),
-                r,
-                card,
-                *back,
-                size.x * ppp > pic.x + 0.5,
-                lang,
-            );
+            let real = board::card_side(ui.painter(), r, card, *back, size.x * ppp > pic.x + 0.5);
             ui.ctx()
                 .data_mut(|d| d.insert_temp(picture_rect_id().with("shown"), (*back, real)));
             ui.horizontal(|ui| {

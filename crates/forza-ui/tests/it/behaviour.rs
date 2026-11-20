@@ -494,16 +494,11 @@ fn card_deal() {
     });
     h.run_steps(4);
     assert!(st.borrow().picture_rect.is_none());
-    // a click on the card turns it over; one beside it closes the window
+    // no back to turn to (the drawn back is gone, #333): a click on the card closes the window
     let r = h.get_by_label_contains("NEW PLAYER CARD").rect();
     let card = egui::pos2(r.center().x, r.top() + 200.0);
     h.drag_at(card);
     h.drop_at(card);
-    h.run_steps(2);
-    assert!(st.borrow().deal.as_ref().is_some_and(|d| d.back));
-    let foot = egui::pos2(r.center().x, r.bottom() - 60.0);
-    h.drag_at(foot);
-    h.drop_at(foot);
     h.run_steps(2);
     assert!(st.borrow().deal.is_none() && st.borrow().picture_rect.is_some());
 }

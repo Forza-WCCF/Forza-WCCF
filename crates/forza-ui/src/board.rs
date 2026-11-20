@@ -388,7 +388,7 @@ pub fn card_picture_px(
         egui::TextureOptions::LINEAR
     };
     let names = if back {
-        vec![format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
+        back_names(number).to_vec()
     } else {
         vec![
             format!("{number}_hq.jpg"),
@@ -406,16 +406,31 @@ pub fn card_picture_px(
     None
 }
 
+/// The card's back picture files: the downloaded one, then the album's.
+fn back_names(number: u32) -> [String; 2] {
+    [format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
+}
+
+/// Whether the card has a back picture in the folder ([`back_names`]): `None` while one loads, false without a folder.
+/// Asked per card at run time, since a pack may add backs; without one nothing offers BACK (#333).
+pub fn has_back(ctx: &egui::Context, number: u32) -> Option<bool> {
+    let Some(dir) = picture_dir(ctx) else {
+        return Some(false);
+    };
+    for f in back_names(number) {
+        match load_picture(ctx, &dir, &f, egui::TextureOptions::LINEAR) {
+            Pic::Ready(..) => return Some(true),
+            Pic::Pending => return None,
+            Pic::Missing => {}
+        }
+    }
+    Some(false)
+}
+
 /// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture filling the slot, letterboxed when its
-/// shape is not a card's, or the drawn face or back. `true`: the picture was drawn, not the stand-in.
-pub fn card_side(
-    p: &Painter,
-    rect: Rect,
-    card: &Card,
-    back: bool,
-    nearest: bool,
-    lang: Lang,
-) -> bool {
+/// shape is not a card's, else the drawn face (a back without its picture draws the front: there is no drawn back).
+/// `true`: the picture was drawn, not the stand-in.
+pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool) -> bool {
     // nearest filtering only when the slot's width is a whole multiple of the picture's pixels; any other picture
     // stays smooth. A card-shaped picture fills the slot ([`picture_rect`]) up to 5 % off its own shape, so its
     // height may not be whole pixels of the picture
@@ -440,7 +455,7 @@ pub fn card_side(
             p.add(egui::Shape::mesh(mesh));
             return true;
         }
-        None if back => card_back(p, rect, card, lang),
+        None if back => return card_side(p, rect, card, false, nearest),
         None => {
             card_face(
                 p,
@@ -2380,198 +2395,6 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
     }
 }
 
-/// The card's back (the players' request, 2026-10-14), upright as the face: the number, name and line on a band; the
-/// suitable positions as the original card's back maps them, a small pitch with a tile per position area
-/// ([`heat_zone`]); the six stats and TOTAL beside it. From the 16 role ratings
-/// (the names and spots are the project's inference: [`ROLES`]).
-pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
-    let card = &*real(p.ctx(), card);
-    let r = (rect.width() * 0.08) as u8;
-    let rim = card.rarity.rim();
-    p.add(
-        Shadow {
-            offset: [0, 6],
-            blur: 16,
-            spread: 0,
-            color: Color32::from_black_alpha(150),
-        }
-        .as_shape(rect, r),
-    );
-    gradient(
-        p,
-        rect,
-        r,
-        Color32::from_rgb(0x1A, 0x27, 0x3D),
-        theme::WELL,
-        true,
-    );
-    p.rect_stroke(rect, r, Stroke::new(2.0, rim), StrokeKind::Inside);
-    let w = rect.width();
-    let unit = w / 200.0; // drawn for a card 200 wide, scaled
-    // the band: number, name, line
-    let band = Rect::from_min_size(
-        rect.min + vec2(6.0, 6.0) * unit,
-        vec2(w - 12.0 * unit, 26.0 * unit),
-    );
-    p.rect_filled(
-        band,
-        (4.0 * unit) as u8,
-        card.pos.color().gamma_multiply(0.85),
-    );
-    p.text(
-        band.left_center() + vec2(6.0 * unit, 0.0),
-        Align2::LEFT_CENTER,
-        format!("#{}", card.number),
-        theme::display(13.0 * unit),
-        Color32::WHITE,
-    );
-    p.text(
-        band.right_center() - vec2(6.0 * unit, 0.0),
-        Align2::RIGHT_CENTER,
-        card.pos.code(),
-        theme::display(15.0 * unit),
-        Color32::WHITE,
-    );
-    let g = fit(
-        p,
-        card.short_name(),
-        theme::display(15.0 * unit),
-        Color32::WHITE,
-        band.width() - 90.0 * unit,
-    );
-    p.galley(band.center() - g.size() / 2.0, g, Color32::WHITE);
-    // the position map, left
-    let map_w = w * 0.58;
-    let map = Rect::from_min_size(
-        pos2(rect.left() + 8.0 * unit, band.bottom() + 8.0 * unit),
-        vec2(map_w, map_w * PITCH_ASPECT),
-    );
-    aptitude_map(p, map, &card.aptitude, lang);
-    // the stats, right of the map
-    let col = Rect::from_min_max(
-        pos2(map.right() + 8.0 * unit, map.top()),
-        pos2(rect.right() - 8.0 * unit, map.bottom()),
-    );
-    let names = [
-        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
-    ];
-    let row = col.height() / 8.0;
-    if card.secret {
-        // a legend's back: SECRET across the six rows, as the original prints it
-        p.text(
-            pos2(col.right(), col.top() + row * 3.0),
-            Align2::RIGHT_CENTER,
-            tr!(lang, "cat.secret"),
-            theme::display(14.0 * unit),
-            theme::TEXT_DIM,
-        );
-    }
-    for (i, (k, v)) in names.iter().zip(card.stats).enumerate() {
-        let y = col.top() + row * (i as f32 + 0.5);
-        p.text(
-            pos2(col.left(), y),
-            Align2::LEFT_CENTER,
-            tr!(lang, *k),
-            theme::display(11.0 * unit),
-            theme::TEXT_DIM,
-        );
-        if !card.secret {
-            p.text(
-                pos2(col.right(), y),
-                Align2::RIGHT_CENTER,
-                v.to_string(),
-                theme::display(16.0 * unit),
-                super::widgets::stat_color(v),
-            );
-        }
-    }
-    let y = col.top() + row * 6.0;
-    p.line_segment(
-        [pos2(col.left(), y), pos2(col.right(), y)],
-        Stroke::new(1.0, theme::RIM),
-    );
-    p.text(
-        pos2(col.left(), y + row),
-        Align2::LEFT_CENTER,
-        tr!(lang, "cat.total"),
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-    );
-    p.text(
-        pos2(col.right(), y + row),
-        Align2::RIGHT_CENTER,
-        card.total.to_string(),
-        theme::display(22.0 * unit),
-        theme::AMBER,
-    );
-    // under the map: the 16 ratings, four to a row (the best lit), and the season
-    let grid = Rect::from_min_max(
-        pos2(rect.left() + 10.0 * unit, map.bottom() + 6.0 * unit),
-        pos2(rect.right() - 10.0 * unit, rect.bottom() - 20.0 * unit),
-    );
-    if card.aptitude.known() {
-        let (cw, rh) = (grid.width() / 4.0, grid.height() / 4.0);
-        for (i, (name, rating)) in ROLES.iter().zip(card.aptitude.roles).enumerate() {
-            let c = pos2(
-                grid.left() + cw * (i % 4) as f32,
-                grid.top() + rh * ((i / 4) as f32 + 0.5),
-            );
-            let ink = match rating {
-                8.. => Color32::from_rgb(0xFF, 0xF6, 0xD0),
-                5.. => theme::AMBER,
-                _ => theme::TEXT_FAINT,
-            };
-            p.text(
-                c,
-                Align2::LEFT_CENTER,
-                *name,
-                theme::display(10.0 * unit),
-                theme::TEXT_DIM,
-            );
-            p.text(
-                c + vec2(cw - 8.0 * unit, 0.0),
-                Align2::RIGHT_CENTER,
-                rating.to_string(),
-                theme::display(12.0 * unit),
-                ink,
-            );
-        }
-    } else {
-        let g = p.layout(
-            tr!(lang, "board.no_data"),
-            theme::body(11.0 * unit),
-            theme::TEXT_DIM,
-            grid.width(),
-        );
-        p.galley(grid.center() - g.size() / 2.0, g, theme::TEXT_DIM);
-    }
-    let season = p.text(
-        pos2(rect.right() - 10.0 * unit, rect.bottom() - 11.0 * unit),
-        Align2::RIGHT_CENTER,
-        card.season.as_str(),
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-    );
-    // the club at the season's left, shrunk to the room left
-    let club = fit(
-        p,
-        &card.club,
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-        (season.left() - rect.left() - 18.0 * unit).max(0.0),
-    );
-    // a club too long even shrunk is cut before the season
-    p.with_clip_rect(rect.with_max_x(season.left() - 6.0 * unit))
-        .galley(
-            pos2(
-                rect.left() + 10.0 * unit,
-                rect.bottom() - 11.0 * unit - club.size().y / 2.0,
-            ),
-            club,
-            theme::TEXT_DIM,
-        );
-}
-
 /// Room around the info pane's face: the frame's margins, and the large tier's caption under it (name, facts, roles,
 /// stats).
 const BIG_FRAME: f32 = 22.0;
@@ -2796,9 +2619,9 @@ fn info_pane(
                                 // the album art at its own pixels: its top left on a whole device pixel
                                 use egui::emath::GuiRounding as _;
                                 let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
-                                card_side(ui.painter(), r, card, back, false, lang);
+                                card_side(ui.painter(), r, card, back, false);
                             } else if back {
-                                card_side(ui.painter(), r, card, true, false, lang);
+                                card_side(ui.painter(), r, card, true, false);
                             } else {
                                 card_face(
                                     ui.painter(),
@@ -2863,7 +2686,18 @@ fn info_pane(
     flip
 }
 
-/// The info pane's words: the name, club · country · season, the best roles and the stats (or SECRET); `t` scales the
+/// The card's number, position and TOTAL on one line: `#4321 · MF · TOTAL 81`.
+fn facts(card: &Card, lang: Lang) -> String {
+    format!(
+        "#{} · {} · {} {}",
+        card.number,
+        card.pos.code(),
+        tr!(lang, "cat.total"),
+        card.total
+    )
+}
+
+/// The info pane's words: the name, club · country · season, number · position · TOTAL, the best roles and the stats (or SECRET); `t` scales the
 /// text.
 fn caption(ui: &mut Ui, card: &Card, t: f32, lang: Lang) {
     ui.label(
@@ -2878,6 +2712,12 @@ fn caption(ui: &mut Ui, card: &Card, t: f32, lang: Lang) {
         ))
         .font(theme::body(12.0 * t))
         .color(theme::TEXT_DIM),
+    );
+    // the number, position and TOTAL the drawn back carried, now that only a picture shows a back (#333)
+    ui.label(
+        egui::RichText::new(facts(card, lang))
+            .font(theme::display(14.0 * t))
+            .color(theme::AMBER),
     );
     let top = card.aptitude.top();
     if !top.is_empty() {
@@ -3083,10 +2923,10 @@ mod tests {
         assert!((l.width() - r.width()).abs() < 1e-3 && l.height() < r.height());
     }
 
-    /// A card with no back picture (no picture folder) gets the drawn back, with its data: number, name, position, club,
-    /// the six stats and TOTAL.
+    /// A card with no back picture (no picture folder) has none (no BACK offered), its back side draws its front (the
+    /// drawn back is gone, #333), and the info pane's caption carries the back's facts: number, position, TOTAL.
     #[test]
-    fn a_card_without_a_back_picture_gets_the_drawn_back() {
+    fn a_card_without_a_back_picture_draws_its_front_and_the_caption_has_its_facts() {
         let c = Card {
             name: "Andrea Pirlo".into(),
             club: "AC Milan".into(),
@@ -3105,22 +2945,33 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .textures_delta
             .clear();
-        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-            set_picture_dir(ui.ctx(), None);
-            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(256.0, 357.0));
-            card_side(ui.painter(), r, &c, true, false, crate::Lang::En);
-        });
-        out.textures_delta.clear();
-        let mut texts = Vec::new();
-        for s in out.shapes {
-            if let egui::Shape::Text(t) = s.shape {
-                texts.push(t.galley.text().to_owned());
+        let texts = |back: Option<bool>| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                set_picture_dir(ui.ctx(), None);
+                assert_eq!(has_back(ui.ctx(), c.number), Some(false));
+                match back {
+                    Some(back) => {
+                        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(256.0, 357.0));
+                        card_side(ui.painter(), r, &c, back, false);
+                    }
+                    None => caption(ui, &c, 1.0, crate::Lang::En),
+                }
+            });
+            out.textures_delta.clear();
+            let mut texts = Vec::new();
+            for s in out.shapes {
+                if let egui::Shape::Text(t) = s.shape {
+                    texts.push(t.galley.text().to_owned());
+                }
             }
-        }
-        for want in [
-            "#4321", "Pirlo", "MF", "AC Milan", "2006-07", "OFF", "11", "16", "81",
-        ] {
-            assert!(texts.iter().any(|t| t == want), "{want} not in {texts:?}");
+            texts
+        };
+        let front = texts(Some(false));
+        assert!(!front.is_empty());
+        assert_eq!(texts(Some(true)), front, "the back side draws the front");
+        let cap = texts(None);
+        for want in ["Andrea Pirlo", "#4321 · MF · TOTAL 81", "OFF", "11", "16"] {
+            assert!(cap.iter().any(|t| t == want), "{want} not in {cap:?}");
         }
     }
 
