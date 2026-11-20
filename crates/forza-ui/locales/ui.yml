@@ -1005,9 +1005,9 @@ setup.pic_making: {en: "Making card pictures from your game files...", it: "Crea
 setup.pic_made: {en: "made %{faces} card pictures from the game and %{fronts} album covers; %{failed} failed", it: "create %{faces} immagini delle carte dal gioco e %{fronts} copertine dell'album; %{failed} non riuscite", ja: "ゲームのカード画像 %{faces} 枚とアルバムの表紙 %{fronts} 枚を作成しました（失敗 %{failed} 枚）。"}
 setup.pic_adding_hq: {en: "Adding high-quality pictures from %{pack}...", it: "Aggiunta delle immagini in alta qualità da %{pack}...", ja: "%{pack} から高画質画像を追加しています..."}
 setup.pic_hq_made: {en: "%{count} high-quality card pictures, %{failed} failed", it: "%{count} immagini carte in alta qualità, %{failed} non riuscite", ja: "高画質カード画像 %{count} 枚、失敗 %{failed} 枚"}
-text.title_on: {en: "Forza-WCCF %{edition} - %{lang} on - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} attivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オン - ゲーム: %{game}"}
-text.title_off: {en: "Forza-WCCF %{edition} - %{lang} off - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} disattivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オフ - ゲーム: %{game}"}
-text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", it: "Forza-WCCF %{edition} - controllo %{lang} - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}の確認 - ゲーム: %{game}"}
+text.title_on: {en: "Forza-WCCF %{edition} - %{lang} on - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} attivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オン - ゲーム：%{game}"}
+text.title_off: {en: "Forza-WCCF %{edition} - %{lang} off - game: %{game}", it: "Forza-WCCF %{edition} - %{lang} disattivato - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}オフ - ゲーム：%{game}"}
+text.title_check: {en: "Forza-WCCF %{edition} - %{lang} check - game: %{game}", it: "Forza-WCCF %{edition} - controllo %{lang} - gioco: %{game}", ja: "Forza-WCCF %{edition} - %{lang}の確認 - ゲーム：%{game}"}
 text.lang_en: {en: "English", it: "inglese", ja: "英語"}
 text.lang_it: {en: "Italian", it: "italiano", ja: "イタリア語"}
 text.already_original: {en: "Already the original Japanese.", it: "È già il giapponese originale.", ja: "すでにオリジナルの日本語です。"}
@@ -1058,10 +1058,10 @@ text.fail_set_up_first: {en: "%{what} is not the expected file - press SET UP in
 text.fail_text_expected: {en: "%{what} at %{at} is not the text Forza-WCCF expects", it: "%{what} all'indirizzo %{at} non è il testo previsto da Forza-WCCF", ja: "%{what} の %{at} は Forza-WCCF が想定するテキストではありません"}
 text.fail_text_does_not_fit: {en: "the text at %{at} does not fit", it: "il testo all'indirizzo %{at} non entra", ja: "%{at} のテキストが収まりません"}
 text.fail_would_change_size: {en: "%{what} would change size - nothing written", it: "%{what} cambierebbe dimensione: nulla è stato scritto", ja: "%{what} のサイズが変わってしまうため、何も書き込みませんでした"}
-text.fail_unknown_program: {en: "exe_text.tsv names a program Forza-WCCF does not know: %{program}", it: "exe_text.tsv nomina un programma che Forza-WCCF non conosce: %{program}", ja: "exe_text.tsv に Forza-WCCF が知らないプログラムがあります: %{program}"}
+text.fail_unknown_program: {en: "exe_text.tsv names a program Forza-WCCF does not know: %{program}", it: "exe_text.tsv nomina un programma che Forza-WCCF non conosce: %{program}", ja: "exe_text.tsv に Forza-WCCF が知らないプログラムがあります：%{program}"}
 text.fail_backup_list_damaged: {en: "the backup list %{file} is damaged (%{detail}) - left as it is", it: "l'elenco dei backup %{file} è danneggiato (%{detail}): resta com'è", ja: "バックアップ一覧 %{file} が壊れています（%{detail}）。そのままにしました"}
 text.fail_copy_backup: {en: "could not copy %{file} to the backup", it: "impossibile copiare %{file} nel backup", ja: "%{file} をバックアップにコピーできませんでした"}
-text.fail_save_beside: {en: "could not keep the backup beside the game: %{detail}", it: "impossibile tenere il backup accanto al gioco: %{detail}", ja: "ゲームのそばにバックアップを残せませんでした: %{detail}"}
+text.fail_save_beside: {en: "could not keep the backup beside the game: %{detail}", it: "impossibile tenere il backup accanto al gioco: %{detail}", ja: "ゲームのそばにバックアップを残せませんでした：%{detail}"}
 text.fail_no_backup: {en: "%{file} is neither original nor backed up - refusing to replace it", it: "%{file} non è né originale né salvato in backup: non lo sostituisco", ja: "%{file} はオリジナルでもバックアップ済みでもないため、置き換えません"}
 text.fail_not_written: {en: "%{file} did not write correctly - switch the game text back to Japanese", it: "%{file} non è stato scritto correttamente: riporta il testo del gioco in giapponese", ja: "%{file} を正しく書き込めませんでした。ゲームのテキストを日本語に戻してください"}
 text.fail_backup_not_original: {en: "the backup of %{file} is not the original file - left as it is", it: "il backup di %{file} non è il file originale: resta com'è", ja: "%{file} のバックアップがオリジナルのファイルではありません。そのままにしました"}
