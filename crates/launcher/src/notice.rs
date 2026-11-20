@@ -67,12 +67,22 @@ fn remove(file: &Path) -> std::io::Result<()> {
 
 /// One round's answer from `asked` (`get` asks a server). From a server other than `project` (an arcade's desk, a
 /// LAN arcade, a listed server's seat), its notice under the "Arcade notice:" prefix; with none there, the project
-/// server is asked in the same round and its notice kept. `None` when an ask failed: the last notice stays.
+/// server is asked in the same round and its notice kept. A notice without a host's id (`h<unix>`,
+/// [`write_host_notice`]) that equals the project server's is that one, unprefixed: an older host's desk serves its
+/// Launcher's copy of the project's notice. `None` when an ask failed: the last notice stays.
 fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Lobby> {
     let mut l = get(asked)?;
     if asked != project {
         l.notice = match l.notice.take().and_then(ServerNotice::clean) {
-            Some(n) => arcade_notice(&n),
+            Some(n) if n.id.starts_with('h') => arcade_notice(&n),
+            Some(n) => {
+                let ours = get(project)?.notice.and_then(ServerNotice::clean);
+                if ours.as_ref() == Some(&n) {
+                    ours
+                } else {
+                    arcade_notice(&n)
+                }
+            }
             None => get(project)?.notice,
         };
     }
@@ -146,7 +156,11 @@ impl Notices {
                 {
                     wake();
                 }
-                thread::sleep(every);
+                // an `ask` for another server ends the wait: the run's end brings the project's notice back at once
+                let napped = Instant::now();
+                while me.lock().napping(&server, napped, Instant::now(), every) {
+                    thread::sleep(FIRST_STEP.min(every));
+                }
             }
         });
     }
@@ -220,6 +234,11 @@ impl Inner {
             Some(n) => crate::choices::write(&self.file, &serde_json::to_string(n).expect("plain data serializes")),
             None => remove(&self.file),
         }
+    }
+
+    /// The watcher waits `every` after a round that asked `asked`, less when [`Notices::ask`] named another server.
+    fn napping(&self, asked: &str, started: Instant, now: Instant, every: Duration) -> bool {
+        self.server == asked && now.duration_since(started) < every
     }
 
     /// The first ask waits for the window's own lobby poll (its answer sets `at`), no longer than [`FIRST_WAIT`].
@@ -383,6 +402,16 @@ mod tests {
                 .text("it")
                 .ends_with(&"x".repeat(lobby::HOST_NOTICE_LEN))
         );
+        // an older host's desk serves its copy of the project's notice: the project's, unprefixed; another server's
+        // own notice keeps the prefix
+        let l = round(desk, project, answers(project, &ours, Some(&ours))).unwrap();
+        assert_eq!(l.notice.as_ref(), Some(&ours));
+        let theirs = ServerNotice {
+            id: "n2".into(),
+            ..host.clone()
+        };
+        let l = round(desk, project, answers(project, &ours, Some(&theirs))).unwrap();
+        assert_eq!(l.notice.unwrap().en, "Arcade notice: Open till 23:00");
         // the desk sets none: the project's stays; the project server not answering keeps the last
         let l = round(desk, project, answers(project, &ours, None)).unwrap();
         assert_eq!(l.notice.as_ref().map(|n| n.id.as_str()), Some("n1"));
@@ -417,6 +446,24 @@ mod tests {
         assert!(
             !write_host_notice(&file, "", 19).unwrap(),
             "removing a missing file is fine"
+        );
+    }
+
+    /// The run's end (`ask` for the project server) cuts the watcher's minute short: the host's notice goes at once.
+    #[test]
+    fn an_ask_for_another_server_ends_the_wait() {
+        let t = Instant::now();
+        let mut i = inner(Some(t));
+        i.server = "127.0.0.1:20041".into();
+        assert!(i.napping("127.0.0.1:20041", t, t + FIRST_STEP, EVERY));
+        assert!(
+            !i.napping("127.0.0.1:20041", t, t + EVERY, EVERY),
+            "a minute on: the next round"
+        );
+        i.server = "lobby.wccf.it:20032".into();
+        assert!(
+            !i.napping("127.0.0.1:20041", t, t + FIRST_STEP, EVERY),
+            "another server: asked now"
         );
     }
 

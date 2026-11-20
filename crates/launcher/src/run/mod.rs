@@ -2127,11 +2127,18 @@ impl Run<'_> {
                 choices::setting(&self.kit.settings_file(), "arcade_notice").unwrap_or_default()
             };
             let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            if let Err(e) = crate::notice::write_host_notice(&file, &text, now) {
+            let written = crate::notice::write_host_notice(&file, &text, now);
+            if let Err(e) = &written {
                 let line = format!("notice: {} not written ({e}), no arcade notice", file.display());
                 crate::logs::append(&self.logs().join("run_launcher.txt"), &line);
+                // a last session's notice must not stay up under its old id
+                let _ = std::fs::remove_file(&file);
             }
-            env.push(("WCCF_NOTICE".to_owned(), file.display().to_string()));
+            // a file still there after a failed write and remove is stale: the desk keeps its default, the project's
+            // notice, which guests show unprefixed (notice::round)
+            if written.is_ok() || !file.exists() {
+                env.push(("WCCF_NOTICE".to_owned(), file.display().to_string()));
+            }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
         let mut cmd = if self.edition == Edition::E1718 {
