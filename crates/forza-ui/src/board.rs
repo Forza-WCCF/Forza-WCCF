@@ -1342,16 +1342,20 @@ fn boxed(rects: &[Rect], filled: impl Fn(usize) -> bool, area: Rect) -> Vec<usiz
         .collect()
 }
 
-/// The offset a group moves by: `want`, clamped once for the whole group so every member's spot stays in 0..1 and
-/// the group keeps its shape.
-fn group_offset(origins: &[Pos2], want: Vec2) -> Vec2 {
-    let lo = origins.iter().fold(Pos2::new(1.0, 1.0), |a, o| a.min(*o));
-    let hi = origins.iter().fold(Pos2::ZERO, |a, o| a.max(*o));
-    // max then min, not clamp: a spot read from an odd table file may lie past 0..1, and clamp panics then
-    vec2(
-        want.x.max(-lo.x).min(1.0 - hi.x),
-        want.y.max(-lo.y).min(1.0 - hi.y),
-    )
+/// A group's spots moved by `want` from `origins`: the offset clamped once for the whole group so every spot stays in
+/// 0..1 and the group keeps its shape. An origin past 0..1 (an odd table file) is first brought onto the pitch.
+fn group_spots(origins: &[Pos2], want: Vec2) -> Vec<Pos2> {
+    let on: Vec<Pos2> = origins
+        .iter()
+        .map(|o| o.clamp(Pos2::ZERO, pos2(1.0, 1.0)))
+        .collect();
+    let lo = on.iter().fold(pos2(1.0, 1.0), |a, o| a.min(*o));
+    let hi = on.iter().fold(Pos2::ZERO, |a, o| a.max(*o));
+    let by = vec2(
+        want.x.clamp(-lo.x, 1.0 - hi.x),
+        want.y.clamp(-lo.y, 1.0 - hi.y),
+    );
+    on.into_iter().map(|o| o + by).collect()
 }
 
 /// The card [`formation_board`] refused to take off (a match runs) since the last call, if any.
@@ -1536,10 +1540,10 @@ pub fn formation_board(
                     let f = field(pitch);
                     let want = pos2((pt.x - f.left()) / f.width(), (pt.y - f.top()) / f.height());
                     let spots: Vec<Pos2> = group_origin.iter().map(|m| m.1).collect();
-                    let by = group_offset(&spots, want - o.1);
-                    for &(m, at) in &group_origin {
-                        if board.spots[m] != at + by {
-                            board.spots[m] = at + by;
+                    let to = group_spots(&spots, want - o.1);
+                    for (&(m, _), at) in group_origin.iter().zip(to) {
+                        if board.spots[m] != at {
+                            board.spots[m] = at;
                             changed = true;
                         }
                     }
@@ -4338,13 +4342,27 @@ mod tests {
     #[test]
     fn a_group_offset_keeps_every_member_on_the_pitch() {
         let o = [pos2(0.2, 0.3), pos2(0.5, 0.6), pos2(0.4, 0.9)];
-        assert_eq!(group_offset(&o, vec2(0.1, 0.05)), vec2(0.1, 0.05));
-        assert!(close(group_offset(&o, vec2(-0.9, 0.9)), vec2(-0.2, 0.1)));
-        assert!(close(group_offset(&o, vec2(0.9, -0.9)), vec2(0.5, -0.3)));
-        // a spot past 0..1 from an odd table: no panic, nothing moves the wrong way
-        let odd = [pos2(-0.1, 0.5), pos2(1.1, 0.5)];
-        let by = group_offset(&odd, vec2(0.3, 0.0));
-        assert!(by.x <= 0.0 && by.x.is_finite());
+        let moved = |want: Vec2| -> Vec<Vec2> {
+            group_spots(&o, want)
+                .iter()
+                .zip(o)
+                .map(|(s, o)| *s - o)
+                .collect()
+        };
+        for (want, by) in [
+            (vec2(0.1, 0.05), vec2(0.1, 0.05)),
+            (vec2(-0.9, 0.9), vec2(-0.2, 0.1)),
+            (vec2(0.9, -0.9), vec2(0.5, -0.3)),
+        ] {
+            assert!(moved(want).iter().all(|d| close(*d, by)), "{want:?}");
+        }
+        // spots past 0..1 from an odd table: brought onto the pitch, then moved; every spot stays in 0..1
+        let odd = [pos2(-0.1, 0.5), pos2(1.1, 0.5), pos2(0.5, 1.2)];
+        for want in [vec2(0.3, 0.0), vec2(-0.3, -0.4), vec2(0.0, 0.4)] {
+            let to = group_spots(&odd, want);
+            let r = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            assert!(to.iter().all(|s| r.contains(*s)), "{want:?}: {to:?}");
+        }
     }
 
     /// A [`formation_board`] driven by raw input, the group gate on or off.
