@@ -385,15 +385,16 @@ mod tests {
         assert_eq!(buf, whole);
     }
 
-    /// A made-up 512-byte header sealed with `keyfile`, the way TrueCrypt 4.3a does it (the reverse of `read_header`).
-    fn sealed_header(keyfile: &[u8]) -> [u8; 512] {
+    /// A made-up 512-byte header sealed with `keyfile` at `version`, the way TrueCrypt 4.3a does it (the reverse of
+    /// `read_header`).
+    fn sealed_header(keyfile: &[u8], version: u16) -> [u8; 512] {
         use aes::cipher::BlockCipherEncrypt;
         let mut h = [0u8; 512];
         for (i, b) in h[..64].iter_mut().enumerate() {
             *b = (i as u8).wrapping_mul(7).wrapping_add(1); // the salt
         }
         h[64..68].copy_from_slice(b"TRUE");
-        h[70..72].copy_from_slice(&PROGRAM_VERSION.to_be_bytes());
+        h[70..72].copy_from_slice(&version.to_be_bytes());
         h[92..100].copy_from_slice(&(512u64 * 100).to_be_bytes());
         let crc = crc32fast::hash(&h[256..]);
         h[72..76].copy_from_slice(&crc.to_be_bytes());
@@ -417,7 +418,7 @@ mod tests {
             "ffeeddccbbaa99887766554433221100",
         );
         let iv = "0f0e0d0c0b0a09080706050403020100";
-        let raw = sealed_header(&hex_to_bytes(good));
+        let raw = sealed_header(&hex_to_bytes(good), PROGRAM_VERSION);
         let row = |g: &str, k: &str| format!("<tr><td>{g}</td><td>{k}</td><td>{iv}</td></tr>");
         let html = format!(
             "<table><tr><th>Game ID</th><th>AES Key</th><th>AES IV</th></tr>{}{}{}</table>",
@@ -454,6 +455,21 @@ mod tests {
         );
         assert_eq!(
             parses(html.as_bytes(), "SDDY").unwrap().hidden_size,
+            512 * 100
+        );
+    }
+
+    /// A header that asks for a newer TrueCrypt than 4.3a is a version message, never a wrong key (#358).
+    #[test]
+    fn a_newer_truecrypt_header_is_refused() {
+        let key = hex_to_bytes("00112233445566778899aabbccddeeff");
+        let newer = sealed_header(&key, PROGRAM_VERSION + 1);
+        let refused = read_header(&newer, &key).unwrap().err().unwrap();
+        assert_eq!(refused.downcast_ref::<E>(), Some(&E::NewerTrueCrypt));
+        // the same header at the version this reads opens
+        let same = sealed_header(&key, PROGRAM_VERSION);
+        assert_eq!(
+            read_header(&same, &key).unwrap().unwrap().hidden_size,
             512 * 100
         );
     }

@@ -297,6 +297,40 @@ mod tests {
         );
     }
 
+    /// A package is only fetched over TLS: the same release is refused with an `http://` asset URL and kept with an
+    /// `https://` one (#358).
+    #[test]
+    fn a_plain_http_url_is_refused() {
+        let z = "Forza-WCCF-2017-18-0.1.0.zip";
+        let a = |name: &str, url: &str| {
+            format!(r#"{{"name":"{name}","size":10,"browser_download_url":"{url}"}}"#)
+        };
+        let json = |zip_scheme: &str, sum_scheme: &str| {
+            let zip = a(z, &format!("{zip_scheme}://example.test/v0.1.0/{z}"));
+            let sum = a(
+                &format!("{z}.sha256"),
+                &format!("{sum_scheme}://example.test/v0.1.0/{z}.sha256"),
+            );
+            format!(
+                r#"[{{"tag_name":"v0.1.0","draft":false,"prerelease":false,"assets":[{zip},{sum}]}}]"#
+            )
+        };
+        // the package and its checksum each refused over plain HTTP
+        for (zip, sum) in [("http", "https"), ("https", "http")] {
+            assert_eq!(
+                pick(&json(zip, sum), PREFIX_1718)
+                    .unwrap_err()
+                    .downcast_ref::<E>(),
+                Some(&E::NoPackage),
+                "{zip} {sum}"
+            );
+        }
+        assert_eq!(
+            pick(&json("https", "https"), PREFIX_1718).unwrap().zip_url,
+            format!("https://example.test/v0.1.0/{z}")
+        );
+    }
+
     #[test]
     fn checksum_lines() {
         let h = "ab".repeat(32);
