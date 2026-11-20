@@ -1036,12 +1036,12 @@ text.note_by_more: {en: "%{head}, %{source} %{count}", it: "%{head}, %{source} %
 # the picture notes under a built text: the writing's language, then the pictures left as the original
 text.note_pictures: {en: "%{count} pictures with their writing in %{lang}", it: "%{count} immagini con la scritta in %{lang}", ja: "%{count} 枚の画像の文字を%{lang}にしました"}
 text.note_pictures_kept: {en: "%{count} pictures stay as they are: %{first}", it: "%{count} immagini restano come sono: %{first}", ja: "%{count} 枚の画像はそのままにしました：%{first}"}
-text.note_pictures_kept_more: {en: "%{count} pictures stay as they are: %{first}, ...", it: "%{count} immagini restano come sono: %{first}, ...", ja: "%{count} 枚の画像はそのままにしました（%{first} など）"}
-text.note_picture_no_words: {en: "%{id}: no words at %{at}, the original text stays", it: "%{id}: nessuna parola a %{at}, il testo originale resta", ja: "%{id}：%{at} に言葉がないため、元のテキストのままです"}
+text.note_pictures_kept_more: {en: "%{count} pictures stay as they are: %{first}, ...", it: "%{count} immagini restano come sono: %{first}, ...", ja: "%{count} 枚の画像はそのままにしました：%{first} など"}
+text.note_picture_no_words: {en: "%{id}: no words at %{at}, the original text stays", it: "%{id}: nessuna parola a %{at}, il testo originale resta", ja: "%{id}：%{at} に言葉がないため、オリジナルのテキストのままです"}
 text.why_not_in_archive: {en: "%{picture} (not in the archive)", it: "%{picture} (non è nell'archivio)", ja: "%{picture}（アーカイブにありません）"}
 text.why_not_the_recipe: {en: "%{picture} (not the picture the recipe is for)", it: "%{picture} (non è l'immagine della ricetta)", ja: "%{picture}（レシピの画像ではありません）"}
-text.pictures_none: {en: "pictures: none chosen, they stay as the original", it: "immagini: nessuna scelta, restano come l'originale", ja: "画像：指定がないため、元のままです"}
-text.pictures_no_font: {en: "pictures stay as the original: fonts\\%{font} is missing", it: "le immagini restano come l'originale: manca fonts\\%{font}", ja: "フォント fonts\\%{font} がないため、画像は元のままです"}
+text.pictures_none: {en: "pictures: none chosen, they stay as the original", it: "immagini: nessuna scelta, restano come l'originale", ja: "画像：「なし」が選ばれているため、オリジナルのままです"}
+text.pictures_no_font: {en: "pictures stay as the original: fonts\\%{font} is missing", it: "le immagini restano come l'originale: manca fonts\\%{font}", ja: "フォント fonts\\%{font} がないため、画像はオリジナルのままです"}
 text.pictures_off: {en: "pictures stay Japanese", it: "le immagini restano in giapponese", ja: "画像は日本語のままです"}
 # where a line's words came from, inside the lines note
 text.src_kit: {en: "kit", it: "Forza-WCCF", ja: "Forza-WCCF"}
@@ -1095,19 +1095,19 @@ text.fail_table_tail: {en: "%{file} has %{count} bytes after its last line", it:
 text.fail_titles_tail: {en: "%{file} has %{count} bytes after its last title", it: "%{file} ha %{count} byte dopo l'ultimo titolo", ja: "%{file} の最後のタイトルの後に %{count} バイトあります"}
 text.fail_sheet_offset: {en: "exe_text.tsv: bad offset %{cell}", it: "exe_text.tsv: posizione errata %{cell}", ja: "exe_text.tsv：オフセット %{cell} が正しくありません"}
 text.fail_sheet_length: {en: "exe_text.tsv: bad length at %{cell}", it: "exe_text.tsv: lunghezza errata a %{cell}", ja: "exe_text.tsv：%{cell} の長さが正しくありません"}
-text.fail_read_back: {en: "%{what} does not read back as intended - nothing changed", it: "%{what} non si rilegge come previsto: nulla è stato cambiato", ja: "%{what} を書き戻すと想定どおりに読めないため、何も変更しませんでした"}
-text.fail_read_back_places: {en: "%{what} does not read back as intended (%{places} places) - nothing changed", it: "%{what} non si rilegge come previsto (%{places} punti): nulla è stato cambiato", ja: "%{what} を書き戻すと想定どおりに読めない箇所が %{places} か所あるため、何も変更しませんでした"}
+text.fail_read_back: {en: "%{what} does not read back as intended - nothing changed", it: "%{what} non si rilegge come previsto: nulla è stato cambiato", ja: "%{what} を読み直すと想定どおりではないため、何も変更しませんでした"}
+text.fail_read_back_places: {en: "%{what} does not read back as intended (%{places} places) - nothing changed", it: "%{what} non si rilegge come previsto (%{places} punti): nulla è stato cambiato", ja: "%{what} を読み直すと想定どおりではない箇所が %{places} か所あるため、何も変更しませんでした"}
 text.what_screen: {en: "the built screen text", it: "il testo dello schermo creato", ja: "作成した画面のテキスト"}
 text.what_client: {en: "the built client screen text", it: "il testo dello schermo del client creato", ja: "作成したクライアント画面のテキスト"}
-text.what_titles: {en: "the built manager titles", it: "i titoli degli allenatori creati", ja: "作成した監督タイトル"}
+text.what_titles: {en: "the built manager-title table", it: "la tabella dei titoli di allenatore creata", ja: "作成した監督タイトルの表"}
 # the pictures' sheets and recipes
 text.fail_pictures_list: {en: "english\\pictures.json has no pictures list", it: "english\\pictures.json non ha un elenco di immagini", ja: "english\\pictures.json に画像の一覧がありません"}
 text.fail_pictures_id: {en: "italian\\pictures.json: %{id} is no recipe's id", it: "italian\\pictures.json: %{id} non è l'id di nessuna ricetta", ja: "italian\\pictures.json：%{id} はどのレシピの id でもありません"}
 text.fail_pictures_words: {en: "italian\\pictures.json: %{id} has %{words} words for %{labels} labels", it: "italian\\pictures.json: %{id} ha %{words} parole per %{labels} etichette", ja: "italian\\pictures.json：%{id} は %{labels} 個のラベルに %{words} 語あります"}
 text.fail_picture_area: {en: "the %{fill} area %{area} is outside the picture", it: "l'area %{fill} %{area} è fuori dall'immagine", ja: "%{fill} の範囲 %{area} が画像の外にあります"}
 text.fail_picture_reflection: {en: "the reflection is outside the picture", it: "il riflesso è fuori dall'immagine", ja: "反射が画像の外にあります"}
-text.fail_scene_text: {en: "%{id}: \"%{text}\" does not fit at %{at}", it: "%{id}: \"%{text}\" non entra a %{at}", ja: "%{id}：%{text} は %{at} に収まりません"}
-text.fail_picture_size: {en: "the redrawn picture's size %{new} differs from the original's %{old}", it: "l'immagine ridisegnata ha dimensione %{new}, diversa da quella originale %{old}", ja: "描き直した画像のサイズ %{new} が元の %{old} と違います"}
+text.fail_scene_text: {en: "%{id}: \"%{text}\" does not fit at %{at}", it: "%{id}: \"%{text}\" non entra a %{at}", ja: "%{id}：「%{text}」は %{at} に収まりません"}
+text.fail_picture_size: {en: "the redrawn picture's size %{new} differs from the original's %{old}", it: "l'immagine ridisegnata ha dimensione %{new}, diversa da quella originale %{old}", ja: "描き直した画像のサイズ %{new} がオリジナルの %{old} と違います"}
 text.fail_state_hex: {en: "%{file}: not hex", it: "%{file}: non è esadecimale", ja: "%{file}：16 進数ではありません"}
 text.why_empty: {en: "<empty> would drop the Japanese line's codes", it: "<empty> perderebbe i codici della riga giapponese", ja: "<empty> では日本語の行のコードが失われます"}
 text.why_codes: {en: "codes %{found}, the game's line has %{want}", it: "codici %{found}, la riga del gioco ha %{want}", ja: "コードは %{found} ですが、ゲームの行は %{want} です"}
