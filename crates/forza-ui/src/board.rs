@@ -1670,6 +1670,7 @@ pub fn formation_board(
                 if let Some(s) = selected
                     && !is_dragged
                     && !links.grouped(s, c.number)
+                    && !in_group(board, &group, slot)
                 {
                     p.rect_filled(rect, corners, Color32::from_black_alpha(140));
                 }
@@ -1841,7 +1842,10 @@ pub fn formation_board(
             let Some(stage) = Stage::of(links.link(a, b)) else {
                 continue;
             };
-            let lit = selected.is_none_or(|s| s == a || s == b);
+            // the group's lines stay bright beside the selection's
+            let lit = selected.is_none_or(|s| s == a || s == b)
+                || in_group(board, &group, i)
+                || in_group(board, &group, j);
             let (to, alpha) = if lit {
                 (&mut front, 1.0)
             } else {
