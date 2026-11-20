@@ -82,20 +82,25 @@ fn write(hproc: HANDLE, pid: u32, name: &str, why: &str, folder: &Path, full: bo
         } else {
             format!("{kind}: failed 0x{err:08X}")
         });
-        let suffix = format!("_{kind}.dmp");
-        let mut old: Vec<_> = fs::read_dir(folder)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.ends_with(&suffix))
-            .collect();
-        old.sort();
-        for n in &old[..old.len().saturating_sub(DUMPS_KEEP)] {
-            let _ = fs::remove_file(folder.join(n));
-        }
+        prune(folder, kind);
     }
     format!("memory snapshot ({why}): data\\dumps\\{stem}_* - {}", made.join(", "))
+}
+
+/// The newest `DUMPS_KEEP` snapshots of one `kind` stay; the older ones, whose names sort by their timestamp, go.
+fn prune(folder: &Path, kind: &str) {
+    let suffix = format!("_{kind}.dmp");
+    let mut old: Vec<_> = fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(&suffix))
+        .collect();
+    old.sort();
+    for n in &old[..old.len().saturating_sub(DUMPS_KEEP)] {
+        let _ = fs::remove_file(folder.join(n));
+    }
 }
 
 /// A lean snapshot of the game's client and match engines now running from `game`'s folders (SAVE LOGS puts the newest
@@ -125,4 +130,34 @@ pub fn dump_running(game: &Path, folder: &Path) -> Vec<String> {
         unsafe { CloseHandle(h) };
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two more snapshots of one kind than `DUMPS_KEEP`: the newest `DUMPS_KEEP` stay, the two oldest go, and the other
+    /// kind and other files are left.
+    #[test]
+    fn pruning_keeps_the_newest_dumps() {
+        let t = crate::scratch();
+        let folder = t.path();
+        let name = |i: usize| format!("202601{i:02}-120000_Client_Release_100_lean.dmp");
+        for i in 1..=DUMPS_KEEP + 2 {
+            fs::write(folder.join(name(i)), b"x").unwrap();
+        }
+        fs::write(folder.join("20260101-000000_Client_Release_100_full.dmp"), b"x").unwrap();
+        fs::write(folder.join("notes.txt"), b"x").unwrap();
+        prune(folder, "lean");
+        let mut left: Vec<String> = fs::read_dir(folder)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        let mut want: Vec<String> = (3..=DUMPS_KEEP + 2).map(name).collect();
+        want.push("20260101-000000_Client_Release_100_full.dmp".to_owned());
+        want.push("notes.txt".to_owned());
+        want.sort();
+        assert_eq!(left, want);
+    }
 }

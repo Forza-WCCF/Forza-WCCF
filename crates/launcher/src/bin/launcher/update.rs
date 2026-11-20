@@ -275,14 +275,19 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
                 &[("path", "Launcher.exe"), ("error", &e.to_string())],
             )
         };
-        fs::copy(&me, &kept).map_err(failed)?;
-        self_replace::self_replace(top.join("Launcher.exe")).map_err(|e| {
-            if !me.is_file() {
-                let _ = fs::copy(&kept, &me);
-            }
-            failed(e)
-        })
+        swap_self(&me, &kept, || self_replace::self_replace(top.join("Launcher.exe"))).map_err(failed)
     })
+}
+
+/// The Launcher.exe swap: `me` goes into `kept` first, so it goes back when the swap has already moved it away and then
+/// fails (the folder would hold no Launcher.exe at all).
+fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+    fs::copy(me, kept)?;
+    let done = swap();
+    if done.is_err() && !me.is_file() {
+        let _ = fs::copy(kept, me);
+    }
+    done
 }
 
 /// The unzipped kit `top` over the kit folder `dir`, `replace` (the Launcher.exe swap) last; `work` (data\update) goes
@@ -584,5 +589,25 @@ mod tests {
         #[cfg(windows)]
         drop(_lock);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A swap that has moved the running Launcher.exe aside and then fails puts the kept copy back.
+    #[test]
+    fn a_failed_swap_puts_the_launcher_back() {
+        let t = crate::scratch();
+        let (me, kept) = (
+            t.path().join("Launcher.exe"),
+            t.path().join("data").join("update").join("Launcher.exe"),
+        );
+        fs::create_dir_all(kept.parent().unwrap()).unwrap();
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&kept, b"last update's copy").unwrap();
+        let e = swap_self(&me, &kept, || {
+            fs::remove_file(&me)?; // self_replace renames it away first
+            Err(io::Error::other("the kit folder is locked"))
+        })
+        .unwrap_err();
+        assert_eq!(e.to_string(), "the kit folder is locked");
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
     }
 }
