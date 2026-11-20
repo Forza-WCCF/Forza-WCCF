@@ -2970,6 +2970,25 @@ fn deck_label_parts(
     }
 }
 
+/// A deck button's name and keycap as [`cabinet_deck`] places them: its room from [`deck_label_room`], then
+/// [`deck_label`] (fitted on 2017-18 only), so the tests read the very labels the deck draws.
+#[allow(clippy::too_many_arguments)]
+fn deck_label_for(
+    p: &egui::Painter,
+    rect: Rect,
+    side: Dir,
+    plate: Rect,
+    data: Rect,
+    others: &[Rect],
+    name: &str,
+    cap: &str,
+    both: bool,
+    k: f32,
+) -> (std::sync::Arc<egui::Galley>, Rect, Option<Rect>) {
+    let room = deck_label_room(rect, side, plate, data, others, both);
+    deck_label(p, rect, side, plate, room, name, cap, !both, k)
+}
+
 /// A deck button's printed name, where it sits and where its keycap sits (`None`: no keycap): the keycap follows the
 /// name on its line; a name under its button (2017-18) whose line has no room for it gets it on a line of its own
 /// under the name, while that stays 4 points inside `plate` (DATA and START, issue #367). `k`: the print's size beside
@@ -3212,16 +3231,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 .into_iter()
                 .find(|r| r.contains(it.rect.center()))
                 .unwrap_or(area);
-            let room = deck_label_room(it.rect, side, plate, data, &rects, both);
-            let (name, at, cap_at) = deck_label(
+            let (name, at, cap_at) = deck_label_for(
                 p,
                 it.rect,
                 side,
                 plate,
-                room,
+                data,
+                &rects,
                 &tr!(lang, it.key),
                 &cap,
-                !both,
+                both,
                 k,
             );
             p.galley(at.min, name, theme::TEXT_DIM);
@@ -6674,17 +6693,16 @@ mod tests {
                         boxes.push((it.action.to_owned(), it.rect, plate));
                         if let Some(side) = it.label {
                             let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
-                            let room =
-                                deck_label_room(it.rect, side, plate, at("DATA"), &rects, false);
-                            let (_, label, cap_at) = deck_label(
+                            let (_, label, cap_at) = deck_label_for(
                                 &p,
                                 it.rect,
                                 side,
                                 plate,
-                                room,
+                                at("DATA"),
+                                &rects,
                                 &tr!(lang, it.key),
                                 cap,
-                                true,
+                                false,
                                 1.0,
                             );
                             let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
@@ -6759,16 +6777,16 @@ mod tests {
                             .find(|r| r.contains(it.rect.center()))
                             .unwrap();
                         let side = it.label.unwrap();
-                        let room = deck_label_room(it.rect, side, plate, data, &rects, false);
-                        let (_, name, cap_at) = deck_label(
+                        let (_, name, cap_at) = deck_label_for(
                             &p,
                             it.rect,
                             side,
                             plate,
-                            room,
+                            data,
+                            &rects,
                             &tr!(lang, it.key),
                             &cap,
-                            true,
+                            false,
                             s,
                         );
                         let why = format!("{lang:?} s={s} stack={stack} {action}");
