@@ -3467,7 +3467,12 @@ impl Render {
                 self.placed.len()
             ));
             let kept = self.table.table.with_file_name(KEPT_TABLE);
-            if let Err(e) = std::fs::write(&kept, cards::table_text(&self.placed)) {
+            // an empty table would overwrite the one an earlier run kept (#332)
+            let wrote = match self.placed.is_empty() {
+                true => Ok(()),
+                false => std::fs::write(&kept, cards::table_text(&self.placed)),
+            };
+            if let Err(e) = wrote {
                 log(&format!("board: {} not written ({e})", kept.display()));
             }
         }
