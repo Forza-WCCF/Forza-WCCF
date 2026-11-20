@@ -80,9 +80,11 @@ impl Lang {
 }
 
 impl Lang {
-    /// A language code: `en`, `it` or `ja`.
+    /// A language code: `en`, `it` or `ja`, in any case and with spaces around it.
     pub fn from_code(code: &str) -> Option<Lang> {
-        Lang::ALL.into_iter().find(|l| l.code() == code.trim())
+        Lang::ALL
+            .into_iter()
+            .find(|l| l.code().eq_ignore_ascii_case(code.trim()))
     }
 
     /// The program's language: `WCCF_KIT_LANG=en|it|ja` (to check a translation on any PC), else Windows' display

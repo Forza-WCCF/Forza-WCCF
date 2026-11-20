@@ -28,7 +28,7 @@ pub fn choose(saved: Option<&str>) {
 
 /// The language of a code ("en", "it", "ja").
 pub fn of(code: &str) -> Option<Lang> {
-    Lang::ALL.into_iter().find(|l| l.code() == code)
+    Lang::from_code(code)
 }
 
 pub fn set(lang: Lang) {

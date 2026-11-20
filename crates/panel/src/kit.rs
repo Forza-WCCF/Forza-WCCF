@@ -106,7 +106,7 @@ impl Files {
             .into_iter()
             .flatten()
             .chain([windows.to_owned()])
-            .find_map(|c| Lang::ALL.into_iter().find(|l| l.code() == c))
+            .find_map(|c| Lang::from_code(&c))
             .unwrap_or(Lang::En)
     }
 
