@@ -14,10 +14,12 @@
 //! `RESERVE room-id [2]` -> `TICKET t 2` | `FULL` | `TAKEN` | `CLOSED`, `READY id t`, `CLOSE id t`, and `HEARTBEAT` /
 //! `RELEASE` for room tickets as for arcade seats. Each live room ticket is told to the shared [`Matcher`], which pairs
 //! the two PCs holding one room's tickets with each other only (`crates/server/README.md`, "VS rooms").
+//! `MODE id t free|cat` -> `OK` | `GONE`: the ticket's VS seat plays free or Create-a-Team (arcade seats have none).
 
 use crate::{Edition, Handle, Log};
 use forza::online::lobby::{
-    self, Arcade, Created, Lobby, Occupant, Reserved, ServerNotice, State as ArcadeState, VsRoom,
+    self, Arcade, Created, Lobby, Mode, Occupant, Reserved, ServerNotice, State as ArcadeState,
+    VsRoom,
 };
 use forza::online::sessions::Sessions;
 use forza::online::vs::Matcher;
@@ -352,6 +354,7 @@ struct Sitter {
     ticket: String,
     club: String,
     ready: bool,
+    mode: Mode,
     end: Instant,
 }
 
@@ -650,7 +653,7 @@ fn session(
     match line.split_whitespace().collect::<Vec<_>>()[..] {
         // an arcade's own desk behind its tunnel (loopback is many guests, so no per-address limits there) seats its
         // own PCs only: rooms live on the public lobby
-        ["CREATE" | "JOIN" | "SHOP" | "READY" | "CLOSE", ..] if sh.cfg.tunnel => {
+        ["CREATE" | "JOIN" | "SHOP" | "READY" | "MODE" | "CLOSE", ..] if sh.cfg.tunnel => {
             return out.write_all(b"ERR rooms are on the lobby\n");
         }
         ["LOBBY", edition] => return lobby_answer(sh, ip, edition, &mut out),
@@ -678,6 +681,12 @@ fn session(
         ["CREATE", "vs"] if rooms => return create(sh, ip, false, &mut out),
         ["CREATE", "vs", "open"] if rooms => return create(sh, ip, true, &mut out),
         ["READY", id, t] if rooms => return ready(sh, id, t, &mut out),
+        ["MODE", id, t, m] if rooms => {
+            return match Mode::parse(m) {
+                Some(m) => set_mode(sh, id, t, m, &mut out),
+                None => out.write_all(b"ERR mode\n"),
+            };
+        }
         ["CLOSE", id, t] if rooms || !e1011 => return close(sh, id, t, &mut out),
         // 2017-18 arcade rooms: no matcher needed, the arcade's own desk seats its PCs; the wire tokens `CREATE shop`
         // and `SHOP` are kept from before the arcade rename, as 0.6.x clients send them
@@ -1160,6 +1169,7 @@ fn vs_room(r: &Room) -> VsRoom {
                 seat,
                 club: s.club.clone(),
                 ready: s.ready,
+                mode: s.mode,
             })
         })
         .collect();
@@ -1179,6 +1189,7 @@ fn sitter(sh: &Shared, now: Instant) -> Sitter {
         ticket: random_hex(8),
         club: code(4),
         ready: false,
+        mode: Mode::Free,
         end: now + sh.cfg.reserve_lease,
     }
 }
@@ -1426,6 +1437,17 @@ fn ready(sh: &Shared, id: &str, t: &str, out: &mut TcpStream) -> io::Result<()> 
     let ok = sat(&mut st, id, t)
         .and_then(|(r, s)| st.rooms.get_mut(r)?.seats.get_mut(s)?.as_mut())
         .map(|g| g.ready = true);
+    drop(st);
+    out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
+}
+
+/// `MODE id t m` -> `OK` (the ticket's seat plays `m`) or `GONE`; another room's or a stale ticket changes nothing.
+fn set_mode(sh: &Shared, id: &str, t: &str, m: Mode, out: &mut TcpStream) -> io::Result<()> {
+    let mut st = lock(&sh.state);
+    expire(sh, &mut st, Instant::now());
+    let ok = sat(&mut st, id, t)
+        .and_then(|(r, s)| st.rooms.get_mut(r)?.seats.get_mut(s)?.as_mut())
+        .map(|g| g.mode = m);
     drop(st);
     out.write_all(if ok.is_some() { b"OK\n" } else { b"GONE\n" })
 }

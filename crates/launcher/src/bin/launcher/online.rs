@@ -6,10 +6,10 @@
 use super::{plain_error, poke, refuse, t, tf};
 use forza::online::lobby::{Created, HEARTBEAT_EVERY, Reserved};
 use forza_ui::launcher::{LauncherState, Tab};
-use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, RowState};
+use forza_ui::lobby::{Kind, LobbyAction, Notice, Occupant, Room, Row, RowState};
 use launcher::choices;
 use launcher::lobby::CodeJoin;
-use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release};
+use launcher::lobby::{Beat, Book, Msg, Poller, REJOIN_SECS, Wake, close, quick_arcade, release, seat_mode, tell_mode};
 use launcher::notice::{self, Notices};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -385,12 +385,21 @@ impl Online {
                 *s = Some(Occupant {
                     club: o.club.clone(),
                     ready: o.ready,
+                    mode: o.mode,
                 });
             }
         }
         // READY pressed here shows at once, before the desk's next answer says so
         if let Some(Some(o)) = room.mine.and_then(|i| seats.get_mut(i)) {
             o.ready |= self.clock.ready;
+        }
+        if let Some(i) = room.mine {
+            own_mark(
+                &mut seats,
+                st.lobby.vs.iter_mut().find(|r| r.id == id),
+                i,
+                seat_mode(st.profile),
+            );
         }
         room.seats = seats;
         let c = &mut self.clock;
@@ -409,6 +418,7 @@ impl Online {
         match result {
             Ok(Created::Room { id, code, ticket, seat }) => {
                 let beat = p.beat(&server, &ticket, Duration::from_secs(HEARTBEAT_EVERY), Arc::new(poke));
+                tell_mode(st.profile, &server, &id, &ticket, Arc::new(|l: &str| super::log(l)));
                 let mut room = Room::new(&code, Kind::Vs, 2);
                 // seat 2 when QUICK MATCH sat down in a waiting room; the club id comes with the next LOBBY
                 let i = usize::from(seat.clamp(1, 2)) - 1;
@@ -416,6 +426,7 @@ impl Online {
                 room.seats[i] = Some(Occupant {
                     club: String::new(),
                     ready: false,
+                    mode: seat_mode(st.profile),
                 });
                 st.lobby.room = Some(room);
                 st.lobby.notice = None;
@@ -470,6 +481,9 @@ impl Online {
                     None if st.lobby.arcades_view_only => (Kind::Vs, 2),
                     None => (Kind::Arcades, 8),
                 };
+                if kind == Kind::Vs {
+                    tell_mode(st.profile, &server, &id, &ticket, Arc::new(|l: &str| super::log(l)));
+                }
                 let mut room = Room::new(&name, kind, n);
                 room.next_entry = st.lobby.arcades.iter().find(|r| r.id == id).and_then(|r| r.next_entry);
                 let i = usize::from(seat).clamp(1, n) - 1;
@@ -479,6 +493,7 @@ impl Online {
                 room.seats[i] = Some(Occupant {
                     club: String::new(),
                     ready: kind == Kind::Arcades,
+                    mode: seat_mode(st.profile),
                 });
                 st.lobby.room = Some(room);
                 self.clock = Clock::default();
@@ -688,9 +703,120 @@ impl Online {
     }
 }
 
+/// This PC's mark on its seat `mine` and on its room's row, both its profile's (a desk before MODE lists every seat
+/// FREE). The row's marks are the occupied seats' in seat order.
+fn own_mark(seats: &mut [Option<Occupant>], row: Option<&mut Row>, mine: usize, mode: forza_ui::lobby::Mode) {
+    let Some(Some(o)) = seats.get_mut(mine) else { return };
+    o.mode = mode;
+    let at = seats[..mine].iter().flatten().count();
+    if let Some(m) = row.and_then(|r| r.modes.get_mut(at)) {
+        *m = mode;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A desk before MODE lists every seat FREE: a Create-a-Team PC's own seat and own room row both show its mark,
+    /// the opponent's stay as the desk said, with an empty seat before this PC's too.
+    #[test]
+    fn own_row_and_seat_share_the_profiles_mark_on_an_old_desk() {
+        use forza_ui::lobby::Mode::{Cat, Free};
+        let seat = |club: &str| {
+            Some(Occupant {
+                club: club.into(),
+                ready: false,
+                mode: Free,
+            })
+        };
+        let row = |modes: Vec<forza_ui::lobby::Mode>| Row {
+            id: "r1".into(),
+            name: "ABCD".into(),
+            players: modes.len() as u8,
+            max: 2,
+            ping_ms: None,
+            lang: None,
+            state: RowState::Open,
+            next_entry: None,
+            room: false,
+            modes,
+        };
+        for (mut seats, mut r, want) in [
+            (vec![seat("a"), seat("me")], row(vec![Free, Free]), vec![Free, Cat]),
+            (vec![None, seat("me")], row(vec![Free]), vec![Cat]),
+        ] {
+            own_mark(&mut seats, Some(&mut r), 1, Cat);
+            assert_eq!(seats[1].as_ref().map(|o| o.mode), Some(Cat));
+            assert_eq!(r.modes, want);
+            assert_eq!(r.modes.last(), Some(&Cat), "own row and own seat agree");
+        }
+    }
+
+    /// #236 review: HOST VS and a reserved VS seat tell the lobby the mode of the profile the Launcher reads, not only
+    /// the mapping (`seat_mode`): a Create-a-Team PC sends `MODE id ticket cat` for both.
+    #[test]
+    fn a_create_a_team_seat_tells_the_lobby_its_mode() {
+        use std::io::{BufRead, BufReader, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = l.local_addr().unwrap().to_string();
+        let (heard, said) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                let c = c.unwrap();
+                let mut line = String::new();
+                BufReader::new(&c).read_line(&mut line).unwrap();
+                let _ = (&c).write_all(b"OK\n");
+                if heard.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        let d = tempfile::tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        let mut st = LauncherState::sample(
+            launcher::Edition::E1718,
+            forza_ui::Lang::En,
+            forza_ui::launcher::Scenario::Ready,
+        );
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.lobby.arcades_view_only = true; // 2017-18: a seat reserved before the list came is a VS seat
+        let mut o = Online::default();
+        o.poller = Some(Poller::start(
+            Vec::new(),
+            "2017-18",
+            Duration::from_secs(3600),
+            Arc::new(|| {}),
+        ));
+        let room = |id: &str, ticket: &str| Created::Room {
+            id: id.into(),
+            code: "ABCD".into(),
+            ticket: ticket.into(),
+            seat: 1,
+        };
+        o.created(&mut st, &settings, server.clone(), Ok(room("r1", "t1")));
+        let ticket = Reserved::Ticket {
+            ticket: "t2".into(),
+            seat: 2,
+        };
+        o.reserved(
+            &mut st,
+            &settings,
+            server.clone(),
+            "r2".into(),
+            "EFGH".into(),
+            Ok(ticket),
+        );
+        let mut modes = Vec::new();
+        while modes.len() < 2 {
+            let line = said.recv_timeout(Duration::from_secs(5)).expect("a MODE line");
+            if line.starts_with("MODE ") {
+                modes.push(line);
+            }
+        }
+        modes.sort();
+        assert_eq!(modes, ["MODE r1 t1 cat\n", "MODE r2 t2 cat\n"]);
+    }
 
     /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY
     /// CPU NOW starts the run.

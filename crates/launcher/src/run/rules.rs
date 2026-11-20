@@ -173,6 +173,9 @@ pub struct VsTarget {
     pub port: u16,
     /// The room's desk address and ticket (data\panel.txt `server=` and `ticket=`).
     pub room: Option<(String, String)>,
+    /// The room's two FREE / CREATE-A-TEAM marks, this PC's first (data\panel.txt `vs_marks=`, "cat,free"): the
+    /// seat's `WCCF_VS_MARKS`.
+    pub marks: Option<String>,
 }
 
 /// data\panel.txt's `server=` and `ticket=` and data\settings.json `club_server` into a [`VsTarget`]. A held room
@@ -190,18 +193,25 @@ pub fn vs_target(panel: &str, club_server: &str) -> Result<VsTarget, Text> {
             host: s.clone(),
             port: CLUB_PORT,
             room: Some((s.clone(), t)),
+            marks: panel_value(panel, "vs_marks").filter(|m| !m.is_empty()),
         });
     }
     if !club.is_empty() {
         let (host, port) =
             parse_club_server(club).ok_or_else(|| Text::key("launcher.run_bad_club_server").arg("club", club))?;
-        return Ok(VsTarget { host, port, room: None });
+        return Ok(VsTarget {
+            host,
+            port,
+            room: None,
+            marks: None,
+        });
     }
     match server {
         Some(host) => Ok(VsTarget {
             host,
             port: CLUB_PORT,
             room: None,
+            marks: None,
         }),
         None => Err(Text::key("launcher.run_no_server_set")),
     }
@@ -719,6 +729,7 @@ mod tests {
                 host: "203.0.113.7".into(),
                 port: 20060,
                 room: Some(("203.0.113.7".into(), "ab12cd34".into())),
+                marks: None,
             },
             "a held room plays on its own server, whatever the club server says"
         );
@@ -736,6 +747,15 @@ mod tests {
         let public = t("play_on=online\nserver=203.0.113.10:20032\nticket=ab12\n", "").unwrap();
         assert_eq!((public.host.as_str(), public.port), ("203.0.113.10", 20060));
         assert_eq!(public.room.map(|r| r.1).as_deref(), Some("ab12"));
+        // a room's two marks go with its ticket; a line left without one is not read
+        let marked = t(
+            "play_on=online\nserver=203.0.113.7\nticket=ab12\nvs_marks=cat,free\n",
+            "",
+        )
+        .unwrap();
+        assert_eq!(marked.marks.as_deref(), Some("cat,free"));
+        let stale = t("play_on=online\nserver=203.0.113.7\nvs_marks=cat,free\n", "").unwrap();
+        assert_eq!(stale.marks, None);
         assert!(t("play_on=online\n", "").is_err());
         assert!(t("play_on=online\nserver=not an address\n", "").is_err());
         assert!(t("play_on=online\nserver=203.0.113.7\n", "bad host:0").is_err());
