@@ -716,7 +716,7 @@ fn remake(
     font: &Font,
     refh: i64,
     p: &str,
-    notes: &mut Vec<String>,
+    notes: &mut Vec<super::Line>,
 ) -> R<Vec<u8>> {
     if p.ends_with(".sbscene") {
         let mut d = data.to_vec();
@@ -736,7 +736,7 @@ fn remake(
 /// A scene's literal text, same byte length: each label's `at` is the length byte (`len`) of a KEY text the game
 /// draws as it is; the words, centred in spaces, take the original bytes' place, so no chunk size changes. A label
 /// with no words keeps the original text, and `notes` says so.
-fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<String>) -> R<()> {
+fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<super::Line>) -> R<()> {
     for lab in r["labels"].as_array().into_iter().flatten() {
         let num = |k: &str| usize::try_from(lab[k].as_u64().unwrap_or(0)).unwrap_or(usize::MAX);
         let (at, len) = (num("at"), num("len"));
@@ -749,10 +749,11 @@ fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<String>) -> R<()> {
             )));
         }
         if t.is_empty() {
-            notes.push(format!(
-                "{}: no words at {at}, the original text stays",
-                r["id"]
-            ));
+            notes.push(
+                super::Line::key("text.note_picture_no_words")
+                    .arg("id", r["id"].as_str().unwrap_or(""))
+                    .arg("at", at),
+            );
             continue;
         }
         let pad = len - t.len();
@@ -972,20 +973,18 @@ pub fn build(
     it: bool,
     spec: Option<&str>,
     state: &Path,
-) -> R<(Pics, Vec<String>)> {
+) -> R<(Pics, Vec<super::Line>)> {
     let names = wanted(spec);
     if names.as_ref().is_some_and(HashSet::is_empty) {
         return Ok((
             Pics::new(),
-            vec!["pictures: none chosen, they stay as the original".into()],
+            vec![super::Line::key("text.pictures_none")],
         ));
     }
     let Some(fp) = font_path(sheets) else {
         return Ok((
             Pics::new(),
-            vec![format!(
-                "pictures stay as the original: fonts\\{FONT} is missing"
-            )],
+            vec![super::Line::key("text.pictures_no_font").arg("font", FONT)],
         ));
     };
     let font = Font {
@@ -1014,7 +1013,9 @@ pub fn build(
             }
             seen = true;
             let Some(&i) = index.get(p) else {
-                skipped.push(format!("{p} (not in the archive)"));
+                skipped.push(
+                    super::Line::key("text.why_not_in_archive").arg("picture", p),
+                );
                 continue;
             };
             let e = match saved.get(&i.to_string()).and_then(Value::as_str) {
@@ -1028,7 +1029,9 @@ pub fn build(
             };
             let data = read_entry(&mut f, &e)?;
             if sha(&data) != r["sha256"].as_str().unwrap_or("").to_uppercase() {
-                skipped.push(format!("{p} (not the picture the recipe is for)"));
+                skipped.push(
+                    super::Line::key("text.why_not_the_recipe").arg("picture", p),
+                );
                 continue;
             }
             out.push((
@@ -1041,20 +1044,24 @@ pub fn build(
     if names.is_some() && !seen {
         return fail(super::Line::key("text.fail_pictures_name").arg("name", spec.unwrap_or("")));
     }
+    let lang = if it { super::Lang::It } else { super::Lang::En };
     notes.insert(
         0,
-        format!(
-            "{} pictures with their writing in {}",
-            out.len(),
-            if it { "Italian" } else { "English" }
-        ),
+        super::Line::key("text.note_pictures")
+            .arg("count", out.len())
+            .part("lang", lang.line()),
     );
     if let Some(s) = skipped.first() {
-        notes.push(format!(
-            "{} pictures stay as they are: {s}{}",
-            skipped.len(),
-            if skipped.len() > 1 { ", ..." } else { "" }
-        ));
+        let key = if skipped.len() > 1 {
+            "text.note_pictures_kept_more"
+        } else {
+            "text.note_pictures_kept"
+        };
+        notes.push(
+            super::Line::key(key)
+                .arg("count", skipped.len())
+                .part("first", s.clone()),
+        );
     }
     Ok((out, notes))
 }
@@ -1556,7 +1563,8 @@ mod tests {
             retext(&mut d, &json!({"id": "t", "labels": [lab]}), &mut notes).unwrap();
             assert_eq!(&d, original, "the original bytes stay");
             assert_eq!(notes.len(), 1, "{notes:?}");
-            assert!(notes[0].contains("original text"), "{notes:?}");
+            let said = super::super::tests::note_words("en", &notes[0]);
+            assert!(said.contains("original text"), "{said}");
         }
     }
 

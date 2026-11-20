@@ -1033,6 +1033,16 @@ text.note_exe: {en: "%{client} texts inside the program, in the projector's and 
 text.note_exe_server: {en: ", and %{count} in the server", it: ", e %{count} nel server", ja: "、サーバーに %{count} 件"}
 text.note_by: {en: "%{source} %{count}", it: "%{source} %{count}", ja: "%{source} %{count}"}
 text.note_by_more: {en: "%{head}, %{source} %{count}", it: "%{head}, %{source} %{count}", ja: "%{head}、%{source} %{count}"}
+# the picture notes under a built text: the writing's language, then the pictures left as the original
+text.note_pictures: {en: "%{count} pictures with their writing in %{lang}", it: "%{count} immagini con la scritta in %{lang}", ja: "%{count} 枚の画像の文字を%{lang}にしました"}
+text.note_pictures_kept: {en: "%{count} pictures stay as they are: %{first}", it: "%{count} immagini restano come sono: %{first}", ja: "%{count} 枚の画像はそのままにしました：%{first}"}
+text.note_pictures_kept_more: {en: "%{count} pictures stay as they are: %{first}, ...", it: "%{count} immagini restano come sono: %{first}, ...", ja: "%{count} 枚の画像はそのままにしました（%{first} など）"}
+text.note_picture_no_words: {en: "%{id}: no words at %{at}, the original text stays", it: "%{id}: nessuna parola a %{at}, il testo originale resta", ja: "%{id}：%{at} に言葉がないため、元のテキストのままです"}
+text.why_not_in_archive: {en: "%{picture} (not in the archive)", it: "%{picture} (non è nell'archivio)", ja: "%{picture}（アーカイブにありません）"}
+text.why_not_the_recipe: {en: "%{picture} (not the picture the recipe is for)", it: "%{picture} (non è l'immagine della ricetta)", ja: "%{picture}（レシピの画像ではありません）"}
+text.pictures_none: {en: "pictures: none chosen, they stay as the original", it: "immagini: nessuna scelta, restano come l'originale", ja: "画像：指定がないため、元のままです"}
+text.pictures_no_font: {en: "pictures stay as the original: fonts\\%{font} is missing", it: "le immagini restano come l'originale: manca fonts\\%{font}", ja: "フォント fonts\\%{font} がないため、画像は元のままです"}
+text.pictures_off: {en: "pictures stay Japanese", it: "le immagini restano in giapponese", ja: "画像は日本語のままです"}
 # where a line's words came from, inside the lines note
 text.src_kit: {en: "kit", it: "Forza-WCCF", ja: "Forza-WCCF"}
 text.src_kit_it: {en: "kit Italian", it: "italiano Forza-WCCF", ja: "Forza-WCCF のイタリア語"}

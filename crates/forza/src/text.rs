@@ -20,7 +20,6 @@ mod coach_title;
 mod pictures;
 mod pil;
 
-const PICTURES_OFF: &str = "pictures stay Japanese";
 use regex::Regex;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -1816,13 +1815,13 @@ pub fn run(
             let spec = std::env::var("WCCF_PICTURES").ok();
             pictures::build(game, sheets, lang == Lang::It, spec.as_deref(), &state)?
         } else {
-            (vec![], vec![PICTURES_OFF.into()])
+            (vec![], vec![Line::key("text.pictures_off")])
         };
         for n in &notes {
             say("  ok    ", n);
         }
         for n in &pnotes {
-            say("  ok    ", &Line::raw(n));
+            say("  ok    ", n);
         }
         if mode == Mode::Check {
             let man = c.load_manifest()?;
