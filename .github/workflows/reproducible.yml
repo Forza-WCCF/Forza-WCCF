@@ -94,6 +94,10 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # the last step says a weekly difference where it is seen (#304); the release download reads the repository
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,6 +122,8 @@ jobs:
             echo "::notice::the two builds are byte-identical"
           else
             echo "::error::the two builds differ"
+            # kept for the issue the last step files: nobody reads this step's log after the run
+            { diff a.txt b.txt || true; diff dist-a/SHA256SUMS.txt dist-b/SHA256SUMS.txt || true; } > diffs.txt
             exit 1
           fi
       - name: Build against the last release
@@ -132,3 +138,25 @@ jobs:
           gh release download "$BASE" -D base -p 'Forza-WCCF-2017-18-*.zip' -p 'Forza-WCCF-Installer-*.exe'
           .github/scripts/repro.sh hashes base > base.txt
           { echo "### $BASE against this build"; .github/scripts/repro.sh why base.txt a.txt "$BASE" "$REF"; } | tee -a "$GITHUB_STEP_SUMMARY"
+      # The weekly run on main has nobody watching it (#304): a difference gets an issue, kept to the latest run
+      - name: the two builds differ
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: 'CI: the weekly reproducible build differs'
+        run: |
+          {
+            echo "The two builds of $RUN_URL are not byte-identical."
+            echo
+            echo '```'
+            head -n 60 diffs.txt 2>/dev/null || echo 'the lines are in the step that failed'
+            echo '```'
+          } > body.md
+          n=$(gh issue list --state open --limit 100 --json number,title \
+            --jq '.[] | select(.title == env.TITLE) | .number' | head -n 1)
+          if [ -n "$n" ]; then
+            gh issue edit "$n" --body-file body.md
+          else
+            gh issue create --title "$TITLE" --label bug --body-file body.md
+          fi
