@@ -26,6 +26,7 @@
 
 mod collection;
 mod link;
+mod market;
 mod online;
 mod pack;
 mod text;
@@ -821,6 +822,8 @@ struct App {
     /// The collection read's warnings last logged: a refresh logs them again only when they change, and a read that
     /// could not happen leaves no list behind (the warnings that follow it are logged again).
     collection_warnings: Vec<String>,
+    /// The market page's request on its way (step 4.1).
+    market: market::Market,
 }
 
 /// The collection read's warnings to log now, and the list the next refresh compares to (`said`): `None` is a log that
@@ -936,9 +939,95 @@ impl App {
             run_from_command,
             catalogue: None,
             collection_warnings: Vec::new(),
+            market: market::Market::default(),
         };
         app.collection(kit);
+        // COLLECT at start: the sales paid and the listings past 7 days back, while in the market or a sale waits
+        app.market_job(kit, CollectionAction::Market);
         app
+    }
+
+    /// Starts a market request for the page (`market::run`); the page waits for it.
+    fn market_job(&mut self, kit: &Kit, a: CollectionAction) {
+        // the page outside the market asks nothing, unless a request or a sale waits; an unreadable state file is kept
+        // aside and said once
+        let saved = match forza::market::Client::load(&kit.data()) {
+            Ok(s) => s,
+            Err(e) => {
+                log(&format!("market: {e:?}"));
+                if let forza::market::Fail::Disk(e) = &e
+                    && let Some(v) = &mut self.st.collection
+                {
+                    v.market.note = Some(tf("collection.market_disk", &[("error", e)]));
+                }
+                return;
+            }
+        };
+        if a == CollectionAction::Market && !saved.joined && saved.waiting == 0 && saved.outbox.is_none() {
+            return;
+        }
+        let Some(dir) = self
+            .st
+            .profile
+            .filter(|_| kit.edition() == Edition::E1718)
+            .and_then(|p| p.collection(&kit.data()))
+        else {
+            return;
+        };
+        if self.market.start(kit.data(), dir, a)
+            && let Some(v) = &mut self.st.collection
+        {
+            v.market.busy = true;
+            v.market.note = None;
+        }
+    }
+
+    /// A market request came back: the log read again (its lines, the listings), the page's lists and what it said.
+    fn market_done(&mut self, kit: &Kit, d: market::Done) {
+        use forza::market::Fail;
+        let note = match &d.said {
+            Ok(()) => None,
+            Err(Fail::Unanswered(e)) => {
+                log(&format!("market: {:?} unanswered: {e}", d.action));
+                // only the outbox's words are sent again (a purchase, a listing, a take back, COLLECT, RESET)
+                Some(if forza::market::Client::saved(&kit.data()).outbox.is_some() {
+                    t("collection.market_offline")
+                } else {
+                    t("collection.market_unanswered")
+                })
+            }
+            Err(Fail::Refused(why)) => {
+                log(&format!("market: {:?} refused: {why}", d.action));
+                Some(tf("collection.market_refused", &[("why", why)]))
+            }
+            Err(Fail::Disk(e)) => {
+                log(&format!("market: {:?} failed on this PC: {e}", d.action));
+                Some(tf("collection.market_disk", &[("error", e)]))
+            }
+        };
+        if d.said.is_ok() {
+            log(&format!("market: {:?} done", d.action));
+        }
+        if let Some(why) = &d.resent {
+            log(&format!("market: a request sent again was refused: {why}"));
+        }
+        let note = note.or_else(|| {
+            d.resent
+                .as_ref()
+                .map(|why| tf("collection.market_resent_refused", &[("why", why)]))
+        });
+        self.collection(kit);
+        if let (Some(v), Some(cat)) = (&mut self.st.collection, &self.catalogue) {
+            v.market.busy = false;
+            v.market.note = note;
+            if let Some(s) = d.stock {
+                v.market.left = s.left;
+                v.market.stock = collection::offered(cat, &s.rows);
+            }
+            if let Some(rows) = d.sale {
+                v.market.sale = collection::offered(cat, &rows);
+            }
+        }
     }
 
     /// COLLECTION's view made again from the log, while Create-a-Team is the profile (2017-18); gone otherwise.
@@ -957,7 +1046,8 @@ impl App {
             self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
         let log_file = forza::collection::Log::new(&dir);
-        let read = log_file.lines().map(|text| forza::collection::fold(&text));
+        let text = log_file.lines();
+        let read = text.as_ref().map(|text| forza::collection::fold(text));
         // what the read found (a damaged line, a pack cut from its cards) goes to DETAILS and launcher.txt, once
         for w in warnings_to_log(
             read.as_ref().ok().map(|f| f.warnings.as_slice()),
@@ -970,7 +1060,7 @@ impl App {
         let made = match (&self.catalogue, read) {
             (None, _) => Err((t("launcher.msg_no_catalogue"), false)),
             (Some(cat), Ok(f)) => Ok(collection::view_of(cat, &dir, f, old.clone())),
-            (Some(_), Err(e)) => Err((read_failed(log_file.path(), &e), true)),
+            (Some(_), Err(e)) => Err((read_failed(log_file.path(), e), true)),
         };
         self.st.collection = Some(
             made.unwrap_or_else(|(why, damaged)| forza_ui::collection::CollectionView {
@@ -987,8 +1077,14 @@ impl App {
                 damaged,
                 offers: Vec::new(),
                 craftable: Vec::new(),
+                market: Default::default(),
             }),
         );
+        if let (Some(v), Some(cat), Ok(text)) = (&mut self.st.collection, &self.catalogue, &text)
+            && v.problem.is_none()
+        {
+            collection::market_of(v, cat, text, &kit.data());
+        }
     }
 
     /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
@@ -1053,6 +1149,9 @@ impl App {
     /// when the player started it here, closed only when a command line's run ended well.  Runs also while the window is
     /// minimized.
     fn look(&mut self, ctx: &egui::Context) {
+        if let Some(done) = self.market.poll() {
+            self.market_done(&Kit::here(), done);
+        }
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
             if reread_setup(self.st.busy, s.busy, s.setup_failed) {
@@ -1269,6 +1368,12 @@ impl App {
     /// What the player asked for in the screen.
     fn act(&mut self, a: Action, ctx: &egui::Context, frame: &eframe::Frame) {
         let kit = Kit::here();
+        if let Action::Collection(c) = &a
+            && let Some(why) = market_busy_refusal(c, self.market.busy())
+        {
+            refuse(why);
+            return;
+        }
         match a {
             Action::Play => self.play(&kit, Vec::new()),
             Action::Stop => stop_game(),
@@ -1416,13 +1521,31 @@ impl App {
                 let done = if RUNNING.load(Ordering::Relaxed) {
                     Err(collection::ResetRefused::Busy)
                 } else {
-                    collection::reset_kit(&kit)
+                    // RESET into the market outbox first (`PLAN.md` 3.6): a crash after the archive still sends it
+                    let queued = self.st.profile.and_then(|p| p.collection(&kit.data())).and_then(|dir| {
+                        market::queue_reset(&kit.data(), &dir)
+                            .inspect_err(|e| log(&format!("market: RESET could not be queued: {e:?}")))
+                            .ok()
+                            .map(|before| (dir, before))
+                    });
+                    let done = collection::reset_kit(&kit);
+                    if done.is_err()
+                        && let Some((dir, before)) = &queued
+                        && let Err(e) = market::put_back(&kit.data(), dir, before)
+                    {
+                        log(&format!("market: RESET could not be taken back: {e:?}"));
+                    }
+                    done
                 };
                 match done {
                     Ok(to) => {
                         let to = to.display().to_string();
                         log(&format!("collection: reset, the old profile is in {to}"));
                         say(tf("collection.reset_done", &[("folder", &to)]), 0);
+                        if forza::market::Client::saved(&kit.data()).outbox.is_some() {
+                            log("market: RESET queued for the reset");
+                            self.market_job(&kit, CollectionAction::Market);
+                        }
                     }
                     Err(collection::ResetRefused::Busy) => refuse(t("launcher.msg_game_running")),
                     Err(collection::ResetRefused::NoSeat) => {
@@ -1524,6 +1647,15 @@ impl App {
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
+            Action::Collection(
+                a @ (CollectionAction::Market
+                | CollectionAction::MarketJoin
+                | CollectionAction::MarketLeave
+                | CollectionAction::StockBuy(..)
+                | CollectionAction::MarketBuy(..)
+                | CollectionAction::List(..)
+                | CollectionAction::Unlist(..)),
+            ) => self.market_job(&kit, a),
             Action::Collection(CollectionAction::Stats) => {
                 // the log is only read; the file goes where the player picks, and they send it by hand
                 let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
@@ -2290,6 +2422,20 @@ fn main() -> ExitCode {
 
 /// A scratch folder under `%TEMP%` named `wccf-…`, as `launcher::scratch` in the lib: one Defender exclusion of
 /// `%TEMP%\wccf-*` covers it.
+/// A collection action refused while a market request is on its way: its answer writes the log after, so PACKS, CRAFT
+/// and CONVERT could spend the tokens or the copy it spends (the server then refuses the log), and START OVER's RESET
+/// would be saved over by the request's own save.
+fn market_busy_refusal(a: &CollectionAction, busy: bool) -> Option<String> {
+    match a {
+        _ if !busy => None,
+        CollectionAction::Buy(_) | CollectionAction::Craft(_) | CollectionAction::Convert(_) => {
+            Some(t("collection.market_wait"))
+        }
+        CollectionAction::Reset => Some(t("collection.reset_market_busy")),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 fn scratch() -> tempfile::TempDir {
     tempfile::Builder::new().prefix("wccf-").tempdir().unwrap()
@@ -2298,6 +2444,24 @@ fn scratch() -> tempfile::TempDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// F1: a pack, a craft or a conversion waits while a market request is on its way; START OVER too; the market's
+    /// own words and the page do not.
+    #[test]
+    fn a_pack_is_refused_while_a_market_request_runs() {
+        use forza_ui::collection::PackChoice;
+        let pack = CollectionAction::Buy(PackChoice::Standard);
+        assert_eq!(market_busy_refusal(&pack, true), Some(t("collection.market_wait")));
+        assert_eq!(market_busy_refusal(&pack, false), None);
+        for a in [CollectionAction::Craft(1), CollectionAction::Convert(1)] {
+            assert!(market_busy_refusal(&a, true).is_some(), "{a:?}");
+        }
+        assert_eq!(
+            market_busy_refusal(&CollectionAction::Reset, true),
+            Some(t("collection.reset_market_busy"))
+        );
+        assert_eq!(market_busy_refusal(&CollectionAction::Market, true), None);
+    }
 
     /// The title bar and the UPDATE tab show `version(kit)`; the panel's bar shows `Kit::release` (`panel` `Files::status`).
     #[test]

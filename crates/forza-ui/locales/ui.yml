@@ -646,6 +646,7 @@ collection.reset_ask: {en: "Start CREATE-A-TEAM over?\n\nYour cards, tokens and 
 collection.reset_done: {en: "CREATE-A-TEAM starts over. The old cards and club are in %{folder}", it: "CREA LA TUA SQUADRA riparte da zero. Le vecchie carte e il club sono in %{folder}", ja: "クリエイト・ア・チームを最初からやり直します。以前のカードとクラブは次の場所にあります：%{folder}"}
 collection.reset_failed: {en: "CREATE-A-TEAM could not start over, and your cards are unchanged: %{error}", it: "Impossibile ricominciare CREA LA TUA SQUADRA; le tue carte non sono cambiate: %{error}", ja: "クリエイト・ア・チームをやり直せませんでした。カードは変わっていません：%{error}"}
 collection.reset_no_seat: {en: "CREATE-A-TEAM could not start over: the game folder was not found. Your cards are unchanged. On the SETUP tab, pick the game folder and press SET UP, then try again.", it: "Impossibile ricominciare CREA LA TUA SQUADRA: cartella del gioco non trovata. Le tue carte non sono cambiate. Nella scheda CONFIGURAZIONE scegli la cartella del gioco e premi CONFIGURA, poi riprova.", ja: "クリエイト・ア・チームをやり直せませんでした。ゲームフォルダーが見つかりません。カードは変わっていません。「セットアップ」タブでゲームフォルダーを選び、「設定する」を押してから、もう一度お試しください。"}
+collection.reset_market_busy: {en: "CREATE-A-TEAM could not start over while the market server is answering. Your cards are unchanged. Try again in a moment.", it: "Impossibile ricominciare CREA LA TUA SQUADRA mentre il server del mercato risponde. Le tue carte non sono cambiate. Riprova tra poco.", ja: "マーケットサーバーの応答中はクリエイト・ア・チームをやり直せません。カードは変わっていません。少し待ってから、もう一度お試しください。"}
 # the pack store (PLAN.md 2.1); nation names come from forza::cards::codes::NATIONS_1718
 collection.packs: {en: "PACKS", it: "PACCHETTI", ja: "パック"}
 collection.store_title: {en: "OPEN A PACK", it: "APRI UN PACCHETTO", ja: "パックを開ける"}
@@ -677,6 +678,33 @@ collection.craft_title: {en: "CRAFT A CARD", it: "CREA UNA CARTA", ja: "カー�
 collection.craft_hint: {en: "Pick a REGULAR or SPECIAL card you do not have and pay its value. Crafting RARE cards and up opens later.", it: "Scegli una carta NORMALE o SPECIALE che non hai e paga il suo valore. La creazione di carte RARA e superiori arriverà più avanti.", ja: "持っていないレギュラーかスペシャルのカードを選び、その価値を払います。レア以上のカードの作成は今後追加されます。"}
 collection.craft_buy: {en: "CRAFT · %{n} TOKENS", it: "CREA · %{n} GETTONI", ja: "作成・%{n} トークン"}
 collection.craft_short: {en: "This card costs %{n} tokens. Play matches to earn more.", it: "Questa carta costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このカードは %{n} トークンです。試合をしてトークンを集めましょう。"}
+# the market (PLAN.md 3.5): the opt-in, the own list of the day, listings; server reasons come in English (%{why})
+collection.market: {en: "MARKET", it: "MERCATO", ja: "マーケット"}
+collection.market_optin_title: {en: "BEFORE YOU JOIN", it: "PRIMA DI ENTRARE", ja: "参加する前に"}
+collection.market_optin: {en: "The market runs on the project server. When you join, your collection log goes there: every card and token you got, and when, signed with this installation's code. No name is asked, kept or shown. The server checks the log at each listing and purchase. A listing never shows its seller, and a sale never names its buyer. When you leave, the server deletes your log and your open listings come back to you. It keeps your purchases from your list of the day (card, price and time, under the installation's code, with no name), so your collection still checks out if you join again.", it: "Il mercato funziona sul server del progetto. Quando entri, il registro della tua collezione viene inviato lì: ogni carta e ogni gettone ottenuti, e quando, firmati con il codice di questa installazione. Nessun nome viene chiesto, conservato o mostrato. Il server controlla il registro a ogni messa in vendita e a ogni acquisto. Un'inserzione non mostra mai chi vende, e una vendita non indica mai chi compra. Quando esci, il server cancella il tuo registro e le tue inserzioni aperte tornano a te. Conserva i tuoi acquisti dalla lista del giorno (carta, prezzo e ora, sotto il codice dell'installazione, senza nome), così la tua collezione resta verificabile se rientri.", ja: "マーケットはプロジェクトのサーバーで動いています。参加すると、コレクションの記録（入手したカードとトークン、その日時）が、このインストールのコードで署名されてサーバーに送られます。名前は尋ねず、保存も表示もしません。サーバーは出品と購入のたびに記録を確認します。出品に出品者は表示されず、売れたときも購入者は分かりません。マーケットから抜けると、サーバーは記録を削除し、出品中のカードは手元に戻ります。今日のリストからの購入（カード、価格、日時。インストールのコードの下に、名前なしで）は保存され、再び参加したときもコレクションを確認できます。"}
+collection.market_join: {en: "JOIN THE MARKET", it: "ENTRA NEL MERCATO", ja: "マーケットに参加する"}
+collection.market_leave: {en: "LEAVE THE MARKET", it: "ESCI DAL MERCATO", ja: "マーケットから抜ける"}
+collection.market_leave_hint: {en: "Leaving brings your open listings back, and the server deletes your collection log. Sales already made are still paid to you.", it: "Uscendo, le tue inserzioni aperte tornano a te e il server cancella il registro della tua collezione. Le vendite già fatte ti vengono comunque pagate.", ja: "抜けると出品中のカードは手元に戻り、サーバーはコレクションの記録を削除します。すでに売れた分のトークンは受け取れます。"}
+collection.market_refresh: {en: "REFRESH", it: "AGGIORNA", ja: "更新"}
+collection.market_busy: {en: "Asking the market server…", it: "Richiesta al server del mercato…", ja: "マーケットサーバーに問い合わせ中…"}
+collection.market_offline: {en: "The market server did not answer. Your last request is kept and is sent again first.", it: "Il server del mercato non ha risposto. L'ultima richiesta resta in attesa e sarà inviata di nuovo per prima.", ja: "マーケットサーバーから応答がありません。最後のリクエストは保存され、次に最初に再送されます。"}
+collection.market_unanswered: {en: "The market server did not answer. Try again later.", it: "Il server del mercato non ha risposto. Riprova più tardi.", ja: "マーケットサーバーから応答がありません。しばらくしてから、もう一度お試しください。"}
+collection.market_resent_refused: {en: "The market server refused a request kept from before: %{why}", it: "Il server del mercato ha rifiutato una richiesta rimasta in attesa: %{why}", ja: "保存されていたリクエストをマーケットサーバーが拒否しました：%{why}"}
+collection.market_wait: {en: "The market server is answering a request that may use the same tokens or cards. Try again in a moment.", it: "Il server del mercato sta rispondendo a una richiesta che può usare gli stessi gettoni o le stesse carte. Riprova tra poco.", ja: "マーケットサーバーが、同じトークンやカードを使うリクエストに応答中です。少し待ってから、もう一度お試しください。"}
+collection.market_disk: {en: "The market's files on this PC could not be read or written: %{error}", it: "Impossibile leggere o scrivere i file del mercato su questo PC: %{error}", ja: "この PC のマーケットのファイルを読み書きできませんでした：%{error}"}
+collection.market_refused: {en: "The market server refused: %{why}", it: "Il server del mercato ha rifiutato: %{why}", ja: "マーケットサーバーが拒否しました：%{why}"}
+collection.market_stock_title: {en: "YOUR LIST OF THE DAY", it: "LA TUA LISTA DEL GIORNO", ja: "今日のあなたのリスト"}
+collection.market_stock_hint: {en: "Cards drawn for this installation alone. A new list comes every day at 04:00 UTC.", it: "Carte estratte solo per questa installazione. Ogni giorno alle 04:00 UTC arriva una nuova lista.", ja: "このインストールだけのために選ばれたカードです。毎日 13:00（日本時間）に新しいリストになります。"}
+collection.market_left: {en: "Purchases left today: %{n}", it: "Acquisti rimasti oggi: %{n}", ja: "今日の残り購入数：%{n}"}
+collection.market_bought: {en: "BOUGHT", it: "COMPRATA", ja: "購入済み"}
+collection.market_mine_title: {en: "YOUR LISTINGS · %{n}/%{max}", it: "LE TUE INSERZIONI · %{n}/%{max}", ja: "出品中のカード・%{n}/%{max}"}
+collection.market_mine_none: {en: "You have no cards on the market. Open a card in your collection to list it.", it: "Non hai carte sul mercato. Apri una carta della tua collezione per metterla in vendita.", ja: "出品中のカードはありません。コレクションのカードを開くと出品できます。"}
+collection.market_listed: {en: "%{n} tokens · days left: %{d}", it: "%{n} gettoni · giorni rimasti: %{d}", ja: "%{n} トークン・残り %{d} 日"}
+collection.market_unlist: {en: "TAKE BACK", it: "RITIRA", ja: "取り下げる"}
+collection.market_sale_title: {en: "FOR SALE", it: "IN VENDITA", ja: "販売中"}
+collection.market_sale_none: {en: "No cards are for sale right now.", it: "Al momento non ci sono carte in vendita.", ja: "現在、販売中のカードはありません。"}
+collection.market_band: {en: "Price: %{lo} to %{hi} tokens", it: "Prezzo: da %{lo} a %{hi} gettoni", ja: "価格：%{lo}〜%{hi} トークン"}
+collection.market_list: {en: "LIST · %{n} TOKENS", it: "IN VENDITA · %{n} GETTONI", ja: "出品・%{n} トークン"}
 
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}

@@ -1429,6 +1429,8 @@ fn launcher_collection() {
             (Spare, "detail_spare"),
             (Store, "store"),
             (Open, "open"),
+            (Market, "market"),
+            (MarketOptIn, "market_optin"),
         ] {
             let mut st = state(lang, s);
             snap(
