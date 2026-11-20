@@ -468,7 +468,10 @@ mod tests {
         assert_eq!(refused.downcast_ref::<E>(), Some(&E::NewerTrueCrypt));
         // the same header at the version this reads opens
         let same = sealed_header(&key, PROGRAM_VERSION);
-        assert_eq!(read_header(&same, &key).unwrap().unwrap().hidden_size, 512 * 100);
+        assert_eq!(
+            read_header(&same, &key).unwrap().unwrap().hidden_size,
+            512 * 100
+        );
     }
 
     fn hex_to_bytes(s: &str) -> Vec<u8> {

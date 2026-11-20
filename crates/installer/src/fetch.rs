@@ -307,7 +307,10 @@ mod tests {
         };
         let json = |scheme: &str| {
             let zip = a(z, &format!("{scheme}://example.test/v0.1.0/{z}"));
-            let sum = a(&format!("{z}.sha256"), &format!("https://example.test/v0.1.0/{z}.sha256"));
+            let sum = a(
+                &format!("{z}.sha256"),
+                &format!("https://example.test/v0.1.0/{z}.sha256"),
+            );
             format!(
                 r#"[{{"tag_name":"v0.1.0","draft":false,"prerelease":false,"assets":[{zip},{sum}]}}]"#
             )
