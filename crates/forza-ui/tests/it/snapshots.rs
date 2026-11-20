@@ -334,13 +334,16 @@ fn panel_fps_and_textures_1718() {
     // the longest text
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::Ja, panel::Page::Settings);
     (st.file.textures, st.file.fps) = (8, true);
-    snap(
-        &mut all,
-        "panel_settings_textures_1718_ja",
-        panel::SIZE,
-        Edition::E1718,
-        |ui| panel::show(ui, &mut st),
-    );
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st)
+    });
+    h.run_steps(8);
+    // GRAPHICS sits under CLEAR AND RESTART, below the fold at this size (#361): scrolled to
+    let fps = forza_ui::text(Lang::Ja, "settings.fps", &[]);
+    h.get_by_label(&fps).scroll_to_me();
+    h.run_steps(8); // the scroll lands on the 4th frame and its 0.1 s animation finishes by the 8th
+    h.snapshot("panel_settings_textures_1718_ja");
+    all.extend_harness(&mut h);
     all.unwrap();
 }
 

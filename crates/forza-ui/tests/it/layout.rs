@@ -997,6 +997,44 @@ fn settings_fit_their_sheet_1718() {
     }
 }
 
+/// 2017-18 SETTINGS at 1440x900, unscrolled (#361): BENCH POSITION and its BELOW sit above the fold in every language.
+/// CLEAR AND RESTART and its hint in NOW pushed them under it, behind the message line (BELOW's bottom at ~823 against
+/// the fold's ~775); under LOGS they leave them in sight.
+#[test]
+fn bench_position_above_the_settings_fold_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Settings,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        // the message line under the scrolled part: the sample's note, its text 7 points into its frame, the frame
+        // under the scroll area's item spacing
+        let note = forza_ui::text(lang, "panel.msg_saved", &[]);
+        let fold = h.get_by_label(&note).rect().top() - 12.0;
+        let label = forza_ui::text(lang, "settings.bench", &[]);
+        let below = forza_ui::text(lang, "settings.bench_below", &[]);
+        for (name, r) in [
+            ("label", h.get_by_label(&label).rect()),
+            (
+                "BELOW",
+                h.get_by_role_and_label(Role::RadioButton, &below).rect(),
+            ),
+        ] {
+            assert!(
+                r.bottom() <= fold,
+                "{} {name}: {r:?} under the fold at {fold}",
+                lang.code()
+            );
+        }
+    }
+}
+
 /// A player's path to SETTINGS' last toggles (#349 round 2): from the game page, SETTINGS on the page bar, the row
 /// scrolled to, then clicked. The click turns that toggle and stays on SETTINGS; board_reset_lineup_asks_first saw it
 /// open CARDS instead, so the scrolled-to row sat over the page bar there.

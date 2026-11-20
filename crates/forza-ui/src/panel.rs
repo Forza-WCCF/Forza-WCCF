@@ -5313,31 +5313,6 @@ fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                         None,
                     );
                 });
-            // CLEAR BAD ENDINGS: 2017-18 has no CLUB CARD page (its club is on the game server stand-in), so it sits here
-            if st.edition == Edition::E1718 {
-                let lit = st
-                    .club_armed
-                    .as_ref()
-                    .is_some_and(|(p, until)| *p == ClubPick::Fix && *until > now);
-                if lit {
-                    ui.ctx()
-                        .request_repaint_after(std::time::Duration::from_millis(250));
-                }
-                let key = if lit {
-                    "club.clear_again"
-                } else {
-                    "club.clear_bad"
-                };
-                let w = ui.available_width();
-                if cabinet(ui, vec2(w, 40.0), &tr!(lang, key), Cab::Stop, lit).clicked() {
-                    club_click(st, ClubPick::Fix, now);
-                }
-                ui.label(
-                    egui::RichText::new(tr!(lang, "club.clear_hint"))
-                        .font(theme::body(HINT))
-                        .color(theme::TEXT_DIM),
-                );
-            }
         });
         widgets::section(left, &tr!(lang, "settings.view"), accent, |ui| {
             let w = ui.available_width();
@@ -5607,6 +5582,31 @@ fn settings_columns(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
                     status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));
                 }
                 _ => {}
+            }
+            // CLEAR BAD ENDINGS: 2017-18 has no CLUB CARD page (its club is on the game server stand-in), so it sits
+            // here, under LOGS: in NOW it pushed BENCH POSITION under the fold at 1440x900 (#361)
+            if st.edition == Edition::E1718 {
+                let lit = st
+                    .club_armed
+                    .as_ref()
+                    .is_some_and(|(p, until)| *p == ClubPick::Fix && *until > now);
+                if lit {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                let key = if lit {
+                    "club.clear_again"
+                } else {
+                    "club.clear_bad"
+                };
+                if cabinet(ui, vec2(w, 40.0), &tr!(lang, key), Cab::Stop, lit).clicked() {
+                    club_click(st, ClubPick::Fix, now);
+                }
+                ui.label(
+                    egui::RichText::new(tr!(lang, "club.clear_hint"))
+                        .font(theme::body(HINT))
+                        .color(theme::TEXT_DIM),
+                );
             }
         });
         if st.edition == Edition::E1718 {
