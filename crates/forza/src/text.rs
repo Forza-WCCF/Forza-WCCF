@@ -508,7 +508,8 @@ fn read_strings(raw: &[u8], hf_raw: &[u8]) -> R<(Vec<u8>, Keys)> {
             .iter()
             .map(|x| std::str::from_utf8(x).ok().and_then(|x| x.parse().ok()))
             .collect::<Option<Vec<usize>>>();
-        let (Some(nums), Ok(k)) = (nums, std::str::from_utf8(k)) else {
+        // slot 0 (Japanese) and 1 are read for every key: a line with fewer numbers is damaged
+        let (Some(nums), Ok(k)) = (nums.filter(|n| n.len() >= 2), std::str::from_utf8(k)) else {
             return fail(Line::key("text.fail_hf_line"));
         };
         keys.insert(k.into(), (i, nums));
@@ -2022,6 +2023,15 @@ mod tests {
         bin.extend((body.len() as u32).to_le_bytes());
         bin.extend(body);
         (bin, hf)
+    }
+
+    #[test]
+    fn a_line_without_two_numbers_is_refused() {
+        let bin = strings().0;
+        for hf in [&b"header\r\nA_B_1\r\n"[..], b"header\r\nA_B_1 1\r\n"] {
+            assert!(read_strings(&bin, hf).is_err(), "{:?}", String::from_utf8_lossy(hf));
+        }
+        assert!(read_strings(&bin, b"header\r\nA_B_1 1 8\r\n").is_ok());
     }
 
     #[test]
