@@ -42,9 +42,7 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
     {
         Some(Value::Array(a)) => a,
         _ => {
-            return fail(super::Line::raw(
-                "english\\pictures.json has no pictures list",
-            ));
+            return fail(super::Line::key("text.fail_pictures_list"));
         }
     };
     for r in &out {
@@ -65,9 +63,7 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
         .flat_map(Map::keys)
         .find(|id| !out.iter().any(|r| r["id"].as_str() == Some(id.as_str())))
     {
-        return fail(super::Line::raw(format!(
-            "italian\\pictures.json: {id} is no recipe's id"
-        )));
+        return fail(super::Line::key("text.fail_pictures_id").arg("id", id));
     }
     for r in &mut out {
         let id = r["id"].as_str().unwrap_or("").to_owned();
@@ -80,11 +76,12 @@ fn recipes(sheets: &Path, it: bool) -> R<Vec<Value>> {
             .as_array_mut()
             .map_or(&mut [][..], Vec::as_mut_slice);
         if !words.is_empty() && words.len() != labels.len() {
-            return fail(super::Line::raw(format!(
-                "italian\\pictures.json: {id} has {} words for {} labels",
-                words.len(),
-                labels.len()
-            )));
+            return fail(
+                super::Line::key("text.fail_pictures_words")
+                    .arg("id", id)
+                    .arg("words", words.len())
+                    .arg("labels", labels.len()),
+            );
         }
         for (n, lab) in labels.iter_mut().enumerate() {
             let w = words
@@ -331,9 +328,11 @@ fn clear(im: &mut Img, a: (i64, i64, i64, i64), fill: &Value) -> R<()> {
     match fill.as_str() {
         Some(f @ ("rows" | "cols")) => {
             if !im.holds(a) {
-                return fail(super::Line::raw(format!(
-                    "the {f} area {a:?} is outside the picture"
-                )));
+                return fail(
+                    super::Line::key("text.fail_picture_area")
+                        .arg("fill", f)
+                        .arg("area", format!("{a:?}")),
+                );
             }
             let src = im.clone();
             let (w, h) = (im.w as i64, im.h as i64);
@@ -629,7 +628,7 @@ fn reflect(im: &mut Img, rf: &Value) -> R<()> {
     let (a0, a1) = (num(&rf["alpha"][0]), num(&rf["alpha"][1]));
     let dst_y = rf["dst_y"].as_i64().unwrap_or(0);
     if !im.holds((x0, y0, x1, y1)) || !im.holds((x0, dst_y, x1, dst_y + y1 - y0)) {
-        return fail(super::Line::raw("the reflection is outside the picture"));
+        return fail(super::Line::key("text.fail_picture_reflection"));
     }
     let (mw, h) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
     let mut m = Vec::with_capacity(mw * h * 4);
@@ -743,10 +742,12 @@ fn retext(d: &mut [u8], r: &Value, notes: &mut Vec<super::Line>) -> R<()> {
         let t = lab["text"].as_str().unwrap_or("");
         let fits = at.checked_add(len).is_some_and(|e| e < d.len()) && usize::from(d[at]) == len;
         if !t.is_ascii() || t.len() > len || !fits {
-            return fail(super::Line::raw(format!(
-                "{}: {t:?} does not fit at {at}",
-                r["id"]
-            )));
+            return fail(
+                super::Line::key("text.fail_scene_text")
+                    .arg("id", r["id"].as_str().unwrap_or(""))
+                    .arg("text", t)
+                    .arg("at", at),
+            );
         }
         if t.is_empty() {
             notes.push(
@@ -825,11 +826,9 @@ fn encode(orig: &[u8], im: &Img) -> R<Vec<u8>> {
         }
     }
     if out.len() != orig.len() {
-        return fail(super::Line::raw(format!(
-            "the redrawn picture's size {} differs from the original's {}",
-            out.len(),
-            orig.len()
-        )));
+        return fail(
+            super::Line::key("text.fail_picture_size").arg("new", out.len()).arg("old", orig.len()),
+        );
     }
     Ok(out)
 }
@@ -1068,12 +1067,12 @@ pub fn build(
 
 fn hex(s: &str) -> R<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
-        return Err(super::Failed(super::Line::raw(format!("{STATE}: not hex"))));
+        return Err(super::Failed(super::Line::key("text.fail_state_hex").arg("file", STATE)));
     }
     (0..s.len() / 2)
         .map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2).unwrap_or("zz"), 16))
         .collect::<Result<_, _>>()
-        .map_err(|_| super::Failed(super::Line::raw(format!("{STATE}: not hex"))))
+        .map_err(|_| super::Failed(super::Line::key("text.fail_state_hex").arg("file", STATE)))
 }
 
 fn to_hex(d: &[u8]) -> String {

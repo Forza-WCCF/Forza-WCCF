@@ -1086,6 +1086,29 @@ text.fail_state_damaged: {en: "%{file} is damaged - left as it is", it: "%{file}
 text.fail_state_damaged_detail: {en: "%{file} is damaged (%{detail}) - left as it is", it: "%{file} è danneggiato (%{detail}): resta com'è", ja: "%{file} が壊れています（%{detail}）。そのままにしました"}
 text.fail_state_short: {en: "%{file} is damaged (a short entry) - left as it is", it: "%{file} è danneggiato (una voce tronca): resta com'è", ja: "%{file} が壊れています（エントリが短い）。そのままにしました"}
 text.fail_state_way_back: {en: "%{file} is not the archive's way back - left as it is", it: "%{file} non è la via per tornare indietro dall'archivio: resta com'è", ja: "%{file} はアーカイブを元に戻すための情報ではないため、そのままにしました"}
+# the tables and sheets a build reads, and the read-back check that ends it
+text.fail_hf_line: {en: "string_list.hf: a line is not a key and numbers", it: "string_list.hf: una riga non è una chiave e numeri", ja: "string_list.hf：キーと数値になっていない行があります"}
+text.fail_no_line: {en: "no such line %{key}", it: "nessuna riga %{key} nel testo del gioco", ja: "ゲームのテキストに %{key} という行がありません"}
+text.fail_no_room: {en: "no room in string_list.bin for %{key}", it: "nessuno spazio in string_list.bin per %{key}", ja: "string_list.bin に %{key} を入れる余白がありません"}
+text.fail_table_cut: {en: "%{file} is cut short", it: "%{file} è troncato", ja: "%{file} が途中で切れています"}
+text.fail_table_tail: {en: "%{file} has %{count} bytes after its last line", it: "%{file} ha %{count} byte dopo l'ultima riga", ja: "%{file} の最終行の後に %{count} バイトあります"}
+text.fail_titles_tail: {en: "%{file} has %{count} bytes after its last title", it: "%{file} ha %{count} byte dopo l'ultimo titolo", ja: "%{file} の最後のタイトルの後に %{count} バイトあります"}
+text.fail_sheet_offset: {en: "exe_text.tsv: bad offset %{cell}", it: "exe_text.tsv: posizione errata %{cell}", ja: "exe_text.tsv：オフセット %{cell} が正しくありません"}
+text.fail_sheet_length: {en: "exe_text.tsv: bad length at %{cell}", it: "exe_text.tsv: lunghezza errata a %{cell}", ja: "exe_text.tsv：%{cell} の長さが正しくありません"}
+text.fail_read_back: {en: "%{what} does not read back as intended - nothing changed", it: "%{what} non si rilegge come previsto: nulla è stato cambiato", ja: "%{what} を書き戻すと想定どおりに読めないため、何も変更しませんでした"}
+text.fail_read_back_places: {en: "%{what} does not read back as intended (%{places} places) - nothing changed", it: "%{what} non si rilegge come previsto (%{places} punti): nulla è stato cambiato", ja: "%{what} を書き戻すと想定どおりに読めない箇所が %{places} か所あるため、何も変更しませんでした"}
+text.what_screen: {en: "the built screen text", it: "il testo dello schermo creato", ja: "作成した画面のテキスト"}
+text.what_client: {en: "the built client screen text", it: "il testo dello schermo del client creato", ja: "作成したクライアント画面のテキスト"}
+text.what_titles: {en: "the built manager titles", it: "i titoli degli allenatori creati", ja: "作成した監督タイトル"}
+# the pictures' sheets and recipes
+text.fail_pictures_list: {en: "english\\pictures.json has no pictures list", it: "english\\pictures.json non ha un elenco di immagini", ja: "english\\pictures.json に画像の一覧がありません"}
+text.fail_pictures_id: {en: "italian\\pictures.json: %{id} is no recipe's id", it: "italian\\pictures.json: %{id} non è l'id di nessuna ricetta", ja: "italian\\pictures.json：%{id} はどのレシピの id でもありません"}
+text.fail_pictures_words: {en: "italian\\pictures.json: %{id} has %{words} words for %{labels} labels", it: "italian\\pictures.json: %{id} ha %{words} parole per %{labels} etichette", ja: "italian\\pictures.json：%{id} は %{labels} 個のラベルに %{words} 語あります"}
+text.fail_picture_area: {en: "the %{fill} area %{area} is outside the picture", it: "l'area %{fill} %{area} è fuori dall'immagine", ja: "%{fill} の範囲 %{area} が画像の外にあります"}
+text.fail_picture_reflection: {en: "the reflection is outside the picture", it: "il riflesso è fuori dall'immagine", ja: "反射が画像の外にあります"}
+text.fail_scene_text: {en: "%{id}: \"%{text}\" does not fit at %{at}", it: "%{id}: \"%{text}\" non entra a %{at}", ja: "%{id}：%{text} は %{at} に収まりません"}
+text.fail_picture_size: {en: "the redrawn picture's size %{new} differs from the original's %{old}", it: "l'immagine ridisegnata ha dimensione %{new}, diversa da quella originale %{old}", ja: "描き直した画像のサイズ %{new} が元の %{old} と違います"}
+text.fail_state_hex: {en: "%{file}: not hex", it: "%{file}: non è esadecimale", ja: "%{file}：16 進数ではありません"}
 text.why_empty: {en: "<empty> would drop the Japanese line's codes", it: "<empty> perderebbe i codici della riga giapponese", ja: "<empty> では日本語の行のコードが失われます"}
 text.why_codes: {en: "codes %{found}, the game's line has %{want}", it: "codici %{found}, la riga del gioco ha %{want}", ja: "コードは %{found} ですが、ゲームの行は %{want} です"}
 text.why_percent: {en: "a % sign that is no printf code - the game would show junk or stop", it: "un segno % che non è un codice printf: il gioco mostrerebbe caratteri estranei o si fermerebbe", ja: "% が printf のコードではありません。ゲームに変な文字が出るか、止まってしまいます"}
