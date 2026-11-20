@@ -946,4 +946,72 @@ mod tests {
         assert_eq!((p.id, p.remote_seat()), ([5; 32], Some(3)));
         assert_eq!(token_bytes(p.token), [127, 9, 8, 7, 0x23, 0x4E]);
     }
+
+    /// `Gmsvr::exchange` against a stand-in gmsvr on 127.0.0.1 that reads the 900 request and writes `answer`.
+    async fn exchange_with(answer: Vec<u8>) -> io::Result<Vec<u8>> {
+        let l = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let addr = l.local_addr()?;
+        let server = tokio::spawn(async move {
+            let (mut s, _) = l.accept().await?;
+            let mut req = [0u8; 43];
+            s.read_exact(&mut req).await?;
+            s.write_all(&answer).await
+        });
+        let mut conn = None;
+        let r = timeout(
+            ASK_TIMEOUT,
+            Gmsvr::exchange(&mut conn, addr, 900, 7, b"abc"),
+        )
+        .await
+        .expect("exchange hung");
+        // bounded too: an exchange that fails before it connects leaves the stand-in waiting in accept
+        timeout(ASK_TIMEOUT, server)
+            .await
+            .expect("stand-in hung")
+            .unwrap()
+            .unwrap();
+        r
+    }
+
+    #[tokio::test]
+    async fn exchange_refuses_a_bad_answer_header() {
+        let answer = |cmd: u16, len: Option<u32>| {
+            let mut a = gamesvr::header(cmd, 7, 0, 3, 0).to_vec();
+            if let Some(n) = len {
+                a[16..20].copy_from_slice(&n.to_le_bytes());
+            }
+            a.extend_from_slice(b"xyz");
+            a
+        };
+        assert_eq!(exchange_with(answer(901, None)).await.unwrap(), b"xyz");
+        let max = u32::try_from(gamesvr::MAX_FRAME).unwrap();
+        for (what, a) in [
+            ("the request's command echoed", answer(900, None)),
+            ("length under the header", answer(901, Some(39))),
+            ("length over MAX_FRAME", answer(901, Some(max + 1))),
+        ] {
+            let e = exchange_with(a).await.expect_err(what);
+            assert_eq!(
+                (e.kind(), e.to_string()),
+                (io::ErrorKind::InvalidData, "bad answer to 900".into()),
+                "{what}"
+            );
+        }
+    }
+
+    #[test]
+    fn load_key_takes_only_32_bytes() {
+        let dir = std::env::temp_dir().join(format!("vslink_load_key_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vs.key");
+        for n in [31, 33] {
+            std::fs::write(&path, vec![9u8; n]).unwrap();
+            let e = load_key(&path).expect_err("not 32 bytes");
+            assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{n} bytes");
+            assert_eq!(std::fs::read(&path).unwrap(), vec![9u8; n], "file kept");
+        }
+        std::fs::write(&path, [9u8; 32]).unwrap();
+        assert_eq!(load_key(&path).unwrap().to_bytes(), [9u8; 32]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
