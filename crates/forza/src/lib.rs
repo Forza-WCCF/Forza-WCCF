@@ -51,6 +51,14 @@ impl Edition {
             Self::E1718 => "SDDY",
         }
     }
+
+    /// "1011" or "1718": the card site's and the card pictures' edition code.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::E1011 => "1011",
+            Self::E1718 => "1718",
+        }
+    }
 }
 
 /// A line setup, the game text and the card pictures tell the player: a `locales/ui.yml` key of forza-ui and its

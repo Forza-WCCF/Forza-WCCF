@@ -89,13 +89,6 @@ pub struct Import {
     pub skipped: Vec<Skipped>,
 }
 
-fn game(edition: Edition) -> &'static str {
-    match edition {
-        Edition::E1011 => "1011",
-        Edition::E1718 => "1718",
-    }
-}
-
 /// The site's tokens: a quoted string, a `#` comment to the end, or a run of anything but space and comma.
 static TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r##""(?:[^"\\]|\\.)*"|#.*|[^\s,]+"##).unwrap());
@@ -163,7 +156,7 @@ pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
     for (_, t, _) in &lines {
         if t[0].text() == "game" {
             let g = t.get(1).map_or("", Tok::text);
-            if g != game(edition) {
+            if g != edition.code() {
                 return Err(LineupError::WrongEdition(g.to_string()));
             }
         }
@@ -405,7 +398,7 @@ fn write(
     let mut bench: Vec<&Placed> = placed.iter().filter(|p| p.on_bench()).collect();
     bench.sort_by_key(|p| (super::bench_band(p.y), p.slot));
     let pct = |v: f32| num(((v + 1.0) * 50.0).clamp(0.0, 100.0));
-    let mut t = format!("# WCCF DB lineup\ngame {}\n", game(edition));
+    let mut t = format!("# WCCF DB lineup\ngame {}\n", edition.code());
     if !name.is_empty() {
         t += &format!("name {name}\n");
     }

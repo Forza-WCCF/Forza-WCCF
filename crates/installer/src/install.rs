@@ -700,11 +700,7 @@ fn pictures(
         let line = forza_ui::text(lang, "installer.log_pictures_no_game", &[]);
         return emit(Event::Missed(line));
     };
-    let ed = if edition == Edition::E1011 {
-        "1011"
-    } else {
-        "1718"
-    };
+    let ed = edition.code();
     let cards = dest.join(edition.layout().cache).join("cards");
     let lines = |lead: &str, l: &forza::Line| {
         say(&format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, l)))
