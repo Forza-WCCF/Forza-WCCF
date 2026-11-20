@@ -1904,7 +1904,7 @@ impl Render {
                 self.st.set_popped(popped);
                 // paint() does not run: the board window's field still keeps its keys from the game (#366)
                 WANTS_KEYS.store(
-                    popped && self.board_ctx.egui_wants_keyboard_input(),
+                    field_keys(None, popped, self.board_ctx.egui_wants_keyboard_input()),
                     Relaxed,
                 );
                 self.page_open();
@@ -2458,8 +2458,11 @@ impl Render {
         self.close_out();
         // a text field with the keys in either window (the board window's pass ran first this frame)
         WANTS_KEYS.store(
-            self.ctx.egui_wants_keyboard_input()
-                || (POPPED.load(Relaxed) && self.board_ctx.egui_wants_keyboard_input()),
+            field_keys(
+                Some(self.ctx.egui_wants_keyboard_input()),
+                POPPED.load(Relaxed),
+                self.board_ctx.egui_wants_keyboard_input(),
+            ),
             Relaxed,
         );
         pause::KEY.store(self.st.keys[forza::keys::PAUSE], Relaxed);
@@ -2775,13 +2778,10 @@ impl Render {
     fn page_open(&mut self) {
         // the close dialog and the crash screen hold the keys too
         let open = self.st.page != panel::Page::Game || self.st.close_warn || self.st.crash;
-        // a field typed in on the game page (a saved lineup's name, issue #366) as well; the key driver reads the
-        // window in front: the game's or the popped-out board's
-        let want = if open || WANTS_KEYS.load(Relaxed) {
-            [WINDOW.load(Relaxed), BOARD.load(Relaxed)]
-        } else {
-            [0, 0]
-        };
+        let want = typing_on(
+            open || WANTS_KEYS.load(Relaxed),
+            [WINDOW.load(Relaxed), BOARD.load(Relaxed)],
+        );
         for (old, new) in self.typing.into_iter().zip(want) {
             if old == new {
                 continue;
@@ -3746,6 +3746,18 @@ impl Render {
             Err(e) => log(&format!("frame dump: {e}")),
         }
     }
+}
+
+/// A text field holds the keys (kept from the game): the game window's (`None` when that window was not drawn this
+/// frame: minimized or tiny, its pass skipped, so its last answer is stale) or the popped-out board window's.
+fn field_keys(game: Option<bool>, popped: bool, board: bool) -> bool {
+    game == Some(true) || (popped && board)
+}
+
+/// The windows that carry WCCF_TYPING: both, the game's and the board's, while a page is open or a field types (a
+/// saved lineup's name, #366), since the key driver reads the window in front; none otherwise.
+fn typing_on(typing: bool, windows: [isize; 2]) -> [isize; 2] {
+    if typing { windows } else { [0, 0] }
 }
 
 /// A window the panel can draw in: not minimized, its client at least 64x64.
@@ -4975,7 +4987,10 @@ mod tests {
         assert!(take_off_lines(&[a], &[a, b], None, None).is_empty());
     }
 
-    use super::{big_enough, clock_text, game_point, game_title, match_now, notice_waits};
+    use super::{
+        big_enough, clock_text, field_keys, game_point, game_title, match_now, notice_waits,
+        typing_on,
+    };
     use egui::{Rect, pos2};
 
     #[test]
@@ -5153,6 +5168,38 @@ mod tests {
         assert_eq!(
             game_title("Projector", forza::Edition::E1011.label()),
             "Projector - Forza-WCCF 2010-11"
+        );
+    }
+
+    /// The game's window minimized with the board popped out (#366): only the board window's pass runs, and its
+    /// field alone decides the keys; the game window's last answer from before it was minimized counts for nothing.
+    /// WCCF_TYPING then goes on both windows, the board window being the one in front.
+    #[test]
+    fn a_minimized_game_takes_the_keys_from_the_board_window_alone() {
+        assert!(
+            field_keys(None, true, true),
+            "the popped-out board's field types"
+        );
+        assert!(
+            !field_keys(None, true, false),
+            "no field: the keys go back to the game"
+        );
+        assert!(
+            !field_keys(None, false, true),
+            "a docked board has no window of its own"
+        );
+        assert!(
+            field_keys(Some(true), false, false),
+            "drawn, the game window's field counts"
+        );
+        let (game, board) = (0x1010, 0x2020);
+        assert_eq!(
+            typing_on(field_keys(None, true, true), [game, board]),
+            [game, board]
+        );
+        assert_eq!(
+            typing_on(field_keys(None, true, false), [game, board]),
+            [0, 0]
         );
     }
 
