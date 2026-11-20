@@ -164,22 +164,27 @@ pub enum Outcome {
 
 /// `here` is this kit folder as the process was started, never resolved.
 pub fn first_run(here: &Path, edition: Edition) -> Outcome {
+    first_run_at(&link_path(edition), here, env::var_os(LINKED).is_some())
+}
+
+/// `link` is the installer's place for the edition; `restarted` is the `LINKED` flag a copy started from `link` carries,
+/// which stops a link that does not hold (the process reports the target's path) from restarting for good.
+fn first_run_at(link: &Path, here: &Path, restarted: bool) -> Outcome {
     use crate::text::{t, tf};
-    let link = link_path(edition);
-    if env::var_os(LINKED).is_some() || same_path(&link, here) {
+    if restarted || same_path(link, here) {
         return Outcome::InPlace { warn: None };
     }
     let ascii = here.to_str().is_some_and(str::is_ascii);
     let say = |msg: String| Outcome::InPlace {
         warn: (!ascii).then_some(msg),
     };
-    let action = decide(probe(&link, here));
+    let action = decide(probe(link, here));
     match action {
         Action::InPlaceTaken => say(tf("launcher.msg_link_taken", &[("path", &link.display().to_string())])),
         Action::InPlaceNoJunction => say(t("launcher.msg_link_no_junction")),
-        Action::UseLink => Outcome::Restart(link),
-        Action::Link | Action::Repoint => match make(&link, here, action == Action::Repoint) {
-            Ok(()) => Outcome::Restart(link),
+        Action::UseLink => Outcome::Restart(link.to_path_buf()),
+        Action::Link | Action::Repoint => match make(link, here, action == Action::Repoint) {
+            Ok(()) => Outcome::Restart(link.to_path_buf()),
             Err(e) => say(tf(
                 "launcher.msg_link_failed",
                 &[("path", &link.display().to_string()), ("error", &e.to_string())],
@@ -241,6 +246,19 @@ mod tests {
         assert!(!same_path(Path::new(r"C:\a"), Path::new(r"C:\b")));
         assert_eq!(drive_root(Path::new(r"d:\x\y")).as_deref(), Some(r"d:\"));
         assert_eq!(drive_root(Path::new(r"\\srv\share")), None);
+    }
+
+    /// The `LINKED` flag the restarted copy carries, and a start from the link itself, both run where they are: nothing
+    /// is made and no message is shown, so the two cannot take turns restarting each other.
+    #[test]
+    fn a_restarted_copy_runs_where_it_is() {
+        let t = crate::scratch();
+        let (here, link) = (t.path().join("Jürgen kit"), t.path().join("Games").join("link"));
+        fs::create_dir_all(&here).unwrap();
+        assert!(matches!(first_run_at(&link, &here, true), Outcome::InPlace { warn: None }));
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(matches!(first_run_at(&link, &link, false), Outcome::InPlace { warn: None }));
+        assert!(fs::symlink_metadata(&link).is_err());
     }
 
     #[test]
