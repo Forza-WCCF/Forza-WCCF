@@ -2951,23 +2951,27 @@ fn deck_label_room(
 
 /// A deck button's name and the width of its keycap after it (0: none) in `room`. With `fit` (2017-18), a label too
 /// wide shrinks the name (down to 70 %), else drops the keycap, so it does not run into the next button; 2010-11
-/// keeps its look.
+/// keeps its look. `k`: the print's size, the deck's scale up to the art's own 1, which is where the labels were drawn;
+/// a deck drawn smaller takes its names and keycaps with it, or at 0.6 its buttons leave them no room and DATA's and
+/// START's keycaps drop (issue #361).
 fn deck_label_parts(
     p: &egui::Painter,
     name: &str,
     cap: &str,
     room: f32,
     fit: bool,
+    k: f32,
 ) -> (std::sync::Arc<egui::Galley>, f32) {
-    let full = p.layout_no_wrap(name.to_owned(), theme::display(14.0), theme::TEXT_DIM);
-    let cap_w = keycap_width(p, cap, room - full.size().x - 4.0);
-    let w = full.size().x + if cap_w > 0.0 { 4.0 + cap_w } else { 0.0 };
+    let font = theme::display(14.0 * k);
+    let full = p.layout_no_wrap(name.to_owned(), font.clone(), theme::TEXT_DIM);
+    let cap_w = keycap_width(p, cap, room - full.size().x - 4.0 * k, k);
+    let w = full.size().x + if cap_w > 0.0 { 4.0 * k + cap_w } else { 0.0 };
     if !fit || w <= room {
         return (full, cap_w);
     }
-    let shrink = |max| widgets::fit(p, name, theme::display(14.0), theme::TEXT_DIM, max);
-    let small = shrink(room - 4.0 - cap_w);
-    if cap_w > 0.0 && small.size().x + 4.0 + cap_w <= room {
+    let shrink = |max| widgets::fit(p, name, font.clone(), theme::TEXT_DIM, max);
+    let small = shrink(room - 4.0 * k - cap_w);
+    if cap_w > 0.0 && small.size().x + 4.0 * k + cap_w <= room {
         (small, cap_w)
     } else {
         (shrink(room), 0.0)
@@ -2976,7 +2980,8 @@ fn deck_label_parts(
 
 /// A deck button's printed name, where it sits and where its keycap sits (`None`: no keycap): the keycap follows the
 /// name on its line; a name under its button (2017-18) whose line has no room for it gets it on a line of its own
-/// under the name, while that stays 4 points inside `plate` (DATA and START, issue #367).
+/// under the name, while that stays 4 points inside `plate` (DATA and START, issue #367). `k`: the print's size beside
+/// the art's ([`deck_label_parts`]).
 #[allow(clippy::too_many_arguments)]
 fn deck_label(
     p: &egui::Painter,
@@ -2987,39 +2992,43 @@ fn deck_label(
     name: &str,
     cap: &str,
     fit: bool,
+    k: f32,
 ) -> (std::sync::Arc<egui::Galley>, Rect, Option<Rect>) {
-    let (name, cap_w) = deck_label_parts(p, name, cap, room, fit);
+    let (name, cap_w) = deck_label_parts(p, name, cap, room, fit, k);
     let size = name.size();
     if cap_w > 0.0 {
-        let at = deck_label_rect(rect, side, vec2(size.x + 4.0 + cap_w, size.y), plate);
+        let at = deck_label_rect(rect, side, vec2(size.x + 4.0 * k + cap_w, size.y), plate, k);
         let cap_at = Rect::from_min_size(
-            pos2(at.left() + size.x + 4.0, at.center().y - KEYCAP_H / 2.0),
-            vec2(cap_w, KEYCAP_H),
+            pos2(at.left() + size.x + 4.0 * k, at.center().y - KEYCAP_H * k / 2.0),
+            vec2(cap_w, KEYCAP_H * k),
         );
         return (name, Rect::from_min_size(at.min, size), Some(cap_at));
     }
-    let at = deck_label_rect(rect, side, size, plate);
-    let w = keycap_width(p, cap, room);
+    let at = deck_label_rect(rect, side, size, plate, k);
+    let w = keycap_width(p, cap, room, k);
     let below = Rect::from_center_size(
-        pos2(rect.center().x, at.bottom() + 2.0 + KEYCAP_H / 2.0),
-        vec2(w, KEYCAP_H),
+        pos2(rect.center().x, at.bottom() + 2.0 * k + KEYCAP_H * k / 2.0),
+        vec2(w, KEYCAP_H * k),
     );
-    let cap_at = (fit && side == Dir::Down && w > 0.0 && below.bottom() <= plate.bottom() - 4.0)
+    let cap_at = (fit
+        && side == Dir::Down
+        && w > 0.0
+        && below.bottom() <= plate.bottom() - 4.0 * k)
         .then_some(below);
     (name, at, cap_at)
 }
 
 /// Where a deck button's name (and keycap), `size`, sits: 4 points off `rect` on `side`, centred on it the other
 /// way, never past `plate`'s right edge (DATA sits close to it).
-fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect) -> Rect {
+fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect, k: f32) -> Rect {
     let (w, h) = (size.x, size.y);
     let (left, cy) = match side {
-        Dir::Up => (rect.center().x - w / 2.0, rect.top() - 4.0 - h / 2.0),
-        Dir::Down => (rect.center().x - w / 2.0, rect.bottom() + 4.0 + h / 2.0),
-        Dir::Left => (rect.left() - 4.0 - w, rect.center().y),
-        Dir::Right => (rect.right() + 4.0, rect.center().y),
+        Dir::Up => (rect.center().x - w / 2.0, rect.top() - 4.0 * k - h / 2.0),
+        Dir::Down => (rect.center().x - w / 2.0, rect.bottom() + 4.0 * k + h / 2.0),
+        Dir::Left => (rect.left() - 4.0 * k - w, rect.center().y),
+        Dir::Right => (rect.right() + 4.0 * k, rect.center().y),
     };
-    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 - w), cy - h / 2.0), size)
+    Rect::from_min_size(pos2(left.min(plate.right() - 4.0 * k - w), cy - h / 2.0), size)
 }
 
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
@@ -3049,18 +3058,18 @@ fn deck_keycap(st: &PanelState, action: &str, alt: bool) -> String {
 }
 
 /// A keycap's width for `text`, at most `max` (the text shrinks to fit); 0 when there is no text.
-fn keycap_width(p: &egui::Painter, text: &str, max: f32) -> f32 {
+fn keycap_width(p: &egui::Painter, text: &str, max: f32, k: f32) -> f32 {
     if text.is_empty() {
         return 0.0;
     }
-    let g = widgets::fit(p, text, theme::body(10.0), theme::TEXT_DIM, max - 8.0);
-    (g.size().x + 8.0).max(KEYCAP_H)
+    let g = widgets::fit(p, text, theme::body(10.0 * k), theme::TEXT_DIM, max - 8.0 * k);
+    (g.size().x + 8.0 * k).max(KEYCAP_H * k)
 }
 
-fn paint_keycap(p: &egui::Painter, r: Rect, text: &str) {
+fn paint_keycap(p: &egui::Painter, r: Rect, text: &str, k: f32) {
     p.rect_filled(r, 3, theme::DEEP);
     p.rect_stroke(r, 3, Stroke::new(1.0, theme::RIM), StrokeKind::Inside);
-    let g = widgets::fit(p, text, theme::body(10.0), theme::TEXT_DIM, r.width() - 8.0);
+    let g = widgets::fit(p, text, theme::body(10.0 * k), theme::TEXT_DIM, r.width() - 8.0 * k);
     p.galley(r.center() - g.size() / 2.0, g, theme::TEXT_DIM);
 }
 
@@ -3073,6 +3082,9 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
     let held = st.latched;
     let mut latch = st.latched;
     let alt = ui.input(|i| i.modifiers.alt); // the keycaps show only while Alt is held
+    // the deck grows to fill the room it is given (the popped-out column); its print keeps the size it was drawn at and
+    // shrinks with a deck drawn smaller, or the names run past their buttons and the keycaps under them drop
+    let k = s.min(1.0);
     widgets::smooth_deck_art(ui.ctx(), st.edition == Edition::E1718);
     // held keys press their buttons on 2017-18 only; 2010-11 keeps its look
     let down = if st.edition == Edition::E1718 {
@@ -3197,23 +3209,24 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 &tr!(lang, it.key),
                 &cap,
                 !both,
+                k,
             );
             p.galley(at.min, name, theme::TEXT_DIM);
             if let Some(r) = cap_at {
-                paint_keycap(p, r, &cap);
+                paint_keycap(p, r, &cap, k);
             }
         } else {
             // PRESS has no name beside it: the keycap sits inside, at the bottom
-            let cap_w = keycap_width(p, &cap, it.rect.width() - 10.0);
+            let cap_w = keycap_width(p, &cap, it.rect.width() - 10.0 * k, k);
             if cap_w > 0.0 {
                 let r = Rect::from_center_size(
                     pos2(
                         it.rect.center().x,
-                        it.rect.bottom() - 2.0 - KEYCAP_H / 2.0 - 2.0,
+                        it.rect.bottom() - 2.0 * k - KEYCAP_H * k / 2.0 - 2.0 * k,
                     ),
-                    vec2(cap_w, KEYCAP_H),
+                    vec2(cap_w, KEYCAP_H * k),
                 );
-                paint_keycap(p, r, &cap);
+                paint_keycap(p, r, &cap, k);
             }
         }
     }
@@ -3231,13 +3244,13 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         );
         let cap = deck_keycap(st, "CARD", alt);
         let p = ui.painter();
-        let w = keycap_width(p, &cap, 100.0);
+        let w = keycap_width(p, &cap, 100.0 * k, k);
         if w > 0.0 {
             let r = Rect::from_center_size(
-                card_key(area, s, stack).center_bottom() + vec2(0.0, 4.0 + KEYCAP_H / 2.0),
-                vec2(w, KEYCAP_H),
+                card_key(area, s, stack).center_bottom() + vec2(0.0, 4.0 * k + KEYCAP_H * k / 2.0),
+                vec2(w, KEYCAP_H * k),
             );
-            paint_keycap(p, r, &cap);
+            paint_keycap(p, r, &cap, k);
         }
     }
     st.pressed = st.pressed.or(pressed);
@@ -6659,6 +6672,7 @@ mod tests {
                                 &tr!(lang, it.key),
                                 cap,
                                 true,
+                                1.0,
                             );
                             let why = format!("{lang:?} cap={cap:?} stack={stack} {}", it.key);
                             if let Some(r) = cap_at {
@@ -6692,7 +6706,8 @@ mod tests {
     }
 
     /// Under Alt every bound 2017-18 deck button shows its keycap: DATA (here on Down) and START (Enter), whose names
-    /// leave no room beside them, get it under the name, inside their plate, in EN, IT and JA (issue #367).
+    /// leave no room beside them, get it under the name, inside their plate, in EN, IT and JA (issue #367), also on a
+    /// deck drawn smaller than the art's size (#361).
     #[test]
     fn data_and_start_show_their_keycaps_under_alt() {
         let ctx = egui::Context::default();
@@ -6713,40 +6728,45 @@ mod tests {
             .position(|n| *n == "DATA")
             .unwrap()] = 0x28;
         for lang in [Lang::En, Lang::It, Lang::Ja] {
-            for stack in [false, true] {
-                let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
-                let plates = deck_plates(area, false, 1.0, stack);
-                let items = deck_layout_for(area, false, 1.0, stack);
-                let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
-                let data = items.iter().find(|i| i.action == "DATA").unwrap().rect;
-                for (action, want) in [("DATA", "Down"), ("START", "Enter")] {
-                    let it = items.iter().find(|i| i.action == action).unwrap();
-                    let cap = deck_keycap(&st, action, true);
-                    assert_eq!(cap, want);
-                    let plate = *plates
-                        .iter()
-                        .find(|r| r.contains(it.rect.center()))
-                        .unwrap();
-                    let side = it.label.unwrap();
-                    let room = deck_label_room(it.rect, side, plate, data, &rects, false);
-                    let (_, name, cap_at) = deck_label(
-                        &p,
-                        it.rect,
-                        side,
-                        plate,
-                        room,
-                        &tr!(lang, it.key),
-                        &cap,
-                        true,
-                    );
-                    let why = format!("{lang:?} stack={stack} {action}");
-                    let r = cap_at.unwrap_or_else(|| panic!("{why}: no keycap"));
-                    assert!(
-                        plate.shrink(3.5).contains_rect(r),
-                        "{why}: keycap leaves its plate"
-                    );
-                    assert!(!r.intersects(name), "{why}: keycap over its name");
-                    assert!(!r.intersects(it.rect), "{why}: keycap over its button");
+            // the art's size, then the deck scales a small board window draws; 0.6 took the names and keycaps at their
+            // full size, so DATA's and START's keycaps hung past the plates' feet and dropped
+            for s in [1.0, 0.75, 0.6] {
+                for stack in [false, true] {
+                    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(860.0, 520.0));
+                    let plates = deck_plates(area, false, s, stack);
+                    let items = deck_layout_for(area, false, s, stack);
+                    let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
+                    let data = items.iter().find(|i| i.action == "DATA").unwrap().rect;
+                    for (action, want) in [("DATA", "Down"), ("START", "Enter")] {
+                        let it = items.iter().find(|i| i.action == action).unwrap();
+                        let cap = deck_keycap(&st, action, true);
+                        assert_eq!(cap, want);
+                        let plate = *plates
+                            .iter()
+                            .find(|r| r.contains(it.rect.center()))
+                            .unwrap();
+                        let side = it.label.unwrap();
+                        let room = deck_label_room(it.rect, side, plate, data, &rects, false);
+                        let (_, name, cap_at) = deck_label(
+                            &p,
+                            it.rect,
+                            side,
+                            plate,
+                            room,
+                            &tr!(lang, it.key),
+                            &cap,
+                            true,
+                            s,
+                        );
+                        let why = format!("{lang:?} s={s} stack={stack} {action}");
+                        let r = cap_at.unwrap_or_else(|| panic!("{why}: no keycap"));
+                        assert!(
+                            plate.shrink(3.5 * s).contains_rect(r),
+                            "{why}: keycap leaves its plate"
+                        );
+                        assert!(!r.intersects(name), "{why}: keycap over its name");
+                        assert!(!r.intersects(it.rect), "{why}: keycap over its button");
+                    }
                 }
             }
         }
