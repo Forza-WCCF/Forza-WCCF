@@ -867,6 +867,8 @@ mod tests {
             assert!(keep(root, name), "{name}");
         }
         assert!(!keep(root, ".."), "a bad name is no game data either");
+        assert!(!keep(below, ".."), "nor below the root");
+        assert!(!keep(below, r"a\b"), "nor below the root");
     }
 
     #[test]
