@@ -438,11 +438,17 @@ fn safe(name: &str) -> bool {
     {
         return false;
     }
-    let stem = name.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    // Windows also drops spaces before the dot: `CON .txt` is the device too
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_ascii_uppercase();
     !matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         && !(stem.len() == 4
             && (stem.starts_with("COM") || stem.starts_with("LPT"))
-            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+            && matches!(stem.as_bytes().get(3), Some(b'1'..=b'9')))
 }
 
 /// Keep a disc entry: a safe name, and none of the root's own metadata (`$MFT`, `$Bitmap`, `System Volume
@@ -873,18 +879,8 @@ mod tests {
         }
         // Windows drops a trailing space or dot and opens the device, never the file
         for bad in [
-            "data ",
-            "data.",
-            ".. ",
-            "CON",
-            "con",
-            "nul.txt",
-            "PRN.log",
-            "aux.",
-            "COM1",
-            "com9.log",
-            "LPT1",
-            "lpt9.dat",
+            "data ", "data.", ".. ", "CON", "con", "nul.txt", "CON .txt", "PRN.log", "aux.",
+            "COM1", "com9.log", "LPT1", "lpt9.dat",
         ] {
             assert!(!safe(bad), "{bad:?}");
         }
