@@ -993,4 +993,20 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn load_key_takes_only_32_bytes() {
+        let dir = std::env::temp_dir().join(format!("vslink_load_key_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vs.key");
+        for n in [31, 33] {
+            std::fs::write(&path, vec![9u8; n]).unwrap();
+            let e = load_key(&path).expect_err("not 32 bytes");
+            assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{n} bytes");
+            assert_eq!(std::fs::read(&path).unwrap(), vec![9u8; n], "file kept");
+        }
+        std::fs::write(&path, [9u8; 32]).unwrap();
+        assert_eq!(load_key(&path).unwrap().to_bytes(), [9u8; 32]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
