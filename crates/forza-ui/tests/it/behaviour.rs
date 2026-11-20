@@ -751,3 +751,21 @@ fn board_card_flips_at_the_least_width() {
         assert_eq!(st.borrow().turned, None, "{b} opens on its front");
     }
 }
+
+/// Two choices with the same label are still two choices: a click on the second picks the second (#306).
+#[test]
+fn segments_with_one_label() {
+    let mut sel = 0;
+    {
+        let mut h = harness(Vec2::new(300.0, 80.0), 1.0, Edition::E1718, |ui| {
+            forza_ui::widgets::segmented(ui, &mut sel, &["A", "A"], 200.0);
+        });
+        h.run_steps(2);
+        h.get_all_by_label("A")
+            .nth(1)
+            .expect("a second segment")
+            .click();
+        h.run_steps(2);
+    }
+    assert_eq!(sel, 1);
+}

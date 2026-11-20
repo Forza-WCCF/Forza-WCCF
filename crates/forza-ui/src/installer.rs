@@ -16,6 +16,10 @@ use egui::{Align2, Color32, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 
 /// The width of a row's label on the Where and Files pages; the text boxes and the notes under them start after it.
 const ROW_LABEL: f32 = 120.0;
+/// The width of the page rail on the left.
+pub const RAIL_W: f32 = 196.0;
+/// The height of the footer with the page's buttons.
+pub const FOOTER_H: f32 = 64.0;
 
 pub const SIZE: egui::Vec2 = egui::vec2(900.0, 640.0);
 
@@ -312,7 +316,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
     let win = ui.max_rect();
     let mut out = None;
     egui::Panel::left("installer-rail")
-        .exact_size(196.0)
+        .exact_size(RAIL_W)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::new())
@@ -321,7 +325,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
             rail(ui, st.page, lang)
         });
     egui::Panel::bottom("installer-footer")
-        .exact_size(64.0)
+        .exact_size(FOOTER_H)
         .show_separator_line(false)
         .frame(
             egui::Frame::new()
@@ -375,48 +379,39 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
 /// INSTALL without a package: the game would not start, so ask once. CONTINUE installs the files only.
 fn confirm_modal(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option<Action>) {
     let mut go = false;
-    let modal = egui::Modal::new(Id::unique("installer-confirm"))
-        .backdrop_color(Color32::from_black_alpha(150))
-        .frame(
-            egui::Frame::new()
-                .fill(theme::DEEP)
-                .stroke(Stroke::new(1.0, theme::RIM))
-                .corner_radius(theme::RADIUS_BIG)
-                .inner_margin(20),
-        )
-        .show(ui.ctx(), |ui| {
-            ui.set_width(400.0);
-            ui.label(
-                egui::RichText::new(tr!(lang, "installer.no_package"))
-                    .font(theme::display(26.0))
-                    .color(theme::TEXT),
-            );
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if cabinet(
-                    ui,
-                    vec2(196.0, 48.0),
-                    &tr!(lang, "installer.continue"),
-                    Cab::Go,
-                    true,
-                )
-                .clicked()
-                {
-                    go = true;
-                }
-                if cabinet(
-                    ui,
-                    vec2(196.0, 48.0),
-                    &tr!(lang, "installer.back"),
-                    Cab::Plain,
-                    false,
-                )
-                .clicked()
-                {
-                    st.confirm = false;
-                }
-            });
+    let modal = widgets::modal(ui.ctx(), Id::unique("installer-confirm"), |ui| {
+        ui.set_width(400.0);
+        ui.label(
+            egui::RichText::new(tr!(lang, "installer.no_package"))
+                .font(theme::display(26.0))
+                .color(theme::TEXT),
+        );
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if cabinet(
+                ui,
+                widgets::DIALOG_BUTTON,
+                &tr!(lang, "installer.continue"),
+                Cab::Go,
+                true,
+            )
+            .clicked()
+            {
+                go = true;
+            }
+            if cabinet(
+                ui,
+                widgets::DIALOG_BUTTON,
+                &tr!(lang, "installer.back"),
+                Cab::Plain,
+                false,
+            )
+            .clicked()
+            {
+                st.confirm = false;
+            }
         });
+    });
     if go {
         out.get_or_insert(Action::InstallAnyway);
     }

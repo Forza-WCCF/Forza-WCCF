@@ -100,3 +100,12 @@ fn placeholders_match_english() {
         "placeholders differ from the English: {wrong:?}"
     );
 }
+
+/// A language code from a setting or `WCCF_KIT_LANG` reads in any case and with spaces around it (#306).
+#[test]
+fn language_codes() {
+    use forza_ui::Lang;
+    assert_eq!(Lang::from_code(" IT "), Some(Lang::It));
+    assert_eq!(Lang::from_code("Ja"), Some(Lang::Ja));
+    assert_eq!(Lang::from_code("xx"), None);
+}

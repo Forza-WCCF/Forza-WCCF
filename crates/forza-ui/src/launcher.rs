@@ -1010,43 +1010,34 @@ fn output(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
 
 fn confirm_modal(ui: &mut Ui, st: &mut LauncherState, c: &Confirm, lang: Lang) -> Option<Action> {
     let mut act = None;
-    let modal = egui::Modal::new(egui::Id::unique("launcher-confirm"))
-        .backdrop_color(Color32::from_black_alpha(150))
-        .frame(
-            egui::Frame::new()
-                .fill(theme::DEEP)
-                .stroke(egui::Stroke::new(1.0, theme::RIM))
-                .corner_radius(theme::RADIUS_BIG)
-                .inner_margin(20),
-        )
-        .show(ui.ctx(), |ui| {
-            ui.set_width(400.0);
-            ui.label(
-                egui::RichText::new(&c.title)
-                    .font(theme::display(26.0))
-                    .color(theme::TEXT),
-            );
-            if !c.body.is_empty() {
-                ui.label(egui::RichText::new(&c.body).color(theme::TEXT_DIM));
+    let modal = widgets::modal(ui.ctx(), egui::Id::unique("launcher-confirm"), |ui| {
+        ui.set_width(400.0);
+        ui.label(
+            egui::RichText::new(&c.title)
+                .font(theme::display(26.0))
+                .color(theme::TEXT),
+        );
+        if !c.body.is_empty() {
+            ui.label(egui::RichText::new(&c.body).color(theme::TEXT_DIM));
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if cabinet(ui, widgets::DIALOG_BUTTON, &c.yes, Cab::Go, true).clicked() {
+                act = Some(c.then.clone());
             }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if cabinet(ui, vec2(196.0, 48.0), &c.yes, Cab::Go, true).clicked() {
-                    act = Some(c.then.clone());
-                }
-                if cabinet(
-                    ui,
-                    vec2(196.0, 48.0),
-                    &tr!(lang, "common.cancel"),
-                    Cab::Plain,
-                    false,
-                )
-                .clicked()
-                {
-                    st.confirm = None;
-                }
-            });
+            if cabinet(
+                ui,
+                widgets::DIALOG_BUTTON,
+                &tr!(lang, "common.cancel"),
+                Cab::Plain,
+                false,
+            )
+            .clicked()
+            {
+                st.confirm = None;
+            }
         });
+    });
     if act.is_some() || modal.should_close() {
         st.confirm = None;
     }
@@ -1058,116 +1049,107 @@ fn report_modal(ui: &mut Ui, st: &mut LauncherState, lang: Lang) -> Option<Actio
     let mut act = None;
     let mut close = false;
     let f = st.report.as_mut()?;
-    let modal = egui::Modal::new(egui::Id::unique("launcher-report"))
-        .backdrop_color(Color32::from_black_alpha(150))
-        .frame(
-            egui::Frame::new()
-                .fill(theme::DEEP)
-                .stroke(egui::Stroke::new(1.0, theme::RIM))
-                .corner_radius(theme::RADIUS_BIG)
-                .inner_margin(20),
+    let modal = widgets::modal(ui.ctx(), egui::Id::unique("launcher-report"), |ui| {
+        ui.set_width(460.0);
+        let title = if f.crashed {
+            tr!(lang, "report.title_crashed")
+        } else {
+            tr!(lang, "launcher.report_problem")
+        };
+        ui.label(
+            egui::RichText::new(title)
+                .font(theme::display(24.0))
+                .color(theme::TEXT),
+        );
+        ui.add_space(4.0);
+        let label = field(ui, &tr!(lang, "report.what_happened"), 460.0);
+        ui.add_enabled(
+            !f.sending && !f.sent,
+            egui::TextEdit::multiline(&mut f.words)
+                .char_limit(2000)
+                .desired_rows(5)
+                .desired_width(f32::INFINITY)
+                .font(theme::body(14.0))
+                .margin(vec2(10.0, 7.0)),
         )
-        .show(ui.ctx(), |ui| {
-            ui.set_width(460.0);
-            let title = if f.crashed {
-                tr!(lang, "report.title_crashed")
-            } else {
-                tr!(lang, "launcher.report_problem")
-            };
-            ui.label(
-                egui::RichText::new(title)
-                    .font(theme::display(24.0))
-                    .color(theme::TEXT),
-            );
-            ui.add_space(4.0);
-            let label = field(ui, &tr!(lang, "report.what_happened"), 460.0);
-            ui.add_enabled(
-                !f.sending && !f.sent,
-                egui::TextEdit::multiline(&mut f.words)
-                    .char_limit(2000)
-                    .desired_rows(5)
-                    .desired_width(f32::INFINITY)
-                    .font(theme::body(14.0))
-                    .margin(vec2(10.0, 7.0)),
-            )
-            .labelled_by(label.id);
-            ui.add_space(4.0);
-            field(ui, &tr!(lang, "report.what_is_sent"), 460.0);
-            egui::Frame::new()
-                .fill(theme::WELL)
-                .corner_radius(theme::RADIUS)
-                .inner_margin(8)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    egui::ScrollArea::vertical()
-                        .max_height(96.0)
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            for c in &f.contents {
-                                ui.label(
-                                    egui::RichText::new(c)
-                                        .font(theme::mono(12.0))
-                                        .color(theme::TEXT_DIM),
-                                );
-                            }
-                        });
-                });
-            ui.label(
-                egui::RichText::new(tr!(lang, "report.scrubbed"))
-                    .font(theme::body(12.0))
-                    .color(theme::TEXT_FAINT),
-            );
-            if let Some((tone, text)) = &f.result {
-                status_line(ui, *tone, text);
-                if let Some(url) = &f.issue_url {
-                    ui.hyperlink_to(tr!(lang, "report.open_issue"), url);
-                }
-            } else if f.sending {
-                status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));
+        .labelled_by(label.id);
+        ui.add_space(4.0);
+        field(ui, &tr!(lang, "report.what_is_sent"), 460.0);
+        egui::Frame::new()
+            .fill(theme::WELL)
+            .corner_radius(theme::RADIUS)
+            .inner_margin(8)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                egui::ScrollArea::vertical()
+                    .max_height(96.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for c in &f.contents {
+                            ui.label(
+                                egui::RichText::new(c)
+                                    .font(theme::mono(12.0))
+                                    .color(theme::TEXT_DIM),
+                            );
+                        }
+                    });
+            });
+        ui.label(
+            egui::RichText::new(tr!(lang, "report.scrubbed"))
+                .font(theme::body(12.0))
+                .color(theme::TEXT_FAINT),
+        );
+        if let Some((tone, text)) = &f.result {
+            status_line(ui, *tone, text);
+            if let Some(url) = &f.issue_url {
+                ui.hyperlink_to(tr!(lang, "report.open_issue"), url);
             }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let w = (ui.available_width() - 8.0) / 2.0;
-                if f.sent {
-                    if cabinet(
-                        ui,
-                        vec2(w, 48.0),
-                        &tr!(lang, "common.close"),
-                        Cab::Plain,
-                        false,
-                    )
-                    .clicked()
-                    {
-                        close = true;
-                    }
-                    return;
-                }
-                let send = ui.add_enabled_ui(!f.sending, |ui| {
-                    cabinet(
-                        ui,
-                        vec2(w, 48.0),
-                        &tr!(lang, "launcher.save_logs"),
-                        Cab::Go,
-                        true,
-                    )
-                });
-                if send.inner.clicked() {
-                    act = Some(Action::SendReport);
-                }
-                let cancel = ui.add_enabled_ui(!f.sending, |ui| {
-                    cabinet(
-                        ui,
-                        vec2(w, 48.0),
-                        &tr!(lang, "common.cancel"),
-                        Cab::Plain,
-                        false,
-                    )
-                });
-                if cancel.inner.clicked() {
+        } else if f.sending {
+            status_line(ui, Tone::Notice, &tr!(lang, "settings.msg_saving"));
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let w = (ui.available_width() - 8.0) / 2.0;
+            if f.sent {
+                if cabinet(
+                    ui,
+                    vec2(w, 48.0),
+                    &tr!(lang, "common.close"),
+                    Cab::Plain,
+                    false,
+                )
+                .clicked()
+                {
                     close = true;
                 }
+                return;
+            }
+            let send = ui.add_enabled_ui(!f.sending, |ui| {
+                cabinet(
+                    ui,
+                    vec2(w, 48.0),
+                    &tr!(lang, "launcher.save_logs"),
+                    Cab::Go,
+                    true,
+                )
             });
+            if send.inner.clicked() {
+                act = Some(Action::SendReport);
+            }
+            let cancel = ui.add_enabled_ui(!f.sending, |ui| {
+                cabinet(
+                    ui,
+                    vec2(w, 48.0),
+                    &tr!(lang, "common.cancel"),
+                    Cab::Plain,
+                    false,
+                )
+            });
+            if cancel.inner.clicked() {
+                close = true;
+            }
         });
+    });
     // a report being saved keeps the dialog: where it went is still to come
     if close || (modal.should_close() && !f.sending) {
         st.report = None;

@@ -244,7 +244,7 @@ fn installer_files_rows_fit() {
             );
             assert_eq!(hint.left(), left, "{lang:?} row {i}: hints line up");
             assert!(
-                left > 196.0 + 24.0 + 120.0,
+                left > installer::RAIL_W + 24.0 + 120.0,
                 "{lang:?}: hint left of the text box"
             );
             if let Some(next) = browse.get(i + 1) {
@@ -256,7 +256,7 @@ fn installer_files_rows_fit() {
         }
         let add = rect("installer.add_files");
         assert!(
-            add.bottom() <= installer::SIZE.y - 64.0,
+            add.bottom() <= installer::SIZE.y - installer::FOOTER_H,
             "{lang:?}: Add files at {add:?} under the footer"
         );
     }
@@ -272,7 +272,7 @@ fn installer_files_rows_fit() {
     h.run_steps(4);
     let refusal = h.get_by_label(&refusal_text).rect();
     assert!(
-        refusal.top() > 0.0 && refusal.bottom() < short.y - 64.0,
+        refusal.top() > 0.0 && refusal.bottom() < short.y - installer::FOOTER_H,
         "the refusal at {refusal:?} is under the footer"
     );
 }

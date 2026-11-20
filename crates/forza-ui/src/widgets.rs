@@ -184,6 +184,27 @@ pub fn section<R>(ui: &mut Ui, title: &str, accent: Color32, add: impl FnOnce(&m
         .inner
 }
 
+/// The size of a dialog's buttons (CONTINUE and BACK, OK and CANCEL).
+pub const DIALOG_BUTTON: egui::Vec2 = vec2(196.0, 48.0);
+
+/// A dialog over the dimmed window in the look the Launcher's, the installer's and the lobby's dialogs share.
+pub fn modal<R>(
+    ctx: &egui::Context,
+    id: Id,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::ModalResponse<R> {
+    egui::Modal::new(id)
+        .backdrop_color(Color32::from_black_alpha(150))
+        .frame(
+            egui::Frame::new()
+                .fill(theme::DEEP)
+                .stroke(Stroke::new(1.0, theme::RIM))
+                .corner_radius(theme::RADIUS_BIG)
+                .inner_margin(20),
+        )
+        .show(ctx, add)
+}
+
 // ---- cabinet buttons ----
 
 /// What a cabinet button does decides its colour.
@@ -650,17 +671,13 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
 /// One choice of several, joined in a row; the chosen one is lit amber. Returns true when the choice changed.
 pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32) -> bool {
     let h = 34.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    // the row's own id, not the ui's: two rows in one ui would share each segment's id
+    let (rect, row) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let w = width / labels.len() as f32;
-    let segs: Vec<(Rect, Response)> = labels
-        .iter()
-        .enumerate()
-        .map(|(i, label)| {
+    let segs: Vec<(Rect, Response)> = (0..labels.len())
+        .map(|i| {
             let r = Rect::from_min_size(rect.min + vec2(w * i as f32, 0.0), vec2(w, h)).shrink(2.0);
-            (
-                r,
-                ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click()),
-            )
+            (r, ui.interact(r, row.id.with(("seg", i)), Sense::click()))
         })
         .collect();
     // the click lands before the highlight is read, so the frame that turned the switch already lights the new side
@@ -710,6 +727,7 @@ pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32)
 /// One step of [`stepper`]: `up` or down to the next multiple of `step` (8 -> 10 -> 15, 10 -> 8), kept in `range`;
 /// `wrap` goes round to the other end instead (a clock: 23:55 -> 00:00).
 pub fn step_value(v: u16, up: bool, range: &RangeInclusive<u16>, step: u16, wrap: bool) -> u16 {
+    assert!(step > 0, "a stepper needs a step");
     let (lo, hi, s) = (
         i32::from(*range.start()),
         i32::from(*range.end()),
