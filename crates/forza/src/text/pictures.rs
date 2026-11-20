@@ -694,6 +694,8 @@ fn redraw(im: &mut Img, r: &Value, font: &Font, refh: i64) -> R<()> {
     }
     // a strip another picture already shows (a title over two textures): made transparent after drawing, so it
     // shows once. Its colour stays: the game filters across the seam, and black there draws a grey line (#331).
+    // shortcut: the colour holds at level 0 only (`encode`'s smaller levels premultiply it away), enough while each
+    // picture with an erase has one level; keep the colour in the mips when one ships with more
     for a in r["erase"].as_array().into_iter().flatten() {
         let (x0, y0, x1, y1) = boxv(a);
         for y in y0.max(0)..=y1.min(im.h as i64 - 1) {
@@ -1668,7 +1670,8 @@ mod tests {
     }
 
     /// The seam of a title over two textures: the erased strip turns transparent but keeps the colour drawn
-    /// there, so the game's filtering across the seam blends the same colour and draws no grey line.
+    /// there, so the game's filtering across the seam blends the same colour and draws no grey line. Checked on the
+    /// redrawn pixels and again after the shipped path's BC3 (`encode`, read back as the game reads it).
     #[test]
     fn erase_keeps_the_colour_under_the_seam() {
         let sheets = super::super::tests::manifest_dir().join("../../editions/2017-18");
@@ -1703,6 +1706,19 @@ mod tests {
                 assert!(
                     p[3] == 0 && p[..3] == q[..3],
                     "it={it} ({x}, {y}): {p:?}, drawn {q:?}"
+                );
+            }
+            // the original Title_tex_1.dds: 512x64 DXT5, one level (mipMapCount 0), so no smaller level to check
+            let mut orig = dds_header(512, 64, 0, b"DXT5", 0, [0; 4]);
+            orig.resize(128 + 512 * 64, 0);
+            let read = |im: &Img| bcn::decode_dds(&encode(&orig, im).unwrap()).unwrap().2;
+            let (got, drawn) = (read(&im), read(&want));
+            for (x, y) in strip() {
+                let i = (y * 512 + x) * 4;
+                let (p, q) = (&got[i..i + 4], &drawn[i..i + 4]);
+                assert!(
+                    p[3] == 0 && p[..3] == q[..3],
+                    "it={it} after BC3 ({x}, {y}): {p:?}, drawn {q:?}"
                 );
             }
         }

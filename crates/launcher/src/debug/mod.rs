@@ -552,6 +552,17 @@ struct DbgFile {
     each_line: bool,
 }
 
+/// The debug channel's file for this start. A cabinet restart starts the client again in the same run: its session
+/// before stays, set off by the restart line (`logs::session_log`, as the run's log). Control's is made new: the seat
+/// desk and the projector relay take a shorter file for a new control and read it from its start.
+fn dbg_open(path: &Path, role: Role) -> io::Result<File> {
+    if role == Role::Client {
+        crate::logs::session_log(path)
+    } else {
+        File::create(path)
+    }
+}
+
 impl DbgFile {
     fn line(&mut self, s: &str) {
         // the wall clock first, the `t+` seconds after it
@@ -637,7 +648,7 @@ pub fn run(opts: &Options, job: &Job, out: &mut dyn Write) -> io::Result<i32> {
     let mut seen_codes: BTreeMap<u32, u32> = BTreeMap::new();
     let mut seen_at: Vec<((String, u32, u64), u32)> = Vec::new(); // (process name, code, address) -> count
     let mut dbg = DbgFile {
-        file: BufWriter::with_capacity(8192, File::create(&opts.dbg_file)?),
+        file: BufWriter::with_capacity(8192, dbg_open(&opts.dbg_file, opts.role)?),
         each_line: opts.role == Role::Control,
     };
     let (mut dbg_lines, mut dbg_shown) = (0, 0);
@@ -1223,4 +1234,29 @@ fn children_of(pid: u32) -> Vec<(u32, String)> {
         .filter(|p| p.parent == pid)
         .map(|p| (p.pid, p.name))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Role, dbg_open};
+    use crate::logs::{RESTART, last_session};
+    use std::io::Write;
+
+    /// A cabinet restart opens the seat's debug text again (#355): the session before stays and the running one
+    /// follows the restart line; control's is still made new, as the desk reads it.
+    #[test]
+    fn a_cabinet_restart_keeps_the_seat_debug_text() {
+        let d = crate::scratch();
+        let (seat, control) = (d.path().join("_dbg_client.txt"), d.path().join("_dbg_control.txt"));
+        for (role, f) in [(Role::Client, &seat), (Role::Control, &control)] {
+            writeln!(dbg_open(f, role).unwrap(), "before the restart").unwrap();
+            writeln!(dbg_open(f, role).unwrap(), "after the restart").unwrap();
+        }
+        let text = std::fs::read_to_string(&seat).unwrap();
+        assert!(text.contains("before the restart"), "{text}");
+        assert!(text.contains(RESTART), "{text}");
+        assert_eq!(last_session(&text).trim(), "after the restart");
+        let text = std::fs::read_to_string(&control).unwrap();
+        assert_eq!(text, "after the restart\n", "control's file is made new");
+    }
 }
