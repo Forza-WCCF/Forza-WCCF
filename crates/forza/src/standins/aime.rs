@@ -321,11 +321,6 @@ fn hexs(b: &[u8]) -> String {
 /// random source) and when the card file cannot be read. `card_file` holds the card's 20-digit access code; it is made
 /// with a random code when missing, and a file that is not a card code is kept aside as `.bad` and named in the log.
 pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<Handle> {
-    // the card first: a card error leaves no pipe to close, and the code can be logged before the game connects
-    let card = Card::load(card_file)?;
-    for note in card.notes() {
-        log(&note);
-    }
     let wide: Vec<u16> = pipe_name.encode_utf16().chain([0]).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call; no security attributes are passed.
     let raw = unsafe {
@@ -345,6 +340,12 @@ pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<
     }
     // SAFETY: `raw` is a valid pipe handle we own; the File closes it.
     let mut pipe = File::from(unsafe { OwnedHandle::from_raw_handle(raw) });
+    // after the pipe: an instance that loses it to another reader never touches the card file, and a card error
+    // still closes the pipe, as `pipe` drops on the return
+    let card = Card::load(card_file)?;
+    for note in card.notes() {
+        log(&note);
+    }
     log(&format!(
         "Aime reader stand-in on {pipe_name}; card access code {} on the reader",
         card.code
@@ -582,6 +583,44 @@ mod tests {
         let c = Card::load(Some(&path)).expect("a file held for a moment is read again");
         assert_eq!(c.code, "51234567890123456789");
         release.join().unwrap();
+    }
+
+    /// An instance that loses the pipe to another reader does not touch its card file: it must not rewrite a card
+    /// it is not serving (here the second instance is given a file that is not a card code).
+    #[test]
+    fn an_instance_that_loses_the_pipe_leaves_the_card_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (served, other) = (dir.path().join("card.txt"), dir.path().join("other.txt"));
+        std::fs::write(&served, "51234567890123456789\n").unwrap();
+        std::fs::write(&other, "not a card\n").unwrap();
+        let pipe = format!(
+            "\\\\.\\pipe\\wccf-aime-{}",
+            dir.path().file_name().unwrap().to_string_lossy()
+        );
+        let log: Log = Arc::new(|_| {});
+        let first =
+            spawn(&pipe, Some(&served), log.clone()).expect("the first reader takes the pipe");
+        assert!(
+            spawn(&pipe, Some(&other), log).is_err(),
+            "the second reader loses the pipe"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&other).unwrap(),
+            "not a card\n",
+            "the losing instance leaves its card file alone"
+        );
+        let copies = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("other.txt.")
+            })
+            .count();
+        assert_eq!(copies, 0, "no copy is made of a file it does not serve");
+        drop(first);
     }
 
     /// A card file that cannot be read (here a folder) is reported with its path, not treated as a missing one: the
