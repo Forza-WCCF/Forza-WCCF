@@ -445,6 +445,8 @@ pub enum Fail {
     Refused(String),
     /// This PC's files (the key, [`STATE_FILE`], the log) could not be read or written.
     Disk(String),
+    /// The server's name did not resolve (no internet, a mistyped name): nothing went out.
+    Unresolved(String),
 }
 
 /// How a [`Client`] reaches the desk: [`exchange`]; a test swaps in one that loses the answer.

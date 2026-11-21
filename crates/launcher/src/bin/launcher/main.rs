@@ -1001,6 +1001,10 @@ impl App {
                 log(&format!("market: {:?} refused: {why}", d.action));
                 Some(tf("collection.market_refused", &[("why", why)]))
             }
+            Err(Fail::Unresolved(server)) => {
+                log(&format!("market: {:?}: {server} could not be resolved", d.action));
+                Some(tf("collection.market_no_name", &[("server", server)]))
+            }
             Err(Fail::Disk(e)) => {
                 log(&format!("market: {:?} failed on this PC: {e}", d.action));
                 Some(tf("collection.market_disk", &[("error", e)]))

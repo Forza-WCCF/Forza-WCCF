@@ -87,12 +87,8 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
         sale: None,
         resent: None,
     };
-    let server = launcher::lobby::project_server(Edition::E1718);
-    let Some(desk) = launcher::lobby::socket(&server) else {
-        done.said = Err(Fail::Unanswered(format!("{server} could not be resolved")));
-        return done;
-    };
-    let c = match Client::open(desk, data, collection) {
+    let c = desk(&launcher::lobby::project_server(Edition::E1718)).and_then(|d| Client::open(d, data, collection));
+    let c = match c {
         Ok(c) => c,
         Err(e) => {
             done.said = Err(e);
@@ -136,4 +132,24 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
     })();
     done.resent = c.resent_refused();
     done
+}
+
+/// The market desk at `server` (the lobby's name or address); a name that does not resolve sends nothing.
+fn desk(server: &str) -> Result<std::net::SocketAddr, Fail> {
+    launcher::lobby::socket(server).ok_or_else(|| Fail::Unresolved(server.to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #375: a server name that does not resolve is told apart from a server that does not answer.
+    #[test]
+    fn a_name_that_does_not_resolve_is_not_unanswered() {
+        assert_eq!(
+            desk("wccf-market.invalid"),
+            Err(Fail::Unresolved("wccf-market.invalid".into()))
+        );
+        assert!(desk("127.0.0.1").is_ok());
+    }
 }
