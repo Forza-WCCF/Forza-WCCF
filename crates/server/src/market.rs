@@ -3913,4 +3913,101 @@ mod tests {
         ask(&m, 3, Verb::Join, gone, &[], &log).unwrap();
         assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM roots"), [[s("2")]]);
     }
+
+    /// #375 (advisor 3.3 m4): two stores on one `market.db`, so no lock of this process between them, race one key's
+    /// STOCKBUY of each of 7 slots: each slot sells once, with one ledger row, and the other request is refused.
+    #[test]
+    fn a_slot_sells_once_without_the_stores_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let stores =
+            [0, 1].map(|_| std::sync::Arc::new(stock_market(dir.path(), Stock::default())));
+        let log = rich(1); // 1,200 tokens; slots 1-7 cost 792
+        ask(&stores[0], 1, Verb::Join, NOW, &[], &log).unwrap();
+        let list = stock_rows(&ask(&stores[0], 1, Verb::Stock, NOW + 1, &[], &log).unwrap());
+        for (n, &(slot, card, price, _)) in list.iter().take(7).enumerate() {
+            let at = NOW + 10 + 2 * n as u64;
+            let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let racers = [0, 1].map(|i| {
+                let (m, gate, log) = (stores[i].clone(), gate.clone(), log.clone());
+                std::thread::spawn(move || {
+                    gate.wait();
+                    ask(
+                        &m,
+                        1,
+                        Verb::StockBuy,
+                        at + i as u64,
+                        &[slot, card, price],
+                        &log,
+                    )
+                })
+            });
+            let answers = racers.map(|h| h.join().unwrap());
+            let won = answers.iter().filter(|a| a.is_ok()).count();
+            assert_eq!(won, 1, "slot {slot}: {answers:?}");
+        }
+        assert_eq!(
+            row(
+                dir.path(),
+                "SELECT COUNT(*), SUM(price) FROM ledger WHERE state = 'stock'"
+            ),
+            [[s("7"), s("792")]]
+        );
+        assert_eq!(
+            row(dir.path(), "SELECT COUNT(*) FROM stock WHERE sold = 1"),
+            [[s("7")]]
+        );
+    }
+
+    /// #375 (advisor 3.3 m4): a key that bought a stock slot expires 7 days after LEAVE (the purchase `stock_gone`); its
+    /// log JOINs again, RESET retires the purchase (`stock_reset`), the new history spends all its tokens, and the old
+    /// log's `stock_buy` line no longer matches a sale.
+    #[test]
+    fn reset_retires_an_expired_keys_stock_purchase() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let list = stock_rows(&ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap());
+        let (slot, card, price, _) = list[0];
+        ask(&m, 1, Verb::StockBuy, NOW + 2, &[slot, card, price], &log).unwrap();
+        let log = plus(&log, Kind::StockBuy, card as u32, -(price as i64));
+        ask(&m, 1, Verb::Leave, NOW + 3, &[], "").unwrap();
+        let back = NOW + 3 + KEEP_LEFT_MS + 1;
+        ask(&m, 1, Verb::Join, back, &[], &log).unwrap();
+        assert_eq!(
+            row(dir.path(), "SELECT state FROM ledger"),
+            [[s("stock_gone")]]
+        );
+        assert_eq!(ask(&m, 1, Verb::Reset, back + 1, &[], "").unwrap(), "reset");
+        assert_eq!(
+            row(dir.path(), "SELECT state FROM ledger"),
+            [[s("stock_reset")]]
+        );
+        // the new history: 12 starters and a match, 50 tokens, no welcome
+        let mut fresh = Log::default();
+        for c in (1..=11).chain([51]) {
+            fresh.add(t("2026-11-20T10:00:00+09:00"), Kind::Starter, Some(c), 0);
+        }
+        fresh.add(t("2026-11-20T12:00:00+09:00"), Kind::Match, Some(20), 50);
+        ask(&m, 1, Verb::Join, back + 2, &[], &fresh.text).unwrap();
+        let list = stock_rows(&ask(&m, 1, Verb::Stock, back + 3, &[], &fresh.text).unwrap());
+        let (slot, card, price, _) = list[0];
+        assert_eq!(price, 36);
+        assert_eq!(
+            ask(
+                &m,
+                1,
+                Verb::StockBuy,
+                back + 4,
+                &[slot, card, price],
+                &fresh.text
+            ),
+            Ok(format!("stockbought {slot}:{card}:36"))
+        );
+        let why = ask(&m, 1, Verb::Join, back + 5, &[], &log).unwrap_err();
+        assert!(
+            why.contains("the server never sold to this installation"),
+            "{why}"
+        );
+    }
 }

@@ -364,3 +364,72 @@ fn the_widest_stock_list_fits_1_kib() {
         said.len()
     );
 }
+
+/// #375 over loopback: a BUY and a COLLECT whose answers the Launcher lost show in OWED until their lines are
+/// written, and another key cannot JOIN with the seller's log.
+#[test]
+fn owed_and_one_key_per_log_over_the_desk() {
+    let root = scratch("market_owed");
+    let table = Table::of(
+        &(1..=40)
+            .map(|c| (c, forza::collection::Rarity::Regular, 80))
+            .collect::<Vec<_>>(),
+    );
+    let d = desk(Some(Market::with(table, &root.join("market.db")).unwrap()));
+    let [seller, buyer, third] = [10u8, 11, 12].map(|k| SigningKey::from_bytes(&[k; 32]));
+    let (sold, funds) = (
+        with_match(&starter_log(), 13),
+        with_match(&starter_log(), 14),
+    );
+    let at = now_ms();
+    let steps: [(&SigningKey, Verb, &[u64], &str, String); 8] = [
+        (&seller, Verb::Join, &[], &sold, "OK 13 lines\n".into()),
+        (
+            &seller,
+            Verb::List,
+            &[13, 38],
+            &sold,
+            "OK listed 1:13:38\n".into(),
+        ),
+        (&buyer, Verb::Join, &[], &funds, "OK 13 lines\n".into()),
+        (
+            &buyer,
+            Verb::Buy,
+            &[1, 13, 38],
+            &funds,
+            "OK bought 1:13:38\n".into(),
+        ),
+        (
+            &buyer,
+            Verb::Owed,
+            &[],
+            &funds,
+            "OK owed bought 2:13:38\n".into(),
+        ),
+        (
+            &seller,
+            Verb::Collect,
+            &[],
+            "",
+            "OK collected sold 1:13:38\n".into(),
+        ),
+        (
+            &seller,
+            Verb::Owed,
+            &[],
+            &sold,
+            "OK owed sold 1:13:38\n".into(),
+        ),
+        (
+            &third,
+            Verb::Join,
+            &[],
+            &sold,
+            "NO this log is in the market under another installation's key\n".into(),
+        ),
+    ];
+    for (n, (key, verb, args, log, want)) in steps.into_iter().enumerate() {
+        let got = answer(d.addr(), &request_args(verb, key, at + n as u64, args, log));
+        assert_eq!(String::from_utf8(got).unwrap(), want, "{verb:?}");
+    }
+}
