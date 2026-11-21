@@ -682,9 +682,9 @@ impl Link {
                     let Some(payload) = unframe(&self.raw) else {
                         continue;
                     };
-                    // A frame that stops before its length byte has no command: drop it and read on (the Python
-                    // raised here and stopped).
-                    if payload.len() < 3 {
+                    // A message is [cmd, cmd, len, data.., bcc]: a payload shorter than 4 stops before its length
+                    // byte and has no command to answer - drop it and read on (the Python raised here and stopped).
+                    if payload.len() < 4 {
                         (reader.log)("  (frame too short - ignored)");
                         self.state = State::Idle;
                         continue;
@@ -1065,6 +1065,10 @@ mod tests {
                 .any(|m| m.contains("frame too short")),
             "{msgs:?}"
         );
+        let three = frame(&[0x41, 0x41]); // command, command and bcc: the length byte is still missing
+        out.clear();
+        link.feed(&[&[STX][..], &three[..]].concat(), &mut reader, &mut out);
+        assert_eq!(out, [DLE], "a payload of three bytes is dropped too");
         out.clear();
         let request = frame(&[0x41, 0x00, 0x00]);
         link.feed(&[&[STX][..], &request[..]].concat(), &mut reader, &mut out);
