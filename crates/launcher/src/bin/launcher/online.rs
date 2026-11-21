@@ -200,6 +200,20 @@ impl Online {
         self.play_on = desk;
     }
 
+    /// A host run starts (HOST ARCADE, HOST LAN ARCADE): its seat plays on its own desk, and HOST LAN ARCADE serves its
+    /// guests this PC's copy of the project's notice, never the desk a run before it played on (#419).
+    pub fn hosting(&mut self) {
+        self.play_on = None;
+    }
+
+    /// The desk whose notice the seat shows while `running`: the arcade tunnel's, else the one its run plays on; `None`
+    /// for the project server's.
+    fn notice_desk(&self, running: bool) -> Option<String> {
+        notice::tunnel_desk()
+            .or_else(|| self.play_on.clone())
+            .filter(|_| running)
+    }
+
     fn save_last(&self, settings: &Path) {
         let v = self.last.as_ref().map_or(
             Value::Null,
@@ -263,8 +277,7 @@ impl Online {
         }
         if let Some((n, project)) = &self.notices {
             // an arcade guest's seat plays on the host's desk, through the run's tunnel (#328)
-            let desk = notice::tunnel_desk().or_else(|| self.play_on.clone());
-            n.ask(desk.as_ref().filter(|_| st.running).unwrap_or(project));
+            n.ask(self.notice_desk(st.running).as_ref().unwrap_or(project));
         }
         if st.running
             && let Some(l) = &mut self.last
@@ -693,6 +706,18 @@ impl Online {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A host run after a LAN arcade's run (#419): the watcher asks the project server again, so HOST LAN ARCADE never
+    /// serves its guests that other desk's notice.
+    #[test]
+    fn a_host_run_shows_the_projects_notice_not_the_last_desks() {
+        let mut o = Online::default();
+        o.play_on(Some("192.168.1.20".into())); // JOIN on a LAN arcade
+        assert_eq!(o.notice_desk(true).as_deref(), Some("192.168.1.20"));
+        assert_eq!(o.notice_desk(false), None, "no run: the project server");
+        o.hosting();
+        assert_eq!(o.notice_desk(true), None, "the host's own run: the project server");
+    }
 
     /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY
     /// CPU NOW starts the run.
