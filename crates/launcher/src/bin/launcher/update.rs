@@ -293,7 +293,13 @@ fn swap_self<'a>(
     use std::io::{Seek, SeekFrom};
     use std::os::windows::fs::OpenOptionsExt;
     // `me` first: after a failed put-back it may be gone, and the spare is then the only copy, not to be truncated
-    let mut running = fs::File::open(me).map_err(|e| (me, e))?;
+    let mut running = fs::File::open(me).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound if kept.is_file() => {
+            let left = io::Error::new(e.kind(), format!("{e}; the Launcher left is {}", kept.display()));
+            (me, left)
+        }
+        _ => (me, e),
+    })?;
     let mut spare = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -693,6 +699,18 @@ mod tests {
         let e = swap_self(&me, &kept, || panic!("no swap without a spare")).unwrap_err();
         assert_eq!(e.0, kept);
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// A try after a put-back that failed finds no Launcher.exe: the error names the spare, the only copy left (#361).
+    #[test]
+    fn a_retry_with_no_launcher_names_the_spare_left() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        fs::write(&kept, b"the only copy").unwrap();
+        let e = swap_self(&me, &kept, || panic!("no swap without a Launcher.exe")).unwrap_err();
+        assert_eq!(e.0, me);
+        assert!(e.1.to_string().contains(&kept.display().to_string()), "{}", e.1);
+        assert_eq!(fs::read(&kept).unwrap(), b"the only copy");
     }
 
     /// A second Launcher started between the copy and the swap runs its start's tidy: the kept copy must survive it,
