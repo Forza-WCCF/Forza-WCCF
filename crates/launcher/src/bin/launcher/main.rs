@@ -999,7 +999,7 @@ impl App {
             }
             Err(Fail::Refused(why)) => {
                 log(&format!("market: {:?} refused: {why}", d.action));
-                Some(tf("collection.market_refused", &[("why", why)]))
+                Some(tf("collection.market_refused", &[("why", &market::reason(why))]))
             }
             Err(Fail::Unresolved(server)) => {
                 log(&format!("market: {:?}: {server} could not be resolved", d.action));
@@ -1017,9 +1017,14 @@ impl App {
             log(&format!("market: a request sent again was refused: {why}"));
         }
         let note = note.or_else(|| {
-            d.resent
-                .as_ref()
-                .map(|why| tf("collection.market_resent_refused", &[("why", why)]))
+            // `VERB: why`: the server's words translated after the verb
+            d.resent.as_ref().map(|said| {
+                let why = said.split_once(": ").map_or_else(
+                    || said.clone(),
+                    |(verb, why)| format!("{verb}: {}", market::reason(why)),
+                );
+                tf("collection.market_resent_refused", &[("why", &why)])
+            })
         });
         self.collection(kit);
         if let (Some(v), Some(cat)) = (&mut self.st.collection, &self.catalogue) {
