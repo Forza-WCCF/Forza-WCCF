@@ -717,7 +717,7 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
         }
         Event::Progress(..) => {}
     };
-    install::run(&plan, &AtomicBool::new(false), Lang::En, &emit)?;
+    install::run(&plan, &CANCEL, Lang::En, &emit)?;
     println!("done");
     Ok(true)
 }
@@ -769,25 +769,43 @@ fn wants_console(args: &[String]) -> bool {
     !args.is_empty()
 }
 
+/// Set by the console control routine once the headless run has joined the shell's console: the extraction polls it
+/// between files, so a Ctrl+C takes the cancel path (staging folder removed) instead of ending the process on the
+/// spot. Nothing else writes it.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Ctrl+C at the shell's prompt, Ctrl+Break, a logoff or a closed window: ask the install to stop and say the event
+/// was handled, so Windows lets the run drain instead of ending it mid-extraction. A closed window gives only a few
+/// seconds; the next run clears a staging folder it could not remove.
+#[cfg(windows)]
+unsafe extern "system" fn on_ctrl(_event: u32) -> windows::core::BOOL {
+    CANCEL.store(true, Ordering::Relaxed);
+    true.into()
+}
+
 /// Joins the console of the shell that started this GUI-subsystem exe: without it `--help` and an error line print
 /// nowhere. Only a run with arguments reaches this (wants_console), never a plain start.
 #[cfg(windows)]
 fn attach_console() {
     use std::os::windows::io::IntoRawHandle;
     use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows::Win32::System::Console::{
         ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
-        SetStdHandle,
+        SetConsoleCtrlHandler, SetStdHandle,
     };
     // SAFETY: plain Win32 calls on this process's own standard handles; a reopened CONOUT$ stays open for the rest
-    // of this short-lived run.
+    // of this short-lived run, and `on_ctrl` only sets an atomic flag.
     unsafe {
         if AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
             return; // from Explorer: no console to print in
         }
-        for std in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-            // the shell's own handle, or the file or pipe of a redirect (`--help > out.txt`): keep it
-            if GetStdHandle(std).is_ok() {
+        // this process is a member of that console now, so the shell's Ctrl+C would kill it mid-extraction
+        let _ = SetConsoleCtrlHandler(Some(on_ctrl), true);
+        for slot in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // the shell's own console, or the file or pipe of a redirect (`--help > out.txt`): keep it. A stale or
+            // closed handle reads as FILE_TYPE_UNKNOWN and is replaced
+            if GetStdHandle(slot).is_ok_and(|h| GetFileType(h) != FILE_TYPE_UNKNOWN) {
                 continue;
             }
             if let Ok(f) = std::fs::OpenOptions::new()
@@ -795,7 +813,7 @@ fn attach_console() {
                 .write(true)
                 .open("CONOUT$")
             {
-                let _ = SetStdHandle(std, HANDLE(f.into_raw_handle()));
+                let _ = SetStdHandle(slot, HANDLE(f.into_raw_handle()));
             }
         }
     }
@@ -899,9 +917,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A double-click start opens the window with no console behind it; everything that prints joins the shell's.
+    /// A double-click start opens the window with no console behind it, and only a run with arguments may join one.
+    /// What the joined console then receives is not a pure decision: the console run and the installer smoke run
+    /// (pipes, so the redirect path) cover it.
     #[test]
-    fn only_a_start_with_arguments_attaches_to_a_console() {
+    fn wants_console_is_true_only_with_arguments() {
         let plain: Vec<String> = Vec::new();
         assert!(!wants_console(&plain), "a plain start would show a console");
         for args in [
@@ -911,6 +931,22 @@ mod tests {
         ] {
             assert!(wants_console(&args), "{args:?} prints");
         }
+    }
+
+    /// The console control routine is what turns the shell's Ctrl+C into the cancel path that removes `game.partial`;
+    /// Windows calls it on its own thread, so the test calls it directly.
+    #[cfg(windows)]
+    #[test]
+    fn a_console_control_event_cancels_the_run() {
+        CANCEL.store(false, Ordering::Relaxed);
+        // SAFETY: `on_ctrl` only stores to the static flag; calling it here is what a console event does.
+        let handled = unsafe { on_ctrl(0) };
+        assert!(handled.as_bool(), "the event counts as handled");
+        assert!(
+            CANCEL.load(Ordering::Relaxed),
+            "the run was not asked to stop"
+        );
+        CANCEL.store(false, Ordering::Relaxed);
     }
 
     /// A step that failed without stopping the install reaches the Done page: its line shows, and a shortcut that was

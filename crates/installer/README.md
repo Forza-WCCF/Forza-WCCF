@@ -119,7 +119,11 @@ setup. Headless mode does not create shortcuts. Errors return a nonzero exit cod
 It is a Windows GUI-subsystem program. Started with arguments from `cmd` or PowerShell, it
 joins that console, so `--help`, `--version`, the progress lines and an error print there;
 a start with no arguments opens the wizard and shows no console. A redirect (`> out.txt`) still
-wins. The shell does not wait for it and returns to its prompt at once; for the exit code use
+wins. An interactive shell does not wait for it: its prompt comes back at once and the progress
+lines print over it (press Enter to draw the prompt again). A batch file, or PowerShell whose
+output is redirected, waits for the run. Ctrl+C in that shell, or closing its window, stops the
+run at its next file and removes its `game.partial` staging folder; a closed window allows only
+a few seconds, so the next run clears a staging folder left behind. For the exit code use
 `Start-Process -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt`
 and read the files and `.ExitCode`.
 
