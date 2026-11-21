@@ -74,7 +74,7 @@ fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Opt
     let mut l = get(asked)?;
     if asked != project {
         l.notice = match l.notice.take().and_then(ServerNotice::clean) {
-            Some(n) if n.id.starts_with('h') => arcade_notice(&n),
+            Some(n) if host_id(&n.id) => arcade_notice(&n),
             Some(n) => {
                 let ours = get(project)?.notice.and_then(ServerNotice::clean);
                 if ours.as_ref() == Some(&n) {
@@ -87,6 +87,12 @@ fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Opt
         };
     }
     Some(l)
+}
+
+/// `id` is a host's ([`write_host_notice`]): `h` and Unix seconds, nothing else.
+fn host_id(id: &str) -> bool {
+    id.strip_prefix('h')
+        .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// A peer's notice under the prefix that says whose it is, in each language, cut to a notice's length again.
@@ -426,6 +432,28 @@ mod tests {
             Some("Server update at 23:00"),
             "the run is over"
         );
+    }
+
+    /// Only `h<digits>` is a host's id (#419): a project notice whose id starts with `h` is still the project's.
+    #[test]
+    fn only_a_hosts_id_gets_the_arcade_prefix() {
+        let project = "lobby.wccf.it:20032";
+        let ours = ServerNotice {
+            id: "hello".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        };
+        let host = ServerNotice {
+            id: "h1795816800".into(),
+            ..ours.clone()
+        };
+        let l = round("127.0.0.1:20041", project, |_| Some(answer(Some(ours.clone())))).unwrap();
+        assert_eq!(l.notice.as_ref(), Some(&ours), "the project's notice, unprefixed");
+        let l = round("127.0.0.1:20041", project, |s| {
+            Some(answer(Some(if s == project { ours.clone() } else { host.clone() })))
+        })
+        .unwrap();
+        assert_eq!(l.notice.unwrap().en, "Arcade notice: Server update at 23:00");
     }
 
     /// HOST ARCADE's notice file: a fresh id and the text as typed (bounded), removed when the box is empty.
