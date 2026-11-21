@@ -795,3 +795,48 @@ fn owed_heals_a_purchase_whose_outbox_was_lost() {
     assert_eq!(count(&b.1, Kind::MarketBuy), 1, "written once");
     buyer.ask(Verb::Join, &[]).unwrap();
 }
+
+/// #375 over a real desk: LEAVE's answer is lost with two listings open, one sold before it. The next visit learns the
+/// key is out, COLLECT pays the sale, the returned listing gets its `unlist` line, and the log passes JOIN again.
+#[test]
+fn a_lost_leave_answer_brings_the_listings_back_over_the_desk() {
+    let root = scratch("market_client_leave");
+    let d = market_desk(&root);
+    let (s, b) = (
+        install(&root, "seller", &[13, 14]),
+        install(&root, "buyer", &[15]),
+    );
+    let mut seller = client(&d, &s);
+    seller.ask(Verb::Join, &[]).unwrap();
+    seller.ask(Verb::List, &[13, 38]).unwrap();
+    seller.ask(Verb::List, &[14, 38]).unwrap();
+    let buyer = client(&d, &b);
+    buyer.ask(Verb::Join, &[]).unwrap();
+    buyer.ask(Verb::Buy, &[1, 13, 38]).unwrap();
+    seller.transport = lose;
+    assert!(matches!(
+        seller.ask(Verb::Leave, &[]),
+        Err(Fail::Unanswered(_))
+    ));
+    assert!(
+        Client::saved(&s.0).joined,
+        "no answer: still in, as this PC sees it"
+    );
+    let seller = client(&d, &s);
+    seller.visit(3).unwrap();
+    assert!(!Client::saved(&s.0).joined);
+    let state = folded(&s.1);
+    assert_eq!(
+        (state.copies(13).earned, state.copies(13).listed),
+        (0, 0),
+        "sold"
+    );
+    assert_eq!(
+        (state.copies(14).earned, state.copies(14).listed),
+        (1, 0),
+        "returned"
+    );
+    assert_eq!(state.tokens, 150 + 100 + 38);
+    assert!(market::listed(&Log::new(&s.1).lines().unwrap()).is_empty());
+    seller.ask(Verb::Join, &[]).unwrap();
+}

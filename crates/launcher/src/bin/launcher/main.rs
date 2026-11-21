@@ -964,7 +964,10 @@ impl App {
                 return;
             }
         };
-        if a == CollectionAction::Market && !saved.joined && saved.waiting == 0 && saved.outbox.is_none() {
+        // listings the log holds open outside the market came back with a LEAVE whose answer was lost: the visit
+        // writes them
+        let open = self.st.collection.as_ref().is_some_and(|v| !v.market.mine.is_empty());
+        if a == CollectionAction::Market && !saved.joined && saved.waiting == 0 && saved.outbox.is_none() && !open {
             return;
         }
         let Some(dir) = self

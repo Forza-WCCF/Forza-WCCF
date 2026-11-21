@@ -896,13 +896,14 @@ impl Client {
     }
 
     /// COLLECT until it answers `collected` alone: the sales paid and the listings past 7 days back, in the log.
-    pub fn collect(&self) -> Result<(), Fail> {
+    /// `true` once it answered `collected` alone (the rest of a longer wait comes at the next visit).
+    pub fn collect(&self) -> Result<bool, Fail> {
         for _ in 0..COLLECT_PAGES {
             if self.ask(Verb::Collect, &[])? == "collected" {
-                break;
+                return Ok(true);
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     /// OWED until it names nothing more: the purchases and paid sales the server holds that the log lacks (an answer
@@ -920,10 +921,32 @@ impl Client {
         Ok(())
     }
 
+    /// Outside the market with nothing left to COLLECT: every listing the log still holds open came back with LEAVE
+    /// (the server returns each open listing, and LEAVE's answer naming them was lost), so each gets its `unlist` line.
+    fn returned(&self) -> Result<(), Fail> {
+        use crate::collection::{Kind, Line};
+        let lines: Vec<Line> = listed(&self.log.lines().map_err(disk)?)
+            .into_iter()
+            .map(|l| Line {
+                kind: Kind::Unlist,
+                card: Some(l.card),
+                tokens: 0,
+                why: why("unlist", l.id),
+            })
+            .collect();
+        if !lines.is_empty() {
+            self.log
+                .append_lines_at(crate::collection::now(), |_| Ok(lines))
+                .map_err(disk)?;
+        }
+        Ok(())
+    }
+
     /// The market page's requests after the player's word (`PLAN.md` 3.5), each after the outbox:
     /// - in the market as this PC sees it, BROWSE first: it carries no log, so a key the server holds outside the market
-    ///   (an unreadable [`STATE_FILE`]) learns it from `NOT_IN` before any log goes;
-    /// - COLLECT while in the market or while a sale waits;
+    ///   (a LEAVE whose answer was lost, an unreadable [`STATE_FILE`]) learns it from `NOT_IN` before any log goes;
+    /// - COLLECT while in the market, while a sale waits, or while the log holds open listings;
+    /// - outside the market once COLLECT has nothing more, [`Self::returned`];
     /// - in the market, [`Self::owed`] and then the stock list.
     pub fn visit(&self, browse_pages: usize) -> Result<Visit, Fail> {
         let mut v = Visit::default();
@@ -935,8 +958,16 @@ impl Client {
             }
         }
         let s = Self::load(&self.data)?;
-        if s.joined || s.waiting > 0 {
-            self.collect()?;
+        let open = !listed(&self.log.lines().map_err(disk)?).is_empty();
+        if s.joined || s.waiting > 0 || open {
+            let done = match self.collect() {
+                // the server dropped the key: no sale waits for it
+                Err(Fail::Refused(why)) if why == NOT_IN && !s.joined => true,
+                said => said?,
+            };
+            if done && !s.joined && open {
+                self.returned()?;
+            }
         }
         if s.joined {
             self.owed()?;
@@ -1379,6 +1410,55 @@ mod tests {
             })
             .count();
         assert_eq!(buys, 1);
+    }
+
+    /// #375: LEAVE's answer is lost with 2 listings open, one of them sold meanwhile. The next visit learns from
+    /// BROWSE's `NOT_IN` that the key is out, sends no log, COLLECT pays the sale, and the other listing, which LEAVE
+    /// returned, gets its `unlist` line.
+    #[test]
+    fn a_lost_leave_answer_brings_the_listings_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let coll = crate::collection::Log::new(dir.path().join("coll"));
+        for card in [57, 58] {
+            coll.append(crate::collection::Kind::Match, Some(card), 50, "match")
+                .unwrap();
+        }
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listed 7:57:228".into())),
+            Ok(Ok("listed 8:58:100".into())),
+            Err("connection reset".into()),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 228]).unwrap();
+        c.ask(Verb::List, &[58, 100]).unwrap();
+        assert!(matches!(c.ask(Verb::Leave, &[]), Err(Fail::Unanswered(_))));
+        assert_eq!(listed(&coll.lines().unwrap()).len(), 2);
+        script([
+            Ok(Err(NOT_IN.into())),
+            Ok(Ok("collected sold 8:58:100".into())),
+            Ok(Ok("collected".into())),
+        ]);
+        assert_eq!(c.visit(3).unwrap(), Visit::default());
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "COLLECT"]);
+        assert!(!Client::saved(&data).joined);
+        let text = coll.lines().unwrap();
+        assert!(listed(&text).is_empty(), "both listings closed");
+        let f = crate::collection::fold(&text);
+        assert!(f.warnings.is_empty(), "{:?}", f.warnings);
+        assert_eq!(f.state.copies(57).earned, 1, "the returned card is back");
+        assert_eq!(
+            (f.state.copies(58).earned, f.state.copies(58).listed),
+            (0, 0),
+            "the sold one is gone"
+        );
+        // the next visit outside the market with nothing open sends nothing
+        script([]);
+        c.visit(3).unwrap();
+        assert!(sent().is_empty());
     }
 
     /// #375: three full BROWSE pages say the server holds more; MORE goes on from the last id.
