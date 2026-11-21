@@ -3,8 +3,8 @@ use proptest::prelude::*;
 
 use super::build::{built_stamp_text, other_profile, sources_changed};
 use super::check::{
-    affected, clippy, hook_test, package_dir, required_programs, target_scopes, test_commands,
-    test_filter, tests,
+    affected, clippy, hook_test, package_dir, quick_clippy, required_programs, target_scopes,
+    test_commands, test_filter, tests, wide_scope,
 };
 use super::installer::LICENSES;
 use super::package::{keep_frozen, parse_freeze, source_txt};
@@ -508,24 +508,40 @@ fn quick_lints_the_whole_workspace_as_the_gate_does() {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    // the scope `quick` hands each target is the whole workspace, as `check` lints it: a `-p` set of the changed crates
-    // unifies other features, and cargo then built the dependencies again in the `dev` profile that main's CI cache holds
-    // (about 90 s a target, 2026-11-21)
-    let wide = target_scopes(&["--workspace".to_owned()], hook_feature(false));
-    let args: Vec<String> = wide
-        .iter()
-        .map(|(target, scope)| line(clippy(Path::new("C:/repo"), target, scope)))
-        .collect();
+    let args = |scope: &[&str]| -> Vec<String> {
+        let scope = scope.iter().map(ToString::to_string).collect::<Vec<_>>();
+        quick_clippy(Path::new("C:/repo"), &scope, hook_feature(false))
+            .into_iter()
+            .map(line)
+            .collect()
+    };
+    // a launcher-only change: one target, and it lints the whole workspace, which is `check`'s scope and main's cache
+    let one = args(&["-p", "launcher"]);
+    assert_eq!(one.len(), 1, "{one:?}");
     assert!(
-        args[0].contains("--target x86_64-pc-windows-msvc --workspace --exclude forza-panel"),
+        one[0].contains("--target x86_64-pc-windows-msvc --workspace --exclude forza-panel"),
         "{}",
-        args[0]
+        one[0]
     );
-    assert!(args[0].ends_with("-- -D warnings"), "{}", args[0]);
-    assert!(
-        args[1].contains("--target i686-pc-windows-msvc -p forza-panel"),
+    assert!(!one[0].contains("launcher"), "{}", one[0]);
+    assert!(one[0].ends_with("-- -D warnings"), "{}", one[0]);
+    // a 32-bit crate adds the panel's target, which lints the workspace's 32-bit crates the same way
+    let two = args(&["-p", "launcher", "-p", "forza-panel"]);
+    assert_eq!(two.len(), 2, "{two:?}");
+    assert_eq!(
+        two[1],
+        line(clippy(
+            Path::new("C:/repo"),
+            PANEL_TARGET,
+            &wide_scope(PANEL_TARGET, hook_feature(false)).unwrap()
+        )),
         "{}",
-        args[1]
+        two[1]
+    );
+    assert!(
+        two[1].contains("--target i686-pc-windows-msvc -p forza-panel"),
+        "{}",
+        two[1]
     );
 }
 
