@@ -502,18 +502,53 @@ fn popout_board_foot_buttons_apart() {
     }
 }
 
+/// A card without a back picture (the test catalogue has no picture folder) offers no BACK in the catalogue's detail
+/// pane nor its card view, in every language; the drawn back is gone (#333).
+#[test]
+fn a_card_without_a_back_picture_has_no_back_in_the_catalogue() {
+    for (lang, back) in [(Lang::En, "BACK"), (Lang::It, "RETRO"), (Lang::Ja, "裏面")] {
+        for view in [false, true] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+            st.catalogue.filter = Default::default();
+            st.catalogue.focus = Some(7);
+            if view {
+                st.catalogue.view = Some(7);
+            }
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+                panel::show(ui, &mut st)
+            });
+            h.run_steps(6);
+            assert!(
+                h.query_by_label(back).is_none(),
+                "{lang:?} view {view}: {back} without a back picture"
+            );
+        }
+    }
+}
+
 /// A click away from the catalogue's search line (BACK in the detail pane) moves nothing and leaves the keys with the
 /// search line: every rect is the same before the click, while it is pressed, on the click's frame and after it.
 /// The field drew unfocused on the click's frame, a point taller, and shook everything under it (issue #265).
 #[test]
 fn a_click_in_the_catalogue_keeps_the_search_line_focused_and_still() {
+    // BACK shows only for a card with a back picture (#333)
+    let dir = tempfile::tempdir().expect("a temp folder");
+    two_sizes(dir.path(), forza_ui::sample::cards()[7].number);
     for (size, ppp) in [(Vec2::new(1920.0, 1080.0), 1.25), (panel::SIZE, 1.0)] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Catalogue);
         st.message = None; // the sample's note line is no part of the claim
         st.catalogue.filter = Default::default();
         st.catalogue.focus = Some(7);
-        let mut h = harness(size, ppp, Edition::E1718, |ui| panel::show(ui, &mut st));
-        h.run_steps(6);
+        let path = dir.path().to_owned();
+        let mut h = harness(size, ppp, Edition::E1718, |ui| {
+            forza_ui::board::set_picture_dir(ui.ctx(), Some(path.clone()));
+            panel::show(ui, &mut st)
+        });
+        assert!(
+            run_until(&mut h, |h| h.query_by_label("BACK").is_some()),
+            "{size:?} {ppp}: BACK for a card with a back picture"
+        );
+        h.run_steps(2);
         let focused =
             |h: &Harness<'_>| h.get_by_role(egui::accesskit::Role::TextInput).is_focused();
         let at = h.get_by_label("BACK").rect().center();
@@ -1362,7 +1397,7 @@ fn lobby_list_fits_a_short_tab() {
     );
 }
 
-/// The big card floating over the pitch (the 1440x900 sheet) takes the pointer only on itself and its FRONT | BACK
+/// The pinned card floating over the pitch (the 1440x900 sheet) takes the pointer at most on itself and its FRONT | BACK
 /// switch: a click and a drag on a mat card under the rest of the pane reach the mat card.
 #[test]
 fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
@@ -1394,9 +1429,11 @@ fn the_big_card_pane_lets_the_mat_cards_under_it_take_the_pointer() {
     h.run_steps(4);
     click(&mut h, centers.iter().find(|c| c.0 == a).unwrap().1);
     let big = area(&h, "board-big").expect("the card shown big");
-    let live = area(&h, "board-big-card")
-        .unwrap()
-        .union(area(&h, "board-big-switch").unwrap());
+    // a card without a back picture (none here) has neither: the whole pane lets the pointer through (#333)
+    let live = [area(&h, "board-big-card"), area(&h, "board-big-switch")]
+        .into_iter()
+        .flatten()
+        .fold(egui::Rect::NOTHING, |a, r| a.union(r));
     let (b, at_b) = *centers
         .iter()
         .find(|(s, p)| *s != a && big.contains(*p) && !live.expand(4.0).contains(*p))

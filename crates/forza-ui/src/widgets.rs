@@ -668,9 +668,12 @@ fn solid_face(p: &Painter, rect: Rect, label: &str, kind: Cab, shape: Shape, f: 
 
 // ---- choices ----
 
+/// A [`segmented`] switch's height.
+pub const SEGMENTED_H: f32 = 34.0;
+
 /// One choice of several, joined in a row; the chosen one is lit amber. Returns true when the choice changed.
 pub fn segmented(ui: &mut Ui, selected: &mut usize, labels: &[&str], width: f32) -> bool {
-    let h = 34.0;
+    let h = SEGMENTED_H;
     // the row's own id, not the ui's: two rows in one ui would share each segment's id
     let (rect, row) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let w = width / labels.len() as f32;

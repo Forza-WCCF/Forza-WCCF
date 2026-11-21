@@ -829,17 +829,14 @@ pub struct PanelState {
     pub desk: bool,
     /// The game window's frame while the board window shows the board: [`popped_layout`].
     pub popped: bool,
-    /// The card pressed or in hand on the board window last, and when (the frame's time): the game window shows it
-    /// for [`TOUCH_SECS`] after.
-    pub touched: Option<(Card, f64)>,
+    /// The card pressed or in hand on the board window last: the game window shows it, pinned, until Esc there or
+    /// another touch (#333).
+    pub touched: Option<Card>,
     /// The card shown big (the board's pane, or the touched card) on its back: its number ([`board::flip_side`]).
     pub turned: Option<u32>,
     /// FLIP's key was down last frame: a press flips once.
     pub flip_held: bool,
 }
-
-/// How long the game window keeps showing the card touched on the board window, once the touch ended.
-pub const TOUCH_SECS: f64 = 6.0;
 
 impl PanelState {
     /// The panel at rest: the game page, no message, the default keys, the board and the catalogue given.
@@ -1709,6 +1706,17 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         && st.pad_capturing.is_none()
         && !ui.ctx().egui_wants_keyboard_input();
     st.flip_held = held;
+    // Esc lets the pinned card go when no page, dialog or key capture takes it (#333)
+    let esc_free = st.page == Page::Game
+        && st.deal.is_none()
+        && !st.close_warn
+        && st.import_ask.is_none()
+        && !st.import_help
+        && st.formations.is_none()
+        && st.reset_ask.is_none()
+        && st.capturing.is_none()
+        && st.pad_capturing.is_none()
+        && !ui.ctx().egui_wants_keyboard_input();
     let lay = if st.popped {
         popped_layout(
             sheet,
@@ -1739,6 +1747,10 @@ pub fn show(ui: &mut Ui, st: &mut PanelState) {
         divider(ui, st, sheet, lay.board);
     } else {
         ui.data_mut(|d| d.remove::<Rect>(handle_id()));
+    }
+    if esc_free && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        board::close_pin(ui.ctx());
+        st.touched = None;
     }
 }
 
@@ -1954,25 +1966,18 @@ fn middle(ui: &mut Ui, st: &mut PanelState, lang: Lang, lay: &Layout, flip: bool
     }
 }
 
-/// The card touched on the board window, its details in `area` (the popped-out column over the deck), until
-/// [`TOUCH_SECS`] after the touch or its last flip (`flip`: FLIP's key, else its FRONT | BACK switch or the card).
+/// The card touched on the board window, pinned in `area` (the popped-out column over the deck) until Esc or another
+/// touch; `flip`: FLIP's key turns it over when it has a back picture (else its FRONT | BACK switch or the card).
 fn touched_card(ui: &Ui, st: &mut PanelState, area: Rect, flip: bool, lang: Lang) {
-    let now = ui.input(|i| i.time);
-    st.touched = st.touched.take().filter(|(_, at)| now - at < TOUCH_SECS);
-    let Some((card, at)) = &mut st.touched else {
+    let Some(card) = &st.touched else {
         st.turned = None; // the next card opens on its front
         return;
     };
-    let back = board::flip_side(&mut st.turned, card.number, flip);
-    let clicked = board::card_view(ui, card, area, back, lang);
-    if clicked {
+    let has = board::has_back(ui.ctx(), card.number) == Some(true);
+    let back = board::flip_side(&mut st.turned, card.number, flip && has);
+    if board::card_view(ui, card, area, back, lang) {
         board::flip_side(&mut st.turned, card.number, true);
     }
-    if flip || clicked {
-        *at = now;
-    }
-    ui.ctx()
-        .request_repaint_after(std::time::Duration::from_secs_f64(TOUCH_SECS - (now - *at)));
 }
 
 /// The PAUSED page over the game's picture (the game's last frame stays under it): how to resume and the seconds left
@@ -2548,17 +2553,11 @@ pub const DEAL_SECS: f64 = 20.0;
 pub struct Deal {
     pub card: usize,
     pub until: Option<f64>,
-    /// Turned over: its back.
-    pub back: bool,
 }
 
 impl Deal {
     pub fn new(card: usize) -> Deal {
-        Deal {
-            card,
-            until: None,
-            back: false,
-        }
+        Deal { card, until: None }
     }
 }
 
@@ -2578,7 +2577,6 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
     }
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_secs_f64(until - now));
-    let back = d.back;
     let rare = cards::deal_class(&card) == 0;
     let col = match cards::deal_class(&card) {
         0 => theme::GOLD,
@@ -2628,11 +2626,7 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 pos2(r.center().x, r.top() + 60.0 + 140.0),
                 vec2(200.0, 280.0),
             );
-            if back {
-                board::card_back(&p, face, &card, lang);
-            } else {
-                board::card_face(&p, face, &card, board::Look::default());
-            }
+            board::card_face(&p, face, &card, board::Look::default());
             let mut y = face.bottom() + 12.0;
             let g = widgets::fit(
                 &p,
@@ -2674,19 +2668,12 @@ fn deal_window(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang) {
                 g,
                 theme::TEXT_DIM,
             );
-            // a click on the card turns it over; anywhere else closes the window
-            let on_card = resp.clicked()
-                && resp
-                    .interact_pointer_pos()
-                    .is_some_and(|p| face.contains(p));
-            (resp, on_card)
+            resp
         })
         .inner;
-    if resp.0.clicked() {
-        match st.deal.as_mut() {
-            Some(d) if resp.1 => d.back = !d.back,
-            _ => st.deal = None,
-        }
+    // a click anywhere on it closes it (no back to turn to: the drawn back is gone, #333)
+    if resp.clicked() {
+        st.deal = None;
     }
 }
 
@@ -3580,6 +3567,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
         mat.column,
         false,
     );
+    let board_bottom = b.cursor().top();
     let Some((b, btn)) = board_foot(&mut b, st, lang) else {
         return;
     };
@@ -3590,6 +3578,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
         &st.board,
         &st.links,
         pitch,
+        board_bottom,
         hint_bottom,
         r.bottom(),
         &mut st.turned,
@@ -3636,7 +3625,7 @@ fn board_window(ui: &mut Ui, st: &mut PanelState, lang: Lang, sheet: Rect) {
     st.board_changed |=
         board::formation_board(&mut b, &mut st.board, &st.links, None, lang, beside, true);
     if let Some(card) = board::take_touched(&b) {
-        st.touched = Some((card, b.input(|i| i.time)));
+        st.touched = Some(card);
     }
     board_foot(&mut b, st, lang);
     if st.formations_desk {
@@ -4523,17 +4512,19 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         None => (1, sizing::exact(sizing::ALBUM, 1, room, ppp).unwrap_or(0.5)),
     };
     let size = sizing::ALBUM * k / ppp;
+    // a card without a back picture: its front alone, no FRONT | BACK (#333)
+    let with_back = board::has_back(ui.ctx(), card.number) == Some(true);
     // the head row: back to the list, the side toggle (one side only), the place in the results
     let head = Rect::from_min_size(body.min, vec2(body.width(), 32.0));
     let mut back_to_list = close;
     let mut go: i32 = i32::from(next) - i32::from(prev);
-    let mut flip = flip && n == 1;
+    let mut flip = flip && n == 1 && with_back;
     ui.scope_builder(egui::UiBuilder::new().max_rect(head), |ui| {
         ui.horizontal_centered(|ui| {
             back_to_list |= action(ui, &tr!(lang, "cat.view_list")).clicked();
         });
     });
-    if n == 1 {
+    if n == 1 && with_back {
         let mut r = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(Rect::from_center_size(head.center(), vec2(240.0, 32.0))),
@@ -4565,11 +4556,12 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         c.view_back = !c.view_back;
     }
     // the pictures, centred, their top left on a whole pixel
+    let n = if with_back { n } else { 1 };
     let w = n as f32 * size.x + (n as f32 - 1.0) * sizing::PAIR_GAP;
     let left = body.center().x - w / 2.0;
     let sides: &[bool] = if n == 2 {
         &[false, true]
-    } else if c.view_back {
+    } else if c.view_back && with_back {
         &[true]
     } else {
         &[false]
@@ -4580,7 +4572,7 @@ fn card_view(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             body.top() + 48.0,
         );
         let r = Rect::from_min_size(min.round_to_pixels(ppp), size);
-        board::card_side(ui.painter(), r, card, back, k >= 2.0, lang);
+        board::card_side(ui.painter(), r, card, back, k >= 2.0);
     }
     // the caption row under them
     let cap = Rect::from_min_max(
@@ -4746,15 +4738,6 @@ fn stats_pane(
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
             let w = ui.available_width();
-            let mut side = usize::from(*back);
-            if segmented(
-                ui,
-                &mut side,
-                &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
-                w,
-            ) {
-                *back = side == 1;
-            }
             // the other side loads once this card has been the pane's for two frames: BACK then shows its picture on
             // the click's frame, not the drawn stand-in for the frames a first load takes, and a mouse swept across
             // the grid starts no load per card passed
@@ -4767,6 +4750,26 @@ fn stats_pane(
                     now
                 }
             };
+            // FRONT | BACK only for a card with a back picture; its row stays without one, so nothing moves (#333)
+            let with_back = (now - first >= 2)
+                .then(|| board::has_back(ui.ctx(), card.number))
+                .flatten();
+            let mut side = usize::from(*back);
+            if with_back == Some(true) {
+                if segmented(
+                    ui,
+                    &mut side,
+                    &[&tr!(lang, "cat.front"), &tr!(lang, "cat.back")],
+                    w,
+                ) {
+                    *back = side == 1;
+                }
+            } else {
+                ui.allocate_exact_size(vec2(w, widgets::SEGMENTED_H), Sense::hover());
+                if with_back == Some(false) {
+                    *back = false;
+                }
+            }
             let other = (now - first >= 2)
                 .then(|| board::card_picture_px(ui.ctx(), card.number, !*back, false))
                 .flatten();
@@ -4800,14 +4803,7 @@ fn stats_pane(
                 .round_to_pixels(ppp),
                 size,
             );
-            let real = board::card_side(
-                ui.painter(),
-                r,
-                card,
-                *back,
-                size.x * ppp > pic.x + 0.5,
-                lang,
-            );
+            let real = board::card_side(ui.painter(), r, card, *back, size.x * ppp > pic.x + 0.5);
             ui.ctx()
                 .data_mut(|d| d.insert_temp(picture_rect_id().with("shown"), (*back, real)));
             ui.horizontal(|ui| {
@@ -6591,6 +6587,40 @@ mod tests {
                         );
                     }
                 }
+                // the hover preview (#333), its cursor at each corner of the column as info_panes takes it and in its
+                // middle, on a card there: in the board, clear of the picture, the deck, the card and the buttons and
+                // hint under the board (the foot row, where the pin docks)
+                let board_bottom = mat.bench.bottom().max(mat.shown.bottom());
+                let foot_row = Rect::from_min_max(
+                    pos2(pitch.left(), board_bottom),
+                    pos2(pitch.right(), hint_bottom),
+                );
+                let column = board::preview_column(pitch, board_bottom);
+                let size = board::preview_size(1.0, column.width());
+                assert!(size.x > 300.0 && size.y >= 149.0, "{win}: {size:?}");
+                let card = board::card_size(pitch.width());
+                for cursor in [
+                    column.left_top(),
+                    column.right_top(),
+                    column.left_bottom(),
+                    column.right_bottom(),
+                    column.center(),
+                ] {
+                    let min = (cursor - card / 2.0).max(column.min).min(column.max - card);
+                    let hovered = Rect::from_min_size(min, card);
+                    let r = board::preview_place(column, cursor, hovered, size);
+                    let at = format!("{win} cursor {cursor:?}: {r:?}");
+                    assert!(l.board.contains_rect(r), "{at}");
+                    assert!(!r.intersects(l.picture) && !r.intersects(l.deck), "{at}");
+                    assert!(
+                        !r.intersects(foot_row),
+                        "{at}: on the foot row {foot_row:?}"
+                    );
+                    assert!(
+                        !r.intersects(hovered),
+                        "{at}: on the hovered card {hovered:?}"
+                    );
+                }
                 let docked = |card_y| {
                     board::pane_place(pitch, hint_bottom, col.bottom(), 425.0, 149.0, card_y)
                 };
@@ -7093,8 +7123,9 @@ mod tests {
         out
     }
 
-    /// A card pressed on the board window is the game window's touched card: shown there at once, gone
-    /// [`TOUCH_SECS`] after; the board window shows nothing big and selects nothing.
+    /// A card pressed on the board window is the game window's touched card: shown there at once and kept, pinned,
+    /// until Esc on the game window (#333); FLIP turns over only a card with a back picture; the board window shows
+    /// nothing big and selects nothing.
     #[test]
     fn a_card_touched_on_the_board_window_shows_on_the_game_window() {
         let mut st = PanelState::sample(Edition::E1718, Lang::En, Page::Game);
@@ -7132,20 +7163,30 @@ mod tests {
         both(&mut st, 0.0, vec![egui::Event::PointerMoved(pos)]);
         assert!(st.touched.is_none());
         both(&mut st, 0.1, vec![press(true)]);
-        assert_eq!(st.touched.as_ref().map(|t| t.0.number), Some(card));
+        assert_eq!(st.touched.as_ref().map(|t| t.number), Some(card));
         assert!(big(&game_ctx), "the game window shows it");
-        // FLIP's key turns it over there
+        // no back picture (no picture folder): FLIP's key leaves it on its front
         st.down[forza::keys::FLIP] = true;
         both(&mut st, 0.15, vec![]);
         st.down[forza::keys::FLIP] = false;
-        assert_eq!(st.turned, Some(card), "FLIP turns the touched card over");
+        assert_eq!(st.turned, None, "FLIP turned a card without a back");
         both(&mut st, 0.2, vec![press(false)]);
         // rested on past the hover delay: still no big card on the board window
         both(&mut st, 3.0, vec![]);
         assert!(!big(&board_ctx), "nothing big on the board window");
-        assert!(st.touched.is_some(), "kept for a while");
-        both(&mut st, 0.2 + TOUCH_SECS + 0.1, vec![]);
-        assert!(st.touched.is_none(), "gone after TOUCH_SECS");
+        both(&mut st, 60.0, vec![]);
+        assert!(st.touched.is_some(), "kept, pinned");
+        // Esc on the game window lets it go
+        let esc = egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        frame(&game_ctx, &mut st, 1920.0, 1080.0, 61.0, vec![esc]);
+        frame(&game_ctx, &mut st, 1920.0, 1080.0, 61.1, vec![]);
+        assert!(st.touched.is_none(), "Esc closes it");
         assert!(st.turned.is_none(), "the next card opens on its front");
         // a dock forgets the card touched last
         both(&mut st, 10.0, vec![press(true)]);

@@ -388,7 +388,7 @@ pub fn card_picture_px(
         egui::TextureOptions::LINEAR
     };
     let names = if back {
-        vec![format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
+        back_names(number).to_vec()
     } else {
         vec![
             format!("{number}_hq.jpg"),
@@ -406,16 +406,31 @@ pub fn card_picture_px(
     None
 }
 
+/// The card's back picture files: the downloaded one, then the album's.
+fn back_names(number: u32) -> [String; 2] {
+    [format!("{number}_hq_b.jpg"), format!("{number}_b.jpg")]
+}
+
+/// Whether the card has a back picture in the folder ([`back_names`]): `None` while one loads, false without a folder.
+/// Asked per card at run time, since a pack may add backs; without one nothing offers BACK (#333).
+pub fn has_back(ctx: &egui::Context, number: u32) -> Option<bool> {
+    let Some(dir) = picture_dir(ctx) else {
+        return Some(false);
+    };
+    for f in back_names(number) {
+        match load_picture(ctx, &dir, &f, egui::TextureOptions::LINEAR) {
+            Pic::Ready(..) => return Some(true),
+            Pic::Pending => return None,
+            Pic::Missing => {}
+        }
+    }
+    Some(false)
+}
+
 /// A card side in a 1:1 slot `rect` (its top left on a whole pixel): its picture filling the slot, letterboxed when its
-/// shape is not a card's, or the drawn face or back. `true`: the picture was drawn, not the stand-in.
-pub fn card_side(
-    p: &Painter,
-    rect: Rect,
-    card: &Card,
-    back: bool,
-    nearest: bool,
-    lang: Lang,
-) -> bool {
+/// shape is not a card's, else the drawn face (a back without its picture draws the front: there is no drawn back).
+/// `true`: the picture was drawn, not the stand-in.
+pub fn card_side(p: &Painter, rect: Rect, card: &Card, back: bool, nearest: bool) -> bool {
     // nearest filtering only when the slot's width is a whole multiple of the picture's pixels; any other picture
     // stays smooth. A card-shaped picture fills the slot ([`picture_rect`]) up to 5 % off its own shape, so its
     // height may not be whole pixels of the picture
@@ -440,7 +455,7 @@ pub fn card_side(
             p.add(egui::Shape::mesh(mesh));
             return true;
         }
-        None if back => card_back(p, rect, card, lang),
+        None if back => return card_side(p, rect, card, false, nearest),
         None => {
             card_face(
                 p,
@@ -1600,9 +1615,7 @@ pub fn formation_board(
     let mut removed: Option<(usize, Pos2)> = None;
 
     let hover_id = Id::unique("board-hover");
-    // the card clicked last: shown big while the mouse rests on it or is off the board (a touch leaves no mouse), until
-    // another card shows big, a click on it again or a press off the cards and the big card; so its FRONT | BACK
-    // switch can be reached
+    // the card clicked last, pinned in the info box ([`next_pin`])
     let pin_id = Id::unique("board-pin");
     let mut hovered_card = None;
     let mut drop_target = None;
@@ -1714,7 +1727,7 @@ pub fn formation_board(
                     let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<u32>>(pin_id);
-                        *f = if *f == Some(no) { None } else { Some(no) };
+                        *f = next_pin(*f, PinEvent::Click(no));
                         let s = d.get_temp_mut_or_default::<Option<u32>>(select_id);
                         *s = if clicked_card == Some(no) {
                             None
@@ -1924,16 +1937,16 @@ pub fn formation_board(
         ui.data_mut(|d| d.insert_temp(partners_id(), (s, at)));
     }
 
-    // the big card after a resting mouse, else the card clicked last
-    let pinned = ui
+    // the info box (#333): the card clicked last stays pinned where it opened, the card the mouse rests on (past the
+    // hover delay) shows in a preview at the cursor ([`boxes`])
+    let slot_of = |n: u32| (0..16).find(|&s| board.number(s) == Some(n));
+    let mut pin = ui
         .data(|d| d.get_temp::<Option<u32>>(pin_id))
         .flatten()
-        .and_then(|n| (0..16).find(|&s| board.number(s) == Some(n)));
-    let unpin = |ui: &Ui| ui.data_mut(|d| d.remove::<Option<u32>>(pin_id));
-    let pin_shown = pinned.and_then(|s| board.slots[s].map(|ci| (s, ci, rects[s])));
-    let mut show = None;
+        .filter(|&n| slot_of(n).is_some()); // the card left the table: the pin goes with it
+    let mut rested = None;
     match hovered_card {
-        Some((slot, ci, rect)) => {
+        Some((slot, ci, _)) => {
             let since = ui.data_mut(|d| {
                 let e = d.get_temp_mut_or_insert_with(hover_id, || (slot, now));
                 if e.0 != slot {
@@ -1941,13 +1954,10 @@ pub fn formation_board(
                 }
                 e.1
             });
-            // None: CARD HOVER DELAY off, never shown big by resting
+            // None: CARD HOVER DELAY off, no preview
             let left = hover_delay.map(|d| d as f64 - (now - since));
-            if left.is_some_and(|l| l <= 0.0) || pinned == Some(slot) {
-                if pinned != Some(slot) {
-                    unpin(ui); // another card rested on: the clicked one goes
-                }
-                show = Some((slot, ci, rect));
+            if left.is_some_and(|l| l <= 0.0) {
+                rested = Some(board.cards[ci].number);
             } else if let Some(left) = left {
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(left));
@@ -1955,7 +1965,7 @@ pub fn formation_board(
         }
         None => {
             ui.data_mut(|d| d.remove::<(usize, f64)>(hover_id));
-            // a press off the cards and off the big card (as drawn last frame) lets the clicked card go
+            // a press off the cards and off the pinned card (as drawn last frame) lets it go
             let big = ui.ctx().memory(|m| m.area_rect(Id::unique("board-big")));
             let off_big = ui.input(|i| {
                 i.pointer.any_pressed()
@@ -1964,25 +1974,31 @@ pub fn formation_board(
                         .is_some_and(|p| !big.is_some_and(|r| r.contains(p)))
             });
             if off_big {
-                unpin(ui);
-            } else if !pointer.is_some_and(|p| {
-                shown.union(bench).contains(p) && !big.is_some_and(|r| r.contains(p))
-            }) {
-                // on the board the selection's partners show, as before the click; off it (or on the big card over
-                // the pitch) the clicked card
-                show = pin_shown;
+                pin = next_pin(pin, PinEvent::Close);
             }
         }
     }
-    let mut shown_big = None;
-    if let Some((_, ci, rect)) = show {
-        let ask = PaneAsk {
-            card: board.cards[ci].clone(),
-            at: rect,
-        };
-        ui.data_mut(|d| d.insert_temp(pane_id(), ask));
-        shown_big = Some(ci);
+    ui.data_mut(|d| d.insert_temp(pin_id, pin));
+    let busy = dragging.is_some() || incoming.is_some() || group_drag || box_area.is_some();
+    let (preview, pinned) = boxes(pin, rested, busy);
+    let ask = |n: u32| {
+        slot_of(n).and_then(|s| {
+            board.slots[s].map(|ci| PaneAsk {
+                card: board.cards[ci].clone(),
+                at: rects[s],
+            })
+        })
+    };
+    if let Some(a) = pinned.and_then(ask) {
+        ui.data_mut(|d| d.insert_temp(pane_id(), a));
     }
+    if let (Some(a), Some(p)) = (preview.and_then(ask), pointer) {
+        ui.data_mut(|d| d.insert_temp(preview_id(), (a, p)));
+    }
+    let shown_big = preview
+        .or(pinned)
+        .and_then(slot_of)
+        .and_then(|s| board.slots[s]);
 
     // the heat zone of the card in hand (or shown big), and the drop target's fit
     let held = dragging
@@ -2380,198 +2396,6 @@ pub fn aptitude_map(p: &Painter, rect: Rect, apt: &Aptitude, lang: Lang) {
     }
 }
 
-/// The card's back (the players' request, 2026-10-14), upright as the face: the number, name and line on a band; the
-/// suitable positions as the original card's back maps them, a small pitch with a tile per position area
-/// ([`heat_zone`]); the six stats and TOTAL beside it. From the 16 role ratings
-/// (the names and spots are the project's inference: [`ROLES`]).
-pub fn card_back(p: &Painter, rect: Rect, card: &Card, lang: Lang) {
-    let card = &*real(p.ctx(), card);
-    let r = (rect.width() * 0.08) as u8;
-    let rim = card.rarity.rim();
-    p.add(
-        Shadow {
-            offset: [0, 6],
-            blur: 16,
-            spread: 0,
-            color: Color32::from_black_alpha(150),
-        }
-        .as_shape(rect, r),
-    );
-    gradient(
-        p,
-        rect,
-        r,
-        Color32::from_rgb(0x1A, 0x27, 0x3D),
-        theme::WELL,
-        true,
-    );
-    p.rect_stroke(rect, r, Stroke::new(2.0, rim), StrokeKind::Inside);
-    let w = rect.width();
-    let unit = w / 200.0; // drawn for a card 200 wide, scaled
-    // the band: number, name, line
-    let band = Rect::from_min_size(
-        rect.min + vec2(6.0, 6.0) * unit,
-        vec2(w - 12.0 * unit, 26.0 * unit),
-    );
-    p.rect_filled(
-        band,
-        (4.0 * unit) as u8,
-        card.pos.color().gamma_multiply(0.85),
-    );
-    p.text(
-        band.left_center() + vec2(6.0 * unit, 0.0),
-        Align2::LEFT_CENTER,
-        format!("#{}", card.number),
-        theme::display(13.0 * unit),
-        Color32::WHITE,
-    );
-    p.text(
-        band.right_center() - vec2(6.0 * unit, 0.0),
-        Align2::RIGHT_CENTER,
-        card.pos.code(),
-        theme::display(15.0 * unit),
-        Color32::WHITE,
-    );
-    let g = fit(
-        p,
-        card.short_name(),
-        theme::display(15.0 * unit),
-        Color32::WHITE,
-        band.width() - 90.0 * unit,
-    );
-    p.galley(band.center() - g.size() / 2.0, g, Color32::WHITE);
-    // the position map, left
-    let map_w = w * 0.58;
-    let map = Rect::from_min_size(
-        pos2(rect.left() + 8.0 * unit, band.bottom() + 8.0 * unit),
-        vec2(map_w, map_w * PITCH_ASPECT),
-    );
-    aptitude_map(p, map, &card.aptitude, lang);
-    // the stats, right of the map
-    let col = Rect::from_min_max(
-        pos2(map.right() + 8.0 * unit, map.top()),
-        pos2(rect.right() - 8.0 * unit, map.bottom()),
-    );
-    let names = [
-        "cat.off", "cat.def", "cat.tec", "cat.pow", "cat.spd", "cat.sta",
-    ];
-    let row = col.height() / 8.0;
-    if card.secret {
-        // a legend's back: SECRET across the six rows, as the original prints it
-        p.text(
-            pos2(col.right(), col.top() + row * 3.0),
-            Align2::RIGHT_CENTER,
-            tr!(lang, "cat.secret"),
-            theme::display(14.0 * unit),
-            theme::TEXT_DIM,
-        );
-    }
-    for (i, (k, v)) in names.iter().zip(card.stats).enumerate() {
-        let y = col.top() + row * (i as f32 + 0.5);
-        p.text(
-            pos2(col.left(), y),
-            Align2::LEFT_CENTER,
-            tr!(lang, *k),
-            theme::display(11.0 * unit),
-            theme::TEXT_DIM,
-        );
-        if !card.secret {
-            p.text(
-                pos2(col.right(), y),
-                Align2::RIGHT_CENTER,
-                v.to_string(),
-                theme::display(16.0 * unit),
-                super::widgets::stat_color(v),
-            );
-        }
-    }
-    let y = col.top() + row * 6.0;
-    p.line_segment(
-        [pos2(col.left(), y), pos2(col.right(), y)],
-        Stroke::new(1.0, theme::RIM),
-    );
-    p.text(
-        pos2(col.left(), y + row),
-        Align2::LEFT_CENTER,
-        tr!(lang, "cat.total"),
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-    );
-    p.text(
-        pos2(col.right(), y + row),
-        Align2::RIGHT_CENTER,
-        card.total.to_string(),
-        theme::display(22.0 * unit),
-        theme::AMBER,
-    );
-    // under the map: the 16 ratings, four to a row (the best lit), and the season
-    let grid = Rect::from_min_max(
-        pos2(rect.left() + 10.0 * unit, map.bottom() + 6.0 * unit),
-        pos2(rect.right() - 10.0 * unit, rect.bottom() - 20.0 * unit),
-    );
-    if card.aptitude.known() {
-        let (cw, rh) = (grid.width() / 4.0, grid.height() / 4.0);
-        for (i, (name, rating)) in ROLES.iter().zip(card.aptitude.roles).enumerate() {
-            let c = pos2(
-                grid.left() + cw * (i % 4) as f32,
-                grid.top() + rh * ((i / 4) as f32 + 0.5),
-            );
-            let ink = match rating {
-                8.. => Color32::from_rgb(0xFF, 0xF6, 0xD0),
-                5.. => theme::AMBER,
-                _ => theme::TEXT_FAINT,
-            };
-            p.text(
-                c,
-                Align2::LEFT_CENTER,
-                *name,
-                theme::display(10.0 * unit),
-                theme::TEXT_DIM,
-            );
-            p.text(
-                c + vec2(cw - 8.0 * unit, 0.0),
-                Align2::RIGHT_CENTER,
-                rating.to_string(),
-                theme::display(12.0 * unit),
-                ink,
-            );
-        }
-    } else {
-        let g = p.layout(
-            tr!(lang, "board.no_data"),
-            theme::body(11.0 * unit),
-            theme::TEXT_DIM,
-            grid.width(),
-        );
-        p.galley(grid.center() - g.size() / 2.0, g, theme::TEXT_DIM);
-    }
-    let season = p.text(
-        pos2(rect.right() - 10.0 * unit, rect.bottom() - 11.0 * unit),
-        Align2::RIGHT_CENTER,
-        card.season.as_str(),
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-    );
-    // the club at the season's left, shrunk to the room left
-    let club = fit(
-        p,
-        &card.club,
-        theme::display(11.0 * unit),
-        theme::TEXT_DIM,
-        (season.left() - rect.left() - 18.0 * unit).max(0.0),
-    );
-    // a club too long even shrunk is cut before the season
-    p.with_clip_rect(rect.with_max_x(season.left() - 6.0 * unit))
-        .galley(
-            pos2(
-                rect.left() + 10.0 * unit,
-                rect.bottom() - 11.0 * unit - club.size().y / 2.0,
-            ),
-            club,
-            theme::TEXT_DIM,
-        );
-}
-
 /// Room around the info pane's face: the frame's margins, and the large tier's caption under it (name, facts, roles,
 /// stats).
 const BIG_FRAME: f32 = 22.0;
@@ -2585,15 +2409,110 @@ pub fn strip_pane(ppp: f32) -> f32 {
     BIG_FRAME + crate::sizing::hover_face(ppp).y + FLIP_ROW
 }
 
-/// What the board asks [`info_panes`] to show this frame: the card shown big and where it lies.
+/// What the board asks [`info_panes`] to show this frame: a card in the info box and where it lies.
 #[derive(Clone)]
 struct PaneAsk {
     card: Card,
     at: Rect,
 }
 
+/// The pinned card asked for.
 fn pane_id() -> Id {
     Id::unique("board-pane-ask")
+}
+
+/// The previewed card asked for, and the cursor.
+fn preview_id() -> Id {
+    Id::unique("board-preview-ask")
+}
+
+/// What changes the info box's pinned card (#333).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PinEvent {
+    /// A plain click on a card.
+    Click(u32),
+    /// Esc, a press off the cards and the pinned card, or the card leaving the table.
+    Close,
+}
+
+/// The pinned card after `e`: a click pins the card, a click on the pinned card lets it go; a close lets it go.
+pub fn next_pin(pin: Option<u32>, e: PinEvent) -> Option<u32> {
+    match e {
+        PinEvent::Click(n) if pin != Some(n) => Some(n),
+        _ => None,
+    }
+}
+
+/// What the info box shows this frame: (the preview's card, the pinned card). Nothing while a card, a group or a box is
+/// in hand (`busy`); the preview is the card rested on past the hover delay (`rested`), unless it is the pinned one.
+fn boxes(pin: Option<u32>, rested: Option<u32>, busy: bool) -> (Option<u32>, Option<u32>) {
+    if busy {
+        return (None, None);
+    }
+    (rested.filter(|&n| Some(n) != pin), pin)
+}
+
+/// Lets the pinned card go (Esc on the game window).
+pub fn close_pin(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(Id::unique("board-pin"), None::<u32>));
+}
+
+/// The hover preview's caption width: the six stats' columns with their Japanese names ([`caption`]).
+const PREVIEW_CAPTION: f32 = 280.0;
+
+/// The hover preview's size at `ppp`, at most `width` wide: the frame, the strip's face and the caption beside it; no
+/// switch row.
+pub fn preview_size(ppp: f32, width: f32) -> Vec2 {
+    let face = crate::sizing::hover_face(ppp);
+    vec2(
+        (BIG_FRAME + face.x + 10.0 + PREVIEW_CAPTION).min(width),
+        BIG_FRAME + face.y,
+    )
+}
+
+/// The hover preview's column: the board's, `pitch` wide, from its top to the board's foot at `board_bottom`, so the
+/// preview keeps off the buttons and the hint under the board (and the pinned pane docked under them).
+pub fn preview_column(pitch: Rect, board_bottom: f32) -> Rect {
+    Rect::from_min_max(pitch.min, pos2(pitch.right(), board_bottom))
+}
+
+/// Where the hover preview (`size`) goes in the board's `column` ([`preview_column`]): 16 points right of and under the `cursor`, on the
+/// first side of the hovered `card` where it fits whole (under, over, right, left), following the cursor along that
+/// side (turned to the cursor's left when it would leave the column) and kept in the column; so it never covers the
+/// card, and never leaves the column for the game's picture or the deck.
+pub fn preview_place(column: Rect, cursor: Pos2, card: Rect, size: Vec2) -> Rect {
+    const GAP: f32 = 16.0;
+    let fit = |v: f32, lo: f32, hi: f32, len: f32| v.clamp(lo, (hi - len).max(lo));
+    // along an axis: after the cursor, or before it when that leaves the column
+    let along = |c: f32, lo: f32, hi: f32, len: f32| {
+        let v = if c + GAP + len <= hi {
+            c + GAP
+        } else {
+            c - GAP - len
+        };
+        fit(v, lo, hi, len)
+    };
+    let x = along(cursor.x, column.left(), column.right(), size.x);
+    let y = along(cursor.y, column.top(), column.bottom(), size.y);
+    let tries = [
+        pos2(x, (card.bottom() + 8.0).max(cursor.y + GAP)),
+        pos2(x, (card.top() - 8.0).min(cursor.y - GAP) - size.y),
+        pos2((card.right() + 8.0).max(cursor.x + GAP), y),
+        pos2((card.left() - 8.0).min(cursor.x - GAP) - size.x, y),
+    ];
+    tries
+        .into_iter()
+        .map(|m| Rect::from_min_size(m, size))
+        .find(|r| column.contains_rect(*r))
+        .unwrap_or_else(|| {
+            Rect::from_min_size(
+                pos2(
+                    fit(x, column.left(), column.right(), size.x),
+                    fit(y, column.top(), column.bottom(), size.y),
+                ),
+                size,
+            )
+        })
 }
 
 /// The selected card's partner list asked for: its number and where it lies.
@@ -2653,30 +2572,39 @@ fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
     (face.x + 10.0 + 120.0 + BIG_FRAME <= width).then_some(face)
 }
 
-/// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
-/// `foot`): the card the mouse rests on (after the hover delay) or clicked last, else the selected card's partners.
-/// Both stay inside the board's column ([`pane_place`]). `turned`: the card shown big on its back ([`flip_side`]);
-/// `flip`: the KEYS page's FLIP pressed this frame.
+/// The board's panes, drawn once the hint under the bench is laid out (the board ends at `board_bottom`, the hint's
+/// foot at `hint_bottom`; the column ends at `foot`): the preview of the card the mouse rests on (after the hover delay) at the cursor ([`preview_place`]), and
+/// the pinned card ([`pane_place`]), else the selected card's partners. All stay inside the board's column. `turned`:
+/// the pinned card on its back ([`flip_side`]); `flip`: the KEYS page's FLIP pressed this frame.
 #[allow(clippy::too_many_arguments)]
 pub fn info_panes(
     ui: &Ui,
     board: &Board,
     links: &Links,
     pitch: Rect,
+    board_bottom: f32,
     hint_bottom: f32,
     foot: f32,
     turned: &mut Option<u32>,
     flip: bool,
     lang: Lang,
 ) {
-    let (ask, partners) = ui.data_mut(|d| {
+    let (ask, preview, partners) = ui.data_mut(|d| {
         let ask = d.get_temp::<PaneAsk>(pane_id());
+        let preview = d.get_temp::<(PaneAsk, Pos2)>(preview_id());
         let partners = d.get_temp::<(u32, Rect)>(partners_id());
         d.remove::<PaneAsk>(pane_id());
+        d.remove::<(PaneAsk, Pos2)>(preview_id());
         d.remove::<(u32, Rect)>(partners_id());
-        (ask, partners)
+        (ask, preview, partners)
     });
     let ppp = ui.ctx().pixels_per_point();
+    if let Some((a, cursor)) = preview {
+        let column = preview_column(pitch, board_bottom);
+        let r = preview_place(column, cursor, a.at, preview_size(ppp, column.width()));
+        let face = crate::sizing::hover_face(ppp);
+        info_pane(ui, &a.card, r, Tier::Strip, face, None, true, lang);
+    }
     if let Some(a) = ask {
         let large = large_face(pitch.width(), ppp);
         let strip = crate::sizing::hover_face(ppp);
@@ -2692,8 +2620,18 @@ pub fn info_panes(
             (Tier::Large, Some(f)) => f,
             _ => strip,
         };
-        let back = flip_side(turned, a.card.number, flip);
-        if info_pane(ui, &a.card, pane, tier, face, back, lang) {
+        let has = has_back(ui.ctx(), a.card.number) == Some(true);
+        let back = flip_side(turned, a.card.number, flip && has);
+        if info_pane(
+            ui,
+            &a.card,
+            pane,
+            tier,
+            face,
+            has.then_some(back),
+            false,
+            lang,
+        ) {
             flip_side(turned, a.card.number, true);
         }
         return;
@@ -2721,10 +2659,12 @@ pub fn flip_side(turned: &mut Option<u32>, card: u32, flip: bool) -> bool {
 }
 
 /// A card's info pane at the top of `area` (the game window's column, the board popped out): large when it fits, else
-/// the strip. `back`: on its back; true when its FRONT | BACK switch or the big card was clicked.
+/// the strip. `back`: on its back, when it has a back picture ([`has_back`]); true when its FRONT | BACK switch or the
+/// big card was clicked.
 pub fn card_view(ui: &Ui, card: &Card, area: Rect, back: bool, lang: Lang) -> bool {
     let (pane, tier, face) = card_view_place(area, ui.ctx().pixels_per_point());
-    info_pane(ui, card, pane, tier, face, back, lang)
+    let has = has_back(ui.ctx(), card.number) == Some(true);
+    info_pane(ui, card, pane, tier, face, has.then_some(back), false, lang)
 }
 
 /// [`card_view`]'s pane in `area`, its tier and its face's size.
@@ -2746,17 +2686,22 @@ pub fn card_view_place(area: Rect, ppp: f32) -> (Rect, Tier, Vec2) {
 }
 
 /// The info pane in `pane`: the card's face (its back when turned over) `face` big, the FRONT | BACK switch under it;
-/// large, the position map beside them and the caption under them; a strip, the caption beside them. True when the
-/// switch or the big card was clicked: the caller turns it over.
+/// large, the position map beside them and the caption under them; a strip, the caption beside them. `back`: the side
+/// shown, `None` for a card without a back picture (the switch's row stays, empty, so a late back moves nothing).
+/// `preview`: the hover preview, a strip with no switch row that takes no pointer. True when the switch or the big
+/// card was clicked: the caller turns it over.
+#[allow(clippy::too_many_arguments)]
 fn info_pane(
     ui: &Ui,
     card: &Card,
     pane: Rect,
     tier: Tier,
     face: Vec2,
-    back: bool,
+    back: Option<bool>,
+    preview: bool,
     lang: Lang,
 ) -> bool {
+    let (has, back) = (back.is_some(), back == Some(true));
     let card = &*real(ui.ctx(), card);
     let large = tier == Tier::Large;
     let t = if large { 1.0 } else { 0.9 };
@@ -2766,7 +2711,12 @@ fn info_pane(
     let ppp = ui.ctx().pixels_per_point();
     let (mut card_r, mut switch_r) = (Rect::NOTHING, Rect::NOTHING);
     // click-through: the mat cards under the pane keep their hover, clicks and drags
-    let pane_layer = egui::Area::new(Id::unique("board-big"))
+    let name = if preview {
+        "board-preview"
+    } else {
+        "board-big"
+    };
+    let pane_layer = egui::Area::new(Id::unique(name))
         .order(Order::Tooltip)
         .fixed_pos(pane.min)
         .interactable(false)
@@ -2796,9 +2746,9 @@ fn info_pane(
                                 // the album art at its own pixels: its top left on a whole device pixel
                                 use egui::emath::GuiRounding as _;
                                 let r = Rect::from_min_size(r.min.round_to_pixels(ppp), face);
-                                card_side(ui.painter(), r, card, back, false, lang);
+                                card_side(ui.painter(), r, card, back, false);
                             } else if back {
-                                card_side(ui.painter(), r, card, true, false, lang);
+                                card_side(ui.painter(), r, card, true, false);
                             } else {
                                 card_face(
                                     ui.painter(),
@@ -2811,9 +2761,14 @@ fn info_pane(
                                 );
                             }
                             // the switch is drawn on its own layer below
-                            switch_r = ui
-                                .allocate_exact_size(vec2(face.x, FLIP_ROW - 6.0), Sense::hover())
-                                .0;
+                            if !preview {
+                                switch_r = ui
+                                    .allocate_exact_size(
+                                        vec2(face.x, FLIP_ROW - 6.0),
+                                        Sense::hover(),
+                                    )
+                                    .0;
+                            }
                         });
                         ui.vertical(|ui| {
                             if large {
@@ -2838,6 +2793,14 @@ fn info_pane(
         })
         .response
         .layer_id;
+    if preview {
+        ui.ctx().move_to_top(pane_layer); // over the pinned card
+        return false;
+    }
+    // without a back picture nothing turns it over
+    if !has {
+        return false;
+    }
     // only the big card and its switch take the pointer, each on a layer just above the pane
     let mut flip = false;
     let mut over = |name: &'static str, at: Rect, add: &mut dyn FnMut(&mut Ui) -> bool| {
@@ -2863,7 +2826,18 @@ fn info_pane(
     flip
 }
 
-/// The info pane's words: the name, club · country · season, the best roles and the stats (or SECRET); `t` scales the
+/// The card's number, position and TOTAL on one line: `#4321 · MF · TOTAL 81`.
+fn facts(card: &Card, lang: Lang) -> String {
+    format!(
+        "#{} · {} · {} {}",
+        card.number,
+        card.pos.code(),
+        tr!(lang, "cat.total"),
+        card.total
+    )
+}
+
+/// The info pane's words: the name, club · country · season, number · position · TOTAL, the best roles and the stats (or SECRET); `t` scales the
 /// text.
 fn caption(ui: &mut Ui, card: &Card, t: f32, lang: Lang) {
     ui.label(
@@ -2878,6 +2852,12 @@ fn caption(ui: &mut Ui, card: &Card, t: f32, lang: Lang) {
         ))
         .font(theme::body(12.0 * t))
         .color(theme::TEXT_DIM),
+    );
+    // the number, position and TOTAL the drawn back carried, now that only a picture shows a back (#333)
+    ui.label(
+        egui::RichText::new(facts(card, lang))
+            .font(theme::display(14.0 * t))
+            .color(theme::AMBER),
     );
     let top = card.aptitude.top();
     if !top.is_empty() {
@@ -3083,10 +3063,10 @@ mod tests {
         assert!((l.width() - r.width()).abs() < 1e-3 && l.height() < r.height());
     }
 
-    /// A card with no back picture (no picture folder) gets the drawn back, with its data: number, name, position, club,
-    /// the six stats and TOTAL.
+    /// A card with no back picture (no picture folder) has none (no BACK offered), its back side draws its front (the
+    /// drawn back is gone, #333), and the info pane's caption carries the back's facts: number, position, TOTAL.
     #[test]
-    fn a_card_without_a_back_picture_gets_the_drawn_back() {
+    fn a_card_without_a_back_picture_draws_its_front_and_the_caption_has_its_facts() {
         let c = Card {
             name: "Andrea Pirlo".into(),
             club: "AC Milan".into(),
@@ -3105,22 +3085,33 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .textures_delta
             .clear();
-        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-            set_picture_dir(ui.ctx(), None);
-            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(256.0, 357.0));
-            card_side(ui.painter(), r, &c, true, false, crate::Lang::En);
-        });
-        out.textures_delta.clear();
-        let mut texts = Vec::new();
-        for s in out.shapes {
-            if let egui::Shape::Text(t) = s.shape {
-                texts.push(t.galley.text().to_owned());
+        let texts = |back: Option<bool>| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                set_picture_dir(ui.ctx(), None);
+                assert_eq!(has_back(ui.ctx(), c.number), Some(false));
+                match back {
+                    Some(back) => {
+                        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(256.0, 357.0));
+                        card_side(ui.painter(), r, &c, back, false);
+                    }
+                    None => caption(ui, &c, 1.0, crate::Lang::En),
+                }
+            });
+            out.textures_delta.clear();
+            let mut texts = Vec::new();
+            for s in out.shapes {
+                if let egui::Shape::Text(t) = s.shape {
+                    texts.push(t.galley.text().to_owned());
+                }
             }
-        }
-        for want in [
-            "#4321", "Pirlo", "MF", "AC Milan", "2006-07", "OFF", "11", "16", "81",
-        ] {
-            assert!(texts.iter().any(|t| t == want), "{want} not in {texts:?}");
+            texts
+        };
+        let front = texts(Some(false));
+        assert!(!front.is_empty());
+        assert_eq!(texts(Some(true)), front, "the back side draws the front");
+        let cap = texts(None);
+        for want in ["Andrea Pirlo", "#4321 · MF · TOTAL 81", "OFF", "11", "16"] {
+            assert!(cap.iter().any(|t| t == want), "{want} not in {cap:?}");
         }
     }
 
@@ -4603,6 +4594,60 @@ mod tests {
         r.drag(&mut b, one, one + vec2(30.0, 0.0));
         assert_ne!(b.spots[0], was[0]);
         assert_eq!(b.spots[1..], was[1..]);
+    }
+
+    /// The info box (#333): the card rested on previews; a click pins it; another card rested on previews beside the
+    /// pin, which stays; a click on the pinned card again or a close lets it go; nothing shows while a card or a box
+    /// is in hand.
+    #[test]
+    fn the_info_box_previews_a_rested_card_and_pins_a_clicked_one() {
+        assert_eq!(boxes(None, Some(7), false), (Some(7), None), "a preview");
+        assert_eq!(boxes(None, None, false), (None, None));
+        let pin = next_pin(None, PinEvent::Click(7));
+        assert_eq!(pin, Some(7), "a click pins");
+        assert_eq!(
+            boxes(pin, Some(7), false),
+            (None, Some(7)),
+            "pinned, not previewed too"
+        );
+        assert_eq!(
+            boxes(pin, Some(8), false),
+            (Some(8), Some(7)),
+            "the pin stays"
+        );
+        assert_eq!(next_pin(pin, PinEvent::Click(8)), Some(8), "another click");
+        assert_eq!(
+            next_pin(pin, PinEvent::Click(7)),
+            None,
+            "a click on it again"
+        );
+        assert_eq!(next_pin(pin, PinEvent::Close), None, "Esc, a press off it");
+        assert_eq!(boxes(pin, Some(8), true), (None, None), "in hand: nothing");
+    }
+
+    /// The pin on the board: a click pins a card, a click on it again or on open pitch lets it go, and a card taken off the table takes its pin with it.
+    #[test]
+    fn a_pin_goes_with_a_click_off_it_or_its_card() {
+        let none = egui::Modifiers::NONE;
+        let mut b = square();
+        let mut r = Rig::new(false, &mut b);
+        let pin = |r: &Rig| {
+            r.ctx
+                .data(|d| d.get_temp::<Option<u32>>(Id::unique("board-pin")))
+                .flatten()
+        };
+        let one = r.at(b.spots[0]);
+        r.click(&mut b, one, none);
+        assert_eq!(pin(&r), Some(1));
+        r.click(&mut b, one, none);
+        assert_eq!(pin(&r), None, "a click on it again");
+        r.click(&mut b, one, none);
+        r.click(&mut b, r.at(pos2(0.05, 0.08)), none);
+        assert_eq!(pin(&r), None, "a click on open pitch");
+        r.click(&mut b, one, none);
+        r.drag(&mut b, one, one + vec2(2000.0, 0.0));
+        assert!(r.removed.is_some(), "taken off");
+        assert_eq!(pin(&r), None, "the pin left with its card");
     }
 
     #[test]

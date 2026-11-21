@@ -2433,7 +2433,7 @@ impl Render {
         self.split.woke(why);
         let pass = why.is_some() || self.busy;
         self.split.mark(cost::Part::Check);
-        let dealt = self.st.deal.as_ref().map(|d| d.back);
+        let dealt = self.st.deal.is_some();
         let out = pass.then(|| {
             if let Some(e) = forza_ui::idle::modifiers(&self.ctx, mods) {
                 raw.events.insert(0, e);
@@ -2449,14 +2449,8 @@ impl Render {
             );
         }
         self.split.mark(cost::Part::Ui);
-        match (dealt, self.st.deal.as_ref().map(|d| d.back)) {
-            (Some(_), None) => log("deal: closed"),
-            (Some(a), Some(b)) if a != b => log(if b {
-                "deal: turned over"
-            } else {
-                "deal: face up"
-            }),
-            _ => {}
+        if dealt && self.st.deal.is_none() {
+            log("deal: closed");
         }
         self.close_out();
         // a text field with the keys in either window (the board window's pass ran first this frame)

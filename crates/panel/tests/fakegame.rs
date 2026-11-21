@@ -712,8 +712,8 @@ fn board_and_buttons_with_real_data() {
     );
     assert!(!data.join("restart.request").exists());
 
-    // 6. a card dealt (WCCFPANEL_DEALTEST: at once, as after a match) over the picture: a click on the card turns it
-    // over, a click beside it closes the window; neither reaches the game
+    // 6. a card dealt (WCCFPANEL_DEALTEST: at once, as after a match) over the picture: a click on the card closes the
+    // window (#333) and does not reach the game
     let _ = fs::remove_file(seat.join("forza_panel.log"));
     let said = run_with(
         &[("WCCFPANEL_DEALTEST", "1")],
@@ -722,8 +722,6 @@ fn board_and_buttons_with_real_data() {
             "wait:300".into(),
             "copy:deal.bmp".into(),
             "click:430,300".into(), // the card (forza_ui::panel's deal window at 1440x900)
-            "wait:400".into(),
-            "click:430,700".into(), // under it
             "wait:400".into(),
         ],
     );
