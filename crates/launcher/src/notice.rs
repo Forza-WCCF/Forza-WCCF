@@ -7,6 +7,7 @@
 //! prefix, and the project server's stays when that server has none ([`round`]).
 
 use crate::lobby::{Wake, socket};
+use forza::online::SEAT_PORT;
 use forza::online::lobby::{self, Lobby, ServerNotice};
 use forza::service::Log;
 use forza_ui::Lang;
@@ -72,7 +73,7 @@ fn remove(file: &Path) -> std::io::Result<()> {
 /// Launcher's copy of the project's notice. `None` when an ask failed: the last notice stays.
 fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Lobby> {
     let mut l = get(asked)?;
-    if asked != project {
+    if !same_server(asked, project) {
         l.notice = match l.notice.take().and_then(ServerNotice::clean) {
             Some(n) if host_id(&n.id) => arcade_notice(&n),
             Some(n) => {
@@ -87,6 +88,13 @@ fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Opt
         };
     }
     Some(l)
+}
+
+/// `a` and `b` name one server as [`socket`] reads them: the seat desk's port by default, the name in any case. A
+/// saved `servers` entry spelled another way than the project server would ask that desk twice inside its gap.
+fn same_server(a: &str, b: &str) -> bool {
+    let key = |s: &str| crate::choices::host_port(s, SEAT_PORT).map(|(h, p)| (h.to_ascii_lowercase(), p));
+    a == b || key(a).is_some_and(|k| key(b) == Some(k))
 }
 
 /// `id` is a host's ([`write_host_notice`]): `h` and Unix seconds, nothing else.
@@ -454,6 +462,28 @@ mod tests {
         })
         .unwrap();
         assert_eq!(l.notice.unwrap().en, "Arcade notice: Server update at 23:00");
+    }
+
+    /// The project server under another spelling (no default port, another case) is asked once a round (#419): a
+    /// second ask within the desk's gap got `ERR slow`.
+    #[test]
+    fn the_project_server_spelled_another_way_is_asked_once() {
+        let ours = ServerNotice {
+            id: "n1".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        };
+        let asks = std::cell::Cell::new(0);
+        let get = |_: &str| {
+            asks.set(asks.get() + 1);
+            Some(answer(Some(ours.clone())))
+        };
+        let l = round("LOBBY.wccf.it", "lobby.wccf.it:20030", get).unwrap();
+        assert_eq!(l.notice.as_ref(), Some(&ours));
+        assert_eq!(asks.get(), 1, "one ask");
+        asks.set(0);
+        round("127.0.0.1:20041", "lobby.wccf.it:20030", get).unwrap();
+        assert_eq!(asks.get(), 2, "another server: the desk and the project server");
     }
 
     /// HOST ARCADE's notice file: a fresh id and the text as typed (bounded), removed when the box is empty.
