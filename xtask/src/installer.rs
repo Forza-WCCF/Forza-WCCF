@@ -1,5 +1,10 @@
 // ---- the installer ----
-use super::*;
+use super::{
+    Command, Context, Digest, HashSet, Path, PathBuf, Result, Sha256, Shell, TARGET, build_version,
+    cmd, ensure, fs, has_user_path, no_kit_word, profile, run_ok, rust_shipped, target_dir,
+    version, zip_time,
+};
+use std::fmt::Write as _;
 
 pub(crate) const INSTALLER: &str = "wccf-installer"; // the package; its exe is Forza-WCCF-Installer.exe
 pub(crate) const INSTALLER_EXE: &str = "Forza-WCCF-Installer.exe";

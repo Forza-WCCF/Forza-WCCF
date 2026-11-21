@@ -1,5 +1,5 @@
 // ---- scrub ----
-use super::*;
+use super::{HashSet, Path, Result, Shell, cmd, fs};
 
 /// The publisher's name (and its katakana), built from bytes so this file does not spell it.
 pub(crate) fn publisher() -> [String; 2] {

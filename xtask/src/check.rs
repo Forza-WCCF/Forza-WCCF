@@ -1,5 +1,11 @@
 // ---- check ----
-use super::*;
+use super::{
+    BTreeSet, CheckFailed, Child, Command, Context, Duration, INSTALLER, InstallerWork, KEEP, MAP,
+    NATIVE_CRATES, Output, PANEL_TARGET, PROGRAMS, PROGRAMS_1718, Path, PathBuf, Result, Stdio,
+    TARGET, build_all, ci_1011_reason, ci_builds_1011, ensure, fs, hook_feature, hooks, in_ci,
+    installer_checks, installer_exe, installer_work, kit_stale, no_kit_word, no_nul, no_python,
+    no_script_host, profile, remap_config, run_ok, rust, scrub, shipped_docs_no_kit, stage,
+};
 
 /// What `check` collects: the failed checks' names.
 pub(crate) struct Checks {

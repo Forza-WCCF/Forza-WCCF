@@ -1,5 +1,8 @@
 // ---- build ----
-use super::*;
+use super::{
+    CheckFailed, ED_1011, ED_1718, INSTALLER, NATIVE, NATIVE_CRATES, PANEL_TARGET, Path, PathBuf,
+    Result, Shell, TARGET, cmd, fs, hooks, profile, run_ok, rust_shipped, stage, target_dir,
+};
 
 /// Build jobs running at once: the 64-bit programs and the 32-bit ones, joined by `build_all`.
 pub(crate) type Jobs<'s> = Vec<std::thread::ScopedJoinHandle<'s, (String, Result<()>)>>;

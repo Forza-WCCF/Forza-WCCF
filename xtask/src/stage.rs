@@ -1,5 +1,5 @@
 // ---- the staged kit ----
-use super::*;
+use super::{Command, Ordering, Path, Result, STAMP_SHA, Shell, cmd, fs};
 
 /// Wipe the kit except the built outputs (`keep`), then copy every tracked file of `map` from the working tree.
 pub(crate) fn stage(root: &Path, kit: &Path, map: &[(&str, &str)], keep: &[&str]) -> Result<()> {

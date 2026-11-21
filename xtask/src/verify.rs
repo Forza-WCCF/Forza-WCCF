@@ -1,5 +1,5 @@
 // ---- verify ----
-use super::*;
+use super::{Path, PathBuf, Result, Task, Write, dos_time, fs, run, target_dir};
 
 /// A check that ran and failed, as against xtask failing to run it: `verify` exits 1 on it, 4 on any other error.
 #[derive(Debug)]

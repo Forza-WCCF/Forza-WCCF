@@ -1,5 +1,10 @@
 // ---- package ----
-use super::*;
+use super::{
+    BTreeSet, CONSOLE_OK, Command, Context, ED_1011, ED_1718, Ed, HashMap, HashSet, PRODUCT_COMMON,
+    PROGRAMS, PROGRAMS_1718, Path, PathBuf, Result, Shell, TOP_1718, Write, build_version, cmd,
+    ensure, fs, has_user_path, pe_subsystem, sha256_hex, stage, zip_time,
+};
+use std::fmt::Write as _;
 
 /// `is_1011`: the 2010-11 kit, else the 2017-18 kit. Both hold the programs `cargo xtask build` made, and their version
 /// information is checked; both ZIPs leave out `source/build` (the 2017-18 guard tests live there; its guard `bin/wccfnet.dll` ships).
