@@ -583,6 +583,7 @@ fn extract(
                 }
             }
         }
+        ensure!(done == total, E::ExtractIncomplete);
         ensure!(
             partial.join("client_Release.exe").is_file(),
             E::ExtractIncomplete
