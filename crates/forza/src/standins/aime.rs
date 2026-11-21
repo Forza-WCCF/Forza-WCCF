@@ -144,7 +144,11 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
 /// Makes the card file at `path` as the reader would at its start, if there is none yet (an online run carries the
 /// card's club before the reader starts).
 pub fn ensure_card(path: &Path) {
-    Card::load(Some(path));
+    // a card file that cannot be made here is made by the reader when it starts; the caller already copes with
+    // a missing card, so this is reported and not fatal
+    if let Err(e) = Card::load(Some(path)) {
+        eprintln!("aime card file {}: {e}", path.display());
+    }
 }
 
 /// The card on the reader.
@@ -154,31 +158,35 @@ struct Card {
 }
 
 impl Card {
-    fn load(path: Option<&Path>) -> Self {
+    fn load(path: Option<&Path>) -> io::Result<Self> {
         let from_file = path
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|s| s.trim().to_string())
             .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()));
-        let code = from_file.unwrap_or_else(|| {
-            // A stand-in still wants a card number no other kit has: the OS source, as in `card_reader`.
-            let mut r = [0u8; 8];
-            getrandom::fill(&mut r).expect("the OS random source");
-            let code = format!(
-                "5{:019}",
-                u64::from_le_bytes(r) % 10_000_000_000_000_000_000
-            );
-            if let Some(p) = path {
-                let _ = std::fs::create_dir_all(p.parent().unwrap_or(Path::new(".")));
-                let tmp = p.with_extension("tmp");
-                if std::fs::write(&tmp, format!("{code}\n")).is_ok() {
-                    let _ = std::fs::rename(&tmp, p);
+        let code = match from_file {
+            Some(code) => code,
+            None => {
+                // A stand-in still wants a card number no other kit has: the OS source, as in `card_reader`.
+                let mut r = [0u8; 8];
+                // getrandom's own error is not an io::Error in this crate's build (its `std` feature is off)
+                getrandom::fill(&mut r).map_err(|e| io::Error::other(e.to_string()))?;
+                let code = format!(
+                    "5{:019}",
+                    u64::from_le_bytes(r) % 10_000_000_000_000_000_000
+                );
+                if let Some(p) = path {
+                    let _ = std::fs::create_dir_all(p.parent().unwrap_or(Path::new(".")));
+                    let tmp = p.with_extension("tmp");
+                    if std::fs::write(&tmp, format!("{code}\n")).is_ok() {
+                        let _ = std::fs::rename(&tmp, p);
+                    }
                 }
+                code
             }
-            code
-        });
+        };
         let bcd = |i: usize| u8::from_str_radix(&code[i..i + 2], 16).unwrap_or(0);
         let uid = [bcd(12), bcd(14), bcd(16), bcd(18)]; // 4-byte Mifare UID, stable per card
-        Self { code, uid }
+        Ok(Self { code, uid })
     }
 
     fn block(&self, n: u8) -> Vec<u8> {
@@ -245,7 +253,7 @@ pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<
     }
     // SAFETY: `raw` is a valid pipe handle we own; the File closes it.
     let mut pipe = File::from(unsafe { OwnedHandle::from_raw_handle(raw) });
-    let card = Card::load(card_file);
+    let card = Card::load(card_file)?;
     log(&format!(
         "Aime reader stand-in on {pipe_name}; card access code {} on the reader",
         card.code
@@ -363,7 +371,7 @@ mod tests {
     /// A card made without a file takes a 20-digit code from the OS source, so two kits' cards differ.
     #[test]
     fn a_made_card_gets_its_own_20_digit_code() {
-        let (a, b) = (Card::load(None), Card::load(None));
+        let (a, b) = (Card::load(None).unwrap(), Card::load(None).unwrap());
         for c in [&a, &b] {
             assert!(
                 c.code.len() == 20
