@@ -301,14 +301,15 @@ impl Inner {
         changed
     }
 
-    /// The notice as shown into the panel's file and as heard into [`LAN_FILE`], or both removed with none.
+    /// The notice as shown into the panel's file and as heard into [`LAN_FILE`], or both removed with none.  Both are
+    /// written even when one fails; the first error is returned.
     fn save(&self) -> std::io::Result<()> {
         let put = |file: &Path, n: Option<ServerNotice>| match n {
             Some(n) => crate::choices::write(file, &serde_json::to_string(&n).expect("plain data serializes")),
             None => remove(file),
         };
-        put(&self.file.with_file_name(LAN_FILE), self.notice.notice.clone())?;
-        put(&self.file, self.notice.shown())
+        let lan = put(&self.file.with_file_name(LAN_FILE), self.notice.notice.clone());
+        lan.and(put(&self.file, self.notice.shown()))
     }
 
     /// The watcher waits `every` after a round that asked `asked`, less when [`Notices::ask`] named another server.
@@ -397,6 +398,31 @@ mod tests {
         let kept: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         assert_eq!(kept.id, "n7", "the retry wrote it");
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// A `lan_notice.json` that cannot be written does not keep the panel's notice back (#419).
+    #[test]
+    fn a_failed_lan_write_still_writes_the_panels_notice() {
+        let dir = dir("lan_fails");
+        let file = dir.join("notice.json");
+        let n = Notices::new(file.clone());
+        let lan = dir.join(LAN_FILE);
+        std::fs::create_dir_all(&lan).unwrap(); // the rename onto it fails
+        let said = Mutex::new(Vec::new());
+        let log = |line: &str| said.lock().unwrap().push(line.to_owned());
+        let a = answer(Some(ServerNotice {
+            id: "n8".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        }));
+        assert!(n.heard(&a, &log));
+        let kept: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(kept.id, "n8", "the panel's file is written");
+        assert!(
+            said.lock().unwrap().iter().any(|l| l.contains("not written")),
+            "the failure is still reported"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A LAN seat shows its own server's notice: `ask` turns the watcher to that desk at once (no wait for
