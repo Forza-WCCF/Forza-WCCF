@@ -964,10 +964,8 @@ impl App {
                 return;
             }
         };
-        // listings the log holds open outside the market came back with a LEAVE whose answer was lost: the visit
-        // writes them
         let open = self.st.collection.as_ref().is_some_and(|v| !v.market.mine.is_empty());
-        if a == CollectionAction::Market && !saved.joined && saved.waiting == 0 && saved.outbox.is_none() && !open {
+        if !market::asks(&a, &saved, open) {
             return;
         }
         let Some(dir) = self
@@ -1038,13 +1036,7 @@ impl App {
                 v.market.stock = collection::offered(cat, &s.rows);
             }
             if let Some(rows) = d.sale {
-                let rows = collection::offered(cat, &rows);
-                if matches!(d.action, CollectionAction::MarketMore(_)) {
-                    v.market.sale.extend(rows);
-                } else {
-                    v.market.sale = rows;
-                }
-                v.market.more = d.more;
+                market::show_sale(&mut v.market, &d.action, collection::offered(cat, &rows), d.more);
             }
         }
     }

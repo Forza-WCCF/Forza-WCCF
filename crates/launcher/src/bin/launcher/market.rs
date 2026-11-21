@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use forza::market::{Client, Fail, Row, Saved, StockList, Verb};
-use forza_ui::collection::CollectionAction;
+use forza_ui::collection::{CollectionAction, MarketView, Offered};
 use launcher::Edition;
 
 /// BROWSE pages one visit asks at most, and MORE after them.
@@ -123,6 +123,23 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
     })();
     done.resent = c.resent_refused();
     done
+}
+
+/// Whether the page's `a` asks the server: a player's word always; the page's own visit (`Market`) only in the market,
+/// while a sale or a request waits, or while the log holds open listings (`open`: outside the market they came back
+/// with a LEAVE whose answer was lost, and the visit writes them).
+pub fn asks(a: &CollectionAction, saved: &Saved, open: bool) -> bool {
+    *a != CollectionAction::Market || saved.joined || saved.waiting > 0 || saved.outbox.is_some() || open
+}
+
+/// A job's listings on the page: MORE's after the ones shown, any other visit's in their place.
+pub fn show_sale(m: &mut MarketView, action: &CollectionAction, rows: Vec<Offered>, more: bool) {
+    if matches!(action, CollectionAction::MarketMore(_)) {
+        m.sale.extend(rows);
+    } else {
+        m.sale = rows;
+    }
+    m.more = more;
 }
 
 /// The market desk at `server` (the lobby's name or address); a name that does not resolve sends nothing.
@@ -316,6 +333,40 @@ mod tests {
                 assert!(said != why && !said.contains("%{"), "{lang:?} {why}: {said}");
             }
         }
+    }
+
+    /// #375: the page's own visit goes out in the market, while a sale or a request waits, or while the log holds open
+    /// listings outside the market (a lost LEAVE answer); a player's word always.
+    #[test]
+    fn the_page_asks_only_with_something_to_ask() {
+        let out = Saved::default();
+        assert!(!asks(&CollectionAction::Market, &out, false));
+        assert!(asks(&CollectionAction::Market, &out, true), "open listings outside");
+        let waiting = Saved {
+            waiting: 1,
+            ..Saved::default()
+        };
+        assert!(asks(&CollectionAction::Market, &waiting, false));
+        assert!(asks(&CollectionAction::MarketJoin, &out, false));
+    }
+
+    /// #375: MORE's listings go after the ones shown and set MORE from its answer; a visit's replace them.
+    #[test]
+    fn more_adds_its_listings_after_the_ones_shown() {
+        let row = |id| Offered {
+            id,
+            card: forza_ui::sample::cards()[0].clone(),
+            price: 40,
+            sold: false,
+        };
+        let ids = |m: &MarketView| m.sale.iter().map(|o| o.id).collect::<Vec<_>>();
+        let mut m = MarketView::default();
+        show_sale(&mut m, &CollectionAction::Market, vec![row(1), row(2)], true);
+        assert_eq!((ids(&m), m.more), (vec![1, 2], true));
+        show_sale(&mut m, &CollectionAction::MarketMore(2), vec![row(3)], false);
+        assert_eq!((ids(&m), m.more), (vec![1, 2, 3], false));
+        show_sale(&mut m, &CollectionAction::Market, vec![row(4)], false);
+        assert_eq!(ids(&m), [4]);
     }
 
     /// #375: each shape's words are the server's own (its source files), so a server rewording fails here instead of
