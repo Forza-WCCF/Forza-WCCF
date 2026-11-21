@@ -485,5 +485,75 @@ fn fixed_rooms_fit_long_text() {
         );
         let (r, _) = painted(&h, &free);
         assert!(r.width() <= 112.0, "{free:?}: {r:?}");
+
+        // #306: the HELD mark over a latched button stays clear of the buttons beside it
+        for (ed, action, key) in [
+            (Edition::E1011, "KEYPLAYER", "cab.key_player"),
+            (Edition::E1718, "KEEPER", "cab.keeper"),
+        ] {
+            let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+            st.latched = Some(action);
+            let mut h = harness(panel::SIZE, 1.0, ed, |ui| panel::show(ui, &mut st));
+            h.run_steps(8);
+            let label = forza_ui::text(lang, key, &[]);
+            let held = forza_ui::text(lang, "cab.held", &[]);
+            let (r, cut) = painted(&h, &held);
+            let on: Vec<_> = h
+                .root()
+                .children_recursive()
+                .filter(|n| {
+                    let a = n.accesskit_node();
+                    clickable(a.role())
+                        && a.label().as_deref() != Some(label.as_str())
+                        && n.rect().intersects(r)
+                })
+                .map(|n| n.accesskit_node().label())
+                .collect();
+            assert!(
+                on.is_empty() && !cut,
+                "{ed:?} {held:?} at {r:?} is on {on:?}"
+            );
+        }
+        // #306: a stat's name in the catalogue's card pane ends before its value
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Catalogue,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        let texts = |h: &egui_kittest::Harness<'_>| -> Vec<(String, egui::Rect)> {
+            h.output()
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_owned(),
+                        t.galley.rect.translate(t.pos.to_vec2()),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let names =
+            ["cat.offence", "cat.technique", "cat.stamina"].map(|k| forza_ui::text(lang, k, &[]));
+        // the sample's first card is a secret one, with no stats: the first card that shows them
+        let shown = (0..64).any(|i| {
+            st.borrow_mut().catalogue.focus = Some(i);
+            h.run_steps(8);
+            texts(&h).iter().any(|(t, _)| *t == names[0])
+        });
+        assert!(shown, "no sample card shows its stats");
+        let all = texts(&h);
+        for name in names {
+            let (r, cut) = painted(&h, &name);
+            let on = all.iter().filter(|(_, t)| t.intersects(r)).count();
+            assert!(
+                on == 1 && !cut,
+                "{name:?}: {r:?} shares space with {} other texts",
+                on - 1
+            );
+        }
     }
 }
