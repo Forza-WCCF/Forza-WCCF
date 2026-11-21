@@ -12,7 +12,8 @@
 //!
 //! Trust first (PLAN.md 3.4): the check refuses a log that cannot come from an honest Launcher and says why in one
 //! line; nothing is banned. The server keeps the last accepted log per key, so a log that drops accepted lines is a
-//! fork; `MARKET RESET` (a profile reset) is the one allowed restart. No name is asked or stored. LEAVE deletes the log
+//! fork; `MARKET RESET` (a profile reset) is the one allowed restart. A log belongs to the key that sent it first (by
+//! its first line) while that key's row lasts, so one log under many keys cannot pick the best stock list. No name is asked or stored. LEAVE deletes the log
 //! at once (overwritten in the file, not only unlinked), returns the open listings and keeps the key's hash with its
 //! counters for 7 days, longer while a sale waits for COLLECT.
 //!
@@ -823,6 +824,12 @@ CREATE TABLE IF NOT EXISTS stock (
     sold     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (key_hash, day, slot)
 );
+-- each accepted log's first line (its SHA-256) and the key that sent it: a log belongs to one key, so a log copied
+-- under fresh keys cannot pick the best of their stock lists. A row goes with its key's row
+CREATE TABLE IF NOT EXISTS roots (
+    root     TEXT PRIMARY KEY,
+    key_hash TEXT NOT NULL
+);
 -- the settings of a server day, from its first list: a restart's new settings start with the next day
 CREATE TABLE IF NOT EXISTS stock_days (
     day   INTEGER PRIMARY KEY,
@@ -883,6 +890,8 @@ fn sales_week(now: u64) -> u32 {
 }
 
 const NOT_IN: &str = "this installation is not in the market";
+/// The refusal of a log another key sent first.
+const ANOTHER_KEY: &str = "this log is in the market under another installation's key";
 
 impl Market {
     /// The market with the value table at `table` and its store at `db` (made when missing).
@@ -1023,6 +1032,7 @@ impl Market {
                 "UPDATE ledger SET state = 'stock_gone' WHERE state = 'stock' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
                 "DELETE FROM ledger WHERE state <> 'stock_gone' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
                 "DELETE FROM stock WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = stock.key_hash)",
+                "DELETE FROM roots WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = roots.key_hash)",
             ] {
                 db.execute(sql, []).map_err(store_err)?;
             }
@@ -1091,6 +1101,25 @@ impl Market {
                         old.len() - kept,
                         old.len()
                     ));
+                }
+                if let Some(first) = lines.first() {
+                    let root = collection::hash(first);
+                    let owner: Option<String> = tx
+                        .query_row(
+                            "SELECT key_hash FROM roots WHERE root = ?1",
+                            params![root],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(store_err)?;
+                    if owner.is_some_and(|o| o != kh) {
+                        return Err(ANOTHER_KEY.into());
+                    }
+                    tx.execute(
+                        "INSERT OR IGNORE INTO roots (root, key_hash) VALUES (?1, ?2)",
+                        params![root, kh],
+                    )
+                    .map_err(store_err)?;
                 }
                 let welcome = checked.welcome.map(collection::hash);
                 if let (Some(new), Some((_, log, left, Some(had)))) = (&welcome, &row) {
@@ -2380,6 +2409,11 @@ mod tests {
         earned_from(START, cards)
     }
 
+    /// [`earned`] as the key `[k; 32]`'s own log (its first start `k` seconds later): a log joins under one key.
+    fn own(k: u8, cards: &[u32]) -> String {
+        earned_from(&format!("2026-11-01T10:00:{k:02}+09:00"), cards)
+    }
+
     /// [`earned`] with the first start at `start`: another installation's log.
     fn earned_from(start: &str, cards: &[u32]) -> String {
         let mut l = started_at(start);
@@ -2427,13 +2461,12 @@ mod tests {
         let seller = earned(&[57]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
-        let funds = earned(&[20, 20]);
         for k in [2, 3] {
-            ask(&m, k, Verb::Join, NOW + 2, &[], &funds).unwrap();
+            ask(&m, k, Verb::Join, NOW + 2, &[], &own(k, &[20, 20])).unwrap();
         }
         let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
         let racers = [2u8, 3].map(|k| {
-            let (m, gate, funds) = (m.clone(), gate.clone(), funds.clone());
+            let (m, gate, funds) = (m.clone(), gate.clone(), own(k, &[20, 20]));
             std::thread::spawn(move || {
                 gate.wait();
                 ask(&m, k, Verb::Buy, NOW + 3, &[1, 57, 228], &funds)
@@ -2469,7 +2502,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
         let seller = earned(&[57, 57]);
-        let funds = earned(&[20, 20]);
+        let funds = own(2, &[20, 20]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 2, Verb::Join, NOW, &[], &funds).unwrap();
         let twice = |k, verb, at, args: &[u64], log: &str| {
@@ -2530,7 +2563,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = std::sync::Arc::new(market(dir.path()));
         let seller = earned(&[57]);
-        let funds = earned(&[20, 20]);
+        let funds = own(2, &[20, 20]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
         ask(&m, 2, Verb::Join, NOW + 2, &[], &funds).unwrap();
@@ -2636,7 +2669,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
         let seller = earned(&[57]);
-        let funds = earned(&[20, 20]);
+        let funds = own(2, &[20, 20]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
         ask(&m, 2, Verb::Join, NOW + 1, &[], &funds).unwrap();
@@ -2733,7 +2766,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
         let seller = earned(&[57]);
-        let funds = earned(&[20, 20]);
+        let funds = own(2, &[20, 20]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 2, Verb::Join, NOW, &[], &funds).unwrap();
         let listed = NOW + 1;
@@ -2773,7 +2806,7 @@ mod tests {
     fn the_ledger_survives_a_restart_and_names_no_one() {
         let dir = tempfile::tempdir().unwrap();
         let seller = earned(&[57]);
-        let funds = earned(&[20, 20]);
+        let funds = own(2, &[20, 20]);
         {
             let m = market(dir.path());
             ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
@@ -2863,7 +2896,12 @@ mod tests {
 
     /// The first start and `weeks` full weeks of 21 paying matches from Tuesday 3 November: 150 + 1,050 a week.
     fn rich(weeks: i64) -> String {
-        let mut l = started();
+        rich_of(0, weeks)
+    }
+
+    /// [`rich`] as the key `[k; 32]`'s own log, as [`own`].
+    fn rich_of(k: u8, weeks: i64) -> String {
+        let mut l = started_at(&format!("2026-11-01T10:00:{k:02}+09:00"));
         for w in 0..weeks {
             for i in 0..21 {
                 let at = t("2026-11-03T10:00:00+09:00") + time::Duration::weeks(w) + mins(9 * i);
@@ -2901,10 +2939,13 @@ mod tests {
         let a = {
             let m = stock_market(dir.path(), Stock::default());
             ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
-            ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
+            ask(&m, 2, Verb::Join, NOW, &[], &own(2, &[20])).unwrap();
             let a = ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap();
             assert_eq!(ask(&m, 1, Verb::Stock, NOW + 2, &[], &log).unwrap(), a);
-            assert_ne!(ask(&m, 2, Verb::Stock, NOW + 1, &[], &log).unwrap(), a);
+            assert_ne!(
+                ask(&m, 2, Verb::Stock, NOW + 1, &[], &own(2, &[20])).unwrap(),
+                a
+            );
             a
         };
         let rows = stock_rows(&a);
@@ -2979,6 +3020,7 @@ mod tests {
                 "{why}"
             );
         }
+        let log = own(2, &[20]);
         ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
         ask(&m, 2, Verb::Leave, NOW + 1, &[], "").unwrap();
         assert_eq!(
@@ -3026,6 +3068,7 @@ mod tests {
         );
         assert_eq!(row(dir.path(), &stock), [[s("10"), s("11592")]]);
         // two racing requests for one slot: one sale
+        let log = rich_of(2, 11);
         ask(&m, 2, Verb::Join, next(), &[], &log).unwrap();
         let list = stock_rows(&ask(&m, 2, Verb::Stock, next(), &[], &log).unwrap());
         let (slot, card, price, _) = list[0];
@@ -3052,7 +3095,7 @@ mod tests {
         );
         assert_eq!(row(dir.path(), &stock2), [[s("1")]]);
         // 899 tokens: 150 + 11 matches + a sale of card 57 at 199
-        let mut l = started();
+        let mut l = started_at("2026-11-01T10:00:03+09:00");
         l.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(57), 50)
             .add(t("2026-11-03T10:01:00+09:00"), Kind::List, Some(57), 0)
             .add(
@@ -3107,12 +3150,12 @@ mod tests {
         let served = {
             let m = stock_market(dir.path(), Stock::default());
             ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
-            ask(&m, 2, Verb::Join, NOW, &[], &log).unwrap();
+            ask(&m, 2, Verb::Join, NOW, &[], &own(2, &[20])).unwrap();
             ask(&m, 1, Verb::Stock, NOW + 1, &[], &log).unwrap()
         };
         let m = stock_market(dir.path(), Stock::new("5,4,2,1", 85, 2).unwrap());
         assert_eq!(ask(&m, 1, Verb::Stock, NOW + 2, &[], &log).unwrap(), served);
-        let other = ask(&m, 2, Verb::Stock, NOW + 2, &[], &log).unwrap();
+        let other = ask(&m, 2, Verb::Stock, NOW + 2, &[], &own(2, &[20])).unwrap();
         assert_eq!(stock_rows(&other).len(), 10, "{other}");
         assert!(!other.contains("left"), "{other}");
         let day = NOW + DAY_MS;
@@ -3351,7 +3394,7 @@ mod tests {
         let why = ask(&m, 1, Verb::Buy, next(), &[1, 20, 38], &seller).unwrap_err();
         assert!(why.contains("own listing"), "{why}");
         // 150 tokens: three purchases at 38 whose lines the log lacks leave 36, with the lines too
-        let buyer = started().text;
+        let buyer = started_at("2026-11-01T10:00:02+09:00").text;
         ask(&m, 2, Verb::Join, next(), &[], &buyer).unwrap();
         for id in 1..=3 {
             assert_eq!(
@@ -3364,7 +3407,7 @@ mod tests {
             ask(&m, 2, Verb::Buy, next(), &[4, 23, 38], &buyer).unwrap_err(),
             short
         );
-        let mut written = started();
+        let mut written = started_at("2026-11-01T10:00:02+09:00");
         for c in 20..23 {
             written.add(
                 t("2026-11-02T12:00:00+09:00"),
@@ -3387,7 +3430,8 @@ mod tests {
             "this installation has no listing with that id"
         );
         // the seller at the week's 10 sales: its listings leave BROWSE and do not sell until the week turns
-        ask(&m, 3, Verb::Join, next(), &[], &buyer).unwrap();
+        let buyer3 = started_at("2026-11-01T10:00:03+09:00").text;
+        ask(&m, 3, Verb::Join, next(), &[], &buyer3).unwrap();
         let set = |n: u32| {
             Connection::open(dir.path().join("market.db"))
                 .unwrap()
@@ -3402,7 +3446,7 @@ mod tests {
             ask(&m, 3, Verb::Browse, next(), &[0], "").unwrap(),
             "listings"
         );
-        let why = ask(&m, 3, Verb::Buy, next(), &[4, 23, 38], &buyer).unwrap_err();
+        let why = ask(&m, 3, Verb::Buy, next(), &[4, 23, 38], &buyer3).unwrap_err();
         assert!(why.contains("sells again next week"), "{why}");
         set(9);
         assert_eq!(
@@ -3418,7 +3462,7 @@ mod tests {
         assert_ne!(sales_week(week), sales_week(NOW));
         set(10);
         assert_eq!(
-            ask(&m, 3, Verb::Buy, week, &[6, 25, 38], &buyer).unwrap(),
+            ask(&m, 3, Verb::Buy, week, &[6, 25, 38], &buyer3).unwrap(),
             "bought 6:25:38"
         );
         assert_eq!(
@@ -3839,5 +3883,34 @@ mod tests {
             Err(format!("{OLD}, the last at {}", NOW + 1))
         );
         assert_eq!(row(dir.path(), "SELECT state FROM ledger"), [[s("open")]]);
+    }
+
+    /// #375: one log under a second key is refused, also after the first key's LEAVE and RESET; the second key's own
+    /// log joins, and the first log moves only once its key's row is gone.
+    #[test]
+    fn a_log_joins_under_one_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let log = earned(&[20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        assert_eq!(
+            ask(&m, 2, Verb::Join, NOW + 1, &[], &log).unwrap_err(),
+            ANOTHER_KEY
+        );
+        assert_eq!(
+            ask(&m, 2, Verb::Stock, NOW + 2, &[], &log).unwrap_err(),
+            NOT_IN
+        );
+        let own = earned_from("2026-11-01T10:00:07+09:00", &[20]);
+        ask(&m, 2, Verb::Join, NOW + 3, &[], &own).unwrap();
+        ask(&m, 1, Verb::Reset, NOW + 5, &[], "").unwrap();
+        ask(&m, 1, Verb::Leave, NOW + 6, &[], "").unwrap();
+        assert_eq!(
+            ask(&m, 3, Verb::Join, NOW + 7, &[], &log).unwrap_err(),
+            ANOTHER_KEY
+        );
+        let gone = NOW + 7 + KEEP_LEFT_MS;
+        ask(&m, 3, Verb::Join, gone, &[], &log).unwrap();
+        assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM roots"), [[s("2")]]);
     }
 }
