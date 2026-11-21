@@ -368,14 +368,21 @@ pub fn tidy(kit: &Kit) {
     }
 }
 
-/// The self_replace leftovers and the `Launcher.exe.old` beside `me`, the running Launcher.exe.
+/// The self_replace leftovers, the `Launcher.exe.old` beside `me`, the running Launcher.exe, and the
+/// `Launcher.exe.restore` a killed put-back left.
 fn tidy_beside(me: &Path) {
     if let Some(dir) = me.parent() {
         sweep_replaced(dir, me);
     }
     let mut old = me.as_os_str().to_owned();
     old.push(".old");
-    let _ = fs::remove_file(old);
+    match fs::remove_file(old) {
+        // held: a swap runs in another Launcher ([`swap_self`]), and its put-back may be writing the restore copy
+        Err(e) if e.kind() != io::ErrorKind::NotFound => {}
+        _ => {
+            let _ = fs::remove_file(me.with_extension("exe.restore"));
+        }
+    }
 }
 
 /// What self_replace leaves next to Launcher.exe: `.Launcher.<random>.__selfdelete__.exe`, the helper that deletes the old
@@ -711,6 +718,32 @@ mod tests {
         assert_eq!(e.0, me);
         assert!(e.1.to_string().contains(&kept.display().to_string()), "{}", e.1);
         assert_eq!(fs::read(&kept).unwrap(), b"the only copy");
+    }
+
+    /// The start removes a `Launcher.exe.restore` a killed put-back left, but not while another Launcher's swap holds
+    /// the spare: its put-back may be writing that file (#361).
+    #[test]
+    fn the_start_removes_a_stray_restore_unless_a_swap_runs() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&restore, b"half a launcher").unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(1) // as swap_self holds it
+            .open(&kept)
+            .unwrap();
+        tidy_beside(&me);
+        assert!(restore.exists() && kept.exists(), "a swap runs: both stay");
+        drop(held);
+        tidy_beside(&me);
+        assert!(!restore.exists() && !kept.exists());
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
     }
 
     /// A second Launcher started between the copy and the swap runs its start's tidy: the kept copy must survive it,
