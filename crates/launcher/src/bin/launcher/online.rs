@@ -681,23 +681,30 @@ impl Online {
             LobbyAction::JoinCode(code) => self.join_code(st, &code),
             // HOST ARCADE and the LAN fold are jobs of the window's (main.rs); CONNECT arrives as Action::Play
             LobbyAction::HostArcade | LobbyAction::HostLan | LobbyAction::JoinLan(_) | LobbyAction::Connect => {}
-            LobbyAction::DirectAddress(a) => self.direct_address(&a, settings),
+            LobbyAction::DirectAddress(a) => {
+                if let Err(why) = self.direct_address(&a, settings) {
+                    refuse(why);
+                }
+            }
         }
     }
 
     /// DIRECT ADDRESS: `a` first in the list and the saved `servers`; a server listed already (any spelling) says
-    /// under which (#419).
-    fn direct_address(&mut self, a: &str, settings: &Path) {
+    /// under which (#419).  Err is the status line of a refusal.
+    fn direct_address(&mut self, a: &str, settings: &Path) -> Result<(), String> {
         let a = a.trim().to_owned();
         if !launcher::lobby::valid_server(&a) {
-            refuse(t("launcher.msg_bad_address"));
-        } else if let Some(s) = launcher::lobby::listed(&self.servers, &a) {
-            refuse(tf("launcher.msg_address_listed", &[("server", s)]));
-        } else if launcher::lobby::add_server(&mut self.servers, a, true) {
+            return Err(t("launcher.msg_bad_address"));
+        }
+        if let Some(s) = launcher::lobby::listed(&self.servers, &a) {
+            return Err(tf("launcher.msg_address_listed", &[("server", s)]));
+        }
+        if launcher::lobby::add_server(&mut self.servers, a, true) {
             let _ = choices::set_setting_json(settings, "servers", json!(self.servers));
             self.book = Book::new(&self.servers);
             self.poller = None; // restarted on the next look with the new list
         }
+        Ok(())
     }
 
     /// "Rejoin ...": the last seat by number.
@@ -733,15 +740,15 @@ mod tests {
         let settings = dir.join("settings.json");
         let mut o = Online::default();
         o.servers.push("lobby.wccf.it:20032".into());
-        o.direct_address(" LOBBY.wccf.it:20032 ", &settings);
+        let said = o.direct_address(" LOBBY.wccf.it:20032 ", &settings).unwrap_err();
         assert_eq!(o.servers, ["lobby.wccf.it:20032"]);
-        let said = super::super::shared().status.clone().map(|(_, s)| s);
-        assert_eq!(
-            said,
-            Some(tf("launcher.msg_address_listed", &[("server", "lobby.wccf.it:20032")]))
-        );
-        assert!(said.unwrap().contains("lobby.wccf.it:20032"));
-        o.direct_address("10.0.0.5", &settings);
+        // in whichever language another test set meanwhile: the language is global
+        let listed = |l: &forza_ui::Lang| {
+            forza_ui::text(*l, "launcher.msg_address_listed", &[("server", "lobby.wccf.it:20032")]) == said
+        };
+        assert!(forza_ui::Lang::ALL.iter().any(listed), "{said}");
+        assert!(said.contains("lobby.wccf.it:20032"));
+        o.direct_address("10.0.0.5", &settings).unwrap();
         assert_eq!(o.servers, ["10.0.0.5", "lobby.wccf.it:20032"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
