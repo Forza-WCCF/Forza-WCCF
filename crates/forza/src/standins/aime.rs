@@ -151,6 +151,16 @@ pub fn ensure_card(path: &Path) {
     }
 }
 
+/// A card's access code: 20 digits, as the reader writes it.
+fn is_code(s: &str) -> bool {
+    s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `e`, named with the card file it belongs to.
+fn at(path: &Path, e: io::Error) -> io::Error {
+    io::Error::new(e.kind(), format!("{}: {e}", path.display()))
+}
+
 /// The card on the reader.
 struct Card {
     code: String,
@@ -159,17 +169,27 @@ struct Card {
 
 impl Card {
     fn load(path: Option<&Path>) -> io::Result<Self> {
-        let from_file = path
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()));
+        let mut from_file = None;
+        if let Some(p) = path {
+            match std::fs::read_to_string(p) {
+                Ok(s) if is_code(s.trim()) => from_file = Some(s.trim().to_string()),
+                // not a card code: kept aside, never written over
+                Ok(_) => {
+                    let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
+                    std::fs::copy(p, &bad).map_err(|e| at(p, e))?;
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(at(p, e)),
+            }
+        }
         let code = match from_file {
             Some(code) => code,
             None => {
                 // A stand-in still wants a card number no other kit has: the OS source, as in `card_reader`.
                 let mut r = [0u8; 8];
                 // getrandom's own error is not an io::Error in this crate's build (its `std` feature is off)
-                getrandom::fill(&mut r).map_err(|e| io::Error::other(e.to_string()))?;
+                getrandom::fill(&mut r)
+                    .map_err(|e| io::Error::other(format!("no random source: {e}")))?;
                 let code = format!(
                     "5{:019}",
                     u64::from_le_bytes(r) % 10_000_000_000_000_000_000
@@ -393,5 +413,41 @@ mod tests {
             b.code,
             "the card file holds its card's code"
         );
+    }
+
+    /// A card file whose content is not a card code is kept aside as `.bad`; a new code is made and saved, and the
+    /// card file holds it afterwards.
+    #[test]
+    fn a_bad_card_file_is_kept_aside_not_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::write(&path, "not a card\n").unwrap();
+        let c = Card::load(Some(&path)).unwrap();
+        let bad: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".bad"))
+            .collect();
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(&bad[0])).unwrap(),
+            "not a card\n",
+            "the bad content is kept as it was"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file that cannot be read (here a folder) is reported with its path, not treated as a missing one: the
+    /// file is not replaced with a new code.
+    #[test]
+    fn a_card_file_that_cannot_be_read_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::create_dir(&path).unwrap();
+        let e = Card::load(Some(&path))
+            .err()
+            .expect("a folder is not a card file");
+        assert!(e.to_string().contains("card.txt"), "{e}");
+        assert!(path.is_dir(), "the folder is left alone");
     }
 }
