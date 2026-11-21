@@ -4,7 +4,8 @@
 //! is asked (`lobby::project_server`), or the LAN arcade's desk while a seat plays there ([`Notices::ask`]): a seat
 //! shows the notice of the server it plays on. The ask carries the edition and nothing else. An arcade guest asks the
 //! host's desk through the run's tunnel ([`TUNNEL_DESK`]); another server's notice shows under an "Arcade notice:"
-//! prefix, and the project server's stays when that server has none ([`round`]).
+//! prefix (added as shown: [`LAN_FILE`] keeps it as heard), and the project server's stays when that server has
+//! none ([`round`]).
 
 use crate::lobby::{Wake, socket};
 use forza::online::SEAT_PORT;
@@ -66,30 +67,63 @@ fn remove(file: &Path) -> std::io::Result<()> {
     }
 }
 
-/// One round's answer from `asked` (`get` asks a server). From a server other than `project` (an arcade's desk, a
-/// LAN arcade, a listed server's seat), its notice under the "Arcade notice:" prefix; with none there, the project
-/// server is asked in the same round and its notice kept. A notice without a host's id (`h<unix>`,
-/// [`write_host_notice`]) that equals the project server's is that one, unprefixed: an older host's desk serves its
-/// Launcher's copy of the project's notice. With the project server out of reach (a LAN arcade with no internet) that
-/// copy cannot be told from the desk's own, so it shows prefixed rather than not at all (#419). `None` when an ask
-/// the answer needs failed: the last notice stays.
-fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Lobby> {
-    let mut l = get(asked)?;
-    if !same_server(asked, project) {
-        l.notice = match l.notice.take().and_then(ServerNotice::clean) {
-            Some(n) if host_id(&n.id) => arcade_notice(&n),
-            Some(n) => {
-                let ours = get(project).and_then(|l| l.notice).and_then(ServerNotice::clean);
-                if ours.as_ref() == Some(&n) {
-                    ours
-                } else {
-                    arcade_notice(&n)
-                }
-            }
-            None => get(project)?.notice.and_then(ServerNotice::clean),
-        };
+/// The file a HOST LAN ARCADE's desk serves its guests (`WCCF_NOTICE`), next to `notice.json`: the notice as heard,
+/// never under the "Arcade notice:" prefix, which each guest adds itself (#419).
+pub const LAN_FILE: &str = "lan_notice.json";
+
+/// A round's notice, cleaned and as its server sent it; `desk`: it shows under the "Arcade notice:" prefix
+/// ([`Heard::shown`]). No notice with `desk` set is a desk's "none" with the project server out of reach: it clears
+/// only a desk's notice ([`Inner::hear`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Heard {
+    notice: Option<ServerNotice>,
+    desk: bool,
+}
+
+impl Heard {
+    /// The project server's answer.
+    fn project(l: &Lobby) -> Heard {
+        Heard {
+            notice: l.notice.clone().and_then(ServerNotice::clean),
+            desk: false,
+        }
     }
-    Some(l)
+
+    /// The notice as the Launcher and the panel show it: a desk's under the prefix.
+    fn shown(&self) -> Option<ServerNotice> {
+        self.notice
+            .as_ref()
+            .and_then(|n| if self.desk { arcade_notice(n) } else { Some(n.clone()) })
+    }
+}
+
+/// One round's answer from `asked` (`get` asks a server). From a server other than `project` (an arcade's desk, a
+/// LAN arcade, a listed server's seat), its notice is a desk's (shown prefixed); with none there, the project
+/// server is asked in the same round and its notice kept. A notice without a host's id (`h<unix>`,
+/// [`write_host_notice`]) that equals the project server's is that one: an older host's desk serves its Launcher's
+/// copy of the project's notice. With the project server out of reach (a LAN arcade with no internet) that copy
+/// cannot be told from the desk's own, so it is a desk's rather than not shown at all, and the desk's "none" clears a
+/// desk's notice (#419). `None` when the desk's ask failed: the last notice stays.
+fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Heard> {
+    let l = get(asked)?;
+    if same_server(asked, project) {
+        return Some(Heard::project(&l));
+    }
+    let ours = || get(project).map(|l| Heard::project(&l));
+    Some(match l.notice.and_then(ServerNotice::clean) {
+        Some(n) if host_id(&n.id) => Heard {
+            notice: Some(n),
+            desk: true,
+        },
+        Some(n) => {
+            let desk = ours().and_then(|h| h.notice).as_ref() != Some(&n);
+            Heard { notice: Some(n), desk }
+        }
+        None => ours().unwrap_or(Heard {
+            notice: None,
+            desk: true,
+        }),
+    })
 }
 
 /// `a` and `b` name one server as [`socket`] reads them: the seat desk's port by default, the name in any case. A
@@ -118,10 +152,11 @@ fn arcade_notice(n: &ServerNotice) -> Option<ServerNotice> {
 }
 
 struct Inner {
+    /// `data\notice.json`, the panel's (the notice as shown); [`LAN_FILE`] next to it holds it as heard.
     file: PathBuf,
     /// The server asked: the project server, or a LAN arcade's desk while a seat plays there.
     server: String,
-    notice: Option<ServerNotice>,
+    notice: Heard,
     at: Option<Instant>,
     /// The file holds `notice`: `false` after a write that failed, so the next answer tries again.
     saved: bool,
@@ -132,13 +167,15 @@ struct Inner {
 pub struct Notices(Arc<Mutex<Inner>>);
 
 impl Notices {
-    /// No notice yet; `file` is `data\notice.json`, removed until the server sends one (an old one is stale).
+    /// No notice yet; `file` is `data\notice.json`, removed until the server sends one (an old one is stale), and
+    /// [`LAN_FILE`] with it.
     pub fn new(file: PathBuf) -> Notices {
         let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(file.with_file_name(LAN_FILE));
         Notices(Arc::new(Mutex::new(Inner {
             file,
             server: String::new(),
-            notice: None,
+            notice: Heard::default(),
             at: None,
             saved: true,
         })))
@@ -167,8 +204,8 @@ impl Notices {
                 };
                 let get = |s: &str| socket(s).and_then(|a| lobby::fetch(a, edition).ok());
                 if due
-                    && let Some(l) = round(&server, &project, get)
-                    && me.heard_from(&server, &l, log.as_ref())
+                    && let Some(h) = round(&server, &project, get)
+                    && me.heard_from(&server, h, log.as_ref())
                 {
                     wake();
                 }
@@ -185,14 +222,14 @@ impl Notices {
     /// the network) replaces the last; a change is written to the file, and a write that failed is tried again on the
     /// next answer. True when the notice changed.
     pub fn heard(&self, l: &Lobby, log: &dyn Fn(&str)) -> bool {
-        self.lock().hear(l, log)
+        self.lock().hear(Heard::project(l), log)
     }
 
     /// The watcher's answer from `asked`, dropped when [`Notices::ask`] named another server while it was out (#419):
     /// a run that ended then would otherwise keep its host's notice until the next round.
-    fn heard_from(&self, asked: &str, l: &Lobby, log: &dyn Fn(&str)) -> bool {
+    fn heard_from(&self, asked: &str, h: Heard, log: &dyn Fn(&str)) -> bool {
         let mut i = self.lock();
-        i.server == asked && i.hear(l, log)
+        i.server == asked && i.hear(h, log)
     }
 
     /// Asks `server` from the watcher's next round on (a LAN arcade's desk while a seat plays there, the project server
@@ -210,9 +247,9 @@ impl Notices {
         self.lock().server.clone()
     }
 
-    /// The text in language `code`, else English; none without a notice.
+    /// The text in language `code`, else English, a desk's under the prefix; none without a notice.
     pub fn text(&self, code: &str) -> Option<String> {
-        self.lock().notice.as_ref().map(|n| n.text(code).to_owned())
+        self.lock().notice.shown().map(|n| n.text(code).to_owned())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -221,11 +258,19 @@ impl Notices {
 }
 
 impl Inner {
-    /// [`Notices::heard`] under the lock.
-    fn hear(&mut self, l: &Lobby, log: &dyn Fn(&str)) -> bool {
-        let n = l.notice.clone().and_then(ServerNotice::clean);
+    /// [`Notices::heard`] under the lock. A desk's "none" with the project server out of reach keeps the project's
+    /// notice ([`round`]).
+    fn hear(&mut self, n: Heard, log: &dyn Fn(&str)) -> bool {
         let i = self;
         i.at = Some(Instant::now());
+        let n = if n.notice.is_none() && n.desk && !i.notice.desk {
+            i.notice.clone()
+        } else {
+            Heard {
+                desk: n.desk && n.notice.is_some(),
+                ..n
+            }
+        };
         let changed = i.notice != n;
         if !changed && i.saved {
             return false;
@@ -235,7 +280,7 @@ impl Inner {
             Ok(()) => {
                 i.saved = true;
                 if changed {
-                    match &i.notice {
+                    match &i.notice.notice {
                         Some(n) => log(&format!(
                             "notice: {} from the server, written to {}",
                             n.id,
@@ -256,12 +301,14 @@ impl Inner {
         changed
     }
 
-    /// The notice into the file, or the file removed when the server sends none.
+    /// The notice as shown into the panel's file and as heard into [`LAN_FILE`], or both removed with none.
     fn save(&self) -> std::io::Result<()> {
-        match &self.notice {
-            Some(n) => crate::choices::write(&self.file, &serde_json::to_string(n).expect("plain data serializes")),
-            None => remove(&self.file),
-        }
+        let put = |file: &Path, n: Option<ServerNotice>| match n {
+            Some(n) => crate::choices::write(file, &serde_json::to_string(&n).expect("plain data serializes")),
+            None => remove(file),
+        };
+        put(&self.file.with_file_name(LAN_FILE), self.notice.notice.clone())?;
+        put(&self.file, self.notice.shown())
     }
 
     /// The watcher waits `every` after a round that asked `asked`, less when [`Notices::ask`] named another server.
@@ -289,7 +336,7 @@ mod tests {
         Inner {
             file: PathBuf::new(),
             server: String::new(),
-            notice: None,
+            notice: Heard::default(),
             at,
             saved: true,
         }
@@ -401,14 +448,14 @@ mod tests {
             }
         }
         let n = Notices::new(dir("arcade").join("notice.json"));
-        n.heard(
-            &round(project, project, answers(project, &ours, Some(&host))).unwrap(),
+        n.lock().hear(
+            round(project, project, answers(project, &ours, Some(&host))).unwrap(),
             &|_| {},
         );
         assert_eq!(n.text("en").as_deref(), Some("Server update at 23:00"));
         n.ask(desk);
-        assert!(n.heard(
-            &round(desk, project, answers(project, &ours, Some(&host))).unwrap(),
+        assert!(n.lock().hear(
+            round(desk, project, answers(project, &ours, Some(&host))).unwrap(),
             &|_| {}
         ));
         assert_eq!(n.text("en").as_deref(), Some("Arcade notice: Open till 23:00"));
@@ -417,7 +464,7 @@ mod tests {
             n.text("ja").as_deref(),
             Some("ゲームセンターのお知らせ：Open till 23:00")
         );
-        assert_eq!(n.lock().notice.as_ref().map(|n| n.id.as_str()), Some("h17"));
+        assert_eq!(n.lock().notice.notice.as_ref().map(|n| n.id.as_str()), Some("h17"));
         // a full host notice and the longest prefix still fit a notice
         let long = ServerNotice {
             en: "x".repeat(lobby::HOST_NOTICE_LEN),
@@ -425,7 +472,7 @@ mod tests {
         };
         let l = round(desk, project, answers(project, &ours, Some(&long))).unwrap();
         assert!(
-            l.notice
+            l.shown()
                 .unwrap()
                 .text("it")
                 .ends_with(&"x".repeat(lobby::HOST_NOTICE_LEN))
@@ -433,20 +480,20 @@ mod tests {
         // an older host's desk serves its copy of the project's notice: the project's, unprefixed; another server's
         // own notice keeps the prefix
         let l = round(desk, project, answers(project, &ours, Some(&ours))).unwrap();
-        assert_eq!(l.notice.as_ref(), Some(&ours));
+        assert_eq!(l.shown().as_ref(), Some(&ours));
         let theirs = ServerNotice {
             id: "n2".into(),
             ..host.clone()
         };
         let l = round(desk, project, answers(project, &ours, Some(&theirs))).unwrap();
-        assert_eq!(l.notice.unwrap().en, "Arcade notice: Open till 23:00");
-        // the desk sets none: the project's stays; the project server not answering keeps the last
+        assert_eq!(l.shown().unwrap().en, "Arcade notice: Open till 23:00");
+        // the desk sets none: the project's stays; the desk not answering keeps the last
         let l = round(desk, project, answers(project, &ours, None)).unwrap();
-        assert_eq!(l.notice.as_ref().map(|n| n.id.as_str()), Some("n1"));
-        assert!(round(desk, project, |s| (s == desk).then(|| answer(None))).is_none());
+        assert_eq!(l.shown().as_ref().map(|n| n.id.as_str()), Some("n1"));
+        assert!(round(desk, project, |s| (s != desk).then(|| answer(None))).is_none());
         n.ask(project);
-        assert!(n.heard(
-            &round(project, project, answers(project, &ours, Some(&host))).unwrap(),
+        assert!(n.lock().hear(
+            round(project, project, answers(project, &ours, Some(&host))).unwrap(),
             &|_| {}
         ));
         assert_eq!(
@@ -470,12 +517,12 @@ mod tests {
             ..ours.clone()
         };
         let l = round("127.0.0.1:20041", project, |_| Some(answer(Some(ours.clone())))).unwrap();
-        assert_eq!(l.notice.as_ref(), Some(&ours), "the project's notice, unprefixed");
+        assert_eq!(l.shown().as_ref(), Some(&ours), "the project's notice, unprefixed");
         let l = round("127.0.0.1:20041", project, |s| {
             Some(answer(Some(if s == project { ours.clone() } else { host.clone() })))
         })
         .unwrap();
-        assert_eq!(l.notice.unwrap().en, "Arcade notice: Server update at 23:00");
+        assert_eq!(l.shown().unwrap().en, "Arcade notice: Server update at 23:00");
     }
 
     /// The project server under another spelling (no default port, another case) is asked once a round (#419): a
@@ -501,21 +548,46 @@ mod tests {
     }
 
     /// A LAN arcade with no internet (#419): the desk's copy of the project's notice still shows, under the prefix
-    /// (it cannot be checked); a desk with none keeps the last notice.
+    /// (it cannot be checked), and is saved as heard for a later HOST LAN ARCADE's guests; the desk's "none" clears it
+    /// but keeps a notice the project server sent.
     #[test]
     fn a_desks_notice_shows_when_the_project_server_is_out_of_reach() {
         let desk = "192.168.1.20";
+        let project = "lobby.wccf.it:20032";
         let copy = ServerNotice {
             id: "n1".into(),
             en: "Server update at 23:00".into(),
             ..ServerNotice::default()
         };
-        let l = round(desk, "lobby.wccf.it:20032", |s| {
-            (s == desk).then(|| answer(Some(copy.clone())))
-        })
-        .unwrap();
-        assert_eq!(l.notice.unwrap().en, "Arcade notice: Server update at 23:00");
-        assert!(round(desk, "lobby.wccf.it:20032", |s| (s == desk).then(|| answer(None))).is_none());
+        let offline = |sent: Option<ServerNotice>| round(desk, project, |s| (s == desk).then(|| answer(sent.clone())));
+        let file = dir("offline").join("notice.json");
+        let lan = file.with_file_name(LAN_FILE);
+        let n = Notices::new(file.clone());
+        assert!(n.lock().hear(offline(Some(copy.clone())).unwrap(), &|_| {}));
+        assert_eq!(n.text("en").as_deref(), Some("Arcade notice: Server update at 23:00"));
+        let read = |f: &Path| serde_json::from_slice::<ServerNotice>(&std::fs::read(f).unwrap()).unwrap();
+        assert_eq!(
+            read(&file).en,
+            "Arcade notice: Server update at 23:00",
+            "the panel shows it prefixed"
+        );
+        assert_eq!(
+            read(&lan),
+            copy,
+            "a LAN arcade hosted next serves it as heard, never prefixed"
+        );
+        assert!(
+            n.lock().hear(offline(None).unwrap(), &|_| {}),
+            "the desk's none clears it"
+        );
+        assert!(n.text("en").is_none() && !file.exists() && !lan.exists());
+        assert!(n.heard(&answer(Some(copy.clone())), &|_| {}));
+        assert!(
+            !n.lock().hear(offline(None).unwrap(), &|_| {}),
+            "the project's notice stays"
+        );
+        assert_eq!(n.text("en").as_deref(), Some("Server update at 23:00"));
+        assert_eq!(read(&lan), copy);
     }
 
     /// A desk with no notice: the project server's is kept cleaned like the other arms of [`round`] (#419).
@@ -563,18 +635,21 @@ mod tests {
         let desk = "127.0.0.1:20041";
         let n = Notices::new(dir("late").join("notice.json"));
         n.ask(desk);
-        let host = answer(Some(ServerNotice {
-            id: "h17".into(),
-            en: "Open till 23:00".into(),
-            ..ServerNotice::default()
-        }));
+        let host = Heard {
+            notice: Some(ServerNotice {
+                id: "h17".into(),
+                en: "Open till 23:00".into(),
+                ..ServerNotice::default()
+            }),
+            desk: true,
+        };
         n.ask("lobby.wccf.it:20032"); // the run ended before the desk answered
-        assert!(!n.heard_from(desk, &host, &|_| {}));
+        assert!(!n.heard_from(desk, host.clone(), &|_| {}));
         assert!(n.text("en").is_none(), "no host notice after the run");
         assert!(n.lock().at.is_none(), "the project server is asked on the next round");
         n.ask(desk);
         assert!(
-            n.heard_from(desk, &host, &|_| {}),
+            n.heard_from(desk, host, &|_| {}),
             "the desk still asked: its answer counts"
         );
     }
