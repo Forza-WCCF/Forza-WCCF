@@ -992,7 +992,8 @@ impl Market {
     }
 
     /// One request at the server's time `now` (Unix ms): `Ok` with the words after `OK`, `Err` with the reason. The
-    /// replay test comes before the log's check, and the store stays locked through both.
+    /// replay test comes before the log's check, and the store stays locked through both. A refused request of a key
+    /// the store knows changes nothing but the key's last time, so it is old once refused.
     pub fn handle(&self, req: &Request, now: u64) -> Result<String, String> {
         if req.at.abs_diff(now) > CLOCK_SLACK_MS {
             return Err("this PC's clock is more than a day off the server's".into());
@@ -1064,95 +1065,94 @@ impl Market {
         if !(req.verb == Verb::Join || joined || req.verb == Verb::Collect && row.is_some()) {
             return Err(NOT_IN.into());
         }
-        // JOIN, LIST, BUY, STOCK, STOCKBUY and OWED: the log is checked against the table and the key's last log, then kept
-        let mut checked = Checked::default();
-        if req.verb.logged() {
-            let stock = pairs(
-                &tx,
-                "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
-                &kh,
-            )?;
-            checked = check(&req.log, &self.table, &stock)?;
-            let lines = &checked.lines;
-            let old: Vec<&str> = row
-                .as_ref()
-                .and_then(|(_, log, ..)| log.as_deref())
-                .map(|l| l.lines().filter(|l| !l.is_empty()).collect())
-                .unwrap_or_default();
-            let kept = old.iter().zip(lines).take_while(|(a, b)| a == b).count();
-            if kept < old.len() {
-                tx.execute(
-                    "UPDATE keys SET forks = forks + 1, last_at = ?2, asked = NULL, answer = NULL WHERE key_hash = ?1",
-                    params![kh, at],
-                )
-                .map_err(store_err)?;
-                tx.commit().map_err(store_err)?;
-                return Err(format!(
-                    "a fork: this log drops {} of the {} lines the server accepted (a profile reset sends MARKET RESET first)",
-                    old.len() - kept,
-                    old.len()
-                ));
-            }
-            let welcome = checked.welcome.map(collection::hash);
-            if let (Some(new), Some((_, log, left, Some(had)))) = (&welcome, &row) {
-                // after RESET the log is gone and the key is not left: only the mark of the first welcome remains, so
-                // not even that line comes back; after LEAVE the same log may
-                let reset = log.is_none() && left.is_none();
-                if reset || new != had {
-                    return Err(
-                        "a second welcome: this installation had its welcome tokens before".into(),
-                    );
+        // a key outside the market cannot spend: its refusal moves nothing, so the 7 days after LEAVE still run out
+        let mut fork = false;
+        let run = |fork: &mut bool| -> Result<String, String> {
+            // JOIN, LIST, BUY, STOCK, STOCKBUY and OWED: the log is checked against the table and the key's last log, then kept
+            let mut checked = Checked::default();
+            if req.verb.logged() {
+                let stock = pairs(
+                    &tx,
+                    "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
+                    &kh,
+                )?;
+                checked = check(&req.log, &self.table, &stock)?;
+                let lines = &checked.lines;
+                let old: Vec<&str> = row
+                    .as_ref()
+                    .and_then(|(_, log, ..)| log.as_deref())
+                    .map(|l| l.lines().filter(|l| !l.is_empty()).collect())
+                    .unwrap_or_default();
+                let kept = old.iter().zip(lines).take_while(|(a, b)| a == b).count();
+                if kept < old.len() {
+                    *fork = true;
+                    return Err(format!(
+                        "a fork: this log drops {} of the {} lines the server accepted (a profile reset sends MARKET RESET first)",
+                        old.len() - kept,
+                        old.len()
+                    ));
                 }
-            }
-            let mut log = lines.join("\n");
-            log.push('\n');
-            tx.execute(
-                "INSERT INTO keys (key_hash, log, last_at, welcome) VALUES (?1, ?2, ?3, ?4)
+                let welcome = checked.welcome.map(collection::hash);
+                if let (Some(new), Some((_, log, left, Some(had)))) = (&welcome, &row) {
+                    // after RESET the log is gone and the key is not left: only the mark of the first welcome remains, so
+                    // not even that line comes back; after LEAVE the same log may
+                    let reset = log.is_none() && left.is_none();
+                    if reset || new != had {
+                        return Err(
+                            "a second welcome: this installation had its welcome tokens before"
+                                .into(),
+                        );
+                    }
+                }
+                let mut log = lines.join("\n");
+                log.push('\n');
+                tx.execute(
+                    "INSERT INTO keys (key_hash, log, last_at, welcome) VALUES (?1, ?2, ?3, ?4)
                      ON CONFLICT (key_hash) DO UPDATE SET log = ?2, last_at = ?3, left_at = NULL,
                      welcome = COALESCE(welcome, ?4)",
-                params![kh, log, at, welcome],
-            )
-            .map_err(store_err)?;
-        }
-        let num = |i: usize| req.args.get(i).copied().unwrap_or_default();
-        let fresh = (now as i64).saturating_sub(LISTING_MS as i64);
-        let answer = match req.verb {
-            Verb::Join => format!("{} lines", checked.lines.len()),
-            Verb::List => self.list(&tx, &kh, &checked, num(0), num(1), now)?,
-            Verb::Cancel => {
-                let id = i64::try_from(num(0)).unwrap_or(-1);
-                let r: Option<(u32, String)> = tx
-                    .query_row(
-                        "SELECT card, state FROM ledger WHERE id = ?1 AND key_hash = ?2
-                         AND state IN ('open', 'sold', 'paid')",
-                        params![id, kh],
-                        |r| Ok((r.get(0)?, r.get(1)?)),
-                    )
-                    .optional()
-                    .map_err(store_err)?;
-                match r {
-                    // conditional, as BUY's sale: a listing sold since the SELECT stays sold
-                    Some((c, state)) if state == "open" => {
-                        if tx
-                            .execute(
-                                "DELETE FROM ledger WHERE id = ?1 AND state = 'open'",
-                                params![id],
-                            )
-                            .map_err(store_err)?
-                            != 1
-                        {
-                            return Err(SOLD.into());
-                        }
-                        format!("cancelled {id}:{c}")
-                    }
-                    Some(_) => return Err(SOLD.into()),
-                    None => return Err("this installation has no listing with that id".into()),
-                }
+                    params![kh, log, at, welcome],
+                )
+                .map_err(store_err)?;
             }
-            Verb::Browse => {
-                let after = i64::try_from(num(0)).unwrap_or(i64::MAX);
-                // the other keys' live listings, none of a seller at the week's sales cap
-                let rows: Vec<(i64, u32, i64)> = tx
+            let num = |i: usize| req.args.get(i).copied().unwrap_or_default();
+            let fresh = (now as i64).saturating_sub(LISTING_MS as i64);
+            let answer = match req.verb {
+                Verb::Join => format!("{} lines", checked.lines.len()),
+                Verb::List => self.list(&tx, &kh, &checked, num(0), num(1), now)?,
+                Verb::Cancel => {
+                    let id = i64::try_from(num(0)).unwrap_or(-1);
+                    let r: Option<(u32, String)> = tx
+                        .query_row(
+                            "SELECT card, state FROM ledger WHERE id = ?1 AND key_hash = ?2
+                         AND state IN ('open', 'sold', 'paid')",
+                            params![id, kh],
+                            |r| Ok((r.get(0)?, r.get(1)?)),
+                        )
+                        .optional()
+                        .map_err(store_err)?;
+                    match r {
+                        // conditional, as BUY's sale: a listing sold since the SELECT stays sold
+                        Some((c, state)) if state == "open" => {
+                            if tx
+                                .execute(
+                                    "DELETE FROM ledger WHERE id = ?1 AND state = 'open'",
+                                    params![id],
+                                )
+                                .map_err(store_err)?
+                                != 1
+                            {
+                                return Err(SOLD.into());
+                            }
+                            format!("cancelled {id}:{c}")
+                        }
+                        Some(_) => return Err(SOLD.into()),
+                        None => return Err("this installation has no listing with that id".into()),
+                    }
+                }
+                Verb::Browse => {
+                    let after = i64::try_from(num(0)).unwrap_or(i64::MAX);
+                    // the other keys' live listings, none of a seller at the week's sales cap
+                    let rows: Vec<(i64, u32, i64)> = tx
                     .prepare(
                         "SELECT l.id, l.card, l.price FROM ledger l JOIN keys k ON k.key_hash = l.key_hash
                          WHERE l.state = 'open' AND l.at >= ?1 AND l.id > ?2 AND l.key_hash <> ?3
@@ -1174,137 +1174,155 @@ impl Market {
                         .collect()
                     })
                     .map_err(store_err)?;
-                let mut said = "listings".to_owned();
-                for (id, c, p) in rows {
-                    said.push_str(&format!(" {id}:{c}:{p}"));
-                }
-                said
-            }
-            Verb::Buy => self.buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
-            Verb::Stock => {
-                let (_, s, rows) = self.today(&tx, &kh, now)?;
-                let mut said = "stock".to_owned();
-                if s.limit > 0 {
-                    let sold = rows.iter().filter(|r| r.3).count() as u32;
-                    said.push_str(&format!(" left {}", s.limit.saturating_sub(sold)));
-                }
-                for (slot, c, p, sold) in rows {
-                    said.push_str(&format!(
-                        " {slot}:{c}:{p}{}",
-                        if sold { ":sold" } else { "" }
-                    ));
-                }
-                said
-            }
-            Verb::StockBuy => self.stock_buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
-            Verb::Owed => {
-                let mut said = "owed".to_owned();
-                let mut last = "";
-                for (word, o) in owed(&tx, &kh, &checked)?.into_iter().take(COLLECT_PAGE) {
-                    if word != last {
-                        said.push(' ');
-                        said.push_str(word);
-                        last = word;
+                    let mut said = "listings".to_owned();
+                    for (id, c, p) in rows {
+                        said.push_str(&format!(" {id}:{c}:{p}"));
                     }
-                    said.push_str(&format!(" {}:{}:{}", o.id, o.card, o.price));
+                    said
                 }
-                said
-            }
-            Verb::Collect => {
-                let rows: Vec<(i64, u32, i64, String)> = tx
-                    .prepare(
-                        "SELECT id, card, price, state FROM ledger WHERE key_hash = ?1
+                Verb::Buy => self.buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
+                Verb::Stock => {
+                    let (_, s, rows) = self.today(&tx, &kh, now)?;
+                    let mut said = "stock".to_owned();
+                    if s.limit > 0 {
+                        let sold = rows.iter().filter(|r| r.3).count() as u32;
+                        said.push_str(&format!(" left {}", s.limit.saturating_sub(sold)));
+                    }
+                    for (slot, c, p, sold) in rows {
+                        said.push_str(&format!(
+                            " {slot}:{c}:{p}{}",
+                            if sold { ":sold" } else { "" }
+                        ));
+                    }
+                    said
+                }
+                Verb::StockBuy => {
+                    self.stock_buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?
+                }
+                Verb::Owed => {
+                    let mut said = "owed".to_owned();
+                    let mut last = "";
+                    for (word, o) in owed(&tx, &kh, &checked)?.into_iter().take(COLLECT_PAGE) {
+                        if word != last {
+                            said.push(' ');
+                            said.push_str(word);
+                            last = word;
+                        }
+                        said.push_str(&format!(" {}:{}:{}", o.id, o.card, o.price));
+                    }
+                    said
+                }
+                Verb::Collect => {
+                    let rows: Vec<(i64, u32, i64, String)> = tx
+                        .prepare(
+                            "SELECT id, card, price, state FROM ledger WHERE key_hash = ?1
                          AND (state = 'sold' OR state = 'open' AND at < ?2) ORDER BY id LIMIT ?3",
-                    )
-                    .and_then(|mut s| {
-                        s.query_map(params![kh, fresh, COLLECT_PAGE as i64], |r| {
-                            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-                        })?
-                        .collect()
-                    })
-                    .map_err(store_err)?;
-                let (mut sold, mut returned) = (String::new(), String::new());
-                for (id, c, p, state) in rows {
-                    if state == "sold" {
+                        )
+                        .and_then(|mut s| {
+                            s.query_map(params![kh, fresh, COLLECT_PAGE as i64], |r| {
+                                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                            })?
+                            .collect()
+                        })
+                        .map_err(store_err)?;
+                    let (mut sold, mut returned) = (String::new(), String::new());
+                    for (id, c, p, state) in rows {
+                        if state == "sold" {
+                            tx.execute(
+                                "UPDATE ledger SET state = 'paid' WHERE id = ?1",
+                                params![id],
+                            )
+                            .map_err(store_err)?;
+                            sold.push_str(&format!(" {id}:{c}:{p}"));
+                        } else {
+                            tx.execute("DELETE FROM ledger WHERE id = ?1", params![id])
+                                .map_err(store_err)?;
+                            returned.push_str(&format!(" {id}:{c}"));
+                        }
+                    }
+                    if !joined {
+                        // after LEAVE a paid sale's row goes at once (PLAN.md 3.4 privacy)
                         tx.execute(
-                            "UPDATE ledger SET state = 'paid' WHERE id = ?1",
-                            params![id],
+                            "DELETE FROM ledger WHERE key_hash = ?1 AND state = 'paid'",
+                            params![kh],
                         )
                         .map_err(store_err)?;
-                        sold.push_str(&format!(" {id}:{c}:{p}"));
-                    } else {
-                        tx.execute("DELETE FROM ledger WHERE id = ?1", params![id])
-                            .map_err(store_err)?;
-                        returned.push_str(&format!(" {id}:{c}"));
                     }
+                    let mut said = "collected".to_owned();
+                    for (word, rows) in [(" sold", sold), (" returned", returned)] {
+                        if !rows.is_empty() {
+                            said.push_str(word);
+                            said.push_str(&rows);
+                        }
+                    }
+                    said
                 }
-                if !joined {
-                    // after LEAVE a paid sale's row goes at once (PLAN.md 3.4 privacy)
+                Verb::Reset => {
+                    // the listings close and the waiting proceeds go with the log; the day's stock slots stay sold
                     tx.execute(
-                        "DELETE FROM ledger WHERE key_hash = ?1 AND state = 'paid'",
-                        params![kh],
+                        "UPDATE keys SET log = NULL, last_at = ?2 WHERE key_hash = ?1",
+                        params![kh, at],
                     )
                     .map_err(store_err)?;
-                }
-                let mut said = "collected".to_owned();
-                for (word, rows) in [(" sold", sold), (" returned", returned)] {
-                    if !rows.is_empty() {
-                        said.push_str(word);
-                        said.push_str(&rows);
+                    for sql in [
+                        "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'sold', 'paid', 'bought')",
+                        "UPDATE ledger SET state = 'stock_reset' WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
+                    ] {
+                        tx.execute(sql, params![kh]).map_err(store_err)?;
                     }
+                    "reset".into()
                 }
-                said
-            }
-            Verb::Reset => {
-                // the listings close and the waiting proceeds go with the log; the day's stock slots stay sold
-                tx.execute(
-                    "UPDATE keys SET log = NULL, last_at = ?2 WHERE key_hash = ?1",
-                    params![kh, at],
-                )
-                .map_err(store_err)?;
-                for sql in [
-                    "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'sold', 'paid', 'bought')",
-                    "UPDATE ledger SET state = 'stock_reset' WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
-                ] {
-                    tx.execute(sql, params![kh]).map_err(store_err)?;
-                }
-                "reset".into()
-            }
-            Verb::Leave => {
-                tx.execute(
+                Verb::Leave => {
+                    tx.execute(
                     "UPDATE keys SET log = NULL, last_at = ?2, left_at = ?3 WHERE key_hash = ?1",
                     params![kh, at, now as i64],
                 )
                 .map_err(store_err)?;
-                // the open listings come back now (the Launcher writes their `unlist` lines); a sale waiting for
-                // COLLECT keeps its row, and the key's, until it is paid
-                let returned: Vec<u32> = tx
+                    // the open listings come back now (the Launcher writes their `unlist` lines); a sale waiting for
+                    // COLLECT keeps its row, and the key's, until it is paid
+                    let returned: Vec<u32> = tx
                     .prepare("SELECT card FROM ledger WHERE key_hash = ?1 AND state = 'open' ORDER BY id")
                     .and_then(|mut s| s.query_map(params![kh], |r| r.get(0))?.collect())
                     .map_err(store_err)?;
-                tx.execute(
-                    "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'paid')",
-                    params![kh],
-                )
-                .map_err(store_err)?;
-                let waiting: i64 = tx
-                    .query_row(
-                        "SELECT COUNT(*) FROM ledger WHERE key_hash = ?1 AND state = 'sold'",
+                    tx.execute(
+                        "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'paid')",
                         params![kh],
-                        |r| r.get(0),
                     )
                     .map_err(store_err)?;
-                let mut said = "left".to_owned();
-                if !returned.is_empty() {
-                    said.push_str(" returned");
-                    for c in returned {
-                        said.push_str(&format!(" {c}"));
+                    let waiting: i64 = tx
+                        .query_row(
+                            "SELECT COUNT(*) FROM ledger WHERE key_hash = ?1 AND state = 'sold'",
+                            params![kh],
+                            |r| r.get(0),
+                        )
+                        .map_err(store_err)?;
+                    let mut said = "left".to_owned();
+                    if !returned.is_empty() {
+                        said.push_str(" returned");
+                        for c in returned {
+                            said.push_str(&format!(" {c}"));
+                        }
                     }
+                    if waiting > 0 {
+                        said.push_str(&format!(" waiting {waiting}"));
+                    }
+                    said
                 }
-                if waiting > 0 {
-                    said.push_str(&format!(" waiting {waiting}"));
-                }
-                said
+            };
+            Ok(answer)
+        };
+        let answer = match run(&mut fork) {
+            Ok(answer) => answer,
+            Err(why) => {
+                // the request's changes roll back, but the key's last time moves to it: those bytes, captured, cannot be
+                // sent again later (a BUY refused now could go through then), and a fork is counted
+                drop(tx);
+                db.execute(
+                    "UPDATE keys SET last_at = ?2, asked = NULL, answer = NULL, forks = forks + ?3 WHERE key_hash = ?1",
+                    params![kh, at, i64::from(fork)],
+                )
+                .map_err(store_err)?;
+                return Err(why);
             }
         };
         tx.execute(
@@ -3799,5 +3817,27 @@ mod tests {
             ),
             [[s("0")]]
         );
+    }
+
+    /// #375: a BUY refused because its listing is not there yet, sent again byte for byte once the listing is up, is
+    /// old: the refusal moved the key's last time.
+    #[test]
+    fn a_refused_request_sent_again_is_old() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20]);
+        ask(&m, 2, Verb::Join, NOW, &[], &buyer).unwrap();
+        let early = ask(&m, 2, Verb::Buy, NOW + 1, &[1, 57, 228], &buyer);
+        assert_eq!(early, Err(GONE.into()));
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW + 2, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 3, &[57, 228], &seller).unwrap();
+        let mut again = req(Verb::Buy, NOW + 1, &buyer);
+        (again.key, again.args) = ([2; 32], vec![1, 57, 228]);
+        assert_eq!(
+            m.handle(&again, NOW + 4),
+            Err(format!("{OLD}, the last at {}", NOW + 1))
+        );
+        assert_eq!(row(dir.path(), "SELECT state FROM ledger"), [[s("open")]]);
     }
 }
