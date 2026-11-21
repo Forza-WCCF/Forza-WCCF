@@ -115,6 +115,15 @@ const SHOP_GOODS: [(u32, usize, &[u32]); 4] = [
     ),
     (5, 2, &[38, 39, 40, 54, 55, 56, 90, 140, 141, 142, 143, 144]),
 ];
+// The entries a day fill exactly the list's ten 16-byte slots (160 bytes).
+const _: () = {
+    let (mut i, mut n) = (0, 0);
+    while i < SHOP_GOODS.len() {
+        n += SHOP_GOODS[i].1;
+        i += 1;
+    }
+    assert!(n == 10, "SHOP_GOODS must yield exactly 10 entries a day");
+};
 /// GAME_CTRL +22,896 as a 238 payload offset.
 const SHOP_SALE_AT: usize = 16 + 22_896;
 

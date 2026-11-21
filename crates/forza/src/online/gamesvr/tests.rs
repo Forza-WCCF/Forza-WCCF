@@ -1668,6 +1668,7 @@ fn client_offers(e: [u32; 4], date: chrono::NaiveDate, hour: u32) -> bool {
 
 #[test]
 fn the_sale_list_has_ten_for_sale_entries() {
+    let before = now();
     let (body, _) = ask_store(
         &Mutex::new(Store::open(Path::new(":memory:")).unwrap()),
         237,
@@ -1680,6 +1681,16 @@ fn the_sale_list_has_ten_for_sale_entries() {
         })
         .collect();
     assert!(entries.iter().all(|e| for_sale(e[0], e[1])), "{entries:?}");
+    // the start and end dates on the wire are shop_sale's of the request time
+    let sent = |t| shop_sale(t).collect::<Vec<_>>();
+    assert!(
+        entries == sent(before) || entries == sent(now()),
+        "{entries:?}"
+    );
+    assert!(
+        entries.iter().all(|e| e[2] != 0 && e[3] > e[2]),
+        "{entries:?}"
+    );
     let mut kinds: Vec<_> = entries.iter().map(|e| e[0]).collect();
     kinds.dedup();
     assert_eq!(kinds, [1, 3, 4, 5], "no SE");
