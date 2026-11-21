@@ -67,6 +67,8 @@ pub const NOT_SET_UP: &str = "the market is not set up on this server";
 pub const OLD: &str = "an old request (sent twice?)";
 /// The desk's refusal of a word from a key not in the market (the server's words): a LEAVE whose answer was lost.
 pub const NOT_IN: &str = "this installation is not in the market";
+/// The desk's refusal of a verb it does not know: a desk older than the verb (OWED).
+pub const UNKNOWN_WORD: &str = "an unknown market word";
 /// Listings in one `BROWSE` answer at most: about 900 bytes, under [`send`]'s 1 KiB read.
 pub const BROWSE_PAGE: usize = 40;
 /// Rows in one `COLLECT` answer at most, as [`BROWSE_PAGE`].
@@ -237,7 +239,7 @@ impl Request {
         let [verb, size, sig] = words else {
             return Err("say MARKET JOIN|LEAVE|RESET size signature".into());
         };
-        let verb = Verb::parse(verb).ok_or("an unknown market word")?;
+        let verb = Verb::parse(verb).ok_or(UNKNOWN_WORD)?;
         let size = size
             .parse::<usize>()
             .ok()
@@ -959,6 +961,22 @@ impl Client {
         Ok(())
     }
 
+    /// [`Self::owed`]; a desk older than OWED answers [`UNKNOWN_WORD`]: it names nothing, and the visit goes on.
+    fn owed_if_known(&self) -> Result<(), Fail> {
+        match self.owed() {
+            Err(Fail::Refused(why)) if why == UNKNOWN_WORD => Ok(()),
+            said => said,
+        }
+    }
+
+    /// LEAVE after OWED: LEAVE drops the paid sales' rows, so a sale whose `market_sell` line was lost is written first.
+    pub fn leave(&self) -> Result<String, Fail> {
+        if Self::load(&self.data)?.joined {
+            self.owed_if_known()?;
+        }
+        self.ask(Verb::Leave, &[])
+    }
+
     /// Outside the market with nothing left to COLLECT: every listing the log still holds open came back with LEAVE
     /// (the server returns each open listing, and LEAVE's answer naming them was lost), so each gets its `unlist` line.
     fn returned(&self) -> Result<(), Fail> {
@@ -985,7 +1003,7 @@ impl Client {
     ///   (a LEAVE whose answer was lost, an unreadable [`STATE_FILE`]) learns it from `NOT_IN` before any log goes;
     /// - COLLECT while in the market, while a sale waits, or while the log holds open listings;
     /// - outside the market once COLLECT has nothing more, [`Self::returned`];
-    /// - in the market, [`Self::owed`] and then the stock list.
+    /// - in the market, [`Self::owed`] (a desk older than OWED skips it) and then the stock list.
     pub fn visit(&self, browse_pages: usize) -> Result<Visit, Fail> {
         let mut v = Visit::default();
         if Self::load(&self.data)?.joined {
@@ -1008,7 +1026,7 @@ impl Client {
             }
         }
         if s.joined {
-            self.owed()?;
+            self.owed_if_known()?;
             v.stock = Some(self.stock()?);
         }
         Ok(v)
@@ -1504,6 +1522,63 @@ mod tests {
         let f = fold(&c.log.lines().unwrap());
         assert_eq!((f.state.tokens, f.state.copies(12).earned), (10, 1));
         assert_eq!(Client::saved(&data).withheld, 0);
+    }
+
+    /// #375: a desk older than OWED refuses it as an unknown word; the visit goes on, its listings and stock list
+    /// kept, with no refusal to show.
+    #[test]
+    fn a_desk_without_owed_keeps_the_visit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listings 5:13:38".into())),
+            Ok(Ok("collected".into())),
+            Ok(Err(UNKNOWN_WORD.into())),
+            Ok(Ok("stock 1:41:216".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        let v = c.visit(3).unwrap();
+        assert_eq!(sent(), ["JOIN", "BROWSE", "COLLECT", "OWED", "STOCK"]);
+        assert_eq!(v.sale.map(|s| s.len()), Some(1));
+        assert_eq!(v.stock.map(|s| s.rows.len()), Some(1));
+        // LEAVE goes too
+        script([Ok(Err(UNKNOWN_WORD.into())), Ok(Ok("left".into()))]);
+        c.leave().unwrap();
+        assert_eq!(sent(), ["OWED", "LEAVE"]);
+    }
+
+    /// #375 (A1 F6): LEAVE drops the server's paid-sale rows, so OWED goes first and a sale whose line was lost is
+    /// written before them.
+    #[test]
+    fn leave_asks_owed_first() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        c.log
+            .append(crate::collection::Kind::Match, Some(57), 50, "match")
+            .unwrap();
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listed 7:57:40".into())),
+            Ok(Ok("owed sold 7:57:40".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("left".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 40]).unwrap();
+        c.leave().unwrap();
+        assert_eq!(sent(), ["JOIN", "LIST", "OWED", "OWED", "LEAVE"]);
+        let text = c.log.lines().unwrap();
+        assert!(listed(&text).is_empty(), "the sale is written");
+        assert_eq!(crate::collection::fold(&text).state.tokens, 90);
+        assert!(!Client::saved(&data).joined);
+        // outside the market LEAVE asks nothing more first
+        script([Ok(Err(NOT_IN.into()))]);
+        assert!(c.leave().is_err());
+        assert_eq!(sent(), ["LEAVE"]);
     }
 
     /// #375: LEAVE's answer is lost with 2 listings open, one of them sold meanwhile. The next visit learns from

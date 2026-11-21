@@ -101,7 +101,7 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
         let n = |x: u32| u64::from(x);
         match action {
             CollectionAction::MarketJoin => c.ask(Verb::Join, &[]).map(drop)?,
-            CollectionAction::MarketLeave => return c.ask(Verb::Leave, &[]).map(drop),
+            CollectionAction::MarketLeave => return c.leave().map(drop),
             CollectionAction::StockBuy(slot, card, price) => {
                 c.ask(Verb::StockBuy, &[slot, n(card), n(price)]).map(drop)?;
             }
