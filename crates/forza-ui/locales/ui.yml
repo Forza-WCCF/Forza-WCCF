@@ -582,7 +582,7 @@ club.row_saved: {en: "CARD SAVED", it: "CARTA SALVATA", ja: "カード保存"}
 # ---- the card deal after a match ----
 deal.title: {en: "NEW PLAYER CARD", it: "NUOVA CARTA GIOCATORE", ja: "新しい選手カード"}
 deal.title_rare: {en: "NEW PLAYER CARD: RARE!", it: "NUOVA CARTA GIOCATORE: RARA!", ja: "新しい選手カード：レア！"}
-deal.foot: {en: "Click the card to close it.", it: "Clicca sulla carta per chiuderla.", ja: "カードをクリックで閉じる。"}
+deal.foot: {en: "Click to close.", it: "Clicca per chiudere.", ja: "クリックで閉じる。"}
 
 # ---- closing the window during a card session ----
 close.title: {en: "MATCH IN PROGRESS", it: "PARTITA IN CORSO", ja: "試合中"}
