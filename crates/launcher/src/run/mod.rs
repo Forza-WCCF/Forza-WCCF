@@ -2119,7 +2119,7 @@ impl Run<'_> {
                 env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
             }
             // HOST ARCADE: the host's notice for its tunnel guests (#328), written to its own file here; HOST LAN ARCADE
-            // has no box: its desk serves the panel's copy of the project's notice, never written here (desk_notice_file)
+            // has no box: its desk serves this PC's copy of the project's notice, never written here (desk_notice_file)
             let file = desk_notice_file(&self.kit.data(), lan_only);
             let written = if lan_only {
                 Ok(true)
@@ -3432,10 +3432,14 @@ impl Drop for Run<'_> {
 }
 
 /// The notice file the host's desk serves (`WCCF_NOTICE`): HOST ARCADE's own (`host_notice.json`,
-/// [`crate::notice::write_host_notice`]); HOST LAN ARCADE's is the panel's copy of the project server's notice
-/// (`notice.json`, `crate::notice::Notices`), so its LAN guests keep that notice (#419), as an older host's desk served.
+/// [`crate::notice::write_host_notice`]); HOST LAN ARCADE's is this PC's copy of the notice as heard, never under the
+/// "Arcade notice:" prefix ([`crate::notice::LAN_FILE`]), so its LAN guests keep the project's notice (#419).
 fn desk_notice_file(data: &Path, lan_only: bool) -> PathBuf {
-    data.join(if lan_only { "notice.json" } else { "host_notice.json" })
+    data.join(if lan_only {
+        crate::notice::LAN_FILE
+    } else {
+        "host_notice.json"
+    })
 }
 
 #[cfg(test)]
@@ -3468,12 +3472,12 @@ mod tests {
         );
     }
 
-    /// HOST LAN ARCADE's desk serves the panel's copy of the project server's notice to released LAN guests (#419);
+    /// HOST LAN ARCADE's desk serves its copy of the project server's notice, unprefixed, to released LAN guests (#419);
     /// HOST ARCADE's serves the host's own notice.
     #[test]
     fn a_lan_arcades_desk_serves_the_projects_notice() {
         let data = Path::new("data");
-        assert_eq!(super::desk_notice_file(data, true), data.join("notice.json"));
+        assert_eq!(super::desk_notice_file(data, true), data.join("lan_notice.json"));
         assert_eq!(super::desk_notice_file(data, false), data.join("host_notice.json"));
     }
 
