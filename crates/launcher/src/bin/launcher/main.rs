@@ -1342,6 +1342,7 @@ impl App {
                     self.st.lobby.arcade_notice = notice;
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
+                    self.online.hosting();
                     start(vec![Step::Host(false)]);
                 }
             }
@@ -1360,6 +1361,7 @@ impl App {
                     self.st.lobby.host_lan = Some(ips);
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
+                    self.online.hosting();
                     start(vec![Step::Host(true)]);
                 }
             }

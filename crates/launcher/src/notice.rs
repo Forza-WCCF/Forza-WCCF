@@ -70,14 +70,16 @@ fn remove(file: &Path) -> std::io::Result<()> {
 /// LAN arcade, a listed server's seat), its notice under the "Arcade notice:" prefix; with none there, the project
 /// server is asked in the same round and its notice kept. A notice without a host's id (`h<unix>`,
 /// [`write_host_notice`]) that equals the project server's is that one, unprefixed: an older host's desk serves its
-/// Launcher's copy of the project's notice. `None` when an ask failed: the last notice stays.
+/// Launcher's copy of the project's notice. With the project server out of reach (a LAN arcade with no internet) that
+/// copy cannot be told from the desk's own, so it shows prefixed rather than not at all (#419). `None` when an ask
+/// the answer needs failed: the last notice stays.
 fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Option<Lobby> {
     let mut l = get(asked)?;
     if !same_server(asked, project) {
         l.notice = match l.notice.take().and_then(ServerNotice::clean) {
             Some(n) if host_id(&n.id) => arcade_notice(&n),
             Some(n) => {
-                let ours = get(project)?.notice.and_then(ServerNotice::clean);
+                let ours = get(project).and_then(|l| l.notice).and_then(ServerNotice::clean);
                 if ours.as_ref() == Some(&n) {
                     ours
                 } else {
@@ -496,6 +498,24 @@ mod tests {
         asks.set(0);
         round("127.0.0.1:20041", "lobby.wccf.it:20030", get).unwrap();
         assert_eq!(asks.get(), 2, "another server: the desk and the project server");
+    }
+
+    /// A LAN arcade with no internet (#419): the desk's copy of the project's notice still shows, under the prefix
+    /// (it cannot be checked); a desk with none keeps the last notice.
+    #[test]
+    fn a_desks_notice_shows_when_the_project_server_is_out_of_reach() {
+        let desk = "192.168.1.20";
+        let copy = ServerNotice {
+            id: "n1".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        };
+        let l = round(desk, "lobby.wccf.it:20032", |s| {
+            (s == desk).then(|| answer(Some(copy.clone())))
+        })
+        .unwrap();
+        assert_eq!(l.notice.unwrap().en, "Arcade notice: Server update at 23:00");
+        assert!(round(desk, "lobby.wccf.it:20032", |s| (s == desk).then(|| answer(None))).is_none());
     }
 
     /// A desk with no notice: the project server's is kept cleaned like the other arms of [`round`] (#419).
