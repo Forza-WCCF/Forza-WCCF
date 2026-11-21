@@ -50,8 +50,7 @@ Release 1 (1.0.0) waits on the live gates in #314.
 ## Next
 
 1. **Release 1 gates** (#314): the B7 live gates, the release gates and a play test.
-2. **Stand-in leftovers (2017–18)** (#316): rankings, today's play count, QR deletions, usage ratios, the item shop's
-   sale list, SE purchases.
+2. **Stand-in leftovers (2017–18)** (#316): rankings and points, SE purchases.
 3. **"My cards" collection mode:** Create-a-Team (PRs #233–#236).
 4. **Translations** (#317): countries, prefectures and leagues; the catalogue showing Italian club names.
 
