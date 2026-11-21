@@ -13,9 +13,10 @@
 //! Trust first (PLAN.md 3.4): the check refuses a log that cannot come from an honest Launcher and says why in one
 //! line; nothing is banned. The server keeps the last accepted log per key, so a log that drops accepted lines is a
 //! fork; `MARKET RESET` (a profile reset) is the one allowed restart. A log belongs to the key that sent it first (by
-//! its first line) while that key's row lasts, so one log under many keys cannot pick the best stock list. No name is asked or stored. LEAVE deletes the log
-//! at once (overwritten in the file, not only unlinked), returns the open listings and keeps the key's hash with its
-//! counters for 7 days, longer while a sale waits for COLLECT.
+//! its first line) while that key asks within 7 days, so the same file under fresh keys cannot pick the best stock
+//! list; the client writes that line, so a log rewritten from its first line is a new log. No name is asked or stored.
+//! LEAVE deletes the log at once (overwritten in the file, not only unlinked), returns the open listings and keeps the
+//! key's hash with its counters for 7 days, longer while a sale waits for COLLECT.
 //!
 //! The own stock list (PLAN.md 3.5): per key and server day (04:00 to 04:00 UTC, the server's clock), drawn from the
 //! store's secret, the key and the day, plain random within each tier group of the whole table at a share of each
@@ -824,8 +825,9 @@ CREATE TABLE IF NOT EXISTS stock (
     sold     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (key_hash, day, slot)
 );
--- each accepted log's first line (its SHA-256) and the key that sent it: a log belongs to one key, so a log copied
--- under fresh keys cannot pick the best of their stock lists. A row goes with its key's row
+-- each accepted log's first line (its SHA-256) and the key that sent it: a log copied as-is under fresh keys cannot
+-- pick the best of their stock lists (a rewritten first line is not caught). Another key takes the log once this key
+-- asked nothing for 7 days; a row goes with its key's row
 CREATE TABLE IF NOT EXISTS roots (
     root     TEXT PRIMARY KEY,
     key_hash TEXT NOT NULL
@@ -1104,19 +1106,24 @@ impl Market {
                 }
                 if let Some(first) = lines.first() {
                     let root = collection::hash(first);
-                    let owner: Option<String> = tx
+                    // the claim lasts while its key asked within 7 days: a log whose key was lost (a profile moved
+                    // without `data\market.key`) moves to the new key then, instead of being locked out for good
+                    let held: bool = tx
                         .query_row(
-                            "SELECT key_hash FROM roots WHERE root = ?1",
-                            params![root],
+                            "SELECT EXISTS (SELECT 1 FROM roots r JOIN keys k ON k.key_hash = r.key_hash
+                             WHERE r.root = ?1 AND r.key_hash <> ?2 AND k.last_at > ?3)",
+                            params![root, kh, now.saturating_sub(KEEP_LEFT_MS) as i64],
                             |r| r.get(0),
                         )
-                        .optional()
                         .map_err(store_err)?;
-                    if owner.is_some_and(|o| o != kh) {
+                    if held {
                         return Err(ANOTHER_KEY.into());
                     }
+                    // shortcut: a moved log leaves the old key's purchases its lines lack behind (spent once more),
+                    // at most once per 7 idle days; carry them over if that is ever seen
                     tx.execute(
-                        "INSERT OR IGNORE INTO roots (root, key_hash) VALUES (?1, ?2)",
+                        "INSERT INTO roots (root, key_hash) VALUES (?1, ?2)
+                         ON CONFLICT (root) DO UPDATE SET key_hash = ?2",
                         params![root, kh],
                     )
                     .map_err(store_err)?;
@@ -3912,6 +3919,27 @@ mod tests {
         let gone = NOW + 7 + KEEP_LEFT_MS;
         ask(&m, 3, Verb::Join, gone, &[], &log).unwrap();
         assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM roots"), [[s("2")]]);
+    }
+
+    /// #375: a log whose key went quiet (lost with `data\market.key`, so never a LEAVE) moves to a new key once the old
+    /// key asked nothing for 7 days; until then it stays refused, and after it the old key is the one refused.
+    #[test]
+    fn a_log_moves_from_a_key_quiet_for_7_days() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let log = earned(&[20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let quiet = NOW + KEEP_LEFT_MS;
+        assert_eq!(
+            ask(&m, 2, Verb::Join, quiet - 1, &[], &log).unwrap_err(),
+            ANOTHER_KEY
+        );
+        ask(&m, 2, Verb::Join, quiet, &[], &log).unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::Join, quiet + 1, &[], &log).unwrap_err(),
+            ANOTHER_KEY
+        );
+        assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM roots"), [[s("1")]]);
     }
 
     /// #375 (advisor 3.3 m4): two stores on one `market.db`, so no lock of this process between them, race one key's
