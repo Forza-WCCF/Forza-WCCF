@@ -186,13 +186,17 @@ impl Card {
     fn load(path: Option<&Path>) -> io::Result<Self> {
         let mut from_file = None;
         if let Some(p) = path {
-            match std::fs::read_to_string(p) {
-                Ok(s) if is_code(s.trim()) => from_file = Some(s.trim().to_string()),
-                // not a card code: kept aside, never written over
-                Ok(_) => {
-                    let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
-                    std::fs::copy(p, &bad).map_err(|e| at(p, e))?;
-                }
+            // bytes, not text: a file saved as "Unicode" (UTF-16) or holding binary garbage is "not a card
+            // code" like any other, never a start failure
+            match std::fs::read(p) {
+                Ok(b) => match std::str::from_utf8(&b).map(str::trim) {
+                    Ok(s) if is_code(s) => from_file = Some(s.to_string()),
+                    // not a card code: kept aside, never written over
+                    _ => {
+                        let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
+                        std::fs::copy(p, &bad).map_err(|e| at(p, e))?;
+                    }
+                },
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(at(p, e)),
             }
@@ -451,6 +455,30 @@ mod tests {
             std::fs::read_to_string(dir.path().join(&bad[0])).unwrap(),
             "not a card\n",
             "the bad content is kept as it was"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file that is not UTF-8 (saved as "Unicode", or binary garbage after a bad write) is not a card code:
+    /// it is kept aside and a new code is made, so the reader still starts.
+    #[test]
+    fn a_card_file_that_is_not_utf8_is_kept_aside_not_a_start_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let junk = [0xFF, 0xFE, b'5', 0x00, b'1', 0x00, 0xC3, 0x28];
+        std::fs::write(&path, junk).unwrap();
+        let c = Card::load(Some(&path)).expect("not a card code, not a start failure");
+        assert!(is_code(&c.code), "a code is on the reader: {}", c.code);
+        let bad: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.to_string_lossy().ends_with(".bad"))
+            .collect();
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(
+            std::fs::read(&bad[0]).unwrap(),
+            junk,
+            "the bytes are kept as they were"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
     }
