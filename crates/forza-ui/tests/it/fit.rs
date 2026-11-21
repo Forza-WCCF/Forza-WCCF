@@ -42,6 +42,27 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) 
                 }
             }
         }
+        // the lobby where the app shows it, in the ONLINE tab between the title bar and the footer: what it must fit
+        // is the tab, not the window
+        for s in lobby::Scenario::ALL {
+            for ed in [Edition::E1011, Edition::E1718] {
+                let mut st = launcher::LauncherState::sample(ed, lang, Online);
+                let mut v = lobby::LobbyView::sample(s);
+                v.grey = st.lobby.grey;
+                v.kind = st.lobby.kind;
+                v.codes = st.lobby.codes;
+                v.arcades_view_only = st.lobby.arcades_view_only;
+                v.vs_hidden = st.lobby.vs_hidden;
+                st.lobby = v;
+                for size in [launcher::SIZE, launcher::window_size(Some(700.0))] {
+                    let mut show = |ui: &mut Ui| {
+                        launcher::show(ui, &mut st);
+                    };
+                    let name = format!("launcher Online {ed:?} {l} lobby {}", s.tag());
+                    check(&name, size, ed, &mut show);
+                }
+            }
+        }
         for page in installer::Page::ALL {
             let mut st = installer::InstallerState::sample(lang, page);
             for size in [installer::SIZE, Vec2::new(installer::SIZE.x, 520.0)] {
@@ -210,57 +231,113 @@ fn no_two_clickables_overlap() {
     );
 }
 
-/// UI audit invariant 2 (#306): every clickable a click reaches lies whole inside the window, or the scroll area it
-/// sits in brings it there, so none is cut at the window's edge for good.
+/// UI audit invariant 2 (#306): every clickable lies whole inside the window and inside what clips it (its tab, the
+/// scroll viewport it sits in), or the scroll area it sits in brings it there, so none is cut at an edge for good. A
+/// widget wholly out of sight is in the check too: egui gives it an empty interact rect.
 #[test]
 fn every_clickable_inside_the_window() {
     let mut out = vec![];
+    let mut thin = vec![];
     screens(|name, size, ed, show| {
         let mut h = harness(size, 1.0, ed, show);
         h.run_steps(8);
         let win = h.ctx.content_rect().expand(0.5);
+        // the widget's whole rect, and the part its clip leaves a click (egui: `clip_rect ∩ rect`)
         let rects = |h: &egui_kittest::Harness<'_>, id: u64| {
             // SAFETY: as in `overlaps_of`, the id egui stored for this very widget; the lookup only reads rects
             let id = unsafe { egui::Id::from_high_entropy_bits(id) };
-            h.ctx.read_response(id).map(|r| (r.rect, r.interact_rect))
+            h.ctx
+                .read_response(id)
+                .map(|r| (r.rect, r.interact_rect, r.layer_id))
         };
-        let mut cut = vec![];
+        // cut by the window or by its clip; half a point of egui's rounding either way is no cut
+        let cut_at = |(r, seen, _): (egui::Rect, egui::Rect, egui::LayerId)| {
+            !win.contains_rect(r) || !seen.expand(0.5).contains_rect(r)
+        };
+        let (mut seen_n, mut cut) = (0, vec![]);
         for n in h.root().children_recursive() {
             let a = n.accesskit_node();
             if a.is_hidden() || a.is_disabled() || !clickable(a.role()) {
                 continue;
             }
             let id = a.locate().0.0;
-            if let Some((r, seen)) = rects(&h, id)
-                && seen.width() > 1.0
-                && seen.height() > 1.0
-                && on_page(&h.ctx, seen)
-                && !win.contains_rect(r)
-            {
+            let Some(got @ (r, seen, layer)) = rects(&h, id) else {
+                continue;
+            };
+            // of no size, or covered by a dialog (its own buttons are on top, in the check)
+            let shown = seen.width() > 1.0 && seen.height() > 1.0;
+            let on_top = !shown || h.ctx.layer_id_at(seen.center()) == Some(layer);
+            if r.width() <= 1.0 || r.height() <= 1.0 || !on_top {
+                continue;
+            }
+            seen_n += 1;
+            if cut_at(got) {
                 cut.push((
                     id,
                     format!("{name} {size:?}: {:?} {:?} {r:?}", a.role(), a.label()),
                 ));
             }
         }
+        // a screen with no clickable read is a lookup that stopped resolving, not a pass
+        if seen_n == 0 {
+            thin.push(format!("{name} {size:?}"));
+        }
         for (id, line) in cut {
-            // under a scroll area, asking for the widget scrolls it into view
-            if let Some(n) = h
-                .root()
-                .children_recursive()
-                .find(|n| n.accesskit_node().locate().0.0 == id)
+            let scroll_to = |h: &mut egui_kittest::Harness<'_>| {
+                if let Some(n) = h
+                    .root()
+                    .children_recursive()
+                    .find(|n| n.accesskit_node().locate().0.0 == id)
+                {
+                    n.scroll_to_me();
+                }
+                h.run_steps(8);
+            };
+            // under a scroll area, asking for the widget scrolls it into view. egui gives that to the innermost area
+            // only, so a viewport that is itself past the edge (the folds' inside the lobby's own) then takes the
+            // wheel a player turns over it, which chains to the area around it once the inner one is at its end
+            scroll_to(&mut h);
+            if let Some(got @ (r, _, _)) = rects(&h, id)
+                && cut_at(got)
             {
-                n.scroll_to_me();
+                let at = egui::pos2(
+                    r.center().x.clamp(win.left() + 2.0, win.right() - 2.0),
+                    r.center().y.clamp(win.top() + 2.0, win.bottom() - 2.0),
+                );
+                let dy = if r.center().y > win.center().y {
+                    -60.0
+                } else {
+                    60.0
+                };
+                for _ in 0..20 {
+                    h.event(egui::Event::PointerMoved(at));
+                    h.event(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(0.0, dy),
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(4);
+                }
+                scroll_to(&mut h);
             }
-            h.run_steps(8);
-            if rects(&h, id).is_none_or(|(r, _)| !win.contains_rect(r)) {
-                out.push(line);
+            if rects(&h, id).is_none_or(cut_at) {
+                out.push(format!(
+                    "{line}, at best {:?}",
+                    rects(&h, id).map(|g| (g.0, g.1))
+                ));
             }
         }
     });
     assert!(
+        thin.is_empty(),
+        "screens with no clickable examined:\n{}",
+        thin.join("\n")
+    );
+    assert!(
         out.is_empty(),
-        "clickables past the window's edge:\n{}",
+        "clickables past the window's or their tab's edge:\n{}",
         out.join("\n")
     );
 }
