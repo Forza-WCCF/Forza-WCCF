@@ -144,11 +144,12 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
 /// Makes the card file at `path` as the reader would at its start, if there is none yet (an online run carries the
 /// card's club before the reader starts).
 pub fn ensure_card(path: &Path) {
-    // a card file that cannot be made here is made by the reader when it starts; the caller already copes with
-    // a missing card, so this is reported and not fatal
+    // reported, not fatal here: the caller copes with a missing card, and the reader's start fails the same way
+    // when the file still cannot be read
     match Card::load(Some(path)) {
         Ok(c) => c.notes().iter().for_each(|note| eprintln!("{note}")),
-        Err(e) => eprintln!("aime card file {}: {e}", path.display()),
+        // the error already names the card file it belongs to
+        Err(e) => eprintln!("aime card: {e}"),
     }
 }
 
