@@ -681,16 +681,22 @@ impl Online {
             LobbyAction::JoinCode(code) => self.join_code(st, &code),
             // HOST ARCADE and the LAN fold are jobs of the window's (main.rs); CONNECT arrives as Action::Play
             LobbyAction::HostArcade | LobbyAction::HostLan | LobbyAction::JoinLan(_) | LobbyAction::Connect => {}
-            LobbyAction::DirectAddress(a) => {
-                let a = a.trim().to_owned();
-                if !launcher::lobby::valid_server(&a) {
-                    refuse(t("launcher.msg_bad_address"));
-                } else if launcher::lobby::add_server(&mut self.servers, a, true) {
-                    let _ = choices::set_setting_json(settings, "servers", json!(self.servers));
-                    self.book = Book::new(&self.servers);
-                    self.poller = None; // restarted on the next look with the new list
-                }
-            }
+            LobbyAction::DirectAddress(a) => self.direct_address(&a, settings),
+        }
+    }
+
+    /// DIRECT ADDRESS: `a` first in the list and the saved `servers`; a server listed already (any spelling) says
+    /// under which (#419).
+    fn direct_address(&mut self, a: &str, settings: &Path) {
+        let a = a.trim().to_owned();
+        if !launcher::lobby::valid_server(&a) {
+            refuse(t("launcher.msg_bad_address"));
+        } else if let Some(s) = launcher::lobby::listed(&self.servers, &a) {
+            refuse(tf("launcher.msg_address_listed", &[("server", s)]));
+        } else if launcher::lobby::add_server(&mut self.servers, a, true) {
+            let _ = choices::set_setting_json(settings, "servers", json!(self.servers));
+            self.book = Book::new(&self.servers);
+            self.poller = None; // restarted on the next look with the new list
         }
     }
 
@@ -716,6 +722,28 @@ mod tests {
         assert_eq!(o.notice_desk(false), None, "no run: the project server");
         o.hosting();
         assert_eq!(o.notice_desk(true), None, "the host's own run: the project server");
+    }
+
+    /// DIRECT ADDRESS with a server listed under another spelling (#419): nothing added, and the status line names
+    /// the listed entry.
+    #[test]
+    fn a_direct_address_listed_already_says_under_which() {
+        let dir = std::env::temp_dir().join(format!("forza_direct_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings = dir.join("settings.json");
+        let mut o = Online::default();
+        o.servers.push("lobby.wccf.it:20032".into());
+        o.direct_address(" LOBBY.wccf.it:20032 ", &settings);
+        assert_eq!(o.servers, ["lobby.wccf.it:20032"]);
+        let said = super::super::shared().status.clone().map(|(_, s)| s);
+        assert_eq!(
+            said,
+            Some(tf("launcher.msg_address_listed", &[("server", "lobby.wccf.it:20032")]))
+        );
+        assert!(said.unwrap().contains("lobby.wccf.it:20032"));
+        o.direct_address("10.0.0.5", &settings);
+        assert_eq!(o.servers, ["10.0.0.5", "lobby.wccf.it:20032"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY

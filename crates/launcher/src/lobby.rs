@@ -134,10 +134,17 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
     list
 }
 
+/// The entry of `list` that names `server`, in any spelling ([`crate::notice::same_server`]).
+pub fn listed<'a>(list: &'a [String], server: &str) -> Option<&'a str> {
+    list.iter()
+        .map(String::as_str)
+        .find(|s| crate::notice::same_server(s, server))
+}
+
 /// `server` into `list`, first or last, unless `list` names it already (any spelling,
 /// [`crate::notice::same_server`]). True when it went in.
 pub fn add_server(list: &mut Vec<String>, server: String, first: bool) -> bool {
-    if list.iter().any(|s| crate::notice::same_server(s, &server)) {
+    if listed(list, &server).is_some() {
         return false;
     }
     list.insert(if first { 0 } else { list.len() }, server);

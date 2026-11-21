@@ -70,6 +70,7 @@ launcher.msg_restarting: {en: "Restarting…", it: "Riavvio…", ja: "再起動�
 launcher.msg_stopping: {en: "Stopping the game…", it: "Arresto del gioco…", ja: "ゲームを終了しています…"}
 launcher.msg_running: {en: "Game running.", it: "Gioco in esecuzione.", ja: "ゲーム実行中。"}
 launcher.msg_bad_address: {en: "Invalid address. Example: 192.168.1.20.", it: "Indirizzo non valido. Esempio: 192.168.1.20.", ja: "アドレスが正しくありません。例：192.168.1.20"}
+launcher.msg_address_listed: {en: "This server is already listed as %{server}.", it: "Questo server è già nell'elenco come %{server}.", ja: "このサーバーは %{server} としてすでに一覧にあります。"}
 launcher.msg_start_failed: {en: "Could not start. See DETAILS.", it: "Avvio non riuscito. Vedi DETTAGLI.", ja: "起動できませんでした。「詳細」を確認してください。"}
 launcher.msg_browse_title: {en: "Pick the game folder", it: "Scegli la cartella del gioco", ja: "ゲームフォルダーを選択"}
 launcher.msg_undo_confirm: {en: "Undo the setup? The original game programs come back, and your club card and saves are kept.", it: "Annullare la configurazione? Tornano i programmi originali del gioco; la carta club e i salvataggi restano.", ja: "設定を元に戻しますか？元のゲームのプログラムに戻ります。クラブカードとセーブデータは残ります。"}
