@@ -45,7 +45,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, ptr};
 
 use crate::helper::{self, Helper, Target, ViewFiles};
@@ -1863,6 +1863,8 @@ impl Run<'_> {
                 Some(id) => {
                     let ports = self.start_arcade_tunnel(vslink::arcade::Role::Join(id))?;
                     self.tunnel_ports = Some(ports);
+                    // the window asks the host's desk for its notice while the run lasts
+                    crate::notice::TUNNEL_DESK.store(ports.desk, Ordering::Relaxed);
                     ("127.0.0.1".to_owned(), ports.desk)
                 }
                 None => choices::resolve(&entry, p.seat_port)
@@ -2115,6 +2117,27 @@ impl Run<'_> {
             // the ARCADES row for this desk's own arcade (a private room is never listed)
             if !name.is_empty() {
                 env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
+            }
+            // the host's notice for its tunnel guests (#328; HOST LAN ARCADE has no box), always in this file: the desk's
+            // default is data\notice.json, the panel's copy of the project server's notice
+            let file = self.kit.data().join("host_notice.json");
+            let text = if lan_only {
+                String::new()
+            } else {
+                choices::setting(&self.kit.settings_file(), "arcade_notice").unwrap_or_default()
+            };
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let written = crate::notice::write_host_notice(&file, &text, now);
+            if let Err(e) = &written {
+                let line = format!("notice: {} not written ({e}), no arcade notice", file.display());
+                crate::logs::append(&self.logs().join("run_launcher.txt"), &line);
+                // a last session's notice must not stay up under its old id
+                let _ = std::fs::remove_file(&file);
+            }
+            // a file still there after a failed write and remove is stale: the desk keeps its default, the project's
+            // notice, which guests show unprefixed (notice::round)
+            if written.is_ok() || !file.exists() {
+                env.push(("WCCF_NOTICE".to_owned(), file.display().to_string()));
             }
         }
         // 2017-18 ships no forza-server.exe (an AV false positive): the kit's Launcher.exe runs it as `server ...`
@@ -3133,6 +3156,9 @@ impl Run<'_> {
         self.club = None;
         self.vslink = None;
         self.lease = None;
+        if self.tunnel_ports.is_some() {
+            crate::notice::TUNNEL_DESK.store(0, Ordering::Relaxed);
+        }
     }
 
     /// The end of the run: everything stopped, the table kept with its club, data\running.json removed, and - when a

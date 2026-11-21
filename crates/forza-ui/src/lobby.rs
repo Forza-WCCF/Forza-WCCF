@@ -436,13 +436,16 @@ pub struct LobbyView {
     /// 2017-18: the name others see on this PC's listed room (data\settings.json `shop_name`, saved at HOST ARCADE);
     /// empty: the desk's [`ARCADE_ROOM_NAME`](forza::online::lobby::ARCADE_ROOM_NAME).
     pub arcade_name: String,
+    /// 2017-18: the notice this PC's arcade shows its guests (data\settings.json `arcade_notice`, saved at HOST ARCADE);
+    /// empty: none.
+    pub arcade_notice: String,
     /// 2017-18: the arcade's Universal Cup (saved at HOST ARCADE, read as the control starts).
     pub cup: CupChoice,
     /// The host dialog's clock (seconds after midnight); `None`: this PC's, read each frame.
     pub clock: Option<u32>,
-    /// The host dialog is open (HOST ARCADE clicked): `list_shop`, `shop_name` and `cup` as they were, put back on
-    /// CANCEL.
-    pub host_ask: Option<(bool, String, CupChoice)>,
+    /// The host dialog is open (HOST ARCADE clicked): `list_shop`, `shop_name`, `arcade_notice` and `cup` as they were,
+    /// put back on CANCEL.
+    pub host_ask: Option<(bool, String, String, CupChoice)>,
     /// The list takes the height left in the caller's `ui` (at least [`LIST_MIN_H`]) instead of [`LIST_H`]: for a
     /// lobby in a fixed-height tab with no scroll of its own around it.
     pub list_fit: bool,
@@ -591,6 +594,7 @@ impl LobbyView {
             host_players: None,
             list_arcade: false,
             arcade_name: String::new(),
+            arcade_notice: String::new(),
             cup: CupChoice::default(),
             clock: None,
             host_ask: None,
@@ -876,7 +880,12 @@ impl LobbyView {
 
     /// HOST ARCADE: open the host dialog.
     fn ask_host(&mut self) {
-        self.host_ask = Some((self.list_arcade, self.arcade_name.clone(), self.cup));
+        self.host_ask = Some((
+            self.list_arcade,
+            self.arcade_name.clone(),
+            self.arcade_notice.clone(),
+            self.cup,
+        ));
     }
 
     fn set_kind(&mut self, k: Kind) {
@@ -1572,8 +1581,8 @@ fn cup_shown(
     started.unwrap_or_else(|| cup.plan(now))
 }
 
-/// The host dialog (HOST ARCADE): "List my arcade", the arcade's name, HOST and CANCEL; CANCEL, Esc or a click outside put
-/// both back as they were.
+/// The host dialog (HOST ARCADE): "List my arcade", the arcade's name and notice, the cup, HOST and CANCEL; CANCEL, Esc or
+/// a click outside put them back as they were.
 fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
     let (mut host, mut cancel) = (false, false);
     let modal = super::widgets::modal(ui.ctx(), egui::Id::unique("lobby-host"), |ui| {
@@ -1610,6 +1619,17 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
             )
             .labelled_by(label.id);
         });
+        ui.horizontal(|ui| {
+            let label = field(ui, &tr!(lang, "lobby.arcade_notice"), 130.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut v.arcade_notice)
+                    .hint_text(tr!(lang, "lobby.arcade_notice_hint"))
+                    .char_limit(forza::online::lobby::HOST_NOTICE_LEN)
+                    .desired_width(ui.available_width())
+                    .margin(vec2(10.0, 6.0)),
+            )
+            .labelled_by(label.id);
+        });
         let now = v.clock.unwrap_or_else(local_clock);
         let refused = cup_rows(ui, &mut v.cup, now, lang, 130.0, false, None);
         ui.add_space(8.0);
@@ -1628,9 +1648,9 @@ fn host_dialog(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<Lobb
         v.host_ask = None;
         *act = Some(LobbyAction::HostArcade);
     } else if (cancel || modal.should_close())
-        && let Some((list, name, cup)) = v.host_ask.take()
+        && let Some((list, name, notice, cup)) = v.host_ask.take()
     {
-        (v.list_arcade, v.arcade_name, v.cup) = (list, name, cup);
+        (v.list_arcade, v.arcade_name, v.arcade_notice, v.cup) = (list, name, notice, cup);
     }
 }
 

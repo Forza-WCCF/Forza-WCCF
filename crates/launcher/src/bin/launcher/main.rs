@@ -851,6 +851,7 @@ impl App {
         // settings keys kept from before the arcade rename: players' settings.json already holds them
         lobby.list_arcade = kit.settings()["list_shop"].as_bool() == Some(true);
         lobby.arcade_name = choices::setting(&settings, "shop_name").unwrap_or_default();
+        lobby.arcade_notice = choices::setting(&settings, "arcade_notice").unwrap_or_default();
         lobby.cup = launcher::conf::cup_choice(&kit.settings());
         let st = LauncherState {
             edition: ed,
@@ -1323,18 +1324,22 @@ impl App {
                         }
                     }
                     // the host dialog's switch (default off) and the listed room's name as typed, as the desk carries it
-                    // (run::open_arcade_room reads both), and the Universal Cup time (run's start_gamesvr)
+                    // (run::open_arcade_room reads both), the guests' notice (run's start_server_side) and the Universal
+                    // Cup time (run's start_gamesvr)
                     let name = forza::online::lobby::arcade_name(&self.st.lobby.arcade_name);
+                    let notice = self.st.lobby.arcade_notice.trim().to_owned();
                     let file = kit.settings_file();
                     // same kept settings keys as at start-up
                     if let Err(e) = choices::set_setting_bool(&file, "list_shop", self.st.lobby.list_arcade)
                         .and_then(|()| choices::set_setting(&file, "shop_name", &name))
+                        .and_then(|()| choices::set_setting(&file, "arcade_notice", &notice))
                         .and_then(|()| launcher::conf::save_cup(&file, self.st.lobby.cup))
                     {
                         refuse(write_failed(&file, &e));
                         return;
                     }
                     self.st.lobby.arcade_name = name;
+                    self.st.lobby.arcade_notice = notice;
                     self.st.lobby.hosting = true;
                     self.st.lobby.notice = None;
                     start(vec![Step::Host(false)]);
