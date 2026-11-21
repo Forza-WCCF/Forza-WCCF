@@ -12,9 +12,7 @@
 //! with a random code the first time); block 2 bytes 6..15 carry it as BCD, as on a real card.
 
 use super::{Handle, Log};
-use std::collections::hash_map::RandomState;
 use std::fs::File;
-use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
@@ -162,9 +160,13 @@ impl Card {
             .map(|s| s.trim().to_string())
             .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()));
         let code = from_file.unwrap_or_else(|| {
-            // ponytail: RandomState is the std source of randomness; fine for a stand-in card number
-            let r = RandomState::new().build_hasher().finish() % 10_000_000_000_000_000_000;
-            let code = format!("5{r:019}");
+            // A stand-in still wants a card number no other kit has: the OS source, as in `card_reader`.
+            let mut r = [0u8; 8];
+            getrandom::fill(&mut r).expect("the OS random source");
+            let code = format!(
+                "5{:019}",
+                u64::from_le_bytes(r) % 10_000_000_000_000_000_000
+            );
             if let Some(p) = path {
                 let _ = std::fs::create_dir_all(p.parent().unwrap_or(Path::new(".")));
                 let tmp = p.with_extension("tmp");
@@ -356,5 +358,21 @@ mod tests {
         assert!(left.is_empty(), "{left:02x?} left over");
         assert_eq!(reqs.len(), 1, "the short frame is skipped");
         assert_eq!((reqs[0].cmd, reqs[0].ok), (0x42, true));
+    }
+
+    /// A card made without a file takes a 20-digit code from the OS source, so two kits' cards differ.
+    #[test]
+    fn a_made_card_gets_its_own_20_digit_code() {
+        let (a, b) = (Card::load(None), Card::load(None));
+        for c in [&a, &b] {
+            assert!(
+                c.code.len() == 20
+                    && c.code.starts_with('5')
+                    && c.code.bytes().all(|d| d.is_ascii_digit()),
+                "{}",
+                c.code
+            );
+        }
+        assert_ne!(a.code, b.code);
     }
 }
