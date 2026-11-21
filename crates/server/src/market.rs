@@ -1077,7 +1077,8 @@ impl Market {
         if !(req.verb == Verb::Join || joined || req.verb == Verb::Collect && row.is_some()) {
             return Err(NOT_IN.into());
         }
-        // a key outside the market cannot spend: its refusal moves nothing, so the 7 days after LEAVE still run out
+        // a key outside the market cannot spend: its refusal moves nothing (a left key's JOIN neither), so the 7 days
+        // after LEAVE still run out
         let mut fork = false;
         let run = |fork: &mut bool| -> Result<String, String> {
             // JOIN, LIST, BUY, STOCK, STOCKBUY and OWED: the log is checked against the table and the key's last log, then kept
@@ -1351,10 +1352,12 @@ impl Market {
             Ok(answer) => answer,
             Err(why) => {
                 // the request's changes roll back, but the key's last time moves to it: those bytes, captured, cannot be
-                // sent again later (a BUY refused now could go through then), and a fork is counted
+                // sent again later (a BUY refused now could go through then), and a fork is counted. Not for a left key
+                // (JOIN and COLLECT only, nothing to spend): its 7 days after LEAVE run out however often it retries
                 drop(tx);
                 db.execute(
-                    "UPDATE keys SET last_at = ?2, asked = NULL, answer = NULL, forks = forks + ?3 WHERE key_hash = ?1",
+                    "UPDATE keys SET last_at = ?2, asked = NULL, answer = NULL, forks = forks + ?3
+                     WHERE key_hash = ?1 AND left_at IS NULL",
                     params![kh, at, i64::from(fork)],
                 )
                 .map_err(store_err)?;
@@ -3940,6 +3943,22 @@ mod tests {
             ANOTHER_KEY
         );
         assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM roots"), [[s("1")]]);
+    }
+
+    /// #375: a left key's refused JOIN moves nothing, so its row still goes 7 days after LEAVE.
+    #[test]
+    fn a_left_keys_refused_join_keeps_its_7_days() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let log = earned(&[20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        ask(&m, 1, Verb::Leave, NOW + 1, &[], "").unwrap();
+        let late = NOW + KEEP_LEFT_MS;
+        // another log, with a welcome of its own: refused, the key paid its welcome before
+        let why = ask(&m, 1, Verb::Join, late, &[], &own(3, &[20])).unwrap_err();
+        assert!(why.starts_with("a second welcome"), "{why}");
+        ask(&m, 2, Verb::Join, late + 2, &[], &own(2, &[20])).unwrap();
+        assert_eq!(row(dir.path(), "SELECT COUNT(*) FROM keys"), [[s("1")]]);
     }
 
     /// #375 (advisor 3.3 m4): two stores on one `market.db`, so no lock of this process between them, race one key's
