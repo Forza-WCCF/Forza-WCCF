@@ -2009,6 +2009,21 @@ fn scratch() -> tempfile::TempDir {
 mod tests {
     use super::*;
 
+    /// Both host starts (HOST ARCADE, HOST LAN ARCADE) clear the desk an earlier run played on right before the run
+    /// starts (#419): without it HOST LAN ARCADE served its guests that desk's notice.
+    #[test]
+    fn each_host_start_clears_the_last_desk() {
+        let code = include_str!("main.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        let lines: Vec<&str> = code.lines().map(str::trim).collect();
+        let starts: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines[i].starts_with("start(vec![Step::Host("))
+            .collect();
+        assert_eq!(starts.len(), 2, "HOST ARCADE and HOST LAN ARCADE");
+        for i in starts {
+            assert_eq!(lines[i - 1], "self.online.hosting();", "before `{}`", lines[i]);
+        }
+    }
+
     /// The title bar and the UPDATE tab show `version(kit)`; the panel's bar shows `Kit::release` (`panel` `Files::status`).
     #[test]
     fn the_version_is_the_panels() {
