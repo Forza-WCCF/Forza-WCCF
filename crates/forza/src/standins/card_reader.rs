@@ -574,7 +574,8 @@ impl Reader {
                 let mut out: Vec<u8> = (0..count)
                     .flat_map(|i| c.blocks[(start + i) & 0xFF])
                     .collect();
-                // ponytail: the reply's length is one byte; the Python dies on 16 blocks or more, 255 bytes are sent here
+                // The reply's length is one byte, so 16 blocks are cut at 255 bytes (the Python raised here and
+                // answered nothing at all).
                 out.truncate(255);
                 (0, out)
             }
@@ -1022,6 +1023,22 @@ mod tests {
             (0, vec![]),
             "the club card still answers"
         );
+    }
+
+    /// A read of 16 blocks stops at the reply's one-byte length: 255 bytes go back, and 15 blocks still fit.
+    #[test]
+    fn a_read_of_16_blocks_is_cut_at_255_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut reader = Reader::new(
+            card_at(&dir.path().join("club.bin")),
+            quiet(),
+            None,
+            os_random(),
+        );
+        let (status, sixteen) = reader.answer(0x52, &[0, 0, 16]);
+        assert_eq!((status, sixteen.len()), (0, 255));
+        let (_, fifteen) = reader.answer(0x52, &[0, 0, 15]);
+        assert_eq!(fifteen.len(), 15 * 16, "one byte's length holds 15 blocks");
     }
 
     /// Backups older than the newest 20 go; other files stay.
