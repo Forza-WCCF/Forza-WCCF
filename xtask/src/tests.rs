@@ -501,21 +501,32 @@ fn the_lock_the_toolchain_and_the_root_manifest_check_everything() {
 }
 
 #[test]
-fn quick_lints_the_changed_crates_and_their_dependents() {
+fn quick_lints_the_whole_workspace_as_the_gate_does() {
     let line = |c: Command| {
         c.get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join(" ")
     };
-    // the scope `quick` hands each target is `target_scopes`' `-p` set of the changed crates, never the workspace
-    let scope = ["-p", "forza", "-p", "launcher"].map(String::from);
-    let args = line(clippy(Path::new("C:/repo"), TARGET, &scope));
+    // the scope `quick` hands each target is the whole workspace, as `check` lints it: a `-p` set of the changed crates
+    // unifies other features, and cargo then built the dependencies again in the `dev` profile that main's CI cache holds
+    // (about 90 s a target, 2026-11-21)
+    let wide = target_scopes(&["--workspace".to_owned()], hook_feature(false));
+    let args: Vec<String> = wide
+        .iter()
+        .map(|(target, scope)| line(clippy(Path::new("C:/repo"), target, scope)))
+        .collect();
     assert!(
-        args.contains("--locked --all-targets --target x86_64-pc-windows-msvc -p forza -p launcher -- -D warnings"),
-        "{args}"
+        args[0].contains("--target x86_64-pc-windows-msvc --workspace --exclude forza-panel"),
+        "{}",
+        args[0]
     );
-    assert!(!args.contains("--workspace"), "{args}");
+    assert!(args[0].ends_with("-- -D warnings"), "{}", args[0]);
+    assert!(
+        args[1].contains("--target i686-pc-windows-msvc -p forza-panel"),
+        "{}",
+        args[1]
+    );
 }
 
 #[test]

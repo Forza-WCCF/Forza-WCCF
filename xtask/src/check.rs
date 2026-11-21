@@ -391,9 +391,10 @@ pub(crate) fn quick(
     }
     let hook = hook_feature(e1011);
     let runs = target_scopes(&scope, hook);
-    // clippy on the changed crates and their dependents. The test build below takes the whole workspace of each target,
-    // as `check` does: a smaller `-p` set unifies other features and rebuilt dependencies main's cache holds (a
-    // launcher-only CI run built its tests in 6 min, the whole workspace's took 4); the changed crates' tests alone run
+    // clippy and the test build below take the whole workspace of each target, as `check` does: a smaller `-p` set
+    // unifies other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in
+    // 6 min, the whole workspace's took 4, and its `dev` clippy rebuilt them twice over, about 90 s a target). Only the
+    // stale crates lint and only the changed crates' tests run either way
     let wide = target_scopes(&["--workspace".to_owned()], hook);
     let wide = |t: &str| -> Result<Vec<String>> {
         wide.iter()
@@ -401,8 +402,8 @@ pub(crate) fn quick(
             .map(|(_, s)| s.clone())
             .with_context(|| format!("no workspace scope for {t}"))
     };
-    for (target, lint) in &runs {
-        run_ok(clippy(root, target, lint), "cargo clippy")?;
+    for (target, _) in &runs {
+        run_ok(clippy(root, target, &wide(target)?), "cargo clippy")?;
     }
     // the server alone, which a workspace build's feature unification hides
     run_ok(server_check(root), "cargo check -p forza-server")?;
