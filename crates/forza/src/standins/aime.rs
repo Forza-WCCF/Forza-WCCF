@@ -185,6 +185,9 @@ struct Card {
 impl Card {
     fn load(path: Option<&Path>) -> io::Result<Self> {
         let mut from_file = None;
+        // a file that is not a card code and could not be kept aside: it is left as it is, so this session's code
+        // reaches no file and the next start makes another one
+        let mut not_kept = None;
         if let Some(p) = path {
             // bytes, not text: a file saved as "Unicode" (UTF-16) or holding binary garbage is "not a card
             // code" like any other, never a start failure
@@ -194,7 +197,9 @@ impl Card {
                     // not a card code: kept aside, never written over
                     _ => {
                         let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
-                        std::fs::copy(p, &bad).map_err(|e| at(p, e))?;
+                        if let Err(e) = std::fs::copy(p, &bad) {
+                            not_kept = Some(format!("{bad}: {e}"));
+                        }
                     }
                 },
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -216,7 +221,10 @@ impl Card {
                 );
                 if let Some(p) = path {
                     // the code is on the reader this session either way; only the next session would lose it
-                    unsaved = save_card(p, &code).err().map(|e| e.to_string());
+                    unsaved = match not_kept {
+                        Some(why) => Some(format!("the card file was not kept aside ({why})")),
+                        None => save_card(p, &code).err().map(|e| e.to_string()),
+                    };
                 }
                 code
             }
@@ -481,6 +489,30 @@ mod tests {
             "the bytes are kept as they were"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file that is not a card code and cannot be kept aside (here its `.bad` name is too long) is left as
+    /// it is: the made code plays this session, reported as unsaved, and the bad file is never written over.
+    #[test]
+    fn a_card_file_that_cannot_be_kept_aside_is_left_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        // a 250-character name fits; its 19-character `.bad` suffix does not, so the copy fails and the read does not
+        let path = dir.path().join(format!("{}.txt", "a".repeat(250)));
+        std::fs::write(&path, "not a card\n").unwrap();
+        let c = Card::load(Some(&path)).expect("a card file is not a start failure");
+        assert!(is_code(&c.code), "a code is on the reader: {}", c.code);
+        let why = c.unsaved.expect("a code that stays in memory says so");
+        assert!(why.contains(".bad"), "{why}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "not a card\n",
+            "the bad file is never written over"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no copy is left behind"
+        );
     }
 
     /// A card file that cannot be read (here a folder) is reported with its path, not treated as a missing one: the
