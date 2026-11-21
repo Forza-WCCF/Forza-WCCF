@@ -117,16 +117,8 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
             }
             _ => c.flush()?,
         }
-        // the page: the sales paid and the listings back first, then the lists
-        let saved = Client::saved(data);
-        if saved.joined || saved.waiting > 0 {
-            c.collect()?;
-        }
-        if saved.joined {
-            done.stock = Some(c.stock()?);
-            let (sale, more) = c.browse_pages(0, BROWSE_PAGES)?;
-            (done.sale, done.more) = (Some(sale), more);
-        }
+        let v = c.visit(BROWSE_PAGES)?;
+        (done.stock, done.sale, done.more) = (v.stock, v.sale, v.more);
         Ok(())
     })();
     done.resent = c.resent_refused();

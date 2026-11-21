@@ -462,6 +462,16 @@ pub struct Row {
     pub sold: bool,
 }
 
+/// What one visit of the market page brings back ([`Client::visit`]): the lists, in the market.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Visit {
+    pub stock: Option<StockList>,
+    /// Other installations' listings.
+    pub sale: Option<Vec<Row>>,
+    /// The server holds more listings past `sale`.
+    pub more: bool,
+}
+
 /// The own stock list of the day: purchases left under a daily limit, and the rows.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StockList {
@@ -575,6 +585,23 @@ pub fn lines_for(verb: Verb, at: u64, answer: &str, log: &str) -> Vec<crate::col
                     (_, Some(&[id, card])) if !sold => {
                         out.push(line(Kind::Unlist, card, 0, why("unlist", id)));
                     }
+                    _ => {}
+                }
+            }
+        }
+        (Verb::Owed, Some("owed")) => {
+            // the ledger's ids: `market buy` and `market sell` as BUY and COLLECT write them, so their own answer sent
+            // again later writes nothing more; a stock row has its ledger id, not its request's time
+            let mut kind = "";
+            for w in words {
+                match (w, nums(w).as_deref()) {
+                    ("bought" | "stock" | "sold", _) => kind = w,
+                    (_, Some(&[id, card, price])) => out.push(match kind {
+                        "bought" => line(Kind::MarketBuy, card, -(price as i64), why("buy", id)),
+                        "stock" => line(Kind::StockBuy, card, -(price as i64), why("stock", id)),
+                        "sold" => line(Kind::MarketSell, card, price as i64, why("sell", id)),
+                        _ => continue,
+                    }),
                     _ => {}
                 }
             }
@@ -877,6 +904,46 @@ impl Client {
             }
         }
         Ok(())
+    }
+
+    /// OWED until it names nothing more: the purchases and paid sales the server holds that the log lacks (an answer
+    /// lost with its outbox: an unreadable [`STATE_FILE`], a crash before the save), written as their lines. An answer
+    /// the same as the one before (rows the log now holds and the server still names) ends it.
+    pub fn owed(&self) -> Result<(), Fail> {
+        let mut before = String::new();
+        for _ in 0..COLLECT_PAGES {
+            let said = self.ask(Verb::Owed, &[])?;
+            if said == "owed" || said == before {
+                break;
+            }
+            before = said;
+        }
+        Ok(())
+    }
+
+    /// The market page's requests after the player's word (`PLAN.md` 3.5), each after the outbox:
+    /// - in the market as this PC sees it, BROWSE first: it carries no log, so a key the server holds outside the market
+    ///   learns it from `NOT_IN` before any log goes;
+    /// - COLLECT while in the market or while a sale waits;
+    /// - in the market, [`Self::owed`] and then the stock list.
+    pub fn visit(&self, browse_pages: usize) -> Result<Visit, Fail> {
+        let mut v = Visit::default();
+        if Self::load(&self.data)?.joined {
+            match self.browse_pages(0, browse_pages) {
+                Ok((sale, more)) => (v.sale, v.more) = (Some(sale), more),
+                Err(Fail::Refused(why)) if why == NOT_IN => {}
+                Err(e) => return Err(e),
+            }
+        }
+        let s = Self::load(&self.data)?;
+        if s.joined || s.waiting > 0 {
+            self.collect()?;
+        }
+        if s.joined {
+            self.owed()?;
+            v.stock = Some(self.stock()?);
+        }
+        Ok(v)
     }
 
     /// Up to `pages` BROWSE pages after the id `after`, and whether the server holds more past them.
@@ -1234,6 +1301,64 @@ mod tests {
             sent().is_empty(),
             "nothing sent from a state it could not read"
         );
+    }
+
+    /// #375: a BUY applied on the server with its answer and its outbox lost: the next visit's OWED writes the
+    /// purchase's line and a stock purchase's (the cards arrive, their prices are spent); OWED's rows are written once,
+    /// and an answer naming the same rows again ends the asking.
+    #[test]
+    fn owed_writes_a_purchase_whose_outbox_was_lost() {
+        use crate::collection::{Kind, fold};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        script([Ok(Ok("0 lines".into())), Err("connection reset".into())]);
+        c.ask(Verb::Join, &[]).unwrap();
+        assert!(matches!(
+            c.ask(Verb::Buy, &[3, 12, 90]),
+            Err(Fail::Unanswered(_))
+        ));
+        // the outbox lost (a crash before its save, a state file kept aside): the purchase is on the server only
+        let mut s = Client::saved(&data);
+        s.outbox = None;
+        c.save(&s).unwrap();
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:90 stock 8:41:216".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("stock 1:41:216:sold".into())),
+        ]);
+        let v = c.visit(3).unwrap();
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "OWED", "OWED", "STOCK"]);
+        assert_eq!(v.sale, Some(vec![]));
+        assert!(v.stock.is_some() && !v.more);
+        let state = fold(&c.log.lines().unwrap()).state;
+        assert_eq!(state.copies(12).earned, 1, "the card arrived");
+        assert_eq!(state.copies(41).earned, 1, "the stock card arrived");
+        assert_eq!(state.tokens, -90 - 216);
+        // the server still names the rows (a mismatch): no line twice, one OWED more and no loop
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:90".into())),
+            Ok(Ok("owed bought 3:12:90".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "OWED", "OWED", "STOCK"]);
+        let text = c.log.lines().unwrap();
+        let buys = text
+            .lines()
+            .filter(|l| {
+                serde_json::from_str::<crate::collection::Entry>(l)
+                    .unwrap()
+                    .kind
+                    == Kind::MarketBuy
+            })
+            .count();
+        assert_eq!(buys, 1);
     }
 
     /// #375: three full BROWSE pages say the server holds more; MORE goes on from the last id.

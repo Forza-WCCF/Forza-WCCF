@@ -759,3 +759,40 @@ fn each_new_request_goes_after_the_last() {
     }
     assert_eq!(Client::saved(&inst.0).last_at, ahead + 3);
 }
+
+/// #375 over a real desk: a BUY applied with its answer and its outbox lost (a crash before the save). The next visit's
+/// OWED writes the `market_buy` line: the card arrives, its price is spent, OWED names nothing more and the log passes
+/// JOIN again.
+#[test]
+fn owed_heals_a_purchase_whose_outbox_was_lost() {
+    let root = scratch("market_client_owed");
+    let d = market_desk(&root);
+    let (s, b) = (
+        install(&root, "seller", &[13]),
+        install(&root, "buyer", &[14]),
+    );
+    let seller = client(&d, &s);
+    seller.ask(Verb::Join, &[]).unwrap();
+    seller.ask(Verb::List, &[13, 38]).unwrap();
+    let mut buyer = client(&d, &b);
+    buyer.ask(Verb::Join, &[]).unwrap();
+    buyer.transport = lose;
+    assert!(matches!(
+        buyer.ask(Verb::Buy, &[1, 13, 38]),
+        Err(Fail::Unanswered(_))
+    ));
+    let mut kept = Client::saved(&b.0);
+    kept.outbox = None;
+    buyer.save(&kept).unwrap();
+    let buyer = client(&d, &b);
+    let v = buyer.visit(3).unwrap();
+    assert!(v.stock.is_some(), "still in the market: the lists came");
+    let got = folded(&b.1);
+    assert_eq!(got.copies(13).earned, 1, "the card arrived");
+    assert_eq!(got.tokens, 150 + 50 - 38);
+    assert_eq!(count(&b.1, Kind::MarketBuy), 1);
+    assert_eq!(buyer.ask(Verb::Owed, &[]).unwrap(), "owed");
+    buyer.visit(3).unwrap();
+    assert_eq!(count(&b.1, Kind::MarketBuy), 1, "written once");
+    buyer.ask(Verb::Join, &[]).unwrap();
+}
