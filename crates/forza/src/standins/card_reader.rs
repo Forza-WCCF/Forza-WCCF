@@ -682,7 +682,8 @@ impl Link {
                     let Some(payload) = unframe(&self.raw) else {
                         continue;
                     };
-                    // ponytail: the Python dies on a frame without cmd/len; it is dropped here
+                    // A frame that stops before its length byte has no command: drop it and read on (the Python
+                    // raised here and stopped).
                     if payload.len() < 3 {
                         (reader.log)("  (frame too short - ignored)");
                         self.state = State::Idle;
@@ -1039,6 +1040,36 @@ mod tests {
         assert_eq!((status, sixteen.len()), (0, 255));
         let (_, fifteen) = reader.answer(0x52, &[0, 0, 15]);
         assert_eq!(fifteen.len(), 15 * 16, "one byte's length holds 15 blocks");
+    }
+
+    /// A frame that stops before its length byte is dropped, and the link answers the command behind it.
+    #[test]
+    fn a_frame_without_a_length_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(
+            card_at(&dir.path().join("club.bin")),
+            log,
+            None,
+            os_random(),
+        );
+        let mut link = Link::new();
+        let mut out = Vec::new();
+        let short = frame(&[0x41]); // the command and the bcc, no length byte
+        link.feed(&[&[STX][..], &short[..]].concat(), &mut reader, &mut out);
+        assert_eq!(out, [DLE], "nothing is answered");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("frame too short")),
+            "{msgs:?}"
+        );
+        out.clear();
+        let request = frame(&[0x41, 0x00, 0x00]);
+        link.feed(&[&[STX][..], &request[..]].concat(), &mut reader, &mut out);
+        link.feed(&[DLE], &mut reader, &mut out);
+        assert_eq!(out, [DLE, DLE, STX, 0x41, 0x00, 0x00, 0x41, DLE, ETX]);
     }
 
     /// Backups older than the newest 20 go; other files stay.
