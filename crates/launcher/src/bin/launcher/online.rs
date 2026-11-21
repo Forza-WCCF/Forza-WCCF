@@ -685,8 +685,7 @@ impl Online {
                 let a = a.trim().to_owned();
                 if !launcher::lobby::valid_server(&a) {
                     refuse(t("launcher.msg_bad_address"));
-                } else if !self.servers.contains(&a) {
-                    self.servers.insert(0, a);
+                } else if launcher::lobby::add_server(&mut self.servers, a, true) {
                     let _ = choices::set_setting_json(settings, "servers", json!(self.servers));
                     self.book = Book::new(&self.servers);
                     self.poller = None; // restarted on the next look with the new list

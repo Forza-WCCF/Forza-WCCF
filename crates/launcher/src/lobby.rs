@@ -107,8 +107,9 @@ pub fn project_server(edition: Edition) -> String {
     )
 }
 
-/// The `servers` setting the lobby asks; none saved yet: the address the player had before (if any), then the
-/// project's server for `edition`.
+/// The `servers` setting the lobby asks, each server once (its first spelling: one desk listed twice is asked twice
+/// inside its gap, #419); none saved yet: the address the player had before (if any), then the project's server for
+/// `edition`.
 pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> {
     let saved = crate::choices::setting_json(settings, "servers").and_then(|v| {
         v.as_array().map(|a| {
@@ -118,7 +119,10 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
         })
     });
     if let Some(s) = saved.filter(|s| !s.is_empty()) {
-        return s;
+        return s.into_iter().fold(Vec::new(), |mut list, a| {
+            add_server(&mut list, a, false);
+            list
+        });
     }
     let project = project_server(edition);
     let mut list: Vec<String> = Some(address.trim())
@@ -126,10 +130,18 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
         .map(str::to_owned)
         .into_iter()
         .collect();
-    if !list.iter().any(|s| crate::notice::same_server(s, &project)) {
-        list.push(project);
-    }
+    add_server(&mut list, project, false);
     list
+}
+
+/// `server` into `list`, first or last, unless `list` names it already (any spelling,
+/// [`crate::notice::same_server`]). True when it went in.
+pub fn add_server(list: &mut Vec<String>, server: String, first: bool) -> bool {
+    if list.iter().any(|s| crate::notice::same_server(s, &server)) {
+        return false;
+    }
+    list.insert(if first { 0 } else { list.len() }, server);
+    true
 }
 
 /// A `servers` entry: `host` or `host:port`, the host a name or an IPv4 address (the seat desk's port by default).
@@ -852,6 +864,30 @@ mod tests {
             servers(&none, "10.0.0.5", Edition::E1718),
             ["10.0.0.5", PROJECT_SERVER_1718]
         );
+    }
+
+    /// A saved list, and DIRECT ADDRESS, name each desk once whatever the spelling, the first one kept (#419).
+    #[test]
+    fn a_saved_or_typed_server_spelled_another_way_is_listed_once() {
+        let dir = std::env::temp_dir().join(format!("forza_lobby_saved_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        let saved = [
+            "lobby.wccf.it:20032",
+            "10.0.0.5",
+            "LOBBY.WCCF.IT:20032",
+            "10.0.0.5:20030",
+        ];
+        crate::choices::set_setting_json(&file, "servers", serde_json::json!(saved)).unwrap();
+        let mut list = servers(&file, "", Edition::E1718);
+        assert_eq!(list, ["lobby.wccf.it:20032", "10.0.0.5"]);
+        assert!(
+            !add_server(&mut list, "Lobby.Wccf.It:20032".into(), true),
+            "typed another way"
+        );
+        assert!(add_server(&mut list, "10.0.0.6".into(), true));
+        assert_eq!(list, ["10.0.0.6", "lobby.wccf.it:20032", "10.0.0.5"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
