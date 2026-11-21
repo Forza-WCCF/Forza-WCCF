@@ -166,7 +166,7 @@ impl Notices {
                 let get = |s: &str| socket(s).and_then(|a| lobby::fetch(a, edition).ok());
                 if due
                     && let Some(l) = round(&server, &project, get)
-                    && me.heard(&l, log.as_ref())
+                    && me.heard_from(&server, &l, log.as_ref())
                 {
                     wake();
                 }
@@ -183,8 +183,46 @@ impl Notices {
     /// the network) replaces the last; a change is written to the file, and a write that failed is tried again on the
     /// next answer. True when the notice changed.
     pub fn heard(&self, l: &Lobby, log: &dyn Fn(&str)) -> bool {
-        let n = l.notice.clone().and_then(ServerNotice::clean);
+        self.lock().hear(l, log)
+    }
+
+    /// The watcher's answer from `asked`, dropped when [`Notices::ask`] named another server while it was out (#419):
+    /// a run that ended then would otherwise keep its host's notice until the next round.
+    fn heard_from(&self, asked: &str, l: &Lobby, log: &dyn Fn(&str)) -> bool {
         let mut i = self.lock();
+        i.server == asked && i.hear(l, log)
+    }
+
+    /// Asks `server` from the watcher's next round on (a LAN arcade's desk while a seat plays there, the project server
+    /// after); its first answer replaces the notice of the server asked before.
+    pub fn ask(&self, server: &str) {
+        let mut i = self.lock();
+        if i.server != server {
+            i.server = server.to_owned();
+            i.at = None;
+        }
+    }
+
+    /// The server asked now ([`Notices::ask`]).
+    pub fn server(&self) -> String {
+        self.lock().server.clone()
+    }
+
+    /// The text in language `code`, else English; none without a notice.
+    pub fn text(&self, code: &str) -> Option<String> {
+        self.lock().notice.as_ref().map(|n| n.text(code).to_owned())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Inner {
+    /// [`Notices::heard`] under the lock.
+    fn hear(&mut self, l: &Lobby, log: &dyn Fn(&str)) -> bool {
+        let n = l.notice.clone().and_then(ServerNotice::clean);
+        let i = self;
         i.at = Some(Instant::now());
         let changed = i.notice != n;
         if !changed && i.saved {
@@ -216,32 +254,6 @@ impl Notices {
         changed
     }
 
-    /// Asks `server` from the watcher's next round on (a LAN arcade's desk while a seat plays there, the project server
-    /// after); its first answer replaces the notice of the server asked before.
-    pub fn ask(&self, server: &str) {
-        let mut i = self.lock();
-        if i.server != server {
-            i.server = server.to_owned();
-            i.at = None;
-        }
-    }
-
-    /// The server asked now ([`Notices::ask`]).
-    pub fn server(&self) -> String {
-        self.lock().server.clone()
-    }
-
-    /// The text in language `code`, else English; none without a notice.
-    pub fn text(&self, code: &str) -> Option<String> {
-        self.lock().notice.as_ref().map(|n| n.text(code).to_owned())
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-impl Inner {
     /// The notice into the file, or the file removed when the server sends none.
     fn save(&self) -> std::io::Result<()> {
         match &self.notice {
@@ -521,6 +533,29 @@ mod tests {
         assert!(
             !write_host_notice(&file, "", 19).unwrap(),
             "removing a missing file is fine"
+        );
+    }
+
+    /// The run ends while the watcher's ask of the host's desk is out (#419): that answer is dropped, so the host's
+    /// notice is not stored after the run, and the project server is asked at once.
+    #[test]
+    fn an_answer_from_the_desk_after_the_run_is_dropped() {
+        let desk = "127.0.0.1:20041";
+        let n = Notices::new(dir("late").join("notice.json"));
+        n.ask(desk);
+        let host = answer(Some(ServerNotice {
+            id: "h17".into(),
+            en: "Open till 23:00".into(),
+            ..ServerNotice::default()
+        }));
+        n.ask("lobby.wccf.it:20032"); // the run ended before the desk answered
+        assert!(!n.heard_from(desk, &host, &|_| {}));
+        assert!(n.text("en").is_none(), "no host notice after the run");
+        assert!(n.lock().at.is_none(), "the project server is asked on the next round");
+        n.ask(desk);
+        assert!(
+            n.heard_from(desk, &host, &|_| {}),
+            "the desk still asked: its answer counts"
         );
     }
 
