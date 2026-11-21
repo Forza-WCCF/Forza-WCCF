@@ -84,7 +84,7 @@ fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Opt
                     arcade_notice(&n)
                 }
             }
-            None => get(project)?.notice,
+            None => get(project)?.notice.and_then(ServerNotice::clean),
         };
     }
     Some(l)
@@ -484,6 +484,23 @@ mod tests {
         asks.set(0);
         round("127.0.0.1:20041", "lobby.wccf.it:20030", get).unwrap();
         assert_eq!(asks.get(), 2, "another server: the desk and the project server");
+    }
+
+    /// A desk with no notice: the project server's is kept cleaned like the other arms of [`round`] (#419).
+    #[test]
+    fn the_projects_notice_behind_a_quiet_desk_is_cleaned() {
+        let project = "lobby.wccf.it:20032";
+        let sent = ServerNotice {
+            id: "n1".into(),
+            en: "  Server update\u{202E} at 23:00 ".into(),
+            ..ServerNotice::default()
+        };
+        let l = round("127.0.0.1:20041", project, |s| {
+            Some(answer((s == project).then(|| sent.clone())))
+        })
+        .unwrap();
+        assert_eq!(l.notice, sent.clone().clean());
+        assert_ne!(l.notice.as_ref(), Some(&sent), "the raw notice changed when cleaned");
     }
 
     /// HOST ARCADE's notice file: a fresh id and the text as typed (bounded), removed when the box is empty.
