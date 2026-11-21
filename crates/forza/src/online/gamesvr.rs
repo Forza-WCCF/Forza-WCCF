@@ -120,14 +120,15 @@ const SHOP_SALE_AT: usize = 16 + 22_896;
 
 /// The 10 sale entries for a 237 at `unix_secs`: each category steps through its items by the Europe/Rome day, so
 /// the goods change daily and repeat every few days. The window runs from the day before (a client behind Rome's
-/// date) to six days after: the control asks 237 only at start-up, so one left running keeps a shop for a week.
+/// date) to a year after.
 fn shop_sale(unix_secs: i64) -> impl Iterator<Item = [u32; 4]> {
     let today = rome_time(unix_secs).date();
     let n = today.signed_duration_since(GT_EPOCH).num_days().max(0) as usize;
     let ymd = |d: chrono::NaiveDate| d.year() as u32 * 10_000 + d.month() * 100 + d.day();
     let (from, to) = (
         ymd(today - chrono::Days::new(1)),
-        ymd(today + chrono::Days::new(6)),
+        // the control asks 237 only at start-up and keeps it, so the end outlives any run (a new list per start-up day)
+        ymd(today + chrono::Days::new(365)),
     );
     SHOP_GOODS
         .into_iter()

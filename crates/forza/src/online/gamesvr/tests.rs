@@ -1698,22 +1698,25 @@ fn the_sale_list_has_ten_for_sale_entries() {
 }
 
 #[test]
-fn the_sale_list_rotates_daily_and_stays_open_a_week() {
+fn the_sale_list_rotates_daily_and_outlives_a_long_running_control() {
     // Saturday 2026-11-21 12:00 CET = 11:00 UTC
     let t = utc_secs(2026, 11, 21, 11, 0);
     let list: Vec<_> = shop_sale(t).collect();
-    assert!(
-        list.iter()
-            .all(|e| e[2] == 20_261_120 && e[3] == 20_261_127),
-        "{list:?}"
-    );
+    assert_eq!(list.len(), 10);
     let day = |d| chrono::NaiveDate::from_ymd_opt(2026, 11, d).unwrap();
     for e in &list {
-        // open at the fetch, on the day before from 10:00, through 2026-11-28 02:59; closed outside
+        // open at the fetch, on the day before from 10:00; closed before
         assert!(client_offers(*e, day(21), 12));
         assert!(client_offers(*e, day(20), 10) && !client_offers(*e, day(20), 9));
-        assert!(client_offers(*e, day(28), 2) && !client_offers(*e, day(28), 3));
+        // a control left running keeps all ten: past a week (the old D+6 end closed at 2026-11-28 03:00) and a month
+        assert!(client_offers(*e, day(28), 3) && client_offers(*e, day(30), 12));
+        assert!(client_offers(*e, day(21) + chrono::Days::new(60), 12));
     }
+    assert!(
+        list.iter()
+            .all(|e| e[2] == 20_261_120 && e[3] == 20_271_121),
+        "{list:?}"
+    );
     // deterministic per Rome day: same list all day (00:00..23:59 CET), a new one the next day
     let ids = |t| shop_sale(t).map(|e| (e[0], e[1])).collect::<Vec<_>>();
     assert_eq!(
