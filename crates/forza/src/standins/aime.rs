@@ -166,6 +166,25 @@ fn at(path: &Path, e: io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
+/// Another program holds the file for a moment: Windows says sharing violation (32), lock violation (33) or access
+/// denied (5), the last also while a file is delete-pending and another name replaces it.
+fn busy_card(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32) | Some(33))
+}
+
+/// Reads the card file, looking again for up to 1 s while another program holds it (an antivirus scan, a backup):
+/// one busy read is not a reason to leave the player without a reader. A folder at the path does not come good.
+fn read_card(p: &Path) -> io::Result<Vec<u8>> {
+    let permanent = p.is_dir();
+    for _ in 0..50 {
+        match std::fs::read(p) {
+            Err(e) if !permanent && busy_card(&e) => thread::sleep(Duration::from_millis(20)),
+            r => return r,
+        }
+    }
+    std::fs::read(p)
+}
+
 /// Writes `code` to `path` in one step: a temporary file beside it, then a rename over it.
 fn save_card(path: &Path, code: &str) -> io::Result<()> {
     std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(|e| at(path, e))?;
@@ -191,7 +210,7 @@ impl Card {
         if let Some(p) = path {
             // bytes, not text: a file saved as "Unicode" (UTF-16) or holding binary garbage is "not a card
             // code" like any other, never a start failure
-            match std::fs::read(p) {
+            match read_card(p) {
                 Ok(b) => match std::str::from_utf8(&b).map(str::trim) {
                     Ok(s) if is_code(s) => from_file = Some(s.to_string()),
                     // not a card code: kept aside, never written over
@@ -513,6 +532,29 @@ mod tests {
             1,
             "no copy is left behind"
         );
+    }
+
+    /// A card file another program holds for a moment (an antivirus scan, a backup) is read again rather than
+    /// ending the reader: its code is on the reader once the hold is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_card_file_held_for_a_moment_is_read_again() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::write(&path, "51234567890123456789\n").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // no other handle, not even a read
+            .open(&path)
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(held);
+        });
+        let c = Card::load(Some(&path)).expect("a file held for a moment is read again");
+        assert_eq!(c.code, "51234567890123456789");
+        release.join().unwrap();
     }
 
     /// A card file that cannot be read (here a folder) is reported with its path, not treated as a missing one: the
