@@ -695,6 +695,7 @@ collection.market_wait: {en: "The market server is answering a request that may 
 collection.market_disk: {en: "The market's files on this PC could not be read or written: %{error}", it: "Impossibile leggere o scrivere i file del mercato su questo PC: %{error}", ja: "この PC のマーケットのファイルを読み書きできませんでした：%{error}"}
 collection.market_refused: {en: "The market server refused: %{why}", it: "Il server del mercato ha rifiutato: %{why}", ja: "マーケットサーバーが拒否しました：%{why}"}
 collection.market_no_name: {en: "The market server's name %{server} could not be found. Check this PC's internet connection, then press REFRESH.", it: "Impossibile trovare il nome del server del mercato %{server}. Controlla la connessione a Internet di questo PC, poi premi AGGIORNA.", ja: "マーケットサーバーの名前 %{server} が見つかりません。この PC のインターネット接続を確認してから「更新」を押してください。"}
+collection.market_more: {en: "MORE", it: "ALTRE", ja: "もっと見る"}
 collection.market_why_not_in: {en: "this installation is not in the market.", it: "questa installazione non è nel mercato.", ja: "このインストールはマーケットに参加していません。"}
 collection.market_why_gone: {en: "that listing is no longer on the market.", it: "quell'inserzione non è più sul mercato.", ja: "その出品はもうマーケットにありません。"}
 collection.market_why_sold: {en: "that card has sold. Its tokens arrive with REFRESH.", it: "quella carta è stata venduta. I gettoni arrivano con AGGIORNA.", ja: "そのカードは売れました。トークンは「更新」で受け取れます。"}

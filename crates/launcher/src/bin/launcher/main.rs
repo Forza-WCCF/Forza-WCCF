@@ -1035,7 +1035,13 @@ impl App {
                 v.market.stock = collection::offered(cat, &s.rows);
             }
             if let Some(rows) = d.sale {
-                v.market.sale = collection::offered(cat, &rows);
+                let rows = collection::offered(cat, &rows);
+                if matches!(d.action, CollectionAction::MarketMore(_)) {
+                    v.market.sale.extend(rows);
+                } else {
+                    v.market.sale = rows;
+                }
+                v.market.more = d.more;
             }
         }
     }
@@ -1664,7 +1670,8 @@ impl App {
                 | CollectionAction::StockBuy(..)
                 | CollectionAction::MarketBuy(..)
                 | CollectionAction::List(..)
-                | CollectionAction::Unlist(..)),
+                | CollectionAction::Unlist(..)
+                | CollectionAction::MarketMore(_)),
             ) => self.market_job(&kit, a),
             Action::Collection(CollectionAction::Stats) => {
                 // the log is only read; the file goes where the player picks, and they send it by hand

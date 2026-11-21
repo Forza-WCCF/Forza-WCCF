@@ -879,6 +879,20 @@ impl Client {
         Ok(())
     }
 
+    /// Up to `pages` BROWSE pages after the id `after`, and whether the server holds more past them.
+    pub fn browse_pages(&self, after: u64, pages: usize) -> Result<(Vec<Row>, bool), Fail> {
+        let mut sale: Vec<Row> = Vec::new();
+        for _ in 0..pages {
+            let page = self.browse(sale.last().map_or(after, |r| r.id))?;
+            let end = page.len() < BROWSE_PAGE;
+            sale.extend(page);
+            if end {
+                return Ok((sale, false));
+            }
+        }
+        Ok((sale, true))
+    }
+
     /// The own stock list of the day.
     pub fn stock(&self) -> Result<StockList, Fail> {
         let said = self.ask(Verb::Stock, &[])?;
@@ -1220,6 +1234,43 @@ mod tests {
             sent().is_empty(),
             "nothing sent from a state it could not read"
         );
+    }
+
+    /// #375: three full BROWSE pages say the server holds more; MORE goes on from the last id.
+    #[test]
+    fn browse_pages_tells_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let page = |from: u64, n: u64| {
+            Ok(Ok((from..from + n).fold("listings".to_owned(), |s, id| {
+                format!("{s} {id}:12:90")
+            })))
+        };
+        let full = BROWSE_PAGE as u64;
+        script([page(1, full), page(1 + full, full)]);
+        let (rows, more) = c.browse_pages(0, 2).unwrap();
+        assert_eq!((rows.len(), more), (2 * BROWSE_PAGE, true));
+        script([page(1 + 2 * full, 3)]);
+        let (rows, more) = c.browse_pages(rows.last().unwrap().id, 2).unwrap();
+        assert_eq!((rows.len(), more), (3, false));
+        let after: Vec<u64> = SCRIPT.with(|s| {
+            s.borrow()
+                .1
+                .iter()
+                .map(|r| {
+                    let body = String::from_utf8(split(r.as_bytes()).1).unwrap();
+                    body.lines()
+                        .next()
+                        .unwrap()
+                        .split(' ')
+                        .nth(4)
+                        .unwrap()
+                        .parse()
+                        .unwrap()
+                })
+                .collect()
+        });
+        assert_eq!(after, [2 * full]);
     }
 
     /// F3, F2, F4: START OVER queues RESET for a key that ever signed, even one this PC thinks is out (its JOIN's

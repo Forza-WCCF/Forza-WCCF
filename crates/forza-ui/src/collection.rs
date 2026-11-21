@@ -212,6 +212,8 @@ pub struct MarketView {
     pub left: Option<u32>,
     /// Other installations' listings.
     pub sale: Vec<Offered>,
+    /// The server holds more listings past `sale`: MORE asks them.
+    pub more: bool,
     pub mine: Vec<Mine>,
     /// The offer picked, BUY under it: (a stock slot, its id).
     pub picked: Option<(bool, u64)>,
@@ -286,6 +288,8 @@ pub enum CollectionAction {
     List(u32, u32),
     /// TAKE BACK one of this installation's listings.
     Unlist(u64),
+    /// MORE: the listings after the id of the last one shown.
+    MarketMore(u64),
 }
 
 /// Which screen a sample shows.
@@ -461,6 +465,7 @@ impl CollectionView {
                             days_left: 6 - 4 * i as i64,
                         })
                         .collect(),
+                    more: true,
                     picked: Some((true, 3)),
                     ..MarketView::default()
                 };
@@ -1604,6 +1609,12 @@ fn market(
         hint(ui, &tr!(lang, "collection.market_sale_none"));
     }
     offers(ui, &m.sale, false, &mut m.picked, lang);
+    if m.more
+        && let Some(last) = m.sale.last()
+        && button(ui, "collection.market_more")
+    {
+        *act = Some(CollectionAction::MarketMore(last.id));
+    }
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         if button(ui, "collection.market_refresh") {

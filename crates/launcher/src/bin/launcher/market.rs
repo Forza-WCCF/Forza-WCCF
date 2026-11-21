@@ -10,8 +10,7 @@ use forza::market::{Client, Fail, Row, Saved, StockList, Verb};
 use forza_ui::collection::CollectionAction;
 use launcher::Edition;
 
-/// BROWSE pages one visit asks at most.
-// shortcut: 3 pages of 40 listings; a MORE button when the market holds more than 120 at once
+/// BROWSE pages one visit asks at most, and MORE after them.
 const BROWSE_PAGES: usize = 3;
 
 /// What a job brings back: its action, how it went, and the page's lists when it asked for them.
@@ -20,6 +19,8 @@ pub struct Done {
     pub said: Result<(), Fail>,
     pub stock: Option<StockList>,
     pub sale: Option<Vec<Row>>,
+    /// The server holds more listings past `sale`: MORE asks them.
+    pub more: bool,
     /// A request kept from before, sent again and refused, as `VERB: why`.
     pub resent: Option<String>,
 }
@@ -85,6 +86,7 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
         said: Ok(()),
         stock: None,
         sale: None,
+        more: false,
         resent: None,
     };
     let c = desk(&launcher::lobby::project_server(Edition::E1718)).and_then(|d| Client::open(d, data, collection));
@@ -108,6 +110,11 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
             }
             CollectionAction::List(card, price) => c.ask(Verb::List, &[n(card), n(price)]).map(drop)?,
             CollectionAction::Unlist(id) => c.ask(Verb::Cancel, &[id]).map(drop)?,
+            CollectionAction::MarketMore(after) => {
+                let (sale, more) = c.browse_pages(after, BROWSE_PAGES)?;
+                (done.sale, done.more) = (Some(sale), more);
+                return Ok(());
+            }
             _ => c.flush()?,
         }
         // the page: the sales paid and the listings back first, then the lists
@@ -117,16 +124,8 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
         }
         if saved.joined {
             done.stock = Some(c.stock()?);
-            let mut sale: Vec<Row> = Vec::new();
-            for _ in 0..BROWSE_PAGES {
-                let page = c.browse(sale.last().map_or(0, |r| r.id))?;
-                let end = page.len() < forza::market::BROWSE_PAGE;
-                sale.extend(page);
-                if end {
-                    break;
-                }
-            }
-            done.sale = Some(sale);
+            let (sale, more) = c.browse_pages(0, BROWSE_PAGES)?;
+            (done.sale, done.more) = (Some(sale), more);
         }
         Ok(())
     })();

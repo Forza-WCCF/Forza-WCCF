@@ -2216,7 +2216,7 @@ fn the_detail_shows_convert_inside_the_page() {
 }
 
 /// Step 4.1 (g): the market page at the Launcher's smallest window in every language: in the market the picked offer's
-/// BUY, each TAKE BACK, REFRESH and LEAVE THE MARKET inside the page and apart, every offer card inside it; outside
+/// BUY, each TAKE BACK, MORE (#375: the server holds more listings), REFRESH and LEAVE THE MARKET inside the page and apart, every offer card inside it; outside
 /// the market the opt-in's JOIN THE MARKET inside it and no list; and a listable card's detail shows LIST at the band's floor.
 #[test]
 fn the_market_page_holds_its_buttons() {
@@ -2273,7 +2273,11 @@ fn the_market_page_holds_its_buttons() {
                     .map(|n| n.rect()),
             );
             assert_eq!(buttons.len(), 3, "{tag}: BUY and 2 TAKE BACK");
-            for key in ["collection.market_refresh", "collection.market_leave"] {
+            for key in [
+                "collection.market_more",
+                "collection.market_refresh",
+                "collection.market_leave",
+            ] {
                 buttons.push(h.query_by_label(&t(key, &[])).expect(key).rect());
             }
             for (i, a) in buttons.iter().enumerate() {
