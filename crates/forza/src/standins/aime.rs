@@ -125,8 +125,8 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
             continue;
         }
         let n = body[0] as usize;
-        // A frame that stops inside len/addr/seq/cmd/plen carries no command, so there is nothing to answer: skip
-        // it and read on (the Python raised here, which left the game without its reader).
+        // A frame without all of len/addr/seq/cmd/plen is not answered: skip it and read on (the Python raised
+        // here, which left the game without its reader).
         if n >= 5 {
             let sum = body[..n].iter().fold(0u8, |s, b| s.wrapping_add(*b));
             reqs.push(Req {
@@ -356,22 +356,28 @@ mod tests {
         assert!(r[0] == 0xE0 && r[1..].windows(2).any(|w| w == [0xD0, 0xDF]));
     }
 
-    /// A frame that stops inside len/addr/seq/cmd/plen is skipped, and the frame behind it still reads.
+    /// A frame without all of len/addr/seq/cmd/plen is skipped, and the frame behind it still reads.
     #[test]
     fn a_short_frame_is_skipped() {
         let short = escape(&[3, 0, 0, 0x42]); // len 3: addr and seq only, no cmd
+        let mut no_plen = vec![4, 0, 0, 0x42]; // len 4: the cmd is there, its plen byte is not
+        no_plen.push(no_plen.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
         let mut good = vec![5, 0, 0, 0x42, 0]; // a poll with an empty payload
         good.push(good.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
-        let (reqs, left) = parse(&[&short[..], &escape(&good)[..]].concat());
+        let stream = [&short[..], &escape(&no_plen)[..], &escape(&good)[..]].concat();
+        let (reqs, left) = parse(&stream);
         assert!(left.is_empty(), "{left:02x?} left over");
-        assert_eq!(reqs.len(), 1, "the short frame is skipped");
+        assert_eq!(reqs.len(), 1, "the short frames are skipped");
         assert_eq!((reqs[0].cmd, reqs[0].ok), (0x42, true));
     }
 
-    /// A card made without a file takes a 20-digit code from the OS source, so two kits' cards differ.
+    /// A made card takes a 20-digit code starting with 5, its file holds that code back, and two cards made in one
+    /// process differ.
     #[test]
     fn a_made_card_gets_its_own_20_digit_code() {
-        let (a, b) = (Card::load(None).unwrap(), Card::load(None).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let (a, b) = (Card::load(None).unwrap(), Card::load(Some(&path)).unwrap());
         for c in [&a, &b] {
             assert!(
                 c.code.len() == 20
@@ -382,5 +388,10 @@ mod tests {
             );
         }
         assert_ne!(a.code, b.code);
+        assert_eq!(
+            Card::load(Some(&path)).unwrap().code,
+            b.code,
+            "the card file holds its card's code"
+        );
     }
 }
