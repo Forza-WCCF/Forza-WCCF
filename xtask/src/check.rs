@@ -318,10 +318,10 @@ pub(crate) fn server_check(root: &Path) -> Command {
     c
 }
 
-/// `cargo xtask check quick`: fmt, clippy and tests for the packages changed since `base`, then the kit's self-tests
-/// when a 32-bit crate changed, the Launcher's imports and the installer's checks when theirs did. The 2010-11 hooks
-/// only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build. The GPU snapshot
-/// tests are skipped wherever it runs: their pixels move in the `fast` profile this uses locally.
+/// `cargo xtask check quick`: fmt, the whole workspace's clippy and the tests of the packages changed since `base`, then
+/// the kit's self-tests when a 32-bit crate changed, the Launcher's imports and the installer's checks when theirs did.
+/// The 2010-11 hooks only when [`touches_1011`]. Pull requests' CI runs it (in the `ci` profile); no release build. The
+/// GPU snapshot tests are skipped wherever it runs: their pixels move in the `fast` profile this uses locally.
 pub(crate) fn quick(
     root: &Path,
     stage_root: &Path,
@@ -350,7 +350,7 @@ pub(crate) fn quick(
         }
         Some(p) => {
             println!(
-                "quick: {}",
+                "quick: tests only for {}; clippy lints the whole workspace",
                 p.iter().cloned().collect::<Vec<_>>().join(", ")
             );
             p.iter()
@@ -390,20 +390,19 @@ pub(crate) fn quick(
         build_all(root, kit, kit_1718, e1011)?;
     }
     let hook = hook_feature(e1011);
-    let runs = target_scopes(&scope, hook);
-    // clippy and the test build below take the whole workspace of each target, as `check` does: a smaller `-p` set
-    // unifies other features and rebuilt dependencies main's cache holds (a launcher-only CI run built its tests in
-    // 6 min, the whole workspace's took 4, and its `dev` clippy rebuilt them twice over, about 90 s a target). Only the
-    // stale crates lint and only the changed crates' tests run either way
-    let wide = target_scopes(&["--workspace".to_owned()], hook);
-    let wide = |t: &str| -> Result<Vec<String>> {
-        wide.iter()
-            .find(|(w, _)| *w == t)
-            .map(|(_, s)| s.clone())
-            .with_context(|| format!("no workspace scope for {t}"))
-    };
-    for (target, _) in &runs {
-        run_ok(clippy(root, target, &wide(target)?), "cargo clippy")?;
+    // The changed crates only pick the targets: clippy lints the whole workspace of each, `check`'s scope, whose units
+    // a cache warm from `check ci` holds. A `-p` set resolves features differently and re-checked the dependencies:
+    // warm on 2026-11-21, `-p launcher -p wccf-installer` re-checked 104 crates in 51 s, where the old narrow clippy
+    // took 73 s for the same two crates. `server_check` below is now the only step that builds a crate under its own
+    // feature set.
+    // shortcut: a crate that only builds because another workspace member enables a feature now passes here; a
+    // `cargo check -p` per changed crate would cover it at those 51 s a run, so upgrade if that cost drops.
+    let targets: Vec<&str> = target_scopes(&scope, hook)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect();
+    for cmd in quick_clippy(root, &scope, hook) {
+        run_ok(cmd, "cargo clippy")?;
     }
     // the server alone, which a workspace build's feature unification hides
     run_ok(server_check(root), "cargo check -p forza-server")?;
@@ -424,7 +423,7 @@ pub(crate) fn quick(
             run_ok(clippy, "cargo clippy (32-bit)")?;
         }
     }
-    for (target, _) in &runs {
+    for &target in &targets {
         let only = match &pkgs {
             None => None,
             Some(p) => match test_filter(p, target) {
@@ -432,7 +431,7 @@ pub(crate) fn quick(
                 None => continue,
             },
         };
-        let wide = wide(target)?;
+        let wide = wide_scope(target, hook)?;
         let wide: Vec<&str> = wide.iter().map(String::as_str).collect();
         run_ok(
             tests(root, true, &[], target, &wide, only.as_deref()),
@@ -564,19 +563,21 @@ pub(crate) fn fmt_clippy(root: &Path, e1011: bool, failed: &mut Vec<String>) {
     let mut fmt = Command::new("cargo");
     fmt.args(["fmt", "--all", "--check"]).current_dir(root);
     cargo_step("workspace: cargo fmt", fmt, failed);
-    let mut clippy = rust("clippy", root);
-    clippy.args(["--locked", "--all-targets", "--target", TARGET]);
-    clippy.args([
-        "--workspace",
-        "--exclude",
-        "forza-panel",
-        "--",
-        "-D",
-        "warnings",
-    ]);
-    cargo_step("workspace: cargo clippy", clippy, failed);
-    // the 32-bit crates, which are empty on x86_64: as `build` builds them, the hook once per edition
-    for (i, (feature, _, _)) in hooks(e1011).enumerate() {
+    // `check quick` lints the same two scopes through the same function, so the cache entry keeps its shape
+    let hook = hook_feature(e1011);
+    let mut wide = quick_clippy(root, &["--workspace".to_owned()], hook).into_iter();
+    cargo_step(
+        "workspace: cargo clippy",
+        wide.next().expect("the 64-bit workspace's scope"),
+        failed,
+    );
+    cargo_step(
+        &format!("32-bit: cargo clippy ({hook})"),
+        wide.next().expect("the 32-bit scope"),
+        failed,
+    );
+    // the hook's other features: as `build` builds them, once per edition
+    for (feature, _, _) in hooks(e1011).skip(1) {
         let mut clippy = rust("clippy", root);
         clippy.args([
             "--locked",
@@ -587,11 +588,10 @@ pub(crate) fn fmt_clippy(root: &Path, e1011: bool, failed: &mut Vec<String>) {
             "forza-hook",
             "--features",
             feature,
+            "--",
+            "-D",
+            "warnings",
         ]);
-        if i == 0 {
-            clippy.args(["-p", "forza-panel"]).args(NATIVE_CRATES);
-        }
-        clippy.args(["--", "-D", "warnings"]);
         cargo_step(&format!("32-bit: cargo clippy ({feature})"), clippy, failed);
     }
 }
@@ -735,12 +735,41 @@ pub(crate) fn tests(
     test
 }
 
-/// `cargo clippy` of one target over `scope`: `check quick` passes the crates it changed and their dependents.
+/// `cargo clippy` of one target over `scope`: `check` and `check quick` both pass the whole workspace of each target.
 pub(crate) fn clippy(root: &Path, target: &str, scope: &[String]) -> Command {
     let mut c = rust("clippy", root);
     c.args(["--locked", "--all-targets", "--target", target]);
     c.args(scope).args(["--", "-D", "warnings"]);
     c
+}
+
+/// The whole workspace's scope for `target`, which is what `check` lints and tests: a CI cache warm from `check ci`
+/// holds those units, so cargo only re-checks the crates that changed and their dependents.
+pub(crate) fn wide_scope(target: &str, hook: &str) -> Result<Vec<String>> {
+    target_scopes(&["--workspace".to_owned()], hook)
+        .into_iter()
+        .find(|(t, _)| *t == target)
+        .map(|(_, s)| s)
+        .with_context(|| format!("no workspace scope for {target}"))
+}
+
+/// The clippy commands `check quick` runs for the crates in `scope`: the whole workspace of each target they are built
+/// for, never a `-p` set of just those crates. A `-p` set resolves features differently from main's cached `--workspace`
+/// clippy, so cargo re-checked the dependencies (2026-11-21: 104 crates, 51 s warm for a two-crate change); with that
+/// cache only the changed crates and their dependents are linted either way.
+///
+/// The 32-bit scope's hook feature is `hook`: on a branch that skips the 2010-11 hooks it is `forza-hook/e1718`, where
+/// main's `check ci` lints `forza-hook/e1011`, so that target re-checks forza-hook and its dependents; the panel's stack
+/// does not depend on the hook and stays cached.
+pub(crate) fn quick_clippy(root: &Path, scope: &[String], hook: &str) -> Vec<Command> {
+    let wide = target_scopes(&["--workspace".to_owned()], hook);
+    target_scopes(scope, hook)
+        .into_iter()
+        .filter_map(|(target, _)| {
+            let (_, scope) = wide.iter().find(|(t, _)| *t == target)?;
+            Some(clippy(root, target, scope))
+        })
+        .collect()
 }
 
 /// `cargo xtask test -p <crate>`: the tests of the crates named, built as `check quick` builds them (the wide
