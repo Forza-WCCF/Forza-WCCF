@@ -1323,7 +1323,7 @@ impl Market {
 
     /// LIST of `card` at `price` by the key `kh`, whose log passed as `checked`: the band from the server's table, the
     /// open-listing cap, and an earned copy that neither the log (`list` lines) nor the ledger (open or sold, the
-    /// proceeds not collected) already has on the market.
+    /// proceeds not collected, or paid without its `market_sell` line) already has on the market.
     fn list(
         &self,
         tx: &Connection,
@@ -1365,8 +1365,13 @@ impl Market {
                 |r| r.get(0),
             )
             .map_err(store_err)?;
+        // a sale paid without its `market_sell` line still took its copy, even when the log `unlist`s it
+        let unwritten = owed(tx, kh, checked)?
+            .iter()
+            .filter(|(word, o)| *word == "sold" && o.card == c)
+            .count() as u32;
         let h = checked.held.get(&c).copied().unwrap_or_default();
-        let listed = h.listed.max(out);
+        let listed = h.listed.max(out + unwritten);
         if h.earned <= listed {
             return Err(if h.earned == 0 && h.starter + h.imported > 0 {
                 format!("card {c} is held only as a starter or imported copy, which never lists")
@@ -3765,6 +3770,34 @@ mod tests {
         assert_eq!(
             ask(&m, 1, Verb::Owed, NOW + 9, &[], &seller).unwrap(),
             "owed"
+        );
+    }
+
+    /// #375: a sale COLLECT paid, its `market_sell` line held back and an `unlist` line written instead, frees no copy:
+    /// a LIST of the same copy is refused until the line is written.
+    #[test]
+    fn a_paid_sale_without_its_line_keeps_its_copy_off_the_market() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20]);
+        ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
+        ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
+        ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap();
+        let listed = plus(&seller, Kind::List, 57, 0);
+        let kept = plus(&listed, Kind::Unlist, 57, 0);
+        assert_eq!(
+            ask(&m, 1, Verb::List, NOW + 5, &[57, 228], &kept).unwrap_err(),
+            "no earned copy of card 57 is left off the market"
+        );
+        assert_eq!(
+            row(
+                dir.path(),
+                "SELECT COUNT(*) FROM ledger WHERE state = 'open'"
+            ),
+            [[s("0")]]
         );
     }
 }
