@@ -2118,24 +2118,24 @@ impl Run<'_> {
             if !name.is_empty() {
                 env.push(("WCCF_SHOP_NAME".to_owned(), name.clone()));
             }
-            // the host's notice for its tunnel guests (#328; HOST LAN ARCADE has no box), always in this file: the desk's
-            // default is data\notice.json, the panel's copy of the project server's notice
-            let file = self.kit.data().join("host_notice.json");
-            let text = if lan_only {
-                String::new()
+            // HOST ARCADE: the host's notice for its tunnel guests (#328), written to its own file here; HOST LAN ARCADE
+            // has no box: its desk serves the panel's copy of the project's notice, never written here (desk_notice_file)
+            let file = desk_notice_file(&self.kit.data(), lan_only);
+            let written = if lan_only {
+                Ok(true)
             } else {
-                choices::setting(&self.kit.settings_file(), "arcade_notice").unwrap_or_default()
+                let text = choices::setting(&self.kit.settings_file(), "arcade_notice").unwrap_or_default();
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                crate::notice::write_host_notice(&file, &text, now)
             };
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            let written = crate::notice::write_host_notice(&file, &text, now);
             if let Err(e) = &written {
                 let line = format!("notice: {} not written ({e}), no arcade notice", file.display());
                 crate::logs::append(&self.logs().join("run_launcher.txt"), &line);
                 // a last session's notice must not stay up under its old id
                 let _ = std::fs::remove_file(&file);
             }
-            // a file still there after a failed write and remove is stale: the desk keeps its default, the project's
-            // notice, which guests show unprefixed (notice::round)
+            // HOST ARCADE only (HOST LAN ARCADE writes nothing): a file still there after a failed write and remove is
+            // stale, so the desk keeps its default notice file
             if written.is_ok() || !file.exists() {
                 env.push(("WCCF_NOTICE".to_owned(), file.display().to_string()));
             }
@@ -3431,6 +3431,13 @@ impl Drop for Run<'_> {
     }
 }
 
+/// The notice file the host's desk serves (`WCCF_NOTICE`): HOST ARCADE's own (`host_notice.json`,
+/// [`crate::notice::write_host_notice`]); HOST LAN ARCADE's is the panel's copy of the project server's notice
+/// (`notice.json`, `crate::notice::Notices`), so its LAN guests keep that notice (#419), as an older host's desk served.
+fn desk_notice_file(data: &Path, lan_only: bool) -> PathBuf {
+    data.join(if lan_only { "notice.json" } else { "host_notice.json" })
+}
+
 #[cfg(test)]
 mod tests {
     use super::due;
@@ -3459,6 +3466,23 @@ mod tests {
             gone.en(),
             "projector: money display not loaded (forza_panel.dll is missing)"
         );
+    }
+
+    /// HOST LAN ARCADE's desk serves the panel's copy of the project server's notice to released LAN guests (#419);
+    /// HOST ARCADE's serves the host's own notice.
+    #[test]
+    fn a_lan_arcades_desk_serves_the_projects_notice() {
+        let data = Path::new("data");
+        assert_eq!(super::desk_notice_file(data, true), data.join("notice.json"));
+        assert_eq!(super::desk_notice_file(data, false), data.join("host_notice.json"));
+    }
+
+    /// The run's desk takes its notice file from [`super::desk_notice_file`] with the LAN-only choice (#419): a
+    /// hard-coded `host_notice.json` there gave HOST LAN ARCADE's guests an empty notice.
+    #[test]
+    fn the_desk_notice_file_follows_the_lan_only_choice() {
+        let code = include_str!("mod.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        assert!(code.contains("let file = desk_notice_file(&self.kit.data(), lan_only);"));
     }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).
