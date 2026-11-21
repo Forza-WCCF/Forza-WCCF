@@ -63,6 +63,8 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) 
         }
         for s in lobby::Scenario::ALL {
             let mut v = lobby::LobbyView::sample(s);
+            // as the Launcher's ONLINE tab, the lobby's one host, draws it: the list and the folds fit the height
+            v.list_fit = true;
             for size in [lobby::SIZE, Vec2::new(lobby::SIZE.x, 470.0)] {
                 let mut show = |ui: &mut Ui| {
                     lobby::show(ui, &mut v, lang);
@@ -205,6 +207,61 @@ fn no_two_clickables_overlap() {
         over.is_empty(),
         "clickable widgets on each other:\n{}",
         over.join("\n")
+    );
+}
+
+/// UI audit invariant 2 (#306): every clickable a click reaches lies whole inside the window, or the scroll area it
+/// sits in brings it there, so none is cut at the window's edge for good.
+#[test]
+fn every_clickable_inside_the_window() {
+    let mut out = vec![];
+    screens(|name, size, ed, show| {
+        let mut h = harness(size, 1.0, ed, show);
+        h.run_steps(8);
+        let win = h.ctx.content_rect().expand(0.5);
+        let rects = |h: &egui_kittest::Harness<'_>, id: u64| {
+            // SAFETY: as in `overlaps_of`, the id egui stored for this very widget; the lookup only reads rects
+            let id = unsafe { egui::Id::from_high_entropy_bits(id) };
+            h.ctx.read_response(id).map(|r| (r.rect, r.interact_rect))
+        };
+        let mut cut = vec![];
+        for n in h.root().children_recursive() {
+            let a = n.accesskit_node();
+            if a.is_hidden() || a.is_disabled() || !clickable(a.role()) {
+                continue;
+            }
+            let id = a.locate().0.0;
+            if let Some((r, seen)) = rects(&h, id)
+                && seen.width() > 1.0
+                && seen.height() > 1.0
+                && on_page(&h.ctx, seen)
+                && !win.contains_rect(r)
+            {
+                cut.push((
+                    id,
+                    format!("{name} {size:?}: {:?} {:?} {r:?}", a.role(), a.label()),
+                ));
+            }
+        }
+        for (id, line) in cut {
+            // under a scroll area, asking for the widget scrolls it into view
+            if let Some(n) = h
+                .root()
+                .children_recursive()
+                .find(|n| n.accesskit_node().locate().0.0 == id)
+            {
+                n.scroll_to_me();
+            }
+            h.run_steps(8);
+            if rects(&h, id).is_none_or(|(r, _)| !win.contains_rect(r)) {
+                out.push(line);
+            }
+        }
+    });
+    assert!(
+        out.is_empty(),
+        "clickables past the window's edge:\n{}",
+        out.join("\n")
     );
 }
 
