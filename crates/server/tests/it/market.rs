@@ -840,3 +840,66 @@ fn a_lost_leave_answer_brings_the_listings_back_over_the_desk() {
     assert!(market::listed(&Log::new(&s.1).lines().unwrap()).is_empty());
     seller.ask(Verb::Join, &[]).unwrap();
 }
+
+/// #375 over a real desk: a BUY applied with its answer lost and `market.json` then unreadable, so offline the log
+/// spends the tokens it still shows on two packs. OWED then names the purchase past the balance: it stays withheld
+/// instead of taking the log below zero, so every log-bearing request still passes the check; a match pays it later
+/// and the card arrives.
+#[test]
+fn an_offline_spend_after_a_lost_purchase_keeps_the_log_accepted() {
+    use forza::collection::{Line, PACK_CARDS, Pack, STANDARD_PACK};
+    let root = scratch("market_client_owed_spent");
+    let d = market_desk(&root);
+    let (s, b) = (
+        install(&root, "seller", &[13]),
+        install(&root, "buyer", &[14]),
+    );
+    let seller = client(&d, &s);
+    seller.ask(Verb::Join, &[]).unwrap();
+    seller.ask(Verb::List, &[13, 38]).unwrap();
+    let mut buyer = client(&d, &b);
+    buyer.ask(Verb::Join, &[]).unwrap();
+    buyer.transport = lose;
+    assert!(matches!(
+        buyer.ask(Verb::Buy, &[1, 13, 38]),
+        Err(Fail::Unanswered(_))
+    ));
+    std::fs::write(b.0.join(market::STATE_FILE), b"{\"joined\":tr").unwrap();
+    assert!(matches!(Client::load(&b.0), Err(Fail::Disk(_))));
+    // offline, two standard packs as `buy_pack` writes them spend the 200 tokens the log shows
+    let log = Log::new(&b.1);
+    for p in 0..2 {
+        let line = |card, tokens| Line {
+            kind: Kind::Pack,
+            card,
+            tokens,
+            why: Pack::Standard.why(),
+        };
+        let cards = (0..PACK_CARDS as u32).map(|n| line(Some(20 + 3 * p + n), 0));
+        log.append_lines_at(forza::collection::now(), |_| {
+            Ok(std::iter::once(line(None, -STANDARD_PACK))
+                .chain(cards)
+                .collect())
+        })
+        .unwrap();
+    }
+    assert_eq!(folded(&b.1).tokens, 0);
+    let buyer = client(&d, &b);
+    let v = buyer.visit(3).unwrap();
+    assert!(v.stock.is_some(), "still in the market: the lists came");
+    let got = folded(&b.1);
+    assert_eq!(
+        (got.tokens, got.copies(13).earned),
+        (0, 0),
+        "not written below zero"
+    );
+    assert_eq!(Client::saved(&b.0).withheld, 38, "the page counts it spent");
+    buyer.ask(Verb::Join, &[]).unwrap();
+    // a match pays it: the next visit writes the purchase
+    log.append(Kind::Match, Some(15), 50, "match").unwrap();
+    buyer.visit(3).unwrap();
+    let got = folded(&b.1);
+    assert_eq!((got.tokens, got.copies(13).earned), (12, 1));
+    assert_eq!(Client::saved(&b.0).withheld, 0);
+    buyer.ask(Verb::Join, &[]).unwrap();
+}

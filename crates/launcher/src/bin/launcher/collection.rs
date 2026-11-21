@@ -125,7 +125,8 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
 
 /// The market's part of the view (step 4.1) from the log's `text` and the installation's `data`: in the market or not,
 /// this installation's listings, and a request still in flight counted as answered (a LIST's copy as listed, a BUY's
-/// price as spent), so the page cannot spend them twice meanwhile.
+/// price as spent), so the page cannot spend them twice meanwhile; so are the purchases OWED named that the log could
+/// not pay yet (`Saved::withheld`).
 pub fn market_of(v: &mut CollectionView, catalogue: &[Card], text: &str, data: &Path) {
     let saved = forza::market::Client::saved(data);
     let m = &mut v.market;
@@ -156,6 +157,7 @@ pub fn market_of(v: &mut CollectionView, catalogue: &[Card], text: &str, data: &
         Some(("BUY" | "STOCKBUY", &[.., price])) => v.tokens -= price as i64,
         _ => {}
     }
+    v.tokens -= saved.withheld;
 }
 
 /// The server's rows as the page's offers: the catalogue's cards (a number it lacks is left out).
@@ -1004,6 +1006,26 @@ mod tests {
         let mut v = view(&cat, &coll, None).unwrap();
         market_of(&mut v, &cat, &log.lines().unwrap(), &data);
         assert!(v.market.joined);
+        // #375: a purchase OWED named over the balance is spent on the page until its line comes
+        let tokens = v.tokens;
+        let owing = Saved {
+            withheld: 30,
+            ..Client::saved(&data)
+        };
+        std::fs::write(
+            data.join(forza::market::STATE_FILE),
+            serde_json::to_string(&owing).unwrap(),
+        )
+        .unwrap();
+        market_of(&mut v, &cat, &log.lines().unwrap(), &data);
+        assert_eq!(v.tokens, tokens - 30);
+        std::fs::write(
+            data.join(forza::market::STATE_FILE),
+            serde_json::to_string(&Saved { withheld: 0, ..owing }).unwrap(),
+        )
+        .unwrap();
+        let mut v = view(&cat, &coll, None).unwrap();
+        market_of(&mut v, &cat, &log.lines().unwrap(), &data);
         let copies = |v: &CollectionView, no| v.cards.iter().find(|(k, _)| k.number == no).unwrap().1;
         assert_eq!(
             copies(&v, free[0]).listed,

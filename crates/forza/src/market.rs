@@ -423,6 +423,10 @@ pub struct Saved {
     /// Sales LEAVE said wait for COLLECT.
     #[serde(default)]
     pub waiting: u32,
+    /// Prices of purchases the server made that the log could not pay yet (OWED named them over the balance, after
+    /// offline spends): the page counts them as spent, as an outbox BUY's, until a later OWED writes their lines.
+    #[serde(default)]
+    pub withheld: i64,
     /// The request sent and not answered yet.
     pub outbox: Option<Outbox>,
 }
@@ -635,6 +639,28 @@ pub fn lines_for(verb: Verb, at: u64, answer: &str, log: &str) -> Vec<crate::col
     out
 }
 
+/// `lines` in the order the server's check reads them on a balance of `tokens`: the credits first, then each debit the
+/// balance still pays. A debit past it (a purchase OWED names after offline spends) would take the balance below zero,
+/// and the server's check then refuses every later log: it is left out, with its price in the sum returned, and OWED
+/// names it again until the balance pays it.
+fn affordable(
+    mut tokens: i64,
+    lines: Vec<crate::collection::Line>,
+) -> (Vec<crate::collection::Line>, i64) {
+    let (mut out, debits): (Vec<_>, Vec<_>) = lines.into_iter().partition(|l| l.tokens >= 0);
+    tokens += out.iter().map(|l| l.tokens).sum::<i64>();
+    let mut short = 0;
+    for l in debits {
+        if tokens + l.tokens >= 0 {
+            tokens += l.tokens;
+            out.push(l);
+        } else {
+            short -= l.tokens;
+        }
+    }
+    (out, short)
+}
+
 /// The parts of a STOCK answer (`stock [left n] slot:card:price[:sold] ...`) or a BROWSE one (`listings id:card:price
 /// ...`) after their first word.
 fn rows(words: std::str::SplitWhitespace<'_>) -> Vec<Row> {
@@ -808,11 +834,22 @@ impl Client {
     ) -> Result<String, Fail> {
         if let Ok(answer) = &said {
             let lines = lines_for(verb, at, answer, &self.log.lines().map_err(disk)?);
+            let mut short = 0;
             if !lines.is_empty() {
                 self.log
-                    .append_lines_at(crate::collection::now(), |_| Ok(lines))
+                    .append_lines_at(crate::collection::now(), |state| {
+                        let (fit, over) = affordable(state.tokens, lines);
+                        short = over;
+                        Ok(fit)
+                    })
                     .map_err(disk)?;
             }
+            // OWED names every unpaid purchase each time; another answer's can only add one
+            s.withheld = if verb == Verb::Owed {
+                short
+            } else {
+                s.withheld + short
+            };
             match verb {
                 Verb::Join => s.joined = true,
                 Verb::Leave => {
@@ -888,6 +925,7 @@ impl Client {
         let mut s = Saved {
             outbox: None,
             waiting: 0,
+            withheld: 0,
             ..before.clone()
         };
         let at = now_ms().max(s.last_at + 1);
@@ -1364,6 +1402,7 @@ mod tests {
         std::fs::create_dir(dir.path().join("coll")).unwrap();
         let c = scripted_client(dir.path());
         let data = dir.path().join("data");
+        c.log.append(Kind::Welcome, None, 400, "welcome").unwrap();
         script([Ok(Ok("0 lines".into())), Err("connection reset".into())]);
         c.ask(Verb::Join, &[]).unwrap();
         assert!(matches!(
@@ -1388,7 +1427,8 @@ mod tests {
         let state = fold(&c.log.lines().unwrap()).state;
         assert_eq!(state.copies(12).earned, 1, "the card arrived");
         assert_eq!(state.copies(41).earned, 1, "the stock card arrived");
-        assert_eq!(state.tokens, -90 - 216);
+        assert_eq!(state.tokens, 400 - 90 - 216);
+        assert_eq!(Client::saved(&data).withheld, 0);
         // the server still names the rows (a mismatch): no line twice, one OWED more and no loop
         script([
             Ok(Ok("listings".into())),
@@ -1410,6 +1450,60 @@ mod tests {
             })
             .count();
         assert_eq!(buys, 1);
+    }
+
+    /// #375 blocker: a purchase OWED names after the log spent its tokens offline (its outbox lost) is not written
+    /// past the balance: a log below zero is one the server's check refuses for good. The sale OWED names is written
+    /// first, the purchase it pays goes in, the one it does not stays withheld, and goes in once a match pays it.
+    #[test]
+    fn owed_never_takes_the_balance_below_zero() {
+        use crate::collection::{Kind, fold};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        c.log.append(Kind::Match, Some(57), 50, "match").unwrap();
+        script([Ok(Ok("0 lines".into())), Ok(Ok("listed 7:57:40".into()))]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 40]).unwrap();
+        // the balance 50; OWED names two purchases (100 and 30) and the listing's sale (40)
+        let owed = "owed bought 3:12:100 4:13:30 sold 7:57:40";
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok(owed.into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        let f = fold(&c.log.lines().unwrap());
+        assert!(f.warnings.is_empty(), "{:?}", f.warnings);
+        assert_eq!(f.state.tokens, 50 + 40 - 30, "never below zero");
+        assert_eq!(
+            f.state.copies(13).earned,
+            1,
+            "the purchase the balance pays arrived"
+        );
+        assert_eq!(f.state.copies(12).earned, 0, "the other waits");
+        assert_eq!(
+            Client::saved(&data).withheld,
+            100,
+            "the page spends it meanwhile"
+        );
+        // a match pays it: the next visit writes it
+        c.log.append(Kind::Match, Some(58), 50, "match").unwrap();
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        let f = fold(&c.log.lines().unwrap());
+        assert_eq!((f.state.tokens, f.state.copies(12).earned), (10, 1));
+        assert_eq!(Client::saved(&data).withheld, 0);
     }
 
     /// #375: LEAVE's answer is lost with 2 listings open, one of them sold meanwhile. The next visit learns from
