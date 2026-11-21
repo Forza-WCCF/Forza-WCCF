@@ -133,7 +133,7 @@ fn desk(server: &str) -> Result<std::net::SocketAddr, Fail> {
 /// The server's refusal reasons a player meets, in the server's words (`crates/server/src/market.rs`, the desk's
 /// [`forza::market::NOT_SET_UP`]), each with its `ui.yml` key; `{name}` stands for a number. A reason not here (a log
 /// the server's check refuses, line by line) shows in English as the server said it.
-const REASONS: [(&str, &str); 23] = [
+const REASONS: [(&str, &str); 25] = [
     ("this installation is not in the market", "collection.market_why_not_in"),
     ("that listing is no longer on the market", "collection.market_why_gone"),
     ("that listing sold: COLLECT pays it", "collection.market_why_sold"),
@@ -217,6 +217,11 @@ const REASONS: [(&str, &str); 23] = [
         "an old request (sent twice?), the last at {last}",
         "collection.market_why_old",
     ),
+    (
+        "a fork: this log drops {n} of the {total} lines the server accepted (a profile reset sends MARKET RESET first)",
+        "collection.market_why_fork",
+    ),
+    ("busy, try again in a minute", "collection.market_why_busy"),
 ];
 
 /// The server's refusal `why` in the player's language, for the "refused" lines.
@@ -309,6 +314,24 @@ mod tests {
                 let said = reason_in(lang, &why);
                 assert_eq!(said, forza_ui::text(lang, key, &numbers(shape, &why).unwrap()), "{why}");
                 assert!(said != why && !said.contains("%{"), "{lang:?} {why}: {said}");
+            }
+        }
+    }
+
+    /// #375: each shape's words are the server's own (its source files), so a server rewording fails here instead of
+    /// showing in English.
+    #[test]
+    fn every_reason_is_in_the_servers_words() {
+        let server = [
+            include_str!("../../../../server/src/market.rs"),
+            include_str!("../../../../server/src/desk.rs"),
+            include_str!("../../../../forza/src/market.rs"),
+        ]
+        .concat()
+        .replace("{OLD}", forza::market::OLD);
+        for (shape, _) in REASONS {
+            for part in shape.split('{').map(|p| p.split_once('}').map_or(p, |(_, w)| w)) {
+                assert!(server.contains(part), "{part:?} of {shape:?}");
             }
         }
     }

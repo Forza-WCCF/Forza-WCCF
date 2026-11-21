@@ -718,6 +718,8 @@ collection.market_why_another_key: {en: "this collection is in the market under 
 collection.market_why_welcome: {en: "this installation got its starting tokens before.", it: "questa installazione ha già ricevuto i gettoni iniziali.", ja: "このインストールはすでに最初のトークンを受け取っています。"}
 collection.market_why_no_card: {en: "card %{card} is not in this server's card table.", it: "la carta %{card} non è nella tabella delle carte di questo server.", ja: "カード %{card} はこのサーバーのカード表にありません。"}
 collection.market_why_old: {en: "a request arrived twice. Try again.", it: "una richiesta è arrivata due volte. Riprova.", ja: "リクエストが二重に届きました。もう一度お試しください。"}
+collection.market_why_fork: {en: "this collection lacks %{n} entries the market server already has. Put the newer copy back, or press START OVER.", it: "a questa collezione mancano %{n} voci che il server del mercato ha già. Rimetti la copia più recente o premi RICOMINCIA.", ja: "このコレクションには、マーケットサーバーにある記録が %{n} 件ありません。新しいほうのコピーを戻すか、「最初からやり直す」を押してください。"}
+collection.market_why_busy: {en: "the market server is busy. Try again in a minute.", it: "il server del mercato è occupato. Riprova tra un minuto.", ja: "マーケットサーバーが混み合っています。1 分ほどしてから、もう一度お試しください。"}
 collection.market_stock_title: {en: "YOUR LIST OF THE DAY", it: "LA TUA LISTA DEL GIORNO", ja: "今日のあなたのリスト"}
 collection.market_stock_hint: {en: "Cards drawn for this installation alone. A new list comes every day at 04:00 UTC.", it: "Carte estratte solo per questa installazione. Ogni giorno alle 04:00 UTC arriva una nuova lista.", ja: "このインストールだけのために選ばれたカードです。毎日 13:00（日本時間）に新しいリストになります。"}
 collection.market_left: {en: "Purchases left today: %{n}", it: "Acquisti rimasti oggi: %{n}", ja: "今日の残り購入数：%{n}"}
