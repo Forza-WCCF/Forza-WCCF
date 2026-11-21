@@ -153,6 +153,34 @@ pub fn ensure_card(path: &Path) {
     }
 }
 
+/// The card code a file's bytes hold, if any: UTF-8, UTF-8 with a BOM, or saved as "Unicode" (UTF-16 with a BOM,
+/// as Notepad writes it). Bytes that are none of these hold no code.
+fn code_in(b: &[u8]) -> Option<String> {
+    let units = |be: bool| -> Option<String> {
+        let u: Vec<u16> = b[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| {
+                if be {
+                    u16::from_be_bytes(*c)
+                } else {
+                    u16::from_le_bytes(*c)
+                }
+            })
+            .collect();
+        String::from_utf16(&u).ok()
+    };
+    let text = match b {
+        [0xFF, 0xFE, ..] => units(false),
+        [0xFE, 0xFF, ..] => units(true),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => std::str::from_utf8(rest).ok().map(str::to_owned),
+        _ => std::str::from_utf8(b).ok().map(str::to_owned),
+    }?;
+    let code = text.trim();
+    is_code(code).then(|| code.to_owned())
+}
+
 /// A card's access code: 20 digits, as the reader writes it.
 fn is_code(s: &str) -> bool {
     s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit())
@@ -224,13 +252,14 @@ impl Card {
         let mut not_kept = None;
         let mut kept_aside = None;
         if let Some(p) = path {
-            // bytes, not text: a file saved as "Unicode" (UTF-16) or holding binary garbage is "not a card
-            // code" like any other, never a start failure
+            // bytes, not text: a file saved as "Unicode" (UTF-16, as Notepad offers) holds the player's code just as
+            // a plain one does; anything without a 20-digit code in it is "not a card code", never a start failure
             match read_card(p) {
-                Ok(b) => match std::str::from_utf8(&b).map(str::trim) {
-                    Ok(s) if is_code(s) => from_file = Some(s.to_string()),
+                Ok(b) => match code_in(&b) {
+                    // the code is on the reader as it is: the file is not rewritten
+                    Some(code) => from_file = Some(code),
                     // not a card code: kept aside, never written over
-                    _ => {
+                    None => {
                         let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
                         match std::fs::copy(p, &bad) {
                             Ok(_) => kept_aside = Some(bad),
@@ -536,6 +565,60 @@ mod tests {
             "the log names the file that was kept"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file saved as "Unicode" (UTF-16 with a BOM, as Notepad writes it) holds the player's code: that code is
+    /// used as it is and the file is left alone - no `.bad`, no new code.
+    #[test]
+    fn a_card_file_saved_as_utf16_keeps_its_code() {
+        for be in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("card.txt");
+            let mut bytes = if be {
+                vec![0xFE, 0xFF]
+            } else {
+                vec![0xFF, 0xFE]
+            };
+            for u in "51234567890123456789\n".encode_utf16() {
+                bytes.extend_from_slice(&if be { u.to_be_bytes() } else { u.to_le_bytes() });
+            }
+            std::fs::write(&path, &bytes).unwrap();
+            let c = Card::load(Some(&path)).unwrap();
+            assert_eq!(c.code, "51234567890123456789", "be={be}");
+            assert_eq!(c.kept_aside, None, "nothing is kept aside, be={be}");
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                bytes,
+                "the file is not rewritten, be={be}"
+            );
+            assert_eq!(
+                std::fs::read_dir(dir.path()).unwrap().count(),
+                1,
+                "no copy beside it, be={be}"
+            );
+        }
+    }
+
+    /// A card file with a UTF-8 BOM holds its code just as one without.
+    #[test]
+    fn a_card_file_with_a_utf8_bom_keeps_its_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let bytes = [&[0xEF, 0xBB, 0xBF][..], b"51234567890123456789\n"].concat();
+        std::fs::write(&path, &bytes).unwrap();
+        let c = Card::load(Some(&path)).unwrap();
+        assert_eq!(c.code, "51234567890123456789");
+        assert_eq!(c.kept_aside, None, "nothing is kept aside");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "the file is not rewritten"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no copy beside it"
+        );
     }
 
     /// A card file that is not a card code and cannot be kept aside (here its `.bad` name is too long) is left as
