@@ -924,3 +924,10 @@ fn segments_with_one_label() {
     }
     assert_eq!(sel, 1);
 }
+
+/// A stepper with no step would divide by zero: the guard says what is wrong instead (#306, A8).
+#[test]
+#[should_panic(expected = "a stepper needs a step")]
+fn a_stepper_with_no_step_is_refused() {
+    forza_ui::widgets::step_value(5, true, &(1..=20), 0, false);
+}
