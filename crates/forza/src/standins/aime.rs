@@ -127,7 +127,8 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
             continue;
         }
         let n = body[0] as usize;
-        // ponytail: the Python raises on a frame shorter than addr/seq/cmd/plen; skip it here
+        // A frame that stops inside len/addr/seq/cmd/plen carries no command, so there is nothing to answer: skip
+        // it and read on (the Python raised here, which left the game without its reader).
         if n >= 5 {
             let sum = body[..n].iter().fold(0u8, |s, b| s.wrapping_add(*b));
             reqs.push(Req {
@@ -343,5 +344,17 @@ mod tests {
         assert_eq!(reqs[0].payload, [0xE0, 0x01, 0xD0]);
         let r = response(&reqs[0], 0, &[0xE0]);
         assert!(r[0] == 0xE0 && r[1..].windows(2).any(|w| w == [0xD0, 0xDF]));
+    }
+
+    /// A frame that stops inside len/addr/seq/cmd/plen is skipped, and the frame behind it still reads.
+    #[test]
+    fn a_short_frame_is_skipped() {
+        let short = escape(&[3, 0, 0, 0x42]); // len 3: addr and seq only, no cmd
+        let mut good = vec![5, 0, 0, 0x42, 0]; // a poll with an empty payload
+        good.push(good.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
+        let (reqs, left) = parse(&[&short[..], &escape(&good)[..]].concat());
+        assert!(left.is_empty(), "{left:02x?} left over");
+        assert_eq!(reqs.len(), 1, "the short frame is skipped");
+        assert_eq!((reqs[0].cmd, reqs[0].ok), (0x42, true));
     }
 }
