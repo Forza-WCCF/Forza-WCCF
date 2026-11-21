@@ -42,6 +42,27 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) 
                 }
             }
         }
+        // the lobby where the app shows it, in the ONLINE tab between the title bar and the footer: what it must fit
+        // is the tab, not the window
+        for s in lobby::Scenario::ALL {
+            for ed in [Edition::E1011, Edition::E1718] {
+                let mut st = launcher::LauncherState::sample(ed, lang, Online);
+                let mut v = lobby::LobbyView::sample(s);
+                v.grey = st.lobby.grey;
+                v.kind = st.lobby.kind;
+                v.codes = st.lobby.codes;
+                v.arcades_view_only = st.lobby.arcades_view_only;
+                v.vs_hidden = st.lobby.vs_hidden;
+                st.lobby = v;
+                for size in [launcher::SIZE, launcher::window_size(Some(700.0))] {
+                    let mut show = |ui: &mut Ui| {
+                        launcher::show(ui, &mut st);
+                    };
+                    let name = format!("launcher Online {ed:?} {l} lobby {}", s.tag());
+                    check(&name, size, ed, &mut show);
+                }
+            }
+        }
         for page in installer::Page::ALL {
             let mut st = installer::InstallerState::sample(lang, page);
             for size in [installer::SIZE, Vec2::new(installer::SIZE.x, 520.0)] {
@@ -63,6 +84,8 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) 
         }
         for s in lobby::Scenario::ALL {
             let mut v = lobby::LobbyView::sample(s);
+            // as the Launcher's ONLINE tab, the lobby's one host, draws it: the list and the folds fit the height
+            v.list_fit = true;
             for size in [lobby::SIZE, Vec2::new(lobby::SIZE.x, 470.0)] {
                 let mut show = |ui: &mut Ui| {
                     lobby::show(ui, &mut v, lang);
@@ -205,6 +228,117 @@ fn no_two_clickables_overlap() {
         over.is_empty(),
         "clickable widgets on each other:\n{}",
         over.join("\n")
+    );
+}
+
+/// UI audit invariant 2 (#306): every clickable lies whole inside the window and inside what clips it (its tab, the
+/// scroll viewport it sits in), or the scroll area it sits in brings it there, so none is cut at an edge for good. A
+/// widget wholly out of sight is in the check too: egui gives it an empty interact rect.
+#[test]
+fn every_clickable_inside_the_window() {
+    let mut out = vec![];
+    let mut thin = vec![];
+    screens(|name, size, ed, show| {
+        let mut h = harness(size, 1.0, ed, show);
+        h.run_steps(8);
+        let win = h.ctx.content_rect().expand(0.5);
+        // the widget's whole rect, and the part its clip leaves a click (egui: `clip_rect ∩ rect`)
+        let rects = |h: &egui_kittest::Harness<'_>, id: u64| {
+            // SAFETY: as in `overlaps_of`, the id egui stored for this very widget; the lookup only reads rects
+            let id = unsafe { egui::Id::from_high_entropy_bits(id) };
+            h.ctx
+                .read_response(id)
+                .map(|r| (r.rect, r.interact_rect, r.layer_id))
+        };
+        // cut by the window or by its clip; half a point of egui's rounding either way is no cut
+        let cut_at = |(r, seen, _): (egui::Rect, egui::Rect, egui::LayerId)| {
+            !win.contains_rect(r) || !seen.expand(0.5).contains_rect(r)
+        };
+        let (mut seen_n, mut cut) = (0, vec![]);
+        for n in h.root().children_recursive() {
+            let a = n.accesskit_node();
+            if a.is_hidden() || a.is_disabled() || !clickable(a.role()) {
+                continue;
+            }
+            let id = a.locate().0.0;
+            let Some(got @ (r, seen, layer)) = rects(&h, id) else {
+                continue;
+            };
+            // of no size, or covered by a dialog (its own buttons are on top, in the check)
+            let shown = seen.width() > 1.0 && seen.height() > 1.0;
+            let on_top = !shown || h.ctx.layer_id_at(seen.center()) == Some(layer);
+            if r.width() <= 1.0 || r.height() <= 1.0 || !on_top {
+                continue;
+            }
+            seen_n += 1;
+            if cut_at(got) {
+                cut.push((
+                    id,
+                    format!("{name} {size:?}: {:?} {:?} {r:?}", a.role(), a.label()),
+                ));
+            }
+        }
+        // a screen with no clickable read is a lookup that stopped resolving, not a pass
+        if seen_n == 0 {
+            thin.push(format!("{name} {size:?}"));
+        }
+        for (id, line) in cut {
+            let scroll_to = |h: &mut egui_kittest::Harness<'_>| {
+                if let Some(n) = h
+                    .root()
+                    .children_recursive()
+                    .find(|n| n.accesskit_node().locate().0.0 == id)
+                {
+                    n.scroll_to_me();
+                }
+                h.run_steps(8);
+            };
+            // under a scroll area, asking for the widget scrolls it into view. egui gives that to the innermost area
+            // only, so a viewport that is itself past the edge (the folds' inside the lobby's own) then takes the
+            // wheel a player turns over it, which chains to the area around it once the inner one is at its end
+            scroll_to(&mut h);
+            if let Some(got @ (r, _, _)) = rects(&h, id)
+                && cut_at(got)
+            {
+                let at = egui::pos2(
+                    r.center().x.clamp(win.left() + 2.0, win.right() - 2.0),
+                    r.center().y.clamp(win.top() + 2.0, win.bottom() - 2.0),
+                );
+                let dy = if r.center().y > win.center().y {
+                    -60.0
+                } else {
+                    60.0
+                };
+                for _ in 0..20 {
+                    h.event(egui::Event::PointerMoved(at));
+                    h.event(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(0.0, dy),
+                        phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(4);
+                }
+                scroll_to(&mut h);
+            }
+            if rects(&h, id).is_none_or(cut_at) {
+                out.push(format!(
+                    "{line}, at best {:?}",
+                    rects(&h, id).map(|g| (g.0, g.1))
+                ));
+            }
+        }
+    });
+    assert!(
+        thin.is_empty(),
+        "screens with no clickable examined:\n{}",
+        thin.join("\n")
+    );
+    assert!(
+        out.is_empty(),
+        "clickables past the window's or their tab's edge:\n{}",
+        out.join("\n")
     );
 }
 
@@ -428,5 +562,75 @@ fn fixed_rooms_fit_long_text() {
         );
         let (r, _) = painted(&h, &free);
         assert!(r.width() <= 112.0, "{free:?}: {r:?}");
+
+        // #306: the HELD mark over a latched button stays clear of the buttons beside it
+        for (ed, action, key) in [
+            (Edition::E1011, "KEYPLAYER", "cab.key_player"),
+            (Edition::E1718, "KEEPER", "cab.keeper"),
+        ] {
+            let mut st = panel::PanelState::sample(ed, lang, panel::Page::Game);
+            st.latched = Some(action);
+            let mut h = harness(panel::SIZE, 1.0, ed, |ui| panel::show(ui, &mut st));
+            h.run_steps(8);
+            let label = forza_ui::text(lang, key, &[]);
+            let held = forza_ui::text(lang, "cab.held", &[]);
+            let (r, cut) = painted(&h, &held);
+            let on: Vec<_> = h
+                .root()
+                .children_recursive()
+                .filter(|n| {
+                    let a = n.accesskit_node();
+                    clickable(a.role())
+                        && a.label().as_deref() != Some(label.as_str())
+                        && n.rect().intersects(r)
+                })
+                .map(|n| n.accesskit_node().label())
+                .collect();
+            assert!(
+                on.is_empty() && !cut,
+                "{ed:?} {held:?} at {r:?} is on {on:?}"
+            );
+        }
+        // #306: a stat's name in the catalogue's card pane ends before its value
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Catalogue,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        let texts = |h: &egui_kittest::Harness<'_>| -> Vec<(String, egui::Rect)> {
+            h.output()
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_owned(),
+                        t.galley.rect.translate(t.pos.to_vec2()),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let names =
+            ["cat.offence", "cat.technique", "cat.stamina"].map(|k| forza_ui::text(lang, k, &[]));
+        // the sample's first card is a secret one, with no stats: the first card that shows them
+        let shown = (0..64).any(|i| {
+            st.borrow_mut().catalogue.focus = Some(i);
+            h.run_steps(8);
+            texts(&h).iter().any(|(t, _)| *t == names[0])
+        });
+        assert!(shown, "no sample card shows its stats");
+        let all = texts(&h);
+        for name in names {
+            let (r, cut) = painted(&h, &name);
+            let on = all.iter().filter(|(_, t)| t.intersects(r)).count();
+            assert!(
+                on == 1 && !cut,
+                "{name:?}: {r:?} shares space with {} other texts",
+                on - 1
+            );
+        }
     }
 }

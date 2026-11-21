@@ -980,6 +980,28 @@ pub fn show_with(
     lang: Lang,
     more: impl FnOnce(&mut Ui),
 ) -> Option<LobbyAction> {
+    if !v.list_fit {
+        return body(ui, v, lang, more);
+    }
+    // a tab too short for the list at its three rows and what is under it scrolls as a whole: the buttons and the
+    // folds ran past its end, out of reach
+    let room = ui.available_height();
+    egui::ScrollArea::vertical()
+        .id_salt("lobby_fit")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.set_max_height(room);
+            body(ui, v, lang, more)
+        })
+        .inner
+}
+
+fn body(
+    ui: &mut Ui,
+    v: &mut LobbyView,
+    lang: Lang,
+    more: impl FnOnce(&mut Ui),
+) -> Option<LobbyAction> {
     let mut act = if ui.ctx().egui_wants_keyboard_input() {
         None
     } else {

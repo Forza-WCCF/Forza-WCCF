@@ -3175,11 +3175,24 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                 it.rect.width() / 2.0 + 5.0,
                 Stroke::new(2.5, theme::GOLD),
             );
-            p.text(
-                it.rect.center_top() - vec2(0.0, 7.0),
-                Align2::CENTER_BOTTOM,
-                tr!(lang, "cab.held"),
+            // its room: up to the nearest button on either side
+            let x = it.rect.center().x;
+            let room = rects
+                .iter()
+                .filter(|r| **r != it.rect)
+                .map(|r| 2.0 * (r.left() - x).max(x - r.right()))
+                .fold(f32::INFINITY, f32::min);
+            let g = widgets::fit_elided(
+                p,
+                &tr!(lang, "cab.held"),
                 theme::display(13.0),
+                theme::GOLD,
+                room,
+            );
+            let at = it.rect.center_top() - vec2(0.0, 7.0);
+            p.galley(
+                Align2::CENTER_BOTTOM.anchor_size(at, g.size()).min,
+                g,
                 theme::GOLD,
             );
         }
@@ -4900,23 +4913,33 @@ fn stat_column(ui: &mut Ui, card: &Card, lang: Lang, w: f32, coloured: bool) {
             rect.min + vec2(SIDE, i as f32 * STAT_ROW),
             vec2(w - 2.0 * SIDE, STAT_ROW),
         );
-        p.text(
-            c.left_center(),
-            egui::Align2::LEFT_CENTER,
-            tr!(lang, STAT_NAMES[i]),
+        let value = p
+            .text(
+                c.right_center(),
+                egui::Align2::RIGHT_CENTER,
+                stat.to_string(),
+                theme::display(18.0),
+                if coloured {
+                    widgets::stat_color(stat)
+                } else {
+                    theme::TEXT
+                },
+            )
+            .left();
+        // the name's room ends before the value
+        let g = widgets::fit_elided(
+            &p,
+            &tr!(lang, STAT_NAMES[i]),
             theme::display(14.0),
             theme::TEXT_DIM,
+            value - 6.0 - c.left(),
         );
-        p.text(
-            c.right_center(),
-            egui::Align2::RIGHT_CENTER,
-            stat.to_string(),
-            theme::display(18.0),
-            if coloured {
-                widgets::stat_color(stat)
-            } else {
-                theme::TEXT
-            },
+        p.galley(
+            egui::Align2::LEFT_CENTER
+                .anchor_size(c.left_center(), g.size())
+                .min,
+            g,
+            theme::TEXT_DIM,
         );
     }
 }

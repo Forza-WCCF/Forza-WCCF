@@ -1397,6 +1397,24 @@ fn lobby_list_fits_a_short_tab() {
     );
 }
 
+/// `list_fit`: in a tab too short even for the three-row list, the lobby scrolls as a whole. Its buttons ended under
+/// the tab's edge (JOIN at 433..473 of 470 in Japanese) and the folds below it, with nothing to scroll.
+#[test]
+fn a_lobby_too_tall_for_its_tab_scrolls() {
+    let mut v = lobby::LobbyView::sample(lobby::Scenario::ArcadeNoRoom);
+    v.list_fit = true;
+    let mut h = harness(Vec2::new(lobby::SIZE.x, 470.0), 1.0, Edition::E1718, |ui| {
+        lobby::show(ui, &mut v, Lang::Ja);
+    });
+    h.run_steps(6);
+    for label in ["参加", "LAN（同じネットワーク）"] {
+        h.get_by_label(label).scroll_to_me();
+        h.run_steps(8);
+        let r = h.get_by_label(label).rect();
+        assert!(r.top() >= 0.0 && r.bottom() <= 470.0, "{label} at {r:?}");
+    }
+}
+
 /// The pinned card floating over the pitch (the 1440x900 sheet) takes the pointer at most on itself and its FRONT | BACK
 /// switch: a click and a drag on a mat card under the rest of the pane reach the mat card.
 #[test]
