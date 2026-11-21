@@ -2470,7 +2470,13 @@ pub fn preview_size(ppp: f32, width: f32) -> Vec2 {
     )
 }
 
-/// Where the hover preview (`size`) goes in the board's `column`: 16 points right of and under the `cursor`, on the
+/// The hover preview's column: the board's, `pitch` wide, from its top to the board's foot at `board_bottom`, so the
+/// preview keeps off the buttons and the hint under the board (and the pinned pane docked under them).
+pub fn preview_column(pitch: Rect, board_bottom: f32) -> Rect {
+    Rect::from_min_max(pitch.min, pos2(pitch.right(), board_bottom))
+}
+
+/// Where the hover preview (`size`) goes in the board's `column` ([`preview_column`]): 16 points right of and under the `cursor`, on the
 /// first side of the hovered `card` where it fits whole (under, over, right, left), following the cursor along that
 /// side (turned to the cursor's left when it would leave the column) and kept in the column; so it never covers the
 /// card, and never leaves the column for the game's picture or the deck.
@@ -2566,8 +2572,8 @@ fn large_face(width: f32, ppp: f32) -> Option<Vec2> {
     (face.x + 10.0 + 120.0 + BIG_FRAME <= width).then_some(face)
 }
 
-/// The board's panes, drawn once the hint under the bench is laid out (its foot at `hint_bottom`; the column ends at
-/// `foot`): the preview of the card the mouse rests on (after the hover delay) at the cursor ([`preview_place`]), and
+/// The board's panes, drawn once the hint under the bench is laid out (the board ends at `board_bottom`, the hint's
+/// foot at `hint_bottom`; the column ends at `foot`): the preview of the card the mouse rests on (after the hover delay) at the cursor ([`preview_place`]), and
 /// the pinned card ([`pane_place`]), else the selected card's partners. All stay inside the board's column. `turned`:
 /// the pinned card on its back ([`flip_side`]); `flip`: the KEYS page's FLIP pressed this frame.
 #[allow(clippy::too_many_arguments)]
@@ -2576,6 +2582,7 @@ pub fn info_panes(
     board: &Board,
     links: &Links,
     pitch: Rect,
+    board_bottom: f32,
     hint_bottom: f32,
     foot: f32,
     turned: &mut Option<u32>,
@@ -2593,7 +2600,7 @@ pub fn info_panes(
     });
     let ppp = ui.ctx().pixels_per_point();
     if let Some((a, cursor)) = preview {
-        let column = Rect::from_min_max(pitch.min, pos2(pitch.right(), foot));
+        let column = preview_column(pitch, board_bottom);
         let r = preview_place(column, cursor, a.at, preview_size(ppp, column.width()));
         let face = crate::sizing::hover_face(ppp);
         info_pane(ui, &a.card, r, Tier::Strip, face, None, true, lang);

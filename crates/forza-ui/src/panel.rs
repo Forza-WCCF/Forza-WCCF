@@ -3600,6 +3600,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
         mat.column,
         false,
     );
+    let board_bottom = b.cursor().top();
     let Some((b, btn)) = board_foot(&mut b, st, lang) else {
         return;
     };
@@ -3610,6 +3611,7 @@ fn board_strip(ui: &mut Ui, st: &mut PanelState, lang: Lang, flip: bool) {
         &st.board,
         &st.links,
         pitch,
+        board_bottom,
         hint_bottom,
         r.bottom(),
         &mut st.turned,
@@ -6624,8 +6626,14 @@ mod tests {
                     }
                 }
                 // the hover preview (#333), its cursor at each corner of the column as info_panes takes it and in its
-                // middle, on a card there: in the board, clear of the picture, the deck and the card
-                let column = Rect::from_min_max(pitch.min, pos2(pitch.right(), col.bottom()));
+                // middle, on a card there: in the board, clear of the picture, the deck, the card and the buttons and
+                // hint under the board (the foot row, where the pin docks)
+                let board_bottom = mat.bench.bottom().max(mat.shown.bottom());
+                let foot_row = Rect::from_min_max(
+                    pos2(pitch.left(), board_bottom),
+                    pos2(pitch.right(), hint_bottom),
+                );
+                let column = board::preview_column(pitch, board_bottom);
                 let size = board::preview_size(1.0, column.width());
                 assert!(size.x > 300.0 && size.y >= 149.0, "{win}: {size:?}");
                 let card = board::card_size(pitch.width());
@@ -6642,6 +6650,10 @@ mod tests {
                     let at = format!("{win} cursor {cursor:?}: {r:?}");
                     assert!(l.board.contains_rect(r), "{at}");
                     assert!(!r.intersects(l.picture) && !r.intersects(l.deck), "{at}");
+                    assert!(
+                        !r.intersects(foot_row),
+                        "{at}: on the foot row {foot_row:?}"
+                    );
                     assert!(
                         !r.intersects(hovered),
                         "{at}: on the hovered card {hovered:?}"
