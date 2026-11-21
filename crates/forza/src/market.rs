@@ -1,11 +1,11 @@
 //! Create-a-Team's market requests (PLAN.md 3.1, 3.4, 3.5): the installation's key `data\market.key` and the signed
-//! desk words `MARKET JOIN`, `LEAVE`, `RESET`, `LIST`, `CANCEL`, `BROWSE`, `BUY`, `COLLECT`, `STOCK` and `STOCKBUY`. The Launcher builds and
+//! desk words `MARKET JOIN`, `LEAVE`, `RESET`, `LIST`, `CANCEL`, `BROWSE`, `BUY`, `COLLECT`, `STOCK`, `STOCKBUY` and `OWED`. The Launcher builds and
 //! sends them; the server (`forza-server`, `crates/server/src/market.rs`) reads them with [`Request::open`], so the
 //! format lives here once.
 //!
 //! A request is one line and a body: `MARKET VERB size sig` + `size` bytes. The body's first line is
 //! `VERB key at rules` (the public key in hex, `at` in Unix milliseconds, the economy table's `RULES`) and the verb's
-//! numbers ([`Verb::args`]), then on JOIN, LIST, BUY, STOCK and STOCKBUY the grant log `grants.jsonl` as it is on disk. No name is sent:
+//! numbers ([`Verb::args`]), then on JOIN, LIST, BUY, STOCK, STOCKBUY and OWED the grant log `grants.jsonl` as it is on disk. No name is sent:
 //! listings never show the seller (PLAN.md 3.5). `sig` is the ed25519 signature of the whole body in hex. Answers:
 //! `OK ...` or `NO reason`, one line. A request whose `at` is not after the key's last one answers [`OLD`] with the
 //! last time, and [`ask`] signs it again once past it (a PC clock set back must not lock the key out); a ledger word
@@ -29,6 +29,10 @@
 //!   `market_sell` line each), then `returned` and `id:card` for each listing past 7 days (an `unlist` line each); at
 //!   most [`COLLECT_PAGE`] rows, so ask again until it answers `OK collected` alone. It also works after LEAVE while a
 //!   sale waits.
+//! - `OWED` + log: `OK owed`, then `bought` and `id:card:price` for each listing this key bought that the log has no
+//!   `market_buy` line for, `stock` and `id:card:price` for each stock slot it bought without a `stock_buy` line, and
+//!   `sold` and `id:card:price` for each sale COLLECT paid without a `market_sell` line: what a lost answer and a lost
+//!   outbox left out of the log. At most [`COLLECT_PAGE`] rows; ask again once their lines are written.
 //!
 //! The own stock list (step 3.3, PLAN.md 3.5): each key's list for the server day (04:00 to 04:00 UTC), drawn from a
 //! server secret, the key and the day and kept from its first view, so a reload, LEAVE then JOIN or RESET shows the
@@ -86,6 +90,8 @@ pub enum Verb {
     Stock,
     /// Buy one slot of that list.
     StockBuy,
+    /// The purchases and paid sales the log lacks.
+    Owed,
 }
 
 impl Verb {
@@ -102,6 +108,7 @@ impl Verb {
             Self::Collect => "COLLECT",
             Self::Stock => "STOCK",
             Self::StockBuy => "STOCKBUY",
+            Self::Owed => "OWED",
         }
     }
 
@@ -118,6 +125,7 @@ impl Verb {
             Self::Collect,
             Self::Stock,
             Self::StockBuy,
+            Self::Owed,
         ]
         .into_iter()
         .find(|v| v.word() == word)
@@ -132,16 +140,18 @@ impl Verb {
             Self::Browse => &["after"],
             Self::Buy => &["listing", "card", "price"],
             Self::StockBuy => &["slot", "card", "price"],
-            Self::Join | Self::Leave | Self::Reset | Self::Collect | Self::Stock => &[],
+            Self::Join | Self::Leave | Self::Reset | Self::Collect | Self::Stock | Self::Owed => {
+                &[]
+            }
         }
     }
 
-    /// Whether the body carries the grant log, which the server checks: JOIN, LIST, BUY, STOCK and STOCKBUY.
+    /// Whether the body carries the grant log, which the server checks: JOIN, LIST, BUY, STOCK, STOCKBUY and OWED.
     #[must_use]
     pub fn logged(self) -> bool {
         matches!(
             self,
-            Self::Join | Self::List | Self::Buy | Self::Stock | Self::StockBuy
+            Self::Join | Self::List | Self::Buy | Self::Stock | Self::StockBuy | Self::Owed
         )
     }
 }
@@ -570,7 +580,8 @@ mod tests {
             "STOCKBUY {pk} 1762000000000 1 3 41 216\n{{\"seq\":1}}"
         )));
         assert_eq!(open(&sent).unwrap(), r);
-        assert!(Verb::Stock.logged() && Verb::StockBuy.logged());
+        assert!(Verb::Stock.logged() && Verb::StockBuy.logged() && Verb::Owed.logged());
+        assert_eq!(Verb::parse("OWED"), Some(Verb::Owed));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Create-a-Team's market on the lobby's desk, steps 3.1, 3.1b, 3.2 and 3.3 (PLAN.md 3.1, 3.4-3.6): the server's value
 //! table, `market.db` beside `gamesvr.db`, the plausibility check of a player's grant log, the desk words `MARKET JOIN`,
-//! `LEAVE` and `RESET`, the ledger's `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT`, and each key's own stock list,
-//! `STOCK` and `STOCKBUY` (their format: [`forza::market`]).
+//! `LEAVE` and `RESET`, the ledger's `LIST`, `CANCEL`, `BROWSE`, `BUY` and `COLLECT`, each key's own stock list,
+//! `STOCK` and `STOCKBUY`, and `OWED`, the rows a log lacks (their format: [`forza::market`]).
 //!
 //! The ledger (PLAN.md 3.4, 3.5): a price inside the card's band from the server's own table, 5 open listings and 10
 //! sales a week per key, 7 days on the market, proceeds held until the seller's COLLECT. LIST and BUY carry the log:
@@ -320,6 +320,8 @@ pub struct Checked<'a> {
     pub bought: Vec<(u32, i64)>,
     /// Its `stock_buy` lines: card and price.
     pub stock_bought: Vec<(u32, i64)>,
+    /// Its `market_sell` lines: card and price.
+    pub sold: Vec<(u32, i64)>,
 }
 
 /// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 3
@@ -608,6 +610,7 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 }
                 h.listed -= 1;
                 h.earned -= 1;
+                out.sold.push((c, e.tokens));
             }
             Kind::StockBuy => {
                 let (c, _) = need()?;
@@ -716,46 +719,63 @@ fn stock_day(now: u64) -> i64 {
     ((now / 1000).saturating_sub(4 * 3600) / 86_400) as i64
 }
 
-/// The log's balance less this key's purchases its log does not hold yet: listings bought (`market_buy`) and stock
-/// slots (`stock_buy`). [`check`] already matched every `stock_buy` line to a sold slot; a `stock_gone` row (bought
-/// before the key expired) takes its line first and withholds nothing.
-fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, String> {
-    let mut tokens = checked.balance;
-    for (state, written) in [
-        ("bought", &checked.bought),
-        ("stock", &checked.stock_bought),
+/// One ledger row of a key that its log has no line for: the row's id, card and price.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Owed {
+    id: i64,
+    card: u32,
+    price: i64,
+}
+
+/// The key `kh`'s ledger rows its log (`checked`) has no line for, each line taking the oldest row of its card and
+/// price: listings bought (`bought`, no `market_buy` line), stock slots (`stock`, no `stock_buy` line) and sales COLLECT
+/// paid (`sold`, no `market_sell` line), in that order. A `stock_gone` row (bought before the key expired) takes its
+/// line first and is never owed.
+fn owed(
+    tx: &Connection,
+    kh: &str,
+    checked: &Checked<'_>,
+) -> Result<Vec<(&'static str, Owed)>, String> {
+    let mut out = vec![];
+    for (word, states, written) in [
+        ("bought", "'bought'", &checked.bought),
+        ("stock", "'stock_gone', 'stock'", &checked.stock_bought),
+        ("sold", "'paid'", &checked.sold),
     ] {
-        let rows = |state: &str| {
-            pairs(
-                tx,
-                &format!(
-                    "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state = '{state}'"
-                ),
-                kh,
-            )
-        };
         let mut lines: HashMap<(u32, i64), usize> = HashMap::new();
         for b in written {
             *lines.entry(*b).or_default() += 1;
         }
-        let gone = if state == "stock" {
-            rows("stock_gone")?
-        } else {
-            Vec::new()
-        };
-        for (row, withheld) in gone
-            .into_iter()
-            .map(|r| (r, false))
-            .chain(rows(state)?.into_iter().map(|r| (r, true)))
-        {
-            match lines.get_mut(&row) {
+        let rows: Vec<(i64, u32, i64, String)> = tx
+            .prepare(&format!(
+                "SELECT id, card, price, state FROM ledger WHERE key_hash = ?1 AND state IN ({states})
+                 ORDER BY state <> 'stock_gone', id"
+            ))
+            .and_then(|mut s| {
+                s.query_map(params![kh], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                    .collect()
+            })
+            .map_err(store_err)?;
+        for (id, card, price, state) in rows {
+            match lines.get_mut(&(card, price)) {
                 Some(n) if *n > 0 => *n -= 1,
-                _ if withheld => tokens -= row.1,
+                _ if state != "stock_gone" => out.push((word, Owed { id, card, price })),
                 _ => {}
             }
         }
     }
-    Ok(tokens)
+    Ok(out)
+}
+
+/// The log's balance less this key's purchases its log does not hold yet ([`owed`]'s `bought` and `stock` rows).
+/// [`check`] already matched every `stock_buy` line to a sold slot.
+fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, String> {
+    let withheld: i64 = owed(tx, kh, checked)?
+        .iter()
+        .filter(|(word, _)| *word != "sold")
+        .map(|(_, o)| o.price)
+        .sum();
+    Ok(checked.balance - withheld)
 }
 
 /// Bodies read at once across the desk, and from one address: each may hold [`MAX_BODY`] in memory.
@@ -1044,7 +1064,7 @@ impl Market {
         if !(req.verb == Verb::Join || joined || req.verb == Verb::Collect && row.is_some()) {
             return Err(NOT_IN.into());
         }
-        // JOIN, LIST, BUY, STOCK and STOCKBUY: the log is checked against the table and the key's last log, then kept
+        // JOIN, LIST, BUY, STOCK, STOCKBUY and OWED: the log is checked against the table and the key's last log, then kept
         let mut checked = Checked::default();
         if req.verb.logged() {
             let stock = pairs(
@@ -1177,6 +1197,19 @@ impl Market {
                 said
             }
             Verb::StockBuy => self.stock_buy(&tx, &kh, &checked, [num(0), num(1), num(2)], now)?,
+            Verb::Owed => {
+                let mut said = "owed".to_owned();
+                let mut last = "";
+                for (word, o) in owed(&tx, &kh, &checked)?.into_iter().take(COLLECT_PAGE) {
+                    if word != last {
+                        said.push(' ');
+                        said.push_str(word);
+                        last = word;
+                    }
+                    said.push_str(&format!(" {}:{}:{}", o.id, o.card, o.price));
+                }
+                said
+            }
             Verb::Collect => {
                 let rows: Vec<(i64, u32, i64, String)> = tx
                     .prepare(
@@ -2321,7 +2354,12 @@ mod tests {
     /// The first start and one paid match per card of `cards`, 9 minutes apart: an earned copy each, 150 tokens and 50
     /// a match.
     fn earned(cards: &[u32]) -> String {
-        let mut l = started();
+        earned_from(START, cards)
+    }
+
+    /// [`earned`] with the first start at `start`: another installation's log.
+    fn earned_from(start: &str, cards: &[u32]) -> String {
+        let mut l = started_at(start);
         for (i, c) in cards.iter().enumerate() {
             let at = t("2026-11-01T12:00:00+09:00") + mins(9 * i as i64);
             l.add(at, Kind::Match, Some(*c), 50);
@@ -3684,6 +3722,49 @@ mod tests {
             write_table(&cat, &out)
                 .unwrap_err()
                 .contains("stat_offence")
+        );
+    }
+
+    /// #375: a BUY, a STOCKBUY and a COLLECT applied with their answers and outbox lost: OWED names each row the log
+    /// lacks, also after the stock list turned, and nothing once the lines are written.
+    #[test]
+    fn owed_names_the_purchases_and_paid_sales_a_log_lacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = stock_market(dir.path(), Stock::default());
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        let seller = plus(&seller, Kind::List, 57, 0);
+        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20, 20]); // 300 tokens
+        ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
+        ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
+        let list = stock_rows(&ask(&m, 2, Verb::Stock, NOW + 4, &[], &buyer).unwrap());
+        let (slot, card, price, _) = list[0];
+        ask(&m, 2, Verb::StockBuy, NOW + 5, &[slot, card, price], &buyer).unwrap();
+        let owed = format!("owed bought 2:57:228 stock 3:{card}:{price}");
+        assert_eq!(ask(&m, 2, Verb::Owed, NOW + 6, &[], &buyer).unwrap(), owed);
+        assert_eq!(
+            ask(&m, 2, Verb::Owed, NOW + DAY_MS, &[], &buyer).unwrap(),
+            owed
+        );
+        let written = plus(&buyer, Kind::MarketBuy, 57, -228);
+        let written = plus(&written, Kind::StockBuy, card as u32, -(price as i64));
+        assert_eq!(
+            ask(&m, 2, Verb::Owed, NOW + DAY_MS + 1, &[], &written).unwrap(),
+            "owed"
+        );
+        assert_eq!(
+            ask(&m, 1, Verb::Collect, NOW + 7, &[], "").unwrap(),
+            "collected sold 1:57:228"
+        );
+        assert_eq!(
+            ask(&m, 1, Verb::Owed, NOW + 8, &[], &seller).unwrap(),
+            "owed sold 1:57:228"
+        );
+        let seller = plus(&seller, Kind::MarketSell, 57, 228);
+        assert_eq!(
+            ask(&m, 1, Verb::Owed, NOW + 9, &[], &seller).unwrap(),
+            "owed"
         );
     }
 }
