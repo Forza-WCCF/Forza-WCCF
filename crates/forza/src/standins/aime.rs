@@ -12,9 +12,7 @@
 //! with a random code the first time); block 2 bytes 6..15 carry it as BCD, as on a real card.
 
 use super::{Handle, Log};
-use std::collections::hash_map::RandomState;
 use std::fs::File;
-use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
@@ -127,7 +125,8 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
             continue;
         }
         let n = body[0] as usize;
-        // ponytail: the Python raises on a frame shorter than addr/seq/cmd/plen; skip it here
+        // A frame without all of len/addr/seq/cmd/plen is not answered: skip it and read on (the Python raised
+        // here, which left the game without its reader).
         if n >= 5 {
             let sum = body[..n].iter().fold(0u8, |s, b| s.wrapping_add(*b));
             reqs.push(Req {
@@ -145,37 +144,164 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
 /// Makes the card file at `path` as the reader would at its start, if there is none yet (an online run carries the
 /// card's club before the reader starts).
 pub fn ensure_card(path: &Path) {
-    Card::load(Some(path));
+    // reported, not fatal here: the caller copes with a missing card, and the reader's start fails the same way
+    // when the file still cannot be read
+    match Card::load(Some(path)) {
+        Ok(c) => c.notes().iter().for_each(|note| eprintln!("{note}")),
+        // the error already names the card file it belongs to
+        Err(e) => eprintln!("aime card: {e}"),
+    }
+}
+
+/// The card code a file's bytes hold, if any: UTF-8, UTF-8 with a BOM, or saved as "Unicode" (UTF-16 with a BOM,
+/// as Notepad writes it). Bytes that are none of these hold no code.
+fn code_in(b: &[u8]) -> Option<String> {
+    let units = |be: bool| -> Option<String> {
+        let u: Vec<u16> = b[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| {
+                if be {
+                    u16::from_be_bytes(*c)
+                } else {
+                    u16::from_le_bytes(*c)
+                }
+            })
+            .collect();
+        String::from_utf16(&u).ok()
+    };
+    let text = match b {
+        [0xFF, 0xFE, ..] => units(false),
+        [0xFE, 0xFF, ..] => units(true),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => std::str::from_utf8(rest).ok().map(str::to_owned),
+        _ => std::str::from_utf8(b).ok().map(str::to_owned),
+    }?;
+    let code = text.trim();
+    is_code(code).then(|| code.to_owned())
+}
+
+/// A card's access code: 20 digits, as the reader writes it.
+fn is_code(s: &str) -> bool {
+    s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `e`, named with the card file it belongs to.
+fn at(path: &Path, e: io::Error) -> io::Error {
+    io::Error::new(e.kind(), format!("{}: {e}", path.display()))
+}
+
+/// Another program holds the file for a moment: Windows says sharing violation (32), lock violation (33) or access
+/// denied (5), the last also while a file is delete-pending and another name replaces it.
+fn busy_card(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32) | Some(33))
+}
+
+/// Reads the card file, looking again for up to 1 s while another program holds it (an antivirus scan, a backup):
+/// one busy read is not a reason to leave the player without a reader. A folder at the path does not come good.
+fn read_card(p: &Path) -> io::Result<Vec<u8>> {
+    let permanent = p.is_dir();
+    for _ in 0..50 {
+        match std::fs::read(p) {
+            Err(e) if !permanent && busy_card(&e) => thread::sleep(Duration::from_millis(20)),
+            r => return r,
+        }
+    }
+    std::fs::read(p)
+}
+
+/// Writes `code` to `path` in one step: a temporary file beside it, then a rename over it.
+fn save_card(path: &Path, code: &str) -> io::Result<()> {
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(|e| at(path, e))?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, format!("{code}\n")).map_err(|e| at(path, e))?;
+    std::fs::rename(&tmp, path).map_err(|e| at(path, e))
 }
 
 /// The card on the reader.
 struct Card {
     code: String,
     uid: [u8; 4],
+    /// the card file held something other than a card code: where its content was kept
+    kept_aside: Option<String>,
+    /// the code could not be written to its file: this session's card is not the one the next session gets
+    unsaved: Option<String>,
 }
 
 impl Card {
-    fn load(path: Option<&Path>) -> Self {
-        let from_file = path
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| s.len() == 20 && s.bytes().all(|b| b.is_ascii_digit()));
-        let code = from_file.unwrap_or_else(|| {
-            // ponytail: RandomState is the std source of randomness; fine for a stand-in card number
-            let r = RandomState::new().build_hasher().finish() % 10_000_000_000_000_000_000;
-            let code = format!("5{r:019}");
-            if let Some(p) = path {
-                let _ = std::fs::create_dir_all(p.parent().unwrap_or(Path::new(".")));
-                let tmp = p.with_extension("tmp");
-                if std::fs::write(&tmp, format!("{code}\n")).is_ok() {
-                    let _ = std::fs::rename(&tmp, p);
-                }
+    /// what the player is told about the card file, one line per thing that went differently
+    fn notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if let Some(bad) = &self.kept_aside {
+            notes.push(format!(
+                "aime card: the file is not a card code - it is kept as {bad}, a new code is on the reader"
+            ));
+        }
+        if let Some(why) = &self.unsaved {
+            notes.push(format!(
+                "card code not saved: {why} - this card is for this session only; the next start makes a different one"
+            ));
+        }
+        notes
+    }
+
+    fn load(path: Option<&Path>) -> io::Result<Self> {
+        let mut from_file = None;
+        // a file that is not a card code and could not be kept aside: it is left as it is, so this session's code
+        // reaches no file and the next start makes another one
+        let mut not_kept = None;
+        let mut kept_aside = None;
+        if let Some(p) = path {
+            // bytes, not text: a file saved as "Unicode" (UTF-16, as Notepad offers) holds the player's code just as
+            // a plain one does; anything without a 20-digit code in it is "not a card code", never a start failure
+            match read_card(p) {
+                Ok(b) => match code_in(&b) {
+                    // the code is on the reader as it is: the file is not rewritten
+                    Some(code) => from_file = Some(code),
+                    // not a card code: kept aside, never written over
+                    None => {
+                        let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
+                        match std::fs::copy(p, &bad) {
+                            Ok(_) => kept_aside = Some(bad),
+                            Err(e) => not_kept = Some(format!("{bad}: {e}")),
+                        }
+                    }
+                },
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(at(p, e)),
             }
-            code
-        });
+        }
+        let mut unsaved = None;
+        let code = match from_file {
+            Some(code) => code,
+            None => {
+                // A stand-in still wants a card number no other kit has: the OS source, as in `card_reader`.
+                let mut r = [0u8; 8];
+                // getrandom's own error is not an io::Error in this crate's build (its `std` feature is off)
+                getrandom::fill(&mut r)
+                    .map_err(|e| io::Error::other(format!("no random source: {e}")))?;
+                let code = format!(
+                    "5{:019}",
+                    u64::from_le_bytes(r) % 10_000_000_000_000_000_000
+                );
+                if let Some(p) = path {
+                    // the code is on the reader this session either way; only the next session would lose it
+                    unsaved = match not_kept {
+                        Some(why) => Some(format!("the card file was not kept aside ({why})")),
+                        None => save_card(p, &code).err().map(|e| e.to_string()),
+                    };
+                }
+                code
+            }
+        };
         let bcd = |i: usize| u8::from_str_radix(&code[i..i + 2], 16).unwrap_or(0);
         let uid = [bcd(12), bcd(14), bcd(16), bcd(18)]; // 4-byte Mifare UID, stable per card
-        Self { code, uid }
+        Ok(Self {
+            code,
+            uid,
+            kept_aside,
+            unsaved,
+        })
     }
 
     fn block(&self, n: u8) -> Vec<u8> {
@@ -220,8 +346,9 @@ fn hexs(b: &[u8]) -> String {
 }
 
 /// Creates the named pipe `pipe_name` (`\\.\pipe\...`, one instance) and serves the reader on it until the returned
-/// handle is dropped. Fails when the pipe cannot be made (another reader running). `card_file` holds the card's
-/// 20-digit access code; it is made with a random code when missing.
+/// handle is dropped. Fails when the pipe cannot be made (another reader running), when no card code can be made (no
+/// random source) and when the card file cannot be read. `card_file` holds the card's 20-digit access code; it is made
+/// with a random code when missing, and a file that is not a card code is kept aside as `.bad` and named in the log.
 pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<Handle> {
     let wide: Vec<u16> = pipe_name.encode_utf16().chain([0]).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call; no security attributes are passed.
@@ -242,7 +369,12 @@ pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<
     }
     // SAFETY: `raw` is a valid pipe handle we own; the File closes it.
     let mut pipe = File::from(unsafe { OwnedHandle::from_raw_handle(raw) });
-    let card = Card::load(card_file);
+    // after the pipe: an instance that loses it to another reader never touches the card file, and a card error
+    // still closes the pipe, as `pipe` drops on the return
+    let card = Card::load(card_file)?;
+    for note in card.notes() {
+        log(&note);
+    }
     log(&format!(
         "Aime reader stand-in on {pipe_name}; card access code {} on the reader",
         card.code
@@ -343,5 +475,267 @@ mod tests {
         assert_eq!(reqs[0].payload, [0xE0, 0x01, 0xD0]);
         let r = response(&reqs[0], 0, &[0xE0]);
         assert!(r[0] == 0xE0 && r[1..].windows(2).any(|w| w == [0xD0, 0xDF]));
+    }
+
+    /// A frame without all of len/addr/seq/cmd/plen is skipped, and the frame behind it still reads.
+    #[test]
+    fn a_short_frame_is_skipped() {
+        let short = escape(&[3, 0, 0, 0x42]); // len 3: addr and seq only, no cmd
+        let mut no_plen = vec![4, 0, 0, 0x42]; // len 4: the cmd is there, its plen byte is not
+        no_plen.push(no_plen.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
+        let mut good = vec![5, 0, 0, 0x42, 0]; // a poll with an empty payload
+        good.push(good.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
+        let stream = [&short[..], &escape(&no_plen)[..], &escape(&good)[..]].concat();
+        let (reqs, left) = parse(&stream);
+        assert!(left.is_empty(), "{left:02x?} left over");
+        assert_eq!(reqs.len(), 1, "the short frames are skipped");
+        assert_eq!((reqs[0].cmd, reqs[0].ok), (0x42, true));
+    }
+
+    /// A made card takes a 20-digit code starting with 5, its file holds that code back, and two cards made in one
+    /// process differ.
+    #[test]
+    fn a_made_card_gets_its_own_20_digit_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let (a, b) = (Card::load(None).unwrap(), Card::load(Some(&path)).unwrap());
+        for c in [&a, &b] {
+            assert!(
+                c.code.len() == 20
+                    && c.code.starts_with('5')
+                    && c.code.bytes().all(|d| d.is_ascii_digit()),
+                "{}",
+                c.code
+            );
+        }
+        assert_ne!(a.code, b.code);
+        assert_eq!(
+            Card::load(Some(&path)).unwrap().code,
+            b.code,
+            "the card file holds its card's code"
+        );
+    }
+
+    /// A card file whose content is not a card code is kept aside as `.bad`; a new code is made and saved, and the
+    /// card file holds it afterwards.
+    #[test]
+    fn a_bad_card_file_is_kept_aside_not_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::write(&path, "not a card\n").unwrap();
+        let c = Card::load(Some(&path)).unwrap();
+        let bad: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".bad"))
+            .collect();
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(&bad[0])).unwrap(),
+            "not a card\n",
+            "the bad content is kept as it was"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file that is not UTF-8 (saved as "Unicode", or binary garbage after a bad write) is not a card code:
+    /// it is kept aside and a new code is made, so the reader still starts.
+    #[test]
+    fn a_card_file_that_is_not_utf8_is_kept_aside_not_a_start_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let junk = [0xFF, 0xFE, b'5', 0x00, b'1', 0x00, 0xC3, 0x28];
+        std::fs::write(&path, junk).unwrap();
+        let c = Card::load(Some(&path)).expect("not a card code, not a start failure");
+        assert!(is_code(&c.code), "a code is on the reader: {}", c.code);
+        let bad: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.to_string_lossy().ends_with(".bad"))
+            .collect();
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(
+            std::fs::read(&bad[0]).unwrap(),
+            junk,
+            "the bytes are kept as they were"
+        );
+        assert_eq!(
+            c.kept_aside.as_deref(),
+            Some(bad[0].to_string_lossy().as_ref()),
+            "the log names the file that was kept"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
+    }
+
+    /// A card file saved as "Unicode" (UTF-16 with a BOM, as Notepad writes it) holds the player's code: that code is
+    /// used as it is and the file is left alone - no `.bad`, no new code.
+    #[test]
+    fn a_card_file_saved_as_utf16_keeps_its_code() {
+        for be in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("card.txt");
+            let mut bytes = if be {
+                vec![0xFE, 0xFF]
+            } else {
+                vec![0xFF, 0xFE]
+            };
+            for u in "51234567890123456789\n".encode_utf16() {
+                bytes.extend_from_slice(&if be { u.to_be_bytes() } else { u.to_le_bytes() });
+            }
+            std::fs::write(&path, &bytes).unwrap();
+            let c = Card::load(Some(&path)).unwrap();
+            assert_eq!(c.code, "51234567890123456789", "be={be}");
+            assert_eq!(c.kept_aside, None, "nothing is kept aside, be={be}");
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                bytes,
+                "the file is not rewritten, be={be}"
+            );
+            assert_eq!(
+                std::fs::read_dir(dir.path()).unwrap().count(),
+                1,
+                "no copy beside it, be={be}"
+            );
+        }
+    }
+
+    /// A card file with a UTF-8 BOM holds its code just as one without.
+    #[test]
+    fn a_card_file_with_a_utf8_bom_keeps_its_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        let bytes = [&[0xEF, 0xBB, 0xBF][..], b"51234567890123456789\n"].concat();
+        std::fs::write(&path, &bytes).unwrap();
+        let c = Card::load(Some(&path)).unwrap();
+        assert_eq!(c.code, "51234567890123456789");
+        assert_eq!(c.kept_aside, None, "nothing is kept aside");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "the file is not rewritten"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no copy beside it"
+        );
+    }
+
+    /// A card file that is not a card code and cannot be kept aside (here its `.bad` name is too long) is left as
+    /// it is: the made code plays this session, reported as unsaved, and the bad file is never written over.
+    #[test]
+    fn a_card_file_that_cannot_be_kept_aside_is_left_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        // a 250-character name fits; its 19-character `.bad` suffix does not, so the copy fails and the read does not
+        let path = dir.path().join(format!("{}.txt", "a".repeat(250)));
+        std::fs::write(&path, "not a card\n").unwrap();
+        let c = Card::load(Some(&path)).expect("a card file is not a start failure");
+        assert!(is_code(&c.code), "a code is on the reader: {}", c.code);
+        let why = c.unsaved.expect("a code that stays in memory says so");
+        assert!(why.contains(".bad"), "{why}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "not a card\n",
+            "the bad file is never written over"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no copy is left behind"
+        );
+    }
+
+    /// A card file another program holds for a moment (an antivirus scan, a backup) is read again rather than
+    /// ending the reader: its code is on the reader once the hold is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_card_file_held_for_a_moment_is_read_again() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::write(&path, "51234567890123456789\n").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // no other handle, not even a read
+            .open(&path)
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(held);
+        });
+        let c = Card::load(Some(&path)).expect("a file held for a moment is read again");
+        assert_eq!(c.code, "51234567890123456789");
+        release.join().unwrap();
+    }
+
+    /// An instance that loses the pipe to another reader does not touch its card file: it must not rewrite a card
+    /// it is not serving (here the second instance is given a file that is not a card code).
+    #[test]
+    fn an_instance_that_loses_the_pipe_leaves_the_card_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (served, other) = (dir.path().join("card.txt"), dir.path().join("other.txt"));
+        std::fs::write(&served, "51234567890123456789\n").unwrap();
+        std::fs::write(&other, "not a card\n").unwrap();
+        let pipe = format!(
+            "\\\\.\\pipe\\wccf-aime-{}",
+            dir.path().file_name().unwrap().to_string_lossy()
+        );
+        let log: Log = Arc::new(|_| {});
+        let first =
+            spawn(&pipe, Some(&served), log.clone()).expect("the first reader takes the pipe");
+        assert!(
+            spawn(&pipe, Some(&other), log).is_err(),
+            "the second reader loses the pipe"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&other).unwrap(),
+            "not a card\n",
+            "the losing instance leaves its card file alone"
+        );
+        let copies = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("other.txt.")
+            })
+            .count();
+        assert_eq!(copies, 0, "no copy is made of a file it does not serve");
+        drop(first);
+    }
+
+    /// A card file that cannot be read (here a folder) is reported with its path, not treated as a missing one: the
+    /// file is not replaced with a new code.
+    #[test]
+    fn a_card_file_that_cannot_be_read_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("card.txt");
+        std::fs::create_dir(&path).unwrap();
+        let e = Card::load(Some(&path))
+            .err()
+            .expect("a folder is not a card file");
+        assert!(e.to_string().contains("card.txt"), "{e}");
+        assert!(path.is_dir(), "the folder is left alone");
+    }
+
+    /// A card code that cannot reach its file is reported with the path, and the card still plays this session with
+    /// the code it made.
+    #[test]
+    fn a_card_code_that_cannot_be_saved_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = dir.path().join("blocked");
+        std::fs::write(&blocked, "not a folder").unwrap();
+        let path = blocked.join("card.txt");
+        let c = Card::load(Some(&path)).unwrap();
+        let why = c.unsaved.expect("a code that could not be saved says so");
+        assert!(why.contains("card.txt"), "{why}");
+        assert!(
+            is_code(&c.code),
+            "the code is on the reader anyway: {}",
+            c.code
+        );
+        assert!(!path.exists());
     }
 }

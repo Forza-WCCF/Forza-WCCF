@@ -69,7 +69,7 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// `YYYYMMDD-HHMMSS` on this PC's clock (UTC if Windows cannot say the offset).
-fn stamp() -> String {
+pub(super) fn stamp() -> String {
     let utc = OffsetDateTime::now_utc();
     let t = UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o));
     format!(
@@ -330,6 +330,13 @@ fn busy(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(32)
 }
 
+/// A read that another program holding the file refused for the moment (a sharing or lock violation - an antivirus
+/// scan, a backup): the file is looked at again at the next card check. A permanent denial (no rights on the file,
+/// a folder at its path) is not one, and it names both, so the raw codes are the test.
+fn busy_read(e: &io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(32) | Some(33))
+}
+
 /// The club card for the reader, or - if the file is unreadable (wrong size) - a NEW blank card so the game still
 /// opens and the CLUB CARD panel can switch to or restore one (never lock the player out). The unreadable file is
 /// kept as `<name>.<time>.bad` and never written over.
@@ -374,6 +381,8 @@ struct Reader {
     second: Option<Card>,
     /// NEWCARDFILE could not be loaded: never written over
     bad_new: bool,
+    /// NEWCARDFILE could not be read because it was busy: tried again at the next card check
+    retry_new: bool,
     field: Vec<Which>,
     card: Which,
     random: Random,
@@ -387,6 +396,7 @@ impl Reader {
             new_path,
             second: None,
             bad_new: false,
+            retry_new: false,
             field: vec![Which::Main],
             card: Which::Main,
             random,
@@ -412,6 +422,10 @@ impl Reader {
         let Some(new_path) = self.new_path.clone() else {
             return;
         };
+        if self.retry_new {
+            self.bad_new = false; // a momentary share violation (an antivirus scan, a backup): look again
+            self.retry_new = false;
+        }
         if self.second.is_none() && !self.bad_new && new_path.exists() {
             let mut c = Card::new();
             c.path = Some(new_path.clone());
@@ -422,14 +436,22 @@ impl Reader {
                 }
                 Err(e) => {
                     self.bad_new = true;
-                    // ponytail: the Python lets an I/O error end the reader; here it counts as a refusal
+                    self.retry_new = matches!(&e, CardError::Io(io) if busy_read(io));
+                    // An unreadable new card file counts as a refusal and is left untouched: the Python let the
+                    // error end the reader, and the game was then left without one.
                     let why = match e {
                         CardError::Size(s) => s,
-                        CardError::Io(e) => e.to_string(),
+                        CardError::Io(e) => format!("{}: {e}", new_path.display()),
                     };
-                    (self.log)(&format!(
-                        "NEW CARD FILE REFUSED: {why} - only the club card is on the reader"
-                    ));
+                    if self.retry_new {
+                        (self.log)(&format!(
+                            "NEW CARD FILE is busy ({why}) - read again at the next card check; only the club card is on the reader for now"
+                        ));
+                    } else {
+                        (self.log)(&format!(
+                            "NEW CARD FILE REFUSED: {why} - only the club card is on the reader; fix it, then restart the game"
+                        ));
+                    }
                 }
             }
         }
@@ -573,7 +595,14 @@ impl Reader {
                 let mut out: Vec<u8> = (0..count)
                     .flat_map(|i| c.blocks[(start + i) & 0xFF])
                     .collect();
-                // ponytail: the reply's length is one byte; the Python dies on 16 blocks or more, 255 bytes are sent here
+                // The reply's length is one byte, so 16 blocks are cut at 255 bytes (the Python raised here and
+                // answered nothing at all).
+                if out.len() > 255 {
+                    (self.log)(&format!(
+                        "  a read of {count} blocks is {} bytes, cut to 255 - the reply's length is one byte",
+                        out.len()
+                    ));
+                }
                 out.truncate(255);
                 (0, out)
             }
@@ -680,8 +709,9 @@ impl Link {
                     let Some(payload) = unframe(&self.raw) else {
                         continue;
                     };
-                    // ponytail: the Python dies on a frame without cmd/len; it is dropped here
-                    if payload.len() < 3 {
+                    // A message is [cmd, cmd, len, data.., bcc]: a payload shorter than 4 stops before its length
+                    // byte and has no command to answer - drop it and read on (the Python raised here and stopped).
+                    if payload.len() < 4 {
                         (reader.log)("  (frame too short - ignored)");
                         self.state = State::Idle;
                         continue;
@@ -898,6 +928,14 @@ mod tests {
         Arc::new(|_| {})
     }
 
+    /// A log that keeps its lines, for the notes a test checks.
+    fn recording() -> (Log, Arc<std::sync::Mutex<Vec<String>>>) {
+        let msgs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = Arc::clone(&msgs);
+        let log: Log = Arc::new(move |m: &str| kept.lock().unwrap().push(m.to_string()));
+        (log, msgs)
+    }
+
     fn card_at(path: &Path) -> Card {
         let mut c = Card::open(Some(path)).unwrap_or_else(|_| panic!("card"));
         c.log = Some(quiet());
@@ -989,6 +1027,174 @@ mod tests {
         let card2 = open_card(Some(&path), &|m| msgs.lock().unwrap().push(m.to_string())).unwrap();
         assert_eq!(card2.counter, 0xFFFF);
         assert!(!msgs.lock().unwrap().iter().any(|m| m.contains("REFUSED")));
+    }
+
+    /// A new card file that cannot be loaded is refused, named in the log and left untouched; the club card stays
+    /// on the reader, and neither a wrong size nor a permanent denial is read again at the next card check.
+    #[test]
+    fn a_bad_new_card_file_is_refused_and_the_reader_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let (club, new) = (dir.path().join("club.bin"), dir.path().join("new.bin"));
+        fs::write(&new, [1u8; 100]).unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(new.clone()), os_random());
+        reader.main.counter = 0xFF01; // an expired club card: the transfer would write a blank at `new`
+        reader.lay_out();
+        assert!(reader.bad_new, "the file is never written over");
+        assert!(
+            reader.second.is_none(),
+            "no blank card is put beside the club card"
+        );
+        assert_eq!(fs::read(&new).unwrap(), [1u8; 100], "new.bin is untouched");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE REFUSED")),
+            "{msgs:?}"
+        );
+        assert_eq!(
+            reader.answer(0x41, &[]),
+            (0, vec![]),
+            "the club card still answers"
+        );
+
+        // a second card check says nothing new: a file refused for its size is not read again
+        let said = msgs.lock().unwrap().len();
+        reader.lay_out();
+        assert_eq!(
+            msgs.lock().unwrap().len(),
+            said,
+            "a refusal that is not a busy file is logged once, not at every card check"
+        );
+
+        // a path that cannot be read at all (here a folder) is a permanent denial: named once, never re-read
+        let folder = dir.path().join("folder.bin");
+        fs::create_dir(&folder).unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(folder.clone()), os_random());
+        reader.main.counter = 0xFF01;
+        reader.lay_out();
+        assert!(reader.second.is_none());
+        assert!(folder.is_dir(), "the folder is untouched");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE REFUSED") && m.contains("folder.bin")),
+            "{msgs:?}"
+        );
+        let said = msgs.lock().unwrap().len();
+        reader.lay_out();
+        assert_eq!(
+            msgs.lock().unwrap().len(),
+            said,
+            "a permanent denial is not retried (the Python let the error end the reader)"
+        );
+    }
+
+    /// A new card file another program holds open is a busy read: the log says so, nothing is written over it, and
+    /// the card loads at the next card check once the hold is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_busy_new_card_file_is_read_again_at_the_next_card_check() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (club, new) = (dir.path().join("club.bin"), dir.path().join("new.bin"));
+        let good = Card::new().image(); // a good card file: only the open handle refuses the read
+        fs::write(&new, &good).unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // no other handle, not even a read
+            .open(&new)
+            .unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(new.clone()), os_random());
+        reader.main.counter = 0xFF01; // an expired club card: a blank would be written here if the read were skipped
+        reader.lay_out();
+        assert!(reader.second.is_none(), "the file cannot be read yet");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE is busy") && m.contains("new.bin")),
+            "{msgs:?}"
+        );
+        drop(held);
+        assert_eq!(
+            fs::read(&new).unwrap(),
+            good,
+            "the busy file is not written over"
+        );
+        reader.lay_out();
+        assert!(
+            reader.second.is_some(),
+            "the card loads on the next card check (no restart)"
+        );
+    }
+
+    /// A read of 16 blocks stops at the reply's one-byte length: 255 bytes go back, it is logged, and 15 blocks
+    /// still fit without a log line.
+    #[test]
+    fn a_read_of_16_blocks_is_cut_at_255_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(
+            card_at(&dir.path().join("club.bin")),
+            log,
+            None,
+            os_random(),
+        );
+        let (status, sixteen) = reader.answer(0x52, &[0, 0, 16]);
+        assert_eq!((status, sixteen.len()), (0, 255));
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("cut to 255")),
+            "{msgs:?}"
+        );
+        msgs.lock().unwrap().clear();
+        let (_, fifteen) = reader.answer(0x52, &[0, 0, 15]);
+        assert_eq!(fifteen.len(), 15 * 16, "one byte's length holds 15 blocks");
+        assert!(
+            msgs.lock().unwrap().is_empty(),
+            "a read that fits says nothing"
+        );
+    }
+
+    /// A frame that stops before its length byte is dropped, and the link answers the command behind it.
+    #[test]
+    fn a_frame_without_a_length_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(
+            card_at(&dir.path().join("club.bin")),
+            log,
+            None,
+            os_random(),
+        );
+        let mut link = Link::new();
+        let mut out = Vec::new();
+        let short = frame(&[0x41]); // the command and the bcc, no length byte
+        link.feed(&[&[STX][..], &short[..]].concat(), &mut reader, &mut out);
+        assert_eq!(out, [DLE], "nothing is answered");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("frame too short")),
+            "{msgs:?}"
+        );
+        let three = frame(&[0x41, 0x41]); // command, command and bcc: the length byte is still missing
+        out.clear();
+        link.feed(&[&[STX][..], &three[..]].concat(), &mut reader, &mut out);
+        assert_eq!(out, [DLE], "a payload of three bytes is dropped too");
+        out.clear();
+        let request = frame(&[0x41, 0x41, 0x00]); // Request: [cmd, cmd, len]
+        link.feed(&[&[STX][..], &request[..]].concat(), &mut reader, &mut out);
+        link.feed(&[DLE], &mut reader, &mut out);
+        assert_eq!(out, [DLE, DLE, STX, 0x41, 0x00, 0x00, 0x41, DLE, ETX]);
     }
 
     /// Backups older than the newest 20 go; other files stay.
