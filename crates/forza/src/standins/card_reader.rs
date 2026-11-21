@@ -422,7 +422,8 @@ impl Reader {
                 }
                 Err(e) => {
                     self.bad_new = true;
-                    // ponytail: the Python lets an I/O error end the reader; here it counts as a refusal
+                    // An unreadable new card file counts as a refusal and is left untouched: the Python let the
+                    // error end the reader, and the game was then left without one.
                     let why = match e {
                         CardError::Size(s) => s,
                         CardError::Io(e) => e.to_string(),
@@ -898,6 +899,14 @@ mod tests {
         Arc::new(|_| {})
     }
 
+    /// A log that keeps its lines, for the notes a test checks.
+    fn recording() -> (Log, Arc<std::sync::Mutex<Vec<String>>>) {
+        let msgs = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = Arc::clone(&msgs);
+        let log: Log = Arc::new(move |m: &str| kept.lock().unwrap().push(m.to_string()));
+        (log, msgs)
+    }
+
     fn card_at(path: &Path) -> Card {
         let mut c = Card::open(Some(path)).unwrap_or_else(|_| panic!("card"));
         c.log = Some(quiet());
@@ -989,6 +998,30 @@ mod tests {
         let card2 = open_card(Some(&path), &|m| msgs.lock().unwrap().push(m.to_string())).unwrap();
         assert_eq!(card2.counter, 0xFFFF);
         assert!(!msgs.lock().unwrap().iter().any(|m| m.contains("REFUSED")));
+    }
+
+    /// A new card file that cannot be loaded is refused and named in the log; the club card stays on the reader.
+    #[test]
+    fn a_bad_new_card_file_is_refused_and_the_reader_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let (club, new) = (dir.path().join("club.bin"), dir.path().join("new.bin"));
+        fs::write(&new, [1u8; 100]).unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(new), os_random());
+        reader.lay_out();
+        assert!(reader.bad_new, "the file is never written over");
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE REFUSED")),
+            "{msgs:?}"
+        );
+        assert_eq!(
+            reader.answer(0x41, &[]),
+            (0, vec![]),
+            "the club card still answers"
+        );
     }
 
     /// Backups older than the newest 20 go; other files stay.
