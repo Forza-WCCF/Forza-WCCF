@@ -1028,7 +1028,10 @@ mod tests {
         reader.main.counter = 0xFF01; // an expired club card: the transfer would write a blank at `new`
         reader.lay_out();
         assert!(reader.bad_new, "the file is never written over");
-        assert!(reader.second.is_none(), "no blank card is put beside the club card");
+        assert!(
+            reader.second.is_none(),
+            "no blank card is put beside the club card"
+        );
         assert_eq!(fs::read(&new).unwrap(), [1u8; 100], "new.bin is untouched");
         assert!(
             msgs.lock()
@@ -1053,9 +1056,10 @@ mod tests {
         assert!(reader.second.is_none());
         assert!(folder.is_dir(), "the folder is untouched");
         assert!(
-            msgs.lock().unwrap().iter().any(|m| m
-                .contains("NEW CARD FILE REFUSED")
-                && m.contains("folder.bin")),
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE REFUSED") && m.contains("folder.bin")),
             "{msgs:?}"
         );
         let said = msgs.lock().unwrap().len();
@@ -1124,7 +1128,7 @@ mod tests {
         link.feed(&[&[STX][..], &three[..]].concat(), &mut reader, &mut out);
         assert_eq!(out, [DLE], "a payload of three bytes is dropped too");
         out.clear();
-        let request = frame(&[0x41, 0x00, 0x00]);
+        let request = frame(&[0x41, 0x41, 0x00]); // Request: [cmd, cmd, len]
         link.feed(&[&[STX][..], &request[..]].concat(), &mut reader, &mut out);
         link.feed(&[DLE], &mut reader, &mut out);
         assert_eq!(out, [DLE, DLE, STX, 0x41, 0x00, 0x00, 0x41, DLE, ETX]);
