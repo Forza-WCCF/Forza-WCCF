@@ -1642,8 +1642,32 @@ fn match_lines_name_the_opponent_score_and_save() {
     );
 }
 
+/// The rows of the 2017-18 tables whose for-sale flags the client checks (ShopUni, GoalBgm, Banner, Jersey), SE left
+/// out. The old fixed list's BGM 1..3, Flag 1..3 and Trainingwear 1..2 are not among them.
+fn for_sale(cat: u32, item: u32) -> bool {
+    match cat {
+        1 => (1..=17).contains(&item),
+        3 => (38..=51).contains(&item),
+        4 => (241..=260).contains(&item),
+        5 => matches!(item, 38..=40 | 54..=56 | 90 | 140..=144),
+        _ => false,
+    }
+}
+
+/// Client sub_834520's date check of an entry `[cat, item, start, end]` at a local date and hour: today in
+/// `[start, end + 1]`, from 10:00 on the start day, until 02:59 on the day after `end`.
+fn client_offers(e: [u32; 4], date: chrono::NaiveDate, hour: u32) -> bool {
+    let ymd = |d: chrono::NaiveDate| d.year() as u32 * 10_000 + d.month() * 100 + d.day();
+    let end_next = chrono::NaiveDate::parse_from_str(&e[3].to_string(), "%Y%m%d").unwrap()
+        + chrono::Days::new(1);
+    let today = ymd(date);
+    (e[2]..=ymd(end_next)).contains(&today)
+        && (today != e[2] || hour >= 10)
+        && (today != ymd(end_next) || hour <= 2)
+}
+
 #[test]
-fn the_sale_list_has_ten_valid_entries() {
+fn the_sale_list_has_ten_for_sale_entries() {
     let (body, _) = ask_store(
         &Mutex::new(Store::open(Path::new(":memory:")).unwrap()),
         237,
@@ -1655,16 +1679,49 @@ fn the_sale_list_has_ten_valid_entries() {
             [0, 4, 8, 12].map(|i| u32_at(&body, e + i))
         })
         .collect();
-    assert!(
-        entries.iter().all(|e| (1..=5).contains(&e[0])),
-        "no category 0"
-    );
-    assert!(entries.iter().all(|e| e[2] == SHOP_FROM && e[3] == SHOP_TO));
-    assert!(entries.iter().all(|e| e[0] != 2), "no SE");
+    assert!(entries.iter().all(|e| for_sale(e[0], e[1])), "{entries:?}");
     let mut kinds: Vec<_> = entries.iter().map(|e| e[0]).collect();
     kinds.dedup();
-    assert_eq!(kinds, [1, 3, 4, 5]);
+    assert_eq!(kinds, [1, 3, 4, 5], "no SE");
     assert_eq!(SHOP_SALE_AT + 160, 23_072);
+    // every for-sale row comes up within three weeks, each day's ten are distinct
+    let mut seen = std::collections::HashSet::new();
+    for day in 0..21 {
+        let list: Vec<_> = shop_sale(utc_secs(2026, 11, 1, 12, 0) + day * 86_400).collect();
+        assert_eq!(list.len(), 10);
+        assert!(list.iter().all(|e| for_sale(e[0], e[1])), "{list:?}");
+        let ids: std::collections::HashSet<_> = list.iter().map(|e| (e[0], e[1])).collect();
+        assert_eq!(ids.len(), 10, "{list:?}");
+        seen.extend(ids);
+    }
+    assert_eq!(seen.len(), 17 + 14 + 20 + 12);
+}
+
+#[test]
+fn the_sale_list_rotates_daily_and_stays_open_a_week() {
+    // Saturday 2026-11-21 12:00 CET = 11:00 UTC
+    let t = utc_secs(2026, 11, 21, 11, 0);
+    let list: Vec<_> = shop_sale(t).collect();
+    assert!(
+        list.iter()
+            .all(|e| e[2] == 20_261_120 && e[3] == 20_261_127),
+        "{list:?}"
+    );
+    let day = |d| chrono::NaiveDate::from_ymd_opt(2026, 11, d).unwrap();
+    for e in &list {
+        // open at the fetch, on the day before from 10:00, through 2026-11-28 02:59; closed outside
+        assert!(client_offers(*e, day(21), 12));
+        assert!(client_offers(*e, day(20), 10) && !client_offers(*e, day(20), 9));
+        assert!(client_offers(*e, day(28), 2) && !client_offers(*e, day(28), 3));
+    }
+    // deterministic per Rome day: same list all day (00:00..23:59 CET), a new one the next day
+    let ids = |t| shop_sale(t).map(|e| (e[0], e[1])).collect::<Vec<_>>();
+    assert_eq!(
+        ids(utc_secs(2026, 11, 20, 23, 0)),
+        ids(utc_secs(2026, 11, 21, 22, 59))
+    );
+    assert_ne!(ids(t), ids(t + 86_400));
+    assert_ne!(ids(t), ids(t - 86_400));
 }
 
 #[test]

@@ -11,6 +11,7 @@ use super::club::team_tag;
 use super::sessions::{Session, Sessions};
 use super::vs::{self, Matcher, VsConfig};
 use crate::service::{Handle, Log, accept_loop, read_some};
+use chrono::Datelike as _;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 use std::io::{self, IoSlice, Write};
@@ -88,30 +89,54 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
 
 /// The shop's sale list: GAME_CTRL +22,896 (payload +22,912), 10 entries of `{u32 category, u32 item, u32 start,
 /// u32 end}` (client sub_834520). Categories: 1 Uniform, 2 SE, 3 BGM, 4 Flag, 5 Trainingwear; 0 is never valid. The
-/// client offers an entry only when the item's master row also has its for-sale flag set, so rows outside the
-/// flagged ones are skipped on the client. These ten are rows of the 2017–18 data tables that look like shop goods
-/// (Uniform = the "shop_1718_*" rows of ShopUni, BGM 1..3 = Bgm1..3, Flag 1..3 and Trainingwear 1..2 = the first
-/// coloured rows); the flags themselves are not read. SE (2) stays out: its 286 +93 mapping is unverified
-/// ([`APPLY_SE`]). A data-driven rotation is a follow-up.
-const SHOP_SALE: [(u32, u32); 10] = [
-    (1, 1),
-    (1, 2),
-    (3, 1),
-    (3, 2),
-    (3, 3),
-    (4, 1),
-    (4, 2),
-    (4, 3),
-    (5, 1),
-    (5, 2),
+/// client shows every entry it accepts at once and does no rotation of its own: an entry needs today in `[start,
+/// end + 1]` (on the start day from 10:00, on the day after `end` until 02:59) and the item's master row flagged for
+/// sale. These are the flagged rows of the 2017–18 tables, item numbers only (= row numbers): ShopUni +12 = 1, GoalBgm
+/// +12 and +16 = 1, Banner +8 and +64 = 1, Jersey +8 and +116 = 1. Per category: (category, entries a day, items).
+/// SE (2, rows 0..13) stays out: its 286 +93 mapping is unverified ([`APPLY_SE`]).
+const SHOP_GOODS: [(u32, usize, &[u32]); 4] = [
+    (
+        1,
+        3,
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    ),
+    (
+        3,
+        2,
+        &[38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
+    ),
+    (
+        4,
+        3,
+        &[
+            241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257,
+            258, 259, 260,
+        ],
+    ),
+    (5, 2, &[38, 39, 40, 54, 55, 56, 90, 140, 141, 142, 143, 144]),
 ];
 /// GAME_CTRL +22,896 as a 238 payload offset.
 const SHOP_SALE_AT: usize = 16 + 22_896;
-/// Sale period of every entry, YYYYMMDD.
-const SHOP_FROM: u32 = 20_000_101;
-const SHOP_TO: u32 = 20_991_231;
+
+/// The 10 sale entries for a 237 at `unix_secs`: each category steps through its items by the Europe/Rome day, so
+/// the goods change daily and repeat every few days. The window runs from the day before (a client behind Rome's
+/// date) to six days after: the control asks 237 only at start-up, so one left running keeps a shop for a week.
+fn shop_sale(unix_secs: i64) -> impl Iterator<Item = [u32; 4]> {
+    let today = rome_time(unix_secs).date();
+    let n = today.signed_duration_since(GT_EPOCH).num_days().max(0) as usize;
+    let ymd = |d: chrono::NaiveDate| d.year() as u32 * 10_000 + d.month() * 100 + d.day();
+    let (from, to) = (
+        ymd(today - chrono::Days::new(1)),
+        ymd(today + chrono::Days::new(6)),
+    );
+    SHOP_GOODS
+        .into_iter()
+        .flat_map(move |(cat, per_day, items)| {
+            (0..per_day).map(move |j| [cat, items[(per_day * n + j) % items.len()], from, to])
+        })
+}
 /// Whether a bought SE (category 2) is written to 286 +93. Unverified (the reader maps the value through another
-/// table than the shop's), so off; [`SHOP_SALE`] has no SE entry either.
+/// table than the shop's), so off; [`SHOP_GOODS`] has no SE entry either.
 const APPLY_SE: bool = false;
 
 /// Grand Trophy matches counted for the weekly record (the sum of the best N scores), per class: Local, Area B,
@@ -127,14 +152,18 @@ const GT_MATCHES_AT: usize = 16 + 7_666;
 const GT_EPOCH: chrono::NaiveDate =
     chrono::NaiveDate::from_ymd_opt(2000, 1, 3).expect("a valid date");
 
+/// Europe/Rome wall-clock time (CET or CEST) of a moment.
+fn rome_time(unix_secs: i64) -> chrono::NaiveDateTime {
+    chrono::DateTime::from_timestamp(unix_secs, 0)
+        .unwrap_or_default()
+        .with_timezone(&chrono_tz::Europe::Rome)
+        .naive_local()
+}
+
 /// The Grand Trophy week of a moment: weeks run Monday to Sunday and roll on Sunday at 23:00 Europe/Rome wall-clock
 /// time (CET or CEST), like the original's Sunday 23:00 in its own time zone.
 fn gt_week(unix_secs: i64) -> u16 {
-    let rome = chrono::DateTime::from_timestamp(unix_secs, 0)
-        .unwrap_or_default()
-        .with_timezone(&chrono_tz::Europe::Rome)
-        .naive_local();
-    let days = (rome + chrono::TimeDelta::hours(1))
+    let days = (rome_time(unix_secs) + chrono::TimeDelta::hours(1))
         .date()
         .signed_duration_since(GT_EPOCH)
         .num_days();
@@ -221,8 +250,9 @@ fn record_gt(db: &Connection, week: u16, aime: u32, req: &[u8], at: i64) -> rusq
     Ok(())
 }
 
-/// Answer 238's GAME_CTRL (from payload +16): the client's defaults, the unlocked secretaries and the Grand Trophy
-/// week of `unix_secs`. +8 and +12 (date and time) stay 0: the control may set the PC's clock from them.
+/// Answer 238's GAME_CTRL (from payload +16): the client's defaults, the unlocked secretaries, the Grand Trophy
+/// week and the shop's sale list of `unix_secs`. +8 and +12 (date and time) stay 0: the control may set the PC's
+/// clock from them.
 fn fill_game_ctrl(body: &mut [u8], unix_secs: i64) {
     for &(at, width, v) in GAME_CTRL_DEFAULTS {
         body[16 + at..16 + at + width].copy_from_slice(&v.to_le_bytes()[..width]);
@@ -230,8 +260,8 @@ fn fill_game_ctrl(body: &mut [u8], unix_secs: i64) {
     body[GT_WEEK_AT..GT_WEEK_AT + 2].copy_from_slice(&gt_week(unix_secs).to_le_bytes());
     body[GT_MATCHES_AT..GT_MATCHES_AT + 5].copy_from_slice(&GT_MATCHES_PER_CLASS);
     body[SECRETARIES].fill(1);
-    for (k, (cat, item)) in SHOP_SALE.into_iter().enumerate() {
-        for (i, v) in [cat, item, SHOP_FROM, SHOP_TO].into_iter().enumerate() {
+    for (k, entry) in shop_sale(unix_secs).enumerate() {
+        for (i, v) in entry.into_iter().enumerate() {
             put(body, SHOP_SALE_AT + 16 * k + 4 * i, v);
         }
     }

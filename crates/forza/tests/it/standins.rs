@@ -85,6 +85,8 @@ fn gamesvr_replay() {
         // 238's Grand Trophy week id (GAME_CTRL 7,620 = body +16) follows the clock; the recording holds 0
         if resp.len() >= 40 + 16 + 7_622 && resp[8..10] == 238u16.to_le_bytes() {
             resp[40 + 16 + 7_620..40 + 16 + 7_622].fill(0);
+            // so does its shop sale list (GAME_CTRL 22,896, 10 x 16 bytes); the hash is of zeros there
+            resp[40 + 16 + 22_896..40 + 16 + 22_896 + 160].fill(0);
         }
         // 250's dataVSWeek (+12) is the same clock's week; the recording holds 0
         if resp.len() >= 40 + 504 && resp[8..10] == 250u16.to_le_bytes() {
