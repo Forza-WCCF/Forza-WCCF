@@ -449,7 +449,7 @@ impl Reader {
                         ));
                     } else {
                         (self.log)(&format!(
-                            "NEW CARD FILE REFUSED: {why} - only the club card is on the reader"
+                            "NEW CARD FILE REFUSED: {why} - only the club card is on the reader; fix it, then restart the game"
                         ));
                     }
                 }
