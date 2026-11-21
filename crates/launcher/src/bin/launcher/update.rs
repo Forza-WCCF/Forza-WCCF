@@ -286,22 +286,30 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
 fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
     use std::io::{Seek, SeekFrom};
     use std::os::windows::fs::OpenOptionsExt;
+    // `me` first: after a failed put-back it may be gone, and the spare is then the only copy, not to be truncated
+    let mut running = fs::File::open(me)?;
     let mut spare = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
         .share_mode(1) // FILE_SHARE_READ: no delete, no rename while held
-        .open(kept)?;
-    io::copy(&mut fs::File::open(me)?, &mut spare)?;
+        .open(kept)
+        .map_err(|e| io::Error::new(e.kind(), format!("{e} ({})", kept.display())))?;
+    io::copy(&mut running, &mut spare)?;
+    drop(running);
     let done = swap();
     if let Err(e) = &done
         && !me.is_file()
     {
+        // written beside, then renamed in: a put-back that fails half way leaves no short Launcher.exe
+        let restore = me.with_extension("exe.restore");
         let back = spare
             .seek(SeekFrom::Start(0))
-            .and_then(|_| io::copy(&mut spare, &mut fs::File::create(me)?));
+            .and_then(|_| io::copy(&mut spare, &mut fs::File::create(&restore)?))
+            .and_then(|_| fs::rename(&restore, me));
         if let Err(back) = back {
+            let _ = fs::remove_file(&restore);
             return Err(io::Error::new(e.kind(), format!("{e}; {back} ({})", kept.display())));
         }
     }
@@ -657,6 +665,10 @@ mod tests {
             "{e}"
         );
         assert_eq!(fs::read(&kept).unwrap(), b"the running launcher");
+        // the update is still offered: a second try must not empty the only copy left
+        swap_self(&me, &kept, || Err(io::Error::other("the kit folder is locked"))).unwrap_err();
+        assert_eq!(fs::read(&kept).unwrap(), b"the running launcher");
+        assert!(!t.path().join("Launcher.exe.restore").exists());
     }
 
     /// A second Launcher started between the copy and the swap runs its start's tidy: the kept copy must survive it,
