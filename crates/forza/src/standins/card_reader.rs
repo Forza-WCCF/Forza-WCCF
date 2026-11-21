@@ -69,7 +69,7 @@ fn hex(b: &[u8]) -> String {
 }
 
 /// `YYYYMMDD-HHMMSS` on this PC's clock (UTC if Windows cannot say the offset).
-fn stamp() -> String {
+pub(super) fn stamp() -> String {
     let utc = OffsetDateTime::now_utc();
     let t = UtcOffset::local_offset_at(utc).map_or(utc, |o| utc.to_offset(o));
     format!(
@@ -330,6 +330,13 @@ fn busy(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(32)
 }
 
+/// A read that another program holding the file refused for the moment (a sharing or lock violation - an antivirus
+/// scan, a backup): the file is looked at again at the next card check. A permanent denial (no rights on the file,
+/// a folder at its path) is not one, and it names both, so the raw codes are the test.
+fn busy_read(e: &io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(32) | Some(33))
+}
+
 /// The club card for the reader, or - if the file is unreadable (wrong size) - a NEW blank card so the game still
 /// opens and the CLUB CARD panel can switch to or restore one (never lock the player out). The unreadable file is
 /// kept as `<name>.<time>.bad` and never written over.
@@ -429,16 +436,22 @@ impl Reader {
                 }
                 Err(e) => {
                     self.bad_new = true;
-                    self.retry_new = matches!(&e, CardError::Io(io) if busy(io));
+                    self.retry_new = matches!(&e, CardError::Io(io) if busy_read(io));
                     // An unreadable new card file counts as a refusal and is left untouched: the Python let the
                     // error end the reader, and the game was then left without one.
                     let why = match e {
                         CardError::Size(s) => s,
                         CardError::Io(e) => format!("{}: {e}", new_path.display()),
                     };
-                    (self.log)(&format!(
-                        "NEW CARD FILE REFUSED: {why} - only the club card is on the reader"
-                    ));
+                    if self.retry_new {
+                        (self.log)(&format!(
+                            "NEW CARD FILE is busy ({why}) - read again at the next card check; only the club card is on the reader for now"
+                        ));
+                    } else {
+                        (self.log)(&format!(
+                            "NEW CARD FILE REFUSED: {why} - only the club card is on the reader"
+                        ));
+                    }
                 }
             }
         }
@@ -1017,7 +1030,7 @@ mod tests {
     }
 
     /// A new card file that cannot be loaded is refused, named in the log and left untouched; the club card stays
-    /// on the reader, and a file that was busy when it was read is tried again at the next card check.
+    /// on the reader, and neither a wrong size nor a permanent denial is read again at the next card check.
     #[test]
     fn a_bad_new_card_file_is_refused_and_the_reader_stays() {
         let dir = tempfile::tempdir().unwrap();
@@ -1046,7 +1059,16 @@ mod tests {
             "the club card still answers"
         );
 
-        // a file that cannot be read at all (here a folder): the I/O arm names it, and the read is tried again
+        // a second card check says nothing new: a file refused for its size is not read again
+        let said = msgs.lock().unwrap().len();
+        reader.lay_out();
+        assert_eq!(
+            msgs.lock().unwrap().len(),
+            said,
+            "a refusal that is not a busy file is logged once, not at every card check"
+        );
+
+        // a path that cannot be read at all (here a folder) is a permanent denial: named once, never re-read
         let folder = dir.path().join("folder.bin");
         fs::create_dir(&folder).unwrap();
         let (log, msgs) = recording();
@@ -1064,9 +1086,50 @@ mod tests {
         );
         let said = msgs.lock().unwrap().len();
         reader.lay_out();
+        assert_eq!(
+            msgs.lock().unwrap().len(),
+            said,
+            "a permanent denial is not retried (the Python let the error end the reader)"
+        );
+    }
+
+    /// A new card file another program holds open is a busy read: the log says so, nothing is written over it, and
+    /// the card loads at the next card check once the hold is gone.
+    #[cfg(windows)]
+    #[test]
+    fn a_busy_new_card_file_is_read_again_at_the_next_card_check() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (club, new) = (dir.path().join("club.bin"), dir.path().join("new.bin"));
+        let good = Card::new().image(); // a good card file: only the open handle refuses the read
+        fs::write(&new, &good).unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0) // no other handle, not even a read
+            .open(&new)
+            .unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(new.clone()), os_random());
+        reader.main.counter = 0xFF01; // an expired club card: a blank would be written here if the read were skipped
+        reader.lay_out();
+        assert!(reader.second.is_none(), "the file cannot be read yet");
         assert!(
-            msgs.lock().unwrap().len() == said + 1,
-            "a busy read is tried again at the next card check"
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("NEW CARD FILE is busy") && m.contains("new.bin")),
+            "{msgs:?}"
+        );
+        drop(held);
+        assert_eq!(
+            fs::read(&new).unwrap(),
+            good,
+            "the busy file is not written over"
+        );
+        reader.lay_out();
+        assert!(
+            reader.second.is_some(),
+            "the card loads on the next card check (no restart)"
         );
     }
 
