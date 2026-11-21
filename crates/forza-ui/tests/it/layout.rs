@@ -464,7 +464,8 @@ fn popout_board_foot_buttons_apart() {
         let size = Vec2::new(w, h);
         let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
         let (room, _) = panel::desk_parts(sheet, buttons, false);
-        let board = panel::desk_board_rect(room, panel::desk_bench_right(room, true, None, None));
+        // the bench at the pitch's right, the sample's (no bench= line)
+        let board = panel::desk_board_rect(room, true);
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.desk = true;
@@ -993,6 +994,55 @@ fn settings_fit_their_sheet_1718() {
                 lang.code()
             );
         }
+    }
+}
+
+/// 2017-18 SETTINGS at 1440x900, unscrolled (#361): BENCH POSITION and its BELOW sit above the fold in every language.
+/// CLEAR AND RESTART and its hint in NOW pushed them under it, behind the message line (BELOW's bottom at ~823 against
+/// the fold's ~775); under LOGS they leave them in sight.
+#[test]
+fn bench_position_above_the_settings_fold_1718() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        let st = std::cell::RefCell::new(panel::PanelState::sample(
+            Edition::E1718,
+            lang,
+            panel::Page::Settings,
+        ));
+        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+            panel::show(ui, &mut st.borrow_mut())
+        });
+        h.run_steps(4);
+        // the message line under the scrolled part: the sample's note, its text 7 points into its frame, the frame
+        // under the scroll area's item spacing
+        let note = forza_ui::text(lang, "panel.msg_saved", &[]);
+        let fold = h.get_by_label(&note).rect().top() - 12.0;
+        let label = forza_ui::text(lang, "settings.bench", &[]);
+        let below = forza_ui::text(lang, "settings.bench_below", &[]);
+        for (name, r) in [
+            ("label", h.get_by_label(&label).rect()),
+            (
+                "BELOW",
+                h.get_by_role_and_label(Role::RadioButton, &below).rect(),
+            ),
+        ] {
+            assert!(
+                r.bottom() <= fold,
+                "{} {name}: {r:?} under the fold at {fold}",
+                lang.code()
+            );
+        }
+        // RIGHT and BELOW only, no AUTO
+        let row = h
+            .get_by_role_and_label(Role::RadioButton, &below)
+            .rect()
+            .center()
+            .y;
+        let segments = h
+            .get_all_by_role(Role::RadioButton)
+            .filter(|n| (n.rect().center().y - row).abs() < 1.0)
+            .count();
+        assert_eq!(segments, 2, "{}: BENCH POSITION's segments", lang.code());
     }
 }
 
@@ -1729,10 +1779,7 @@ fn card_badges_keep_off_the_club_name() {
         for buttons in [false, true] {
             let sheet = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
             let (room, _) = panel::desk_parts(sheet, buttons, false);
-            assert!(
-                panel::desk_bench_right(room, true, None, None),
-                "{w}x{h}: bench beside"
-            );
+            // the sample's bench: at the pitch's right (no bench= line)
             let at = panel::desk_board_rect(room, true);
             let st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
             let rects = board::Mat::column(at.min, at.width()).slot_rects(&st.board.spots);

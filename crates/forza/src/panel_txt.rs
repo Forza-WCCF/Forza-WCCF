@@ -67,8 +67,8 @@ pub struct PanelFile {
     pub other: String,
     /// reset_ask=off (2017-18): RESET LINEUP resets at once, without its question (DON'T ASK AGAIN).
     pub reset_ask_off: bool,
-    /// bench=right|below (2017-18): where the formation board's bench goes; missing or anything else: None, Auto (at
-    /// the pitch's right unless that makes the cards much smaller).
+    /// bench=right|below (2017-18): where the formation board's bench goes; missing or anything else (an older
+    /// panel's `auto` too): None, at the pitch's right ([`PanelFile::bench_right`]).
     pub bench: Option<bool>,
 }
 
@@ -166,6 +166,11 @@ impl PanelFile {
             }
         }
         f
+    }
+
+    /// Whether the formation board's bench goes at the pitch's right: unless bench=below (#361: no Auto any more).
+    pub fn bench_right(&self) -> bool {
+        self.bench != Some(false)
     }
 
     /// The file, byte for byte as `wccfpanel.c` writes it (2017-18: its own first line; one panel for both
@@ -340,6 +345,25 @@ play_on=online\nserver=1.2.3.4\nenglish=off\nhover_delay_ms=500\nauto_logs=0\nwh
         }
         for bad in ["board_width=0", "board_width=-5", "board_width=wide"] {
             assert_eq!(PanelFile::parse(bad.as_bytes()).board_width, None, "{bad}");
+        }
+    }
+
+    /// bench= (#361): a panel.txt saved while SETTINGS had Auto (`bench=auto`) loads as right, as does none or
+    /// anything else; only `below` puts the bench under the pitch, and each choice is written back as it was read.
+    #[test]
+    fn a_saved_bench_auto_loads_as_right() {
+        for (line, right, kept) in [
+            ("bench=auto", true, None),
+            ("", true, None),
+            ("bench=x", true, None),
+            ("bench=right", true, Some("bench=right\n")),
+            ("bench=below", false, Some("bench=below\n")),
+        ] {
+            let f = PanelFile::parse(line.as_bytes());
+            assert_eq!(f.bench_right(), right, "{line}");
+            let text = f.text(true);
+            assert_eq!(text.contains("bench="), kept.is_some(), "{line}");
+            assert!(kept.is_none_or(|k| text.ends_with(k)), "{line}");
         }
     }
 }
