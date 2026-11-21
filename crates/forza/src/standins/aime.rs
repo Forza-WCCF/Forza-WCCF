@@ -146,8 +146,13 @@ fn parse(stream: &[u8]) -> (Vec<Req>, Vec<u8>) {
 pub fn ensure_card(path: &Path) {
     // a card file that cannot be made here is made by the reader when it starts; the caller already copes with
     // a missing card, so this is reported and not fatal
-    if let Err(e) = Card::load(Some(path)) {
-        eprintln!("aime card file {}: {e}", path.display());
+    match Card::load(Some(path)) {
+        Ok(c) => {
+            if let Some(why) = c.unsaved {
+                eprintln!("aime card code not saved: {why}");
+            }
+        }
+        Err(e) => eprintln!("aime card file {}: {e}", path.display()),
     }
 }
 
@@ -161,10 +166,20 @@ fn at(path: &Path, e: io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
+/// Writes `code` to `path` in one step: a temporary file beside it, then a rename over it.
+fn save_card(path: &Path, code: &str) -> io::Result<()> {
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(|e| at(path, e))?;
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, format!("{code}\n")).map_err(|e| at(path, e))?;
+    std::fs::rename(&tmp, path).map_err(|e| at(path, e))
+}
+
 /// The card on the reader.
 struct Card {
     code: String,
     uid: [u8; 4],
+    /// the code could not be written to its file: this session's card is not the one the next session gets
+    unsaved: Option<String>,
 }
 
 impl Card {
@@ -182,6 +197,7 @@ impl Card {
                 Err(e) => return Err(at(p, e)),
             }
         }
+        let mut unsaved = None;
         let code = match from_file {
             Some(code) => code,
             None => {
@@ -195,18 +211,15 @@ impl Card {
                     u64::from_le_bytes(r) % 10_000_000_000_000_000_000
                 );
                 if let Some(p) = path {
-                    let _ = std::fs::create_dir_all(p.parent().unwrap_or(Path::new(".")));
-                    let tmp = p.with_extension("tmp");
-                    if std::fs::write(&tmp, format!("{code}\n")).is_ok() {
-                        let _ = std::fs::rename(&tmp, p);
-                    }
+                    // the code is on the reader this session either way; only the next session would lose it
+                    unsaved = save_card(p, &code).err().map(|e| e.to_string());
                 }
                 code
             }
         };
         let bcd = |i: usize| u8::from_str_radix(&code[i..i + 2], 16).unwrap_or(0);
         let uid = [bcd(12), bcd(14), bcd(16), bcd(18)]; // 4-byte Mifare UID, stable per card
-        Ok(Self { code, uid })
+        Ok(Self { code, uid, unsaved })
     }
 
     fn block(&self, n: u8) -> Vec<u8> {
@@ -251,9 +264,15 @@ fn hexs(b: &[u8]) -> String {
 }
 
 /// Creates the named pipe `pipe_name` (`\\.\pipe\...`, one instance) and serves the reader on it until the returned
-/// handle is dropped. Fails when the pipe cannot be made (another reader running). `card_file` holds the card's
-/// 20-digit access code; it is made with a random code when missing.
+/// handle is dropped. Fails when the pipe cannot be made (another reader running), when no card code can be made (no
+/// random source) and when the card file cannot be read. `card_file` holds the card's 20-digit access code; it is made
+/// with a random code when missing, and a code that cannot be written to it is logged and kept for this session only.
 pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<Handle> {
+    // the card first: a card error leaves no pipe to close, and the code can be logged before the game connects
+    let card = Card::load(card_file)?;
+    if let Some(why) = &card.unsaved {
+        log(&format!("card code not saved: {why}"));
+    }
     let wide: Vec<u16> = pipe_name.encode_utf16().chain([0]).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call; no security attributes are passed.
     let raw = unsafe {
@@ -273,7 +292,6 @@ pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<
     }
     // SAFETY: `raw` is a valid pipe handle we own; the File closes it.
     let mut pipe = File::from(unsafe { OwnedHandle::from_raw_handle(raw) });
-    let card = Card::load(card_file)?;
     log(&format!(
         "Aime reader stand-in on {pipe_name}; card access code {} on the reader",
         card.code
@@ -449,5 +467,24 @@ mod tests {
             .expect("a folder is not a card file");
         assert!(e.to_string().contains("card.txt"), "{e}");
         assert!(path.is_dir(), "the folder is left alone");
+    }
+
+    /// A card code that cannot reach its file is reported with the path, and the card still plays this session with
+    /// the code it made.
+    #[test]
+    fn a_card_code_that_cannot_be_saved_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = dir.path().join("blocked");
+        std::fs::write(&blocked, "not a folder").unwrap();
+        let path = blocked.join("card.txt");
+        let c = Card::load(Some(&path)).unwrap();
+        let why = c.unsaved.expect("a code that could not be saved says so");
+        assert!(why.contains("card.txt"), "{why}");
+        assert!(
+            is_code(&c.code),
+            "the code is on the reader anyway: {}",
+            c.code
+        );
+        assert!(!path.exists());
     }
 }
