@@ -3962,7 +3962,8 @@ mod tests {
     }
 
     /// #375 (advisor 3.3 m4): two stores on one `market.db`, so no lock of this process between them, race one key's
-    /// STOCKBUY of each of 7 slots: each slot sells once, with one ledger row, and the other request is refused.
+    /// STOCKBUY of each of 7 slots: each slot sells once, with one ledger row, and the other request is refused. A guard:
+    /// it passed before #375 and passes without `AND sold = 0` too (SQLite refuses the stale writer).
     #[test]
     fn a_slot_sells_once_without_the_stores_lock() {
         let dir = tempfile::tempdir().unwrap();
@@ -4007,7 +4008,7 @@ mod tests {
 
     /// #375 (advisor 3.3 m4): a key that bought a stock slot expires 7 days after LEAVE (the purchase `stock_gone`); its
     /// log JOINs again, RESET retires the purchase (`stock_reset`), the new history spends all its tokens, and the old
-    /// log's `stock_buy` line no longer matches a sale.
+    /// log's `stock_buy` line no longer matches a sale. A guard: it passed before #375 too.
     #[test]
     fn reset_retires_an_expired_keys_stock_purchase() {
         let dir = tempfile::tempdir().unwrap();
