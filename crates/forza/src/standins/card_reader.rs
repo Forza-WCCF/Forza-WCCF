@@ -584,6 +584,12 @@ impl Reader {
                     .collect();
                 // The reply's length is one byte, so 16 blocks are cut at 255 bytes (the Python raised here and
                 // answered nothing at all).
+                if out.len() > 255 {
+                    (self.log)(&format!(
+                        "  a read of {count} blocks is {} bytes, cut to 255 - the reply's length is one byte",
+                        out.len()
+                    ));
+                }
                 out.truncate(255);
                 (0, out)
             }
@@ -1060,20 +1066,34 @@ mod tests {
         );
     }
 
-    /// A read of 16 blocks stops at the reply's one-byte length: 255 bytes go back, and 15 blocks still fit.
+    /// A read of 16 blocks stops at the reply's one-byte length: 255 bytes go back, it is logged, and 15 blocks
+    /// still fit without a log line.
     #[test]
     fn a_read_of_16_blocks_is_cut_at_255_bytes() {
         let dir = tempfile::tempdir().unwrap();
+        let (log, msgs) = recording();
         let mut reader = Reader::new(
             card_at(&dir.path().join("club.bin")),
-            quiet(),
+            log,
             None,
             os_random(),
         );
         let (status, sixteen) = reader.answer(0x52, &[0, 0, 16]);
         assert_eq!((status, sixteen.len()), (0, 255));
+        assert!(
+            msgs.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.contains("cut to 255")),
+            "{msgs:?}"
+        );
+        msgs.lock().unwrap().clear();
         let (_, fifteen) = reader.answer(0x52, &[0, 0, 15]);
         assert_eq!(fifteen.len(), 15 * 16, "one byte's length holds 15 blocks");
+        assert!(
+            msgs.lock().unwrap().is_empty(),
+            "a read that fits says nothing"
+        );
     }
 
     /// A frame that stops before its length byte is dropped, and the link answers the command behind it.
