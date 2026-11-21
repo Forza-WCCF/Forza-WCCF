@@ -116,9 +116,18 @@ Offline or a GitHub error: the wizard says so and keeps the manual choice. `--no
 Flags: `--no-verify` skips data-block CRC checks (header/metadata validation
 still runs); `--no-setup` ignores a supplied package; `--english` requires package
 setup. Headless mode does not create shortcuts. Errors return a nonzero exit code.
-It is a Windows GUI-subsystem program: a console shows none of its output (`--help` too)
-and does not wait. Use `Start-Process -Wait -PassThru -RedirectStandardOutput out.txt
--RedirectStandardError err.txt` and read the files and `.ExitCode`.
+It is a Windows GUI-subsystem program. Started with arguments from `cmd` or PowerShell, it
+joins that console, so `--help`, `--version`, the progress lines and an error print there;
+a start with no arguments opens the wizard and shows no console. A redirect (`> out.txt`) still
+wins. An interactive shell does not wait for it: its prompt comes back at once and the progress
+lines print over it (press Enter to draw the prompt again). A batch file, or PowerShell whose
+output is redirected, waits for the run. Ctrl+C in that shell asks the run to stop at its next
+file and remove its `game.partial` staging folder; a second Ctrl+C ends it at once. Closing the
+window asks the same, but Windows ends the process a few seconds after the handler returns, so
+the cleanup gets only that time: a staging folder it could not remove is left for the next
+extraction to clear. For the exit code use
+`Start-Process -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt`
+and read the files and `.ExitCode`.
 
 ## Build and test
 

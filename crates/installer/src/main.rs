@@ -27,6 +27,7 @@ use forza_ui::installer::{
 use forza_ui::theme::{self, Edition};
 use forza_ui::{Lang, text};
 use install::{Event, Plan};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -709,15 +710,23 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
         return Ok(false);
     };
     let last = std::cell::Cell::new(0u64);
-    let emit = |e: Event| match e {
-        Event::Stage(s) => println!("== {}", s.title(Lang::En)),
-        Event::Log(l) | Event::Missed(l) | Event::NoShortcut(l) => println!("{l}"),
-        Event::Progress(d, t) if t > 0 && d / (256 << 20) != last.replace(d / (256 << 20)) => {
-            println!("   {} / {}", gb(d), gb(t))
-        }
-        Event::Progress(..) => {}
+    // a console that a closed window is taking away fails these writes, and a panic here would skip the cancel path's
+    // removal of `game.partial`: the lines are best effort
+    let emit = |e: Event| {
+        let mut out = std::io::stdout();
+        let _ = match e {
+            Event::Stage(s) => writeln!(out, "== {}", s.title(Lang::En)),
+            Event::Log(l) | Event::Missed(l) | Event::NoShortcut(l) => writeln!(out, "{l}"),
+            Event::Progress(d, t) if t > 0 && d / (256 << 20) != last.replace(d / (256 << 20)) => {
+                writeln!(out, "   {} / {}", gb(d), gb(t))
+            }
+            Event::Progress(..) => Ok(()),
+        };
     };
-    install::run(&plan, &AtomicBool::new(false), Lang::En, &emit)?;
+    RUNNING.store(true, Ordering::Relaxed);
+    let stopped = install::run(&plan, &CANCEL, Lang::En, &emit);
+    RUNNING.store(false, Ordering::Relaxed);
+    stopped?;
     println!("done");
     Ok(true)
 }
@@ -763,13 +772,117 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     )
 }
 
+/// The paths that print (`--help`, `--version`, headless and its error) need a console; a plain start opens the
+/// window and must never show one.
+fn wants_console(args: &[String]) -> bool {
+    !args.is_empty()
+}
+
+/// Set by the console control routine once the headless run has joined the shell's console: the extraction polls it
+/// between files, so a Ctrl+C takes the cancel path (staging folder removed) instead of ending the process on the
+/// spot. Nothing else writes it.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// True only while `install::run` is in progress: a closing window's handler waits for it to return (the cancel path
+/// has removed `game.partial` by then), and one with no run behind it ends the process at once.
+static RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// What a console control event is answered with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CtrlAction {
+    /// Ask the run to stop and count the event as handled: the run drains on its own.
+    Cancel,
+    /// Ask the run to stop, then hold the handler until the cleanup is done.
+    Drain,
+    /// Not handled: the default handler ends the process.
+    End,
+}
+
+/// `event` decides, with whether a stop was already asked for. The codes are Win32's CTRL_C_EVENT (0), CTRL_BREAK_EVENT
+/// (1), CTRL_CLOSE_EVENT (2), CTRL_LOGOFF_EVENT (5) and CTRL_SHUTDOWN_EVENT (6). Ctrl+C and Ctrl+Break stop a running
+/// install; a second one ends the process, since a stage that does not poll the flag between two steps (the verify
+/// pass, one large file) would otherwise swallow the keyboard for good. Windows ends the process as soon as a handler
+/// for a closed window, a logoff or a shutdown returns, so those wait for the cleanup instead.
+fn ctrl_action(event: u32, asked: bool) -> CtrlAction {
+    match event {
+        0 | 1 if !asked => CtrlAction::Cancel,
+        2 | 5 | 6 => CtrlAction::Drain,
+        _ => CtrlAction::End,
+    }
+}
+
+/// Longest the handler of a closed window waits for the cancel cleanup: Windows ends the process once it returns and
+/// after about 5 s anyway.
+#[cfg(windows)]
+const CLOSE_DRAIN: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Ctrl+C at the shell's prompt, Ctrl+Break, a logoff or a closed window: see [`ctrl_action`].
+#[cfg(windows)]
+unsafe extern "system" fn on_ctrl(event: u32) -> windows::core::BOOL {
+    match ctrl_action(event, CANCEL.swap(true, Ordering::Relaxed)) {
+        CtrlAction::End => false.into(),
+        CtrlAction::Cancel => true.into(),
+        CtrlAction::Drain => {
+            let deadline = std::time::Instant::now() + CLOSE_DRAIN;
+            while RUNNING.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            true.into()
+        }
+    }
+}
+
+/// Joins the console of the shell that started this GUI-subsystem exe: without it `--help` and an error line print
+/// nowhere. Only a run with arguments reaches this (wants_console), never a plain start.
+#[cfg(windows)]
+fn attach_console() {
+    use std::os::windows::io::IntoRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
+    use windows::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        SetConsoleCtrlHandler, SetStdHandle,
+    };
+    // SAFETY: plain Win32 calls on this process's own standard handles; a reopened CONOUT$ stays open for the rest
+    // of this short-lived run, and `on_ctrl` only sets atomic flags and waits on one.
+    unsafe {
+        if AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
+            return; // from Explorer: no console to print in
+        }
+        // this process is a member of that console now, so the shell's Ctrl+C would kill it mid-extraction
+        let _ = SetConsoleCtrlHandler(Some(on_ctrl), true);
+        for slot in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // the shell's own console, or the file or pipe of a redirect (`--help > out.txt`): keep it. A stale or
+            // closed handle reads as FILE_TYPE_UNKNOWN and is replaced
+            if GetStdHandle(slot).is_ok_and(|h| GetFileType(h) != FILE_TYPE_UNKNOWN) {
+                continue;
+            }
+            if let Ok(f) = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("CONOUT$")
+            {
+                let _ = SetStdHandle(slot, HANDLE(f.into_raw_handle()));
+            }
+        }
+    }
+}
+
+/// A GUI-subsystem exe has no console of its own on the other platforms this file builds for.
+#[cfg(not(windows))]
+fn attach_console() {}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if wants_console(&args) {
+        attach_console();
+    }
     match headless(&args) {
         Ok(true) => return,
         Ok(false) => {}
         Err(e) => {
-            eprintln!("ERROR: {e:#}");
+            // the console may be going away with a closed window: report, but never panic on the way out
+            let _ = writeln!(std::io::stderr(), "ERROR: {e:#}");
             std::process::exit(1);
         }
     }
@@ -852,6 +965,47 @@ mod tests {
         app.next(&egui::Context::default(), false);
         assert!((app.st.confirm, app.st.page, app.run.is_none()) == (true, Page::Files, true));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A double-click start opens the window with no console behind it, and only a run with arguments may join one.
+    /// What the joined console then receives is not a pure decision: the console run and the installer smoke run
+    /// (pipes, so the redirect path) cover it.
+    #[test]
+    fn wants_console_is_true_only_with_arguments() {
+        let plain: Vec<String> = Vec::new();
+        assert!(!wants_console(&plain), "a plain start would show a console");
+        for args in [
+            vec!["--help".to_owned()],
+            vec!["--version".to_owned()],
+            vec!["--dest".to_owned(), "D:\\Games\\Forza-WCCF".to_owned()],
+        ] {
+            assert!(wants_console(&args), "{args:?} prints");
+        }
+    }
+
+    /// The decision that turns the shell's Ctrl+C into the cancel path which removes `game.partial`: one stops the run
+    /// and counts as handled, a second ends the process (a stage that polls nothing must not swallow the keyboard for
+    /// good), and a closed window, a logoff or a shutdown holds the handler for the cleanup, since Windows ends the
+    /// process when it returns.
+    #[test]
+    fn a_console_control_event_cancels_once_then_ends() {
+        assert_eq!(ctrl_action(0, false), CtrlAction::Cancel, "Ctrl+C");
+        assert_eq!(ctrl_action(1, false), CtrlAction::Cancel, "Ctrl+Break");
+        assert_eq!(ctrl_action(0, true), CtrlAction::End, "a second Ctrl+C");
+        assert_eq!(ctrl_action(1, true), CtrlAction::End, "a second Ctrl+Break");
+        for close in [2, 5, 6] {
+            assert_eq!(ctrl_action(close, false), CtrlAction::Drain, "{close}");
+            assert_eq!(
+                ctrl_action(close, true),
+                CtrlAction::Drain,
+                "{close} after a Ctrl+C"
+            );
+        }
+        assert_eq!(
+            ctrl_action(7, false),
+            CtrlAction::End,
+            "an event Windows does not send"
+        );
     }
 
     /// A step that failed without stopping the install reaches the Done page: its line shows, and a shortcut that was
