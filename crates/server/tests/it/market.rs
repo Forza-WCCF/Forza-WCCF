@@ -760,9 +760,9 @@ fn each_new_request_goes_after_the_last() {
     assert_eq!(Client::saved(&inst.0).last_at, ahead + 3);
 }
 
-/// #375 over a real desk: a BUY applied with its answer and its outbox lost (a crash before the save). The next visit's
-/// OWED writes the `market_buy` line: the card arrives, its price is spent, OWED names nothing more and the log passes
-/// JOIN again.
+/// #375 over a real desk: a BUY applied with its answer lost and `market.json` then unreadable (its outbox gone). The
+/// next visit asks the server, finds the key in the market, and OWED writes the `market_buy` line: the card arrives,
+/// its price is spent, OWED names nothing more and the log passes JOIN again.
 #[test]
 fn owed_heals_a_purchase_whose_outbox_was_lost() {
     let root = scratch("market_client_owed");
@@ -781,9 +781,8 @@ fn owed_heals_a_purchase_whose_outbox_was_lost() {
         buyer.ask(Verb::Buy, &[1, 13, 38]),
         Err(Fail::Unanswered(_))
     ));
-    let mut kept = Client::saved(&b.0);
-    kept.outbox = None;
-    buyer.save(&kept).unwrap();
+    std::fs::write(b.0.join(market::STATE_FILE), b"{\"joined\":tr").unwrap();
+    assert!(matches!(Client::load(&b.0), Err(Fail::Disk(_))));
     let buyer = client(&d, &b);
     let v = buyer.visit(3).unwrap();
     assert!(v.stock.is_some(), "still in the market: the lists came");

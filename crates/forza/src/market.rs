@@ -706,7 +706,9 @@ impl Client {
     }
 
     /// [`STATE_FILE`] before a request: none is a key never in the market; one that does not parse is moved aside to
-    /// `market.json.bad-<ms>` and reported once (its `joined` and outbox are lost), never taken silently as new.
+    /// `market.json.bad-<ms>` and reported once, never taken silently as new. Its outbox is lost and never sent; its
+    /// `joined` is unknown, so the new state says in the market: the next [`Self::visit`] asks the server with BROWSE
+    /// (no log), and OWED then writes a purchase whose answer the lost outbox waited for.
     pub fn load(data: &Path) -> Result<Saved, Fail> {
         let path = data.join(STATE_FILE);
         let bytes = match std::fs::read(&path) {
@@ -717,8 +719,13 @@ impl Client {
         serde_json::from_slice(&bytes).or_else(|e| {
             let bad = path.with_extension(format!("json.bad-{}", now_ms()));
             std::fs::rename(&path, &bad).map_err(disk)?;
+            let unknown = Saved {
+                joined: true,
+                ..Saved::default()
+            };
+            write(data, &unknown)?;
             Err(disk(format!(
-                "{} could not be read ({e}), it is kept as {}; this installation starts outside the market",
+                "{} could not be read ({e}), it is kept as {}; the market server is asked again at the next visit",
                 path.display(),
                 bad.display()
             )))
@@ -727,15 +734,7 @@ impl Client {
 
     /// Writes `s` as [`STATE_FILE`]: a temporary file flushed to the disk, then renamed over it.
     pub fn save(&self, s: &Saved) -> Result<(), Fail> {
-        let path = self.data.join(STATE_FILE);
-        let tmp = path.with_extension("json.tmp");
-        std::fs::create_dir_all(&self.data).map_err(disk)?;
-        let mut f = std::fs::File::create(&tmp).map_err(disk)?;
-        f.write_all(serde_json::to_string(s).map_err(disk)?.as_bytes())
-            .and_then(|()| f.sync_all())
-            .map_err(disk)?;
-        drop(f);
-        std::fs::rename(&tmp, &path).map_err(disk)
+        write(&self.data, s)
     }
 
     /// Signs `verb` at `at` with the log as it is now, saves it as the newest time and, for an [`outboxed`] word, in
@@ -923,7 +922,7 @@ impl Client {
 
     /// The market page's requests after the player's word (`PLAN.md` 3.5), each after the outbox:
     /// - in the market as this PC sees it, BROWSE first: it carries no log, so a key the server holds outside the market
-    ///   learns it from `NOT_IN` before any log goes;
+    ///   (an unreadable [`STATE_FILE`]) learns it from `NOT_IN` before any log goes;
     /// - COLLECT while in the market or while a sale waits;
     /// - in the market, [`Self::owed`] and then the stock list.
     pub fn visit(&self, browse_pages: usize) -> Result<Visit, Fail> {
@@ -984,6 +983,19 @@ impl Client {
         words.next(); // "listings"
         Ok(rows(words))
     }
+}
+
+/// [`Client::save`] for the installation's `data` folder.
+fn write(data: &Path, s: &Saved) -> Result<(), Fail> {
+    let path = data.join(STATE_FILE);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::create_dir_all(data).map_err(disk)?;
+    let mut f = std::fs::File::create(&tmp).map_err(disk)?;
+    f.write_all(serde_json::to_string(s).map_err(disk)?.as_bytes())
+        .and_then(|()| f.sync_all())
+        .map_err(disk)?;
+    drop(f);
+    std::fs::rename(&tmp, &path).map_err(disk)
 }
 
 fn disk(e: impl std::fmt::Display) -> Fail {
@@ -1285,7 +1297,6 @@ mod tests {
         std::fs::write(data.join(STATE_FILE), b"{\"joined\":tr").unwrap();
         script([]);
         assert!(matches!(c.flush(), Err(Fail::Disk(e)) if e.contains("bad-")));
-        assert!(!data.join(STATE_FILE).exists());
         let bad: Vec<_> = std::fs::read_dir(&data)
             .unwrap()
             .filter_map(|e| e.ok()?.file_name().into_string().ok())
@@ -1296,11 +1307,20 @@ mod tests {
             std::fs::read(data.join(&bad[0])).unwrap(),
             b"{\"joined\":tr"
         );
-        assert_eq!(Client::load(&data).unwrap(), Saved::default());
         assert!(
             sent().is_empty(),
             "nothing sent from a state it could not read"
         );
+        // #375: in the market or not is unknown, so the next visit asks with BROWSE (no log) before anything else
+        let unknown = Saved {
+            joined: true,
+            ..Saved::default()
+        };
+        assert_eq!(Client::load(&data).unwrap(), unknown);
+        script([Ok(Err(NOT_IN.into()))]);
+        assert_eq!(c.visit(3).unwrap(), Visit::default());
+        assert_eq!(sent(), ["BROWSE"]);
+        assert!(!Client::saved(&data).joined);
     }
 
     /// #375: a BUY applied on the server with its answer and its outbox lost: the next visit's OWED writes the
