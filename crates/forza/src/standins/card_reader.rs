@@ -374,6 +374,8 @@ struct Reader {
     second: Option<Card>,
     /// NEWCARDFILE could not be loaded: never written over
     bad_new: bool,
+    /// NEWCARDFILE could not be read because it was busy: tried again at the next card check
+    retry_new: bool,
     field: Vec<Which>,
     card: Which,
     random: Random,
@@ -387,6 +389,7 @@ impl Reader {
             new_path,
             second: None,
             bad_new: false,
+            retry_new: false,
             field: vec![Which::Main],
             card: Which::Main,
             random,
@@ -412,6 +415,10 @@ impl Reader {
         let Some(new_path) = self.new_path.clone() else {
             return;
         };
+        if self.retry_new {
+            self.bad_new = false; // a momentary share violation (an antivirus scan, a backup): look again
+            self.retry_new = false;
+        }
         if self.second.is_none() && !self.bad_new && new_path.exists() {
             let mut c = Card::new();
             c.path = Some(new_path.clone());
@@ -422,11 +429,12 @@ impl Reader {
                 }
                 Err(e) => {
                     self.bad_new = true;
+                    self.retry_new = matches!(&e, CardError::Io(io) if busy(io));
                     // An unreadable new card file counts as a refusal and is left untouched: the Python let the
                     // error end the reader, and the game was then left without one.
                     let why = match e {
                         CardError::Size(s) => s,
-                        CardError::Io(e) => e.to_string(),
+                        CardError::Io(e) => format!("{}: {e}", new_path.display()),
                     };
                     (self.log)(&format!(
                         "NEW CARD FILE REFUSED: {why} - only the club card is on the reader"
@@ -1002,16 +1010,20 @@ mod tests {
         assert!(!msgs.lock().unwrap().iter().any(|m| m.contains("REFUSED")));
     }
 
-    /// A new card file that cannot be loaded is refused and named in the log; the club card stays on the reader.
+    /// A new card file that cannot be loaded is refused, named in the log and left untouched; the club card stays
+    /// on the reader, and a file that was busy when it was read is tried again at the next card check.
     #[test]
     fn a_bad_new_card_file_is_refused_and_the_reader_stays() {
         let dir = tempfile::tempdir().unwrap();
         let (club, new) = (dir.path().join("club.bin"), dir.path().join("new.bin"));
         fs::write(&new, [1u8; 100]).unwrap();
         let (log, msgs) = recording();
-        let mut reader = Reader::new(card_at(&club), log, Some(new), os_random());
+        let mut reader = Reader::new(card_at(&club), log, Some(new.clone()), os_random());
+        reader.main.counter = 0xFF01; // an expired club card: the transfer would write a blank at `new`
         reader.lay_out();
         assert!(reader.bad_new, "the file is never written over");
+        assert!(reader.second.is_none(), "no blank card is put beside the club card");
+        assert_eq!(fs::read(&new).unwrap(), [1u8; 100], "new.bin is untouched");
         assert!(
             msgs.lock()
                 .unwrap()
@@ -1023,6 +1035,28 @@ mod tests {
             reader.answer(0x41, &[]),
             (0, vec![]),
             "the club card still answers"
+        );
+
+        // a file that cannot be read at all (here a folder): the I/O arm names it, and the read is tried again
+        let folder = dir.path().join("folder.bin");
+        fs::create_dir(&folder).unwrap();
+        let (log, msgs) = recording();
+        let mut reader = Reader::new(card_at(&club), log, Some(folder.clone()), os_random());
+        reader.main.counter = 0xFF01;
+        reader.lay_out();
+        assert!(reader.second.is_none());
+        assert!(folder.is_dir(), "the folder is untouched");
+        assert!(
+            msgs.lock().unwrap().iter().any(|m| m
+                .contains("NEW CARD FILE REFUSED")
+                && m.contains("folder.bin")),
+            "{msgs:?}"
+        );
+        let said = msgs.lock().unwrap().len();
+        reader.lay_out();
+        assert!(
+            msgs.lock().unwrap().len() == said + 1,
+            "a busy read is tried again at the next card check"
         );
     }
 
