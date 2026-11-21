@@ -33,8 +33,13 @@ tl.workspace = true
 zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# the desktop shortcut through the shell's own COM objects (IShellLinkW), no PowerShell
-windows = { workspace = true, features = ["Win32_UI_Shell", "Win32_Storage_FileSystem"] }
+# the desktop shortcut through the shell's own COM objects (IShellLinkW), no PowerShell; and the parent console of
+# a run with arguments (AttachConsole)
+windows = { workspace = true, features = [
+    "Win32_UI_Shell",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+] }
 
 [lints]
 workspace = true

@@ -763,8 +763,53 @@ fn run_window(renderer: eframe::Renderer) -> eframe::Result {
     )
 }
 
+/// The paths that print (`--help`, `--version`, headless and its error) need a console; a plain start opens the
+/// window and must never show one.
+fn wants_console(args: &[String]) -> bool {
+    !args.is_empty()
+}
+
+/// Joins the console of the shell that started this GUI-subsystem exe: without it `--help` and an error line print
+/// nowhere. Only a run with arguments reaches this (wants_console), never a plain start.
+#[cfg(windows)]
+fn attach_console() {
+    use std::os::windows::io::IntoRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        SetStdHandle,
+    };
+    // SAFETY: plain Win32 calls on this process's own standard handles; a reopened CONOUT$ stays open for the rest
+    // of this short-lived run.
+    unsafe {
+        if AttachConsole(ATTACH_PARENT_PROCESS).is_err() {
+            return; // from Explorer: no console to print in
+        }
+        for std in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // the shell's own handle, or the file or pipe of a redirect (`--help > out.txt`): keep it
+            if GetStdHandle(std).is_ok() {
+                continue;
+            }
+            if let Ok(f) = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("CONOUT$")
+            {
+                let _ = SetStdHandle(std, HANDLE(f.into_raw_handle()));
+            }
+        }
+    }
+}
+
+/// A GUI-subsystem exe has no console of its own on the other platforms this file builds for.
+#[cfg(not(windows))]
+fn attach_console() {}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if wants_console(&args) {
+        attach_console();
+    }
     match headless(&args) {
         Ok(true) => return,
         Ok(false) => {}
@@ -852,6 +897,20 @@ mod tests {
         app.next(&egui::Context::default(), false);
         assert!((app.st.confirm, app.st.page, app.run.is_none()) == (true, Page::Files, true));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A double-click start opens the window with no console behind it; everything that prints joins the shell's.
+    #[test]
+    fn only_a_start_with_arguments_attaches_to_a_console() {
+        let plain: Vec<String> = Vec::new();
+        assert!(!wants_console(&plain), "a plain start would show a console");
+        for args in [
+            vec!["--help".to_owned()],
+            vec!["--version".to_owned()],
+            vec!["--dest".to_owned(), "D:\\Games\\Forza-WCCF".to_owned()],
+        ] {
+            assert!(wants_console(&args), "{args:?} prints");
+        }
     }
 
     /// A step that failed without stopping the install reaches the Done page: its line shows, and a shortcut that was
