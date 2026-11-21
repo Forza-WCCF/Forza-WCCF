@@ -1315,6 +1315,49 @@ pub fn keep_on_table(ui: &Ui, keep: bool) {
     ui.data_mut(|d| d.insert_temp(keep_id(), keep));
 }
 
+fn group_on_id() -> Id {
+    Id::unique("board-group-on")
+}
+
+fn group_id() -> Id {
+    Id::unique("board-group")
+}
+
+/// With `on` (2017-18), a drag on open pitch boxes pitch cards into a group and Ctrl- or Shift-click adds or removes
+/// one; a group member in hand moves the whole group. Off by default; set it before each [`formation_board`] call.
+pub fn group_moves(ui: &Ui, on: bool) {
+    ui.data_mut(|d| d.insert_temp(group_on_id(), on));
+}
+
+/// Whether the card on `slot` may join a group: a pitch card off the keeper's spot (the keeper is drawn on its box
+/// whatever its spot, so a moved keeper would show still while the game sees it move).
+fn groupable(board: &Board, slot: usize) -> bool {
+    slot < 11 && board.slots[slot].is_some() && zone(board.spots[slot]) != Position::Gk
+}
+
+/// The pitch slots whose card centre lies in `area` (the box let go on open pitch).
+fn boxed(rects: &[Rect], filled: impl Fn(usize) -> bool, area: Rect) -> Vec<usize> {
+    (0..11)
+        .filter(|&s| filled(s) && area.contains(rects[s].center()))
+        .collect()
+}
+
+/// A group's spots moved by `want` from `origins`: the offset clamped once for the whole group so every spot stays in
+/// 0..1 and the group keeps its shape. An origin past 0..1 (an odd table file) is first brought onto the pitch.
+fn group_spots(origins: &[Pos2], want: Vec2) -> Vec<Pos2> {
+    let on: Vec<Pos2> = origins
+        .iter()
+        .map(|o| o.clamp(Pos2::ZERO, pos2(1.0, 1.0)))
+        .collect();
+    let lo = on.iter().fold(pos2(1.0, 1.0), |a, o| a.min(*o));
+    let hi = on.iter().fold(Pos2::ZERO, |a, o| a.max(*o));
+    let by = vec2(
+        want.x.clamp(-lo.x, 1.0 - hi.x),
+        want.y.clamp(-lo.y, 1.0 - hi.y),
+    );
+    on.into_iter().map(|o| o + by).collect()
+}
+
 /// The card [`formation_board`] refused to take off (a match runs) since the last call, if any.
 pub fn take_kept(ui: &Ui) -> Option<u32> {
     ui.data_mut(|d| d.remove_temp::<u32>(kept_id()))
@@ -1364,8 +1407,9 @@ const SELECT_HOLD: f64 = 3.0;
 /// With `links`, lines join every two linked pitch cards by the club's link stage; a selected card (clicked, or in
 /// hand) brings its group forward - its lines bright, the others and the cards outside its group dimmed - and a list
 /// beside the board names its partners, on the team and not. With `column` the bench is a column at the pitch's right
-/// ([`Mat::column`]), else a strip under it. `pure` (the pop-out board): moves only, no big card, no selection and no
-/// lines; the card pressed or in hand is kept for [`take_touched`]. Returns true when it changed.
+/// ([`Mat::column`]), else a strip under it. `pure` (the pop-out board): moves only, no big card, no link selection
+/// and no lines (a box group still moves, with [`group_moves`]); the card pressed or in hand is kept for
+/// [`take_touched`]. Returns true when it changed.
 pub fn formation_board(
     ui: &mut Ui,
     board: &mut Board,
@@ -1415,6 +1459,27 @@ pub fn formation_board(
         .and_then(|d| board.number(d))
         .or(clicked_card)
         .filter(|_| has_links);
+    // the group (box or Ctrl-click): card numbers, which survive a swap, of cards still on the pitch
+    let group_on = ui.data(|d| d.get_temp::<bool>(group_on_id())) == Some(true);
+    let mut group: Vec<u32> = ui
+        .data(|d| d.get_temp::<Vec<u32>>(group_id()))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| {
+            // a card dropped on the keeper's spot leaves the group once let go
+            group_on
+                && (0..11).any(|s| {
+                    board.number(s) == Some(*n) && (dragging.is_some() || groupable(board, s))
+                })
+        })
+        .collect();
+    let in_group =
+        |b: &Board, g: &[u32], s: usize| s < 11 && b.number(s).is_some_and(|n| g.contains(&n));
+    // a drag of a card outside the group lets the group go
+    if dragging.is_some_and(|d| d < 16 && board.slots[d].is_some() && !in_group(board, &group, d)) {
+        group.clear();
+    }
+    let group_drag = group.len() >= 2 && dragging.is_some_and(|d| in_group(board, &group, d));
 
     let mut changed = false;
     if column {
@@ -1440,6 +1505,28 @@ pub fn formation_board(
     let grab = ui
         .data(|d| d.get_temp::<Vec2>(grab_id()))
         .unwrap_or(Vec2::ZERO);
+    // a group in hand: every member's spot at the lift, kept until it is let go (or Esc)
+    let group_origin_id = Id::unique("board-group-origin");
+    let group_origin: Vec<(usize, Pos2)> = if group_drag {
+        let o = ui.data_mut(|d| {
+            d.get_temp_mut_or_insert_with(group_origin_id, || {
+                (0..11)
+                    .filter(|&s| in_group(board, &group, s))
+                    .map(|s| (s, board.spots[s]))
+                    .collect::<Vec<_>>()
+            })
+            .clone()
+        });
+        if ui.input(|i| i.pointer.any_released()) {
+            ui.data_mut(|d| d.remove::<Vec<(usize, Pos2)>>(group_origin_id));
+        }
+        o
+    } else {
+        changed |= ui
+            .data_mut(|d| d.remove_temp::<Vec<(usize, Pos2)>>(group_origin_id))
+            .is_some();
+        Vec::new()
+    };
     let origin = match dragging.filter(|&d| d < 11 && board.slots[d].is_some()) {
         Some(from) => {
             let o = ui.data_mut(|d| {
@@ -1449,7 +1536,19 @@ pub fn formation_board(
                 && shown.contains(pt)
             {
                 let spot = spot_at(pitch, pt);
-                if spot != board.spots[from] {
+                if group_drag {
+                    // the whole group by one offset, clamped once so it stops together at an edge
+                    let f = field(pitch);
+                    let want = pos2((pt.x - f.left()) / f.width(), (pt.y - f.top()) / f.height());
+                    let spots: Vec<Pos2> = group_origin.iter().map(|m| m.1).collect();
+                    let to = group_spots(&spots, want - o.1);
+                    for (&(m, _), at) in group_origin.iter().zip(to) {
+                        if board.spots[m] != at {
+                            board.spots[m] = at;
+                            changed = true;
+                        }
+                    }
+                } else if spot != board.spots[from] {
                     board.spots[from] = spot;
                     changed = true;
                 }
@@ -1508,7 +1607,8 @@ pub fn formation_board(
     let mut hovered_card = None;
     let mut drop_target = None;
     // the swap target is the card under the held card's centre (as drawn), not under the pointer
-    let target = pointer.and_then(|p| {
+    // a group in hand never swaps: its cards lie where shown
+    let target = pointer.filter(|_| !group_drag).and_then(|p| {
         target_slot(
             &rects,
             |s| s >= 11 || board.slots[s].is_some(),
@@ -1516,6 +1616,36 @@ pub fn formation_board(
             drag_centre(p, grab, card),
         )
     });
+    // the box: a drag on open pitch, interacted before the cards so they stay on top of it; a click there lets the
+    // group go
+    let box_start_id = Id::unique("board-box");
+    let mut box_area = None;
+    if group_on {
+        let r = ui.interact(shown, Id::unique("board-box"), Sense::click_and_drag());
+        if r.drag_started()
+            && let Some(p) = ui.input(|i| i.pointer.press_origin())
+        {
+            ui.data_mut(|d| d.insert_temp(box_start_id, p));
+        }
+        let start = ui.data(|d| d.get_temp::<Pos2>(box_start_id));
+        if let (Some(a), Some(b)) = (start, pointer) {
+            box_area = Some(Rect::from_two_pos(a, b));
+        }
+        if r.drag_stopped() {
+            ui.data_mut(|d| d.remove::<Pos2>(box_start_id));
+            if let Some(area) = box_area.take() {
+                group = boxed(&rects, |s| groupable(board, s), area)
+                    .into_iter()
+                    .filter_map(|s| board.number(s))
+                    .collect();
+            }
+        } else if !r.dragged() {
+            box_area = None;
+        }
+        if r.clicked() {
+            group.clear();
+        }
+    }
     for (slot, &rect) in rects.iter().enumerate() {
         // no spot boxes on the pitch: an empty pitch slot is no place and takes no drop
         if slot < 11 && board.slots[slot].is_none() {
@@ -1548,7 +1678,7 @@ pub fn formation_board(
                     c,
                     Look {
                         ghost: is_dragged,
-                        selected: selected == Some(c.number),
+                        selected: selected == Some(c.number) || in_group(board, &group, slot),
                         target: hovered_by_drag,
                         warn,
                         ..Look::default()
@@ -1557,6 +1687,7 @@ pub fn formation_board(
                 if let Some(s) = selected
                     && !is_dragged
                     && !links.grouped(s, c.number)
+                    && !in_group(board, &group, slot)
                 {
                     p.rect_filled(rect, corners, Color32::from_black_alpha(140));
                 }
@@ -1566,8 +1697,20 @@ pub fn formation_board(
                 if resp.hovered() && dragging.is_none() && !pure {
                     hovered_card = Some((slot, ci, rect));
                 }
+                // Ctrl- or Shift-click: the pitch card joins or leaves the group, nothing shows big; a plain click on
+                // a card outside the group lets the group go
+                let toggle = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+                if resp.clicked() && group_on && groupable(board, slot) && toggle {
+                    if let Some(i) = group.iter().position(|&n| n == c.number) {
+                        group.remove(i);
+                    } else {
+                        group.push(c.number);
+                    }
+                } else if resp.clicked() && group_on && !toggle && !in_group(board, &group, slot) {
+                    group.clear();
+                }
                 // a click shows the card big and selects it (and lets both go); only the big card turns over
-                if resp.clicked() && !pure {
+                if resp.clicked() && !pure && !(group_on && groupable(board, slot) && toggle) {
                     let no = c.number;
                     ui.data_mut(|d| {
                         let f = d.get_temp_mut_or_default::<Option<u32>>(pin_id);
@@ -1613,6 +1756,21 @@ pub fn formation_board(
         }
     }
 
+    // a group let go: on open pitch it lies where shown; over the bench or off the board it goes back to its spots
+    // from before the lift (no group take-off, no group benching)
+    if group_drag
+        && ui.input(|i| i.pointer.any_released())
+        && egui::DragAndDrop::take_payload::<usize>(ui.ctx()).is_some()
+    {
+        // by the pointer, not the card's centre: a card held by its lower edge has its centre on the pitch while the
+        // pointer is over the bench already
+        if !pointer.is_some_and(|p| shown.contains(p)) {
+            for &(m, at) in &group_origin {
+                board.spots[m] = at;
+            }
+        }
+        changed = true;
+    }
     // dragged off the board and let go: taken off (a pitch card's spot from before the lift)
     if let Some(from) = dragging.filter(|&d| board.slots[d].is_some())
         && off
@@ -1686,6 +1844,12 @@ pub fn formation_board(
         );
     }
 
+    // the box being drawn, over the cards
+    if let Some(area) = box_area {
+        let p = ui.painter().with_clip_rect(shown);
+        p.rect_filled(area, 0, theme::AMBER.gamma_multiply(0.12));
+        p.rect_stroke(area, 0, Stroke::new(2.0, theme::AMBER), StrokeKind::Inside);
+    }
     // the link lines between pitch cards: the selection's group last, so it lies on top
     let mut back = Vec::new();
     let mut front = Vec::new();
@@ -1697,7 +1861,10 @@ pub fn formation_board(
             let Some(stage) = Stage::of(links.link(a, b)) else {
                 continue;
             };
-            let lit = selected.is_none_or(|s| s == a || s == b);
+            // the group's lines stay bright beside the selection's
+            let lit = selected.is_none_or(|s| s == a || s == b)
+                || in_group(board, &group, i)
+                || in_group(board, &group, j);
             let (to, alpha) = if lit {
                 (&mut front, 1.0)
             } else {
@@ -1716,8 +1883,12 @@ pub fn formation_board(
     let over_selected = clicked_card.is_some_and(|s| {
         (0..16).any(|i| board.number(i) == Some(s) && pointer.is_some_and(|p| rects[i].contains(p)))
     });
+    let over_group = (0..11)
+        .any(|i| in_group(board, &group, i) && pointer.is_some_and(|p| rects[i].contains(p)));
     let touched = dragging.is_some()
+        || box_area.is_some()
         || over_selected
+        || over_group
         || ui.input(|i| {
             i.events.iter().any(|e| match e {
                 egui::Event::Key { .. } => true,
@@ -1730,10 +1901,11 @@ pub fn formation_board(
         // a frame when the hold runs out, though nothing else happens
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs_f64(SELECT_HOLD));
-    } else if clicked_card.is_some() {
+    } else if clicked_card.is_some() || !group.is_empty() {
         let last = ui.data(|d| d.get_temp::<f64>(touch_id)).unwrap_or(now);
         if now - last >= SELECT_HOLD {
             ui.data_mut(|d| d.insert_temp(select_id, None::<u32>));
+            group.clear();
             ui.ctx().request_repaint();
         } else {
             ui.ctx()
@@ -1864,6 +2036,7 @@ pub fn formation_board(
         });
         changed = true;
     }
+    ui.data_mut(|d| d.insert_temp(group_id(), group));
     changed
 }
 
@@ -4147,5 +4320,352 @@ mod tests {
                 }
             });
         }
+    }
+
+    /// The box takes the pitch cards whose centre lies in it, never a bench slot or an empty one.
+    #[test]
+    fn a_box_takes_the_pitch_cards_whose_centre_is_in_it() {
+        let mut rects = [Rect::NOTHING; 16];
+        for (s, r) in rects.iter_mut().enumerate() {
+            *r = Rect::from_center_size(pos2(s as f32 * 10.0, 0.0), vec2(30.0, 40.0));
+        }
+        // 0..=4 lie in it by their centre (0 and 4 only partly), 2 is empty, the bench 11..=15 lies past it
+        let area = Rect::from_min_max(pos2(-1.0, -1.0), pos2(41.0, 1.0));
+        assert_eq!(boxed(&rects, |s| s != 2, area), [0, 1, 3, 4]);
+        let all = Rect::from_min_max(pos2(-1.0, -1.0), pos2(500.0, 1.0));
+        assert_eq!(boxed(&rects, |_| true, all), (0..11).collect::<Vec<_>>());
+        // an edge brushed, the centre outside: not taken
+        let brush = Rect::from_min_max(pos2(12.0, -1.0), pos2(14.0, 1.0));
+        assert!(boxed(&rects, |_| true, brush).is_empty());
+    }
+
+    /// The group's offset is clamped once: every spot stays in 0..1 and the shape is kept.
+    #[test]
+    fn a_group_offset_keeps_every_member_on_the_pitch() {
+        let o = [pos2(0.2, 0.3), pos2(0.5, 0.6), pos2(0.4, 0.9)];
+        let moved = |want: Vec2| -> Vec<Vec2> {
+            group_spots(&o, want)
+                .iter()
+                .zip(o)
+                .map(|(s, o)| *s - o)
+                .collect()
+        };
+        for (want, by) in [
+            (vec2(0.1, 0.05), vec2(0.1, 0.05)),
+            (vec2(-0.9, 0.9), vec2(-0.2, 0.1)),
+            (vec2(0.9, -0.9), vec2(0.5, -0.3)),
+        ] {
+            assert!(moved(want).iter().all(|d| close(*d, by)), "{want:?}");
+        }
+        // spots past 0..1 from an odd table: brought onto the pitch, then moved; every spot stays in 0..1
+        let odd = [pos2(-0.1, 0.5), pos2(1.1, 0.5), pos2(0.5, 1.2)];
+        for want in [vec2(0.3, 0.0), vec2(-0.3, -0.4), vec2(0.0, 0.4)] {
+            let to = group_spots(&odd, want);
+            let r = Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0));
+            assert!(to.iter().all(|s| r.contains(*s)), "{want:?}: {to:?}");
+        }
+    }
+
+    /// A [`formation_board`] driven by raw input, the group gate on or off.
+    struct Rig {
+        ctx: egui::Context,
+        pitch: Rect,
+        on: bool,
+        keep: bool,
+        removed: Option<Removed>,
+    }
+
+    impl Rig {
+        fn new(on: bool, b: &mut Board) -> Rig {
+            let ctx = egui::Context::default();
+            theme::install(&ctx, theme::Edition::E1718, &theme::font_dir()).unwrap();
+            ctx.run_ui(egui::RawInput::default(), |_| {})
+                .textures_delta
+                .clear();
+            let mut r = Rig {
+                ctx,
+                pitch: Rect::NOTHING,
+                on,
+                keep: false,
+                removed: None,
+            };
+            r.frame(b, vec![], egui::Modifiers::NONE);
+            r
+        }
+
+        fn frame(&mut self, b: &mut Board, events: Vec<egui::Event>, mods: egui::Modifiers) {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500.0, 1400.0))),
+                events: [egui::Event::ModifiersChanged(mods)]
+                    .into_iter()
+                    .chain(events)
+                    .collect(),
+                ..Default::default()
+            };
+            let (on, keep) = (self.on, self.keep);
+            let (mut pitch, mut removed) = (self.pitch, None);
+            self.ctx
+                .run_ui(raw, |ui| {
+                    pitch = pitch_rect(ui.cursor().min, ui.available_width());
+                    keep_on_table(ui, keep);
+                    group_moves(ui, on);
+                    formation_board(
+                        ui,
+                        b,
+                        &Links::default(),
+                        None,
+                        crate::Lang::En,
+                        false,
+                        false,
+                    );
+                    removed = take_removed(ui);
+                })
+                .textures_delta
+                .clear();
+            self.pitch = pitch;
+            self.removed = self.removed.take().or(removed);
+        }
+
+        /// A spot's screen point.
+        fn at(&self, spot: Pos2) -> Pos2 {
+            spot_rect(self.pitch, spot).center()
+        }
+
+        fn press(pos: Pos2, pressed: bool) -> egui::Event {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            }
+        }
+
+        fn drag(&mut self, b: &mut Board, from: Pos2, to: Pos2) {
+            let none = egui::Modifiers::NONE;
+            let ev = vec![egui::Event::PointerMoved(from), Rig::press(from, true)];
+            self.frame(b, ev, none);
+            for i in 1..=6 {
+                let p = from + (to - from) * (i as f32 / 6.0);
+                self.frame(b, vec![egui::Event::PointerMoved(p)], none);
+            }
+            self.frame(b, vec![Rig::press(to, false)], none);
+            self.frame(b, vec![], none);
+        }
+
+        fn click(&mut self, b: &mut Board, at: Pos2, mods: egui::Modifiers) {
+            let ev = vec![egui::Event::PointerMoved(at), Rig::press(at, true)];
+            self.frame(b, ev, mods);
+            self.frame(b, vec![Rig::press(at, false)], mods);
+            self.frame(b, vec![], mods);
+        }
+
+        fn group(&self) -> Vec<u32> {
+            let mut g = self
+                .ctx
+                .data(|d| d.get_temp::<Vec<u32>>(group_id()))
+                .unwrap_or_default();
+            g.sort_unstable();
+            g
+        }
+    }
+
+    /// Cards 1..=4 in a square on pitch slots 0..=3, card 5 right of it on slot 4, card 6 on the first bench box.
+    fn square() -> Board {
+        let mut b = Board {
+            cards: (1..=6).map(card).collect(),
+            slots: [None; 16],
+            spots: [pos2(0.5, 0.5); 11],
+            rub: None,
+        };
+        for s in 0..5 {
+            b.slots[s] = Some(s);
+        }
+        b.slots[11] = Some(5);
+        let at = [
+            (0.2, 0.25),
+            (0.45, 0.25),
+            (0.2, 0.45),
+            (0.45, 0.45),
+            (0.7, 0.25),
+        ];
+        for (s, (x, y)) in at.into_iter().enumerate() {
+            b.spots[s] = pos2(x, y);
+        }
+        b
+    }
+
+    /// The box over the square from open pitch.
+    fn box_square(r: &mut Rig, b: &mut Board) {
+        let (from, to) = (r.at(pos2(0.05, 0.08)), r.at(pos2(0.6, 0.55)));
+        r.drag(b, from, to);
+    }
+
+    fn close(a: Vec2, b: Vec2) -> bool {
+        (a - b).length() < 1e-4
+    }
+
+    #[test]
+    fn a_box_over_four_cards_moves_them_together() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        box_square(&mut r, &mut b);
+        assert_eq!(r.group(), [1, 2, 3, 4]);
+        let was = b.spots;
+        let from = r.at(was[0]);
+        r.drag(&mut b, from, from + vec2(30.0, 20.0));
+        let by = b.spots[0] - was[0];
+        assert!(by.x > 0.05 && by.y > 0.02, "{by:?}");
+        for (s, (now, at)) in b.spots.iter().zip(was).enumerate().take(4) {
+            assert!(close(*now - at, by), "slot {s}: {now:?}");
+        }
+        assert_eq!(b.spots[4], was[4], "the card outside the box moved");
+        assert_eq!(b.slots, square().slots);
+    }
+
+    #[test]
+    fn a_group_stops_at_the_pitch_edge_together() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        box_square(&mut r, &mut b);
+        let was = b.spots;
+        let from = r.at(was[0]);
+        // its centre ends left of the field, still on the drawn pitch
+        r.drag(&mut b, from, pos2(r.pitch.left() + 16.0, from.y));
+        let min_x = (0..4).map(|s| b.spots[s].x).fold(1.0, f32::min);
+        assert_eq!(min_x, 0.0);
+        for s in 1..4 {
+            assert!(
+                close(b.spots[s] - b.spots[0], was[s] - was[0]),
+                "slot {s}: the shape changed"
+            );
+        }
+    }
+
+    #[test]
+    fn a_group_drop_never_swaps() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        box_square(&mut r, &mut b);
+        // card 1 let go on card 5: no swap, it lies there over it
+        let (from, onto) = (r.at(b.spots[0]), r.at(b.spots[4]));
+        r.drag(&mut b, from, onto);
+        assert_eq!(b.slots, square().slots, "the group swapped");
+        assert!(
+            close(b.spots[0].to_vec2(), b.spots[4].to_vec2()),
+            "{:?}",
+            b.spots[0]
+        );
+    }
+
+    #[test]
+    fn bench_cards_never_join_a_group() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        let bench = r
+            .ctx
+            .read_response(Id::unique(("board-slot", 11)))
+            .expect("the bench card")
+            .rect
+            .center();
+        // a box from open pitch down over the bench card, then a Ctrl-click on it
+        let from = pos2(r.pitch.left() + 2.0, r.at(pos2(0.05, 0.08)).y);
+        let to = pos2(r.at(pos2(0.95, 0.5)).x, bench.y + 10.0);
+        r.drag(&mut b, from, to);
+        assert_eq!(r.group(), [1, 2, 3, 4, 5]);
+        r.click(&mut b, bench, egui::Modifiers::COMMAND);
+        assert_eq!(r.group(), [1, 2, 3, 4, 5], "the bench card joined");
+        assert_eq!(b.slots, square().slots);
+    }
+
+    #[test]
+    fn ctrl_click_adds_and_removes_a_card_and_a_click_on_open_pitch_clears() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        let (one, five) = (r.at(b.spots[0]), r.at(b.spots[4]));
+        r.click(&mut b, one, egui::Modifiers::COMMAND);
+        r.click(&mut b, five, egui::Modifiers::SHIFT);
+        assert_eq!(r.group(), [1, 5]);
+        // no card shown big by a toggle
+        assert!(
+            r.ctx
+                .data(|d| d.get_temp::<Option<u32>>(Id::unique("board-pin")))
+                .flatten()
+                .is_none()
+        );
+        r.click(&mut b, one, egui::Modifiers::COMMAND);
+        assert_eq!(r.group(), [5]);
+        box_square(&mut r, &mut b);
+        assert_eq!(r.group(), [1, 2, 3, 4]);
+        r.click(&mut b, r.at(pos2(0.05, 0.08)), egui::Modifiers::NONE);
+        assert!(r.group().is_empty());
+        // a drag now moves one card only
+        let was = b.spots;
+        r.drag(&mut b, one, one + vec2(30.0, 0.0));
+        assert_ne!(b.spots[0], was[0]);
+        assert_eq!(b.spots[1..], was[1..]);
+    }
+
+    #[test]
+    fn a_group_let_go_off_the_board_goes_back() {
+        for keep in [false, true] {
+            let mut b = square();
+            let mut r = Rig::new(true, &mut b);
+            r.keep = keep;
+            box_square(&mut r, &mut b);
+            let was = b.spots;
+            let from = r.at(was[0]);
+            r.drag(&mut b, from, pos2(from.x, 1300.0));
+            assert_eq!(b.spots, was, "keep {keep}");
+            assert_eq!(b.slots, square().slots, "keep {keep}");
+            assert!(r.removed.is_none(), "keep {keep}: taken off");
+        }
+    }
+
+    /// A member held by its lower edge and let go with the pointer just over the bench (its centre still on the
+    /// pitch): the group goes back.
+    #[test]
+    fn a_group_let_go_over_the_bench_goes_back() {
+        let mut b = square();
+        let mut r = Rig::new(true, &mut b);
+        box_square(&mut r, &mut b);
+        let was = b.spots;
+        let from = r.at(was[0]) + vec2(0.0, 40.0);
+        r.drag(&mut b, from, pos2(from.x, r.pitch.bottom() + 6.0));
+        assert_eq!(b.spots, was);
+        assert_eq!(b.slots, square().slots);
+        assert!(r.removed.is_none());
+    }
+
+    /// The keeper never joins a group, by the box or by Ctrl-click.
+    #[test]
+    fn the_keeper_never_joins_a_group() {
+        let mut b = square();
+        b.spots[4] = pos2(0.5, 0.95);
+        let mut r = Rig::new(true, &mut b);
+        let keeper = r
+            .ctx
+            .read_response(Id::unique(("board-slot", 4)))
+            .expect("the keeper")
+            .rect
+            .center();
+        let from = pos2(r.pitch.left() + 2.0, r.at(pos2(0.05, 0.08)).y);
+        r.drag(&mut b, from, r.pitch.right_bottom() - vec2(2.0, 2.0));
+        assert_eq!(r.group(), [1, 2, 3, 4]);
+        r.click(&mut b, keeper, egui::Modifiers::COMMAND);
+        assert_eq!(r.group(), [1, 2, 3, 4], "the keeper joined");
+    }
+
+    #[test]
+    fn without_the_gate_the_board_has_no_box() {
+        let mut b = square();
+        let mut r = Rig::new(false, &mut b);
+        box_square(&mut r, &mut b);
+        let five = r.at(b.spots[4]);
+        r.click(&mut b, five, egui::Modifiers::COMMAND);
+        assert!(r.group().is_empty());
+        let was = b.spots;
+        let from = r.at(was[0]);
+        r.drag(&mut b, from, from + vec2(30.0, 0.0));
+        assert_eq!(b.spots[1..], was[1..]);
     }
 }
