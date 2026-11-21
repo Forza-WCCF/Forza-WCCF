@@ -314,12 +314,13 @@ fn swap_self<'a>(
     if let Err((_, e)) = &done
         && !me.is_file()
     {
-        // written beside, then renamed in: a put-back that fails half way leaves no short Launcher.exe
+        // written beside, then renamed in: a put-back that fails half way leaves no short Launcher.exe.  A scanner may
+        // hold the fresh file for a moment: the rename tries again for up to 1 s
         let restore = me.with_extension("exe.restore");
         let back = spare
             .seek(SeekFrom::Start(0))
             .and_then(|_| io::copy(&mut spare, &mut fs::File::create(&restore)?))
-            .and_then(|_| fs::rename(&restore, me));
+            .and_then(|_| forza::cards::swap_in(&restore, me, 50, 20));
         if let Err(back) = back {
             let _ = fs::remove_file(&restore);
             return Err((
@@ -718,6 +719,41 @@ mod tests {
         assert_eq!(e.0, me);
         assert!(e.1.to_string().contains(&kept.display().to_string()), "{}", e.1);
         assert_eq!(fs::read(&kept).unwrap(), b"the only copy");
+    }
+
+    /// A scanner holding the fresh restore copy for a moment (no delete sharing) does not fail the put-back (#361).
+    #[test]
+    fn a_put_back_waits_for_a_scanner_on_the_fresh_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        let scanner = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(3) // FILE_SHARE_READ | FILE_SHARE_WRITE: the copy is written, the rename waits
+            .open(&restore)
+            .unwrap();
+        let done = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            drop(scanner);
+        });
+        let e = swap_self(&me, &kept, || {
+            fs::remove_file(&me)?; // self_replace renames it away first
+            Err(io::Error::other("the kit folder is locked"))
+        })
+        .unwrap_err();
+        done.join().unwrap();
+        assert_eq!(
+            e.1.to_string(),
+            "the kit folder is locked",
+            "the put-back itself worked"
+        );
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+        assert!(!restore.exists() && !kept.exists());
     }
 
     /// The start removes a `Launcher.exe.restore` a killed put-back left, but not while another Launcher's swap holds

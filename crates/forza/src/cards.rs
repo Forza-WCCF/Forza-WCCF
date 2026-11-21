@@ -271,7 +271,7 @@ fn with_suffix(p: &Path, suffix: &str) -> PathBuf {
 }
 
 /// `tmp` over `to` (MoveFileEx with replace); the reader may hold `to` this instant: a few tries a moment apart.
-fn swap_in(tmp: &Path, to: &Path, tries: u32, ms: u64) -> io::Result<()> {
+pub fn swap_in(tmp: &Path, to: &Path, tries: u32, ms: u64) -> io::Result<()> {
     let mut last = Ok(());
     for _ in 0..tries {
         last = fs::rename(tmp, to);
