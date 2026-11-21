@@ -147,11 +147,7 @@ pub fn ensure_card(path: &Path) {
     // a card file that cannot be made here is made by the reader when it starts; the caller already copes with
     // a missing card, so this is reported and not fatal
     match Card::load(Some(path)) {
-        Ok(c) => {
-            if let Some(why) = c.unsaved {
-                eprintln!("aime card code not saved: {why}");
-            }
-        }
+        Ok(c) => c.notes().iter().for_each(|note| eprintln!("{note}")),
         Err(e) => eprintln!("aime card file {}: {e}", path.display()),
     }
 }
@@ -197,16 +193,35 @@ fn save_card(path: &Path, code: &str) -> io::Result<()> {
 struct Card {
     code: String,
     uid: [u8; 4],
+    /// the card file held something other than a card code: where its content was kept
+    kept_aside: Option<String>,
     /// the code could not be written to its file: this session's card is not the one the next session gets
     unsaved: Option<String>,
 }
 
 impl Card {
+    /// what the player is told about the card file, one line per thing that went differently
+    fn notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if let Some(bad) = &self.kept_aside {
+            notes.push(format!(
+                "aime card: the file is not a card code - it is kept as {bad}, a new code is on the reader"
+            ));
+        }
+        if let Some(why) = &self.unsaved {
+            notes.push(format!(
+                "card code not saved: {why} - this card is for this session only; the next start makes a different one"
+            ));
+        }
+        notes
+    }
+
     fn load(path: Option<&Path>) -> io::Result<Self> {
         let mut from_file = None;
         // a file that is not a card code and could not be kept aside: it is left as it is, so this session's code
         // reaches no file and the next start makes another one
         let mut not_kept = None;
+        let mut kept_aside = None;
         if let Some(p) = path {
             // bytes, not text: a file saved as "Unicode" (UTF-16) or holding binary garbage is "not a card
             // code" like any other, never a start failure
@@ -216,8 +231,9 @@ impl Card {
                     // not a card code: kept aside, never written over
                     _ => {
                         let bad = format!("{}.{}.bad", p.display(), super::card_reader::stamp());
-                        if let Err(e) = std::fs::copy(p, &bad) {
-                            not_kept = Some(format!("{bad}: {e}"));
+                        match std::fs::copy(p, &bad) {
+                            Ok(_) => kept_aside = Some(bad),
+                            Err(e) => not_kept = Some(format!("{bad}: {e}")),
                         }
                     }
                 },
@@ -250,7 +266,12 @@ impl Card {
         };
         let bcd = |i: usize| u8::from_str_radix(&code[i..i + 2], 16).unwrap_or(0);
         let uid = [bcd(12), bcd(14), bcd(16), bcd(18)]; // 4-byte Mifare UID, stable per card
-        Ok(Self { code, uid, unsaved })
+        Ok(Self {
+            code,
+            uid,
+            kept_aside,
+            unsaved,
+        })
     }
 
     fn block(&self, n: u8) -> Vec<u8> {
@@ -297,12 +318,12 @@ fn hexs(b: &[u8]) -> String {
 /// Creates the named pipe `pipe_name` (`\\.\pipe\...`, one instance) and serves the reader on it until the returned
 /// handle is dropped. Fails when the pipe cannot be made (another reader running), when no card code can be made (no
 /// random source) and when the card file cannot be read. `card_file` holds the card's 20-digit access code; it is made
-/// with a random code when missing, and a code that cannot be written to it is logged and kept for this session only.
+/// with a random code when missing, and a file that is not a card code is kept aside as `.bad` and named in the log.
 pub fn spawn(pipe_name: &str, card_file: Option<&Path>, log: Log) -> io::Result<Handle> {
     // the card first: a card error leaves no pipe to close, and the code can be logged before the game connects
     let card = Card::load(card_file)?;
-    if let Some(why) = &card.unsaved {
-        log(&format!("card code not saved: {why}"));
+    for note in card.notes() {
+        log(&note);
     }
     let wide: Vec<u16> = pipe_name.encode_utf16().chain([0]).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call; no security attributes are passed.
@@ -506,6 +527,11 @@ mod tests {
             std::fs::read(&bad[0]).unwrap(),
             junk,
             "the bytes are kept as they were"
+        );
+        assert_eq!(
+            c.kept_aside.as_deref(),
+            Some(bad[0].to_string_lossy().as_ref()),
+            "the log names the file that was kept"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), c.code);
     }
