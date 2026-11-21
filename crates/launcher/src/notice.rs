@@ -92,7 +92,7 @@ fn round(asked: &str, project: &str, get: impl Fn(&str) -> Option<Lobby>) -> Opt
 
 /// `a` and `b` name one server as [`socket`] reads them: the seat desk's port by default, the name in any case. A
 /// saved `servers` entry spelled another way than the project server would ask that desk twice inside its gap.
-fn same_server(a: &str, b: &str) -> bool {
+pub(crate) fn same_server(a: &str, b: &str) -> bool {
     let key = |s: &str| crate::choices::host_port(s, SEAT_PORT).map(|(h, p)| (h.to_ascii_lowercase(), p));
     a == b || key(a).is_some_and(|k| key(b) == Some(k))
 }

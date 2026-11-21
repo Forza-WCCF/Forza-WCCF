@@ -126,7 +126,7 @@ pub fn servers(settings: &Path, address: &str, edition: Edition) -> Vec<String> 
         .map(str::to_owned)
         .into_iter()
         .collect();
-    if !list.contains(&project) {
+    if !list.iter().any(|s| crate::notice::same_server(s, &project)) {
         list.push(project);
     }
     list
@@ -834,6 +834,24 @@ mod tests {
             assert_eq!(v.joinable().map(|r| r.id.as_str()), Some("bc07afa0"));
             assert_eq!(at.get("bc07afa0"), Some(&server));
         }
+    }
+
+    /// The address before the lobby, the project server spelled another way: one desk, listed once (#419).
+    #[test]
+    fn the_project_server_spelled_another_way_is_listed_once() {
+        if std::env::var_os("WCCF_LOBBY").is_some() {
+            return;
+        }
+        let none = std::env::temp_dir().join("forza_lobby_no_settings.json");
+        assert_eq!(
+            servers(&none, " LOBBY.wccf.it:20032 ", Edition::E1718),
+            ["LOBBY.wccf.it:20032"]
+        );
+        assert_eq!(servers(&none, "lobby.wccf.it", Edition::E1011), ["lobby.wccf.it"]);
+        assert_eq!(
+            servers(&none, "10.0.0.5", Edition::E1718),
+            ["10.0.0.5", PROJECT_SERVER_1718]
+        );
     }
 
     #[test]
