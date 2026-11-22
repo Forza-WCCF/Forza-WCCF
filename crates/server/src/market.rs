@@ -761,9 +761,20 @@ fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, St
     Ok(checked.balance - withheld)
 }
 
-/// Bodies read at once across the desk, and from one address: each may hold [`MAX_BODY`] in memory.
+/// Body bytes held at once across the desk, as many as this many full bodies ([`MAX_BODY`] each), counted as they
+/// arrive: a body that sends nothing holds nothing, so stalled uploads cannot keep the market busy for everyone.
 const MAX_UPLOADS: usize = 8;
+/// Bodies read at once from one address.
 const MAX_UPLOADS_PER_ADDRESS: usize = 2;
+/// The answer to a request over [`MAX_UPLOADS_PER_ADDRESS`] or the desk's byte budget.
+const BUSY: &str = "busy, try again in a minute";
+
+/// The uploads in flight: the bodies being read per address, and the body bytes held in all.
+#[derive(Debug, Default)]
+struct Uploads {
+    by_address: HashMap<String, usize>,
+    bytes: usize,
+}
 
 const SCHEMA: &str = "
 -- one row per installation key, by the SHA-256 of the public key: LEAVE keeps the hash and the counters only
@@ -822,11 +833,11 @@ CREATE TABLE IF NOT EXISTS stock_days (
 );
 ";
 
-/// The market's server state: the value table, `market.db` and the uploads in flight per address.
+/// The market's server state: the value table, `market.db` and the uploads in flight.
 pub struct Market {
     table: Table,
     db: Mutex<Connection>,
-    uploads: Mutex<HashMap<String, usize>>,
+    uploads: Mutex<Uploads>,
     stock: Stock,
     /// The stock lists' secret (`market.db`'s `secret`).
     secret: Vec<u8>,
@@ -960,7 +971,7 @@ impl Market {
         Ok(Self {
             table,
             db: Mutex::new(c),
-            uploads: Mutex::new(HashMap::new()),
+            uploads: Mutex::default(),
             stock: Stock::default(),
             secret,
         })
@@ -1659,10 +1670,13 @@ impl Market {
             Ok(h) => h,
             Err(why) => return no(conn, verb, &why),
         };
-        let Some(_upload) = Upload::take(&self.uploads, ip) else {
-            return no(conn, verb, "busy, try again in a minute");
+        let Some(mut upload) = Upload::take(&self.uploads, ip) else {
+            return no(conn, verb, BUSY);
         };
-        let body = read_body(conn, rest, size)?;
+        let body = match read_body(conn, rest, size, &mut upload) {
+            Err(e) if e.kind() == io::ErrorKind::OutOfMemory => return no(conn, verb, BUSY),
+            body => body?,
+        };
         let req = match Request::open(v, &sig, &body) {
             Ok(r) => r,
             Err(why) => return no(conn, verb, &why),
@@ -1679,47 +1693,71 @@ impl Market {
     }
 }
 
-/// One body in flight from one address, counted against [`MAX_UPLOADS`] and [`MAX_UPLOADS_PER_ADDRESS`] until
-/// dropped.
+/// One body in flight from one address, counted against [`MAX_UPLOADS_PER_ADDRESS`], and its bytes so far against
+/// [`MAX_UPLOADS`] full bodies, until dropped.
 struct Upload<'a> {
-    slots: &'a Mutex<HashMap<String, usize>>,
+    slots: &'a Mutex<Uploads>,
     ip: String,
+    bytes: usize,
 }
 
 impl<'a> Upload<'a> {
-    fn take(slots: &'a Mutex<HashMap<String, usize>>, ip: &str) -> Option<Self> {
+    fn take(slots: &'a Mutex<Uploads>, ip: &str) -> Option<Self> {
         let mut s = slots.lock().unwrap_or_else(PoisonError::into_inner);
-        let here = s.get(ip).copied().unwrap_or(0);
-        if here >= MAX_UPLOADS_PER_ADDRESS || s.values().sum::<usize>() >= MAX_UPLOADS {
+        let here = s.by_address.entry(ip.to_owned()).or_default();
+        if *here >= MAX_UPLOADS_PER_ADDRESS {
             return None;
         }
-        s.insert(ip.to_owned(), here + 1);
+        *here += 1;
         Some(Self {
             slots,
             ip: ip.to_owned(),
+            bytes: 0,
         })
+    }
+
+    /// `n` more body bytes held; false (nothing counted) when the desk's budget has no room for them.
+    fn grow(&mut self, n: usize) -> bool {
+        let mut s = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
+        if s.bytes + n > MAX_UPLOADS * MAX_BODY {
+            return false;
+        }
+        s.bytes += n;
+        self.bytes += n;
+        true
     }
 }
 
 impl Drop for Upload<'_> {
     fn drop(&mut self) {
         let mut s = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(n) = s.get_mut(&self.ip) {
+        s.bytes -= self.bytes;
+        if let Some(n) = s.by_address.get_mut(&self.ip) {
             *n -= 1;
             if *n == 0 {
-                s.remove(&self.ip);
+                s.by_address.remove(&self.ip);
             }
         }
     }
 }
 
 /// `size` bytes of body ([`MAX_BODY`] at most, checked by the caller): `data` (read past the line) and the rest from
-/// `conn`, within a minute.
-fn read_body(conn: &mut TcpStream, mut data: Vec<u8>, size: usize) -> io::Result<Vec<u8>> {
+/// `conn`, within a minute, each byte counted on `upload` as it arrives; [`io::ErrorKind::OutOfMemory`] when the desk's
+/// budget has no room for it.
+fn read_body(
+    conn: &mut TcpStream,
+    mut data: Vec<u8>,
+    size: usize,
+    upload: &mut Upload<'_>,
+) -> io::Result<Vec<u8>> {
+    let full = || io::Error::new(io::ErrorKind::OutOfMemory, BUSY);
     let size = size.min(MAX_BODY);
     let end = Instant::now() + Duration::from_secs(60);
     conn.set_read_timeout(Some(Duration::from_secs(30)))?;
     data.truncate(size);
+    if !upload.grow(data.len()) {
+        return Err(full());
+    }
     let mut chunk = vec![0u8; 64 * 1024];
     while data.len() < size {
         if Instant::now() > end {
@@ -1729,6 +1767,7 @@ fn read_body(conn: &mut TcpStream, mut data: Vec<u8>, size: usize) -> io::Result
         let buf = chunk.get_mut(..want).unwrap_or_default();
         match conn.read(buf)? {
             0 => return Err(io::Error::other("the PC hung up mid-request")),
+            n if !upload.grow(n) => return Err(full()),
             n => data.extend_from_slice(buf.get(..n).unwrap_or_default()),
         }
     }
@@ -3638,17 +3677,72 @@ mod tests {
     /// N4: one address holds 2 of the 8 body slots at most.
     #[test]
     fn one_address_holds_two_upload_slots_at_most() {
-        let slots = Mutex::new(HashMap::new());
-        let a = Upload::take(&slots, "10.0.0.1").unwrap();
+        let slots = Mutex::default();
+        let mut a = Upload::take(&slots, "10.0.0.1").unwrap();
         let _b = Upload::take(&slots, "10.0.0.1").unwrap();
         assert!(Upload::take(&slots, "10.0.0.1").is_none());
-        let others: Vec<_> = (2..=7)
+        // the bytes held across the desk: 8 full bodies, then none more until one goes
+        let mut others: Vec<_> = (2..=8)
             .map(|i| Upload::take(&slots, &format!("10.0.0.{i}")).unwrap())
             .collect();
-        assert_eq!(others.len(), 6);
-        assert!(Upload::take(&slots, "10.0.0.9").is_none(), "8 in flight");
+        assert!(a.grow(MAX_BODY));
+        assert!(others.iter_mut().all(|u| u.grow(MAX_BODY)));
+        let mut late = Upload::take(&slots, "10.0.0.9").unwrap();
+        assert!(!late.grow(1), "8 full bodies held");
         drop(a);
+        assert!(late.grow(MAX_BODY));
         assert!(Upload::take(&slots, "10.0.0.1").is_some());
+        drop((others, late));
+        assert_eq!(slots.lock().unwrap().bytes, 0);
+    }
+
+    /// #375 final review M3: four addresses that open two uploads each and send no body leave the market to everyone
+    /// else; before, they held all 8 slots for 30 s and every other request answered busy.
+    #[test]
+    fn stalled_bodies_from_four_addresses_leave_the_market_to_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let pair = || {
+            let client = TcpStream::connect(server.local_addr().unwrap()).unwrap();
+            (client, server.accept().unwrap().0)
+        };
+        let sig = "0".repeat(128);
+        let words = ["JOIN", "1000", sig.as_str()];
+        std::thread::scope(|s| {
+            let mut stalled = vec![];
+            for i in 0..8 {
+                let (client, mut conn) = pair();
+                let (m, ip) = (&m, format!("10.0.0.{}", i / 2 + 1));
+                s.spawn(move || m.serve(&words, vec![], &mut conn, 0, &ip));
+                stalled.push(client);
+            }
+            let start = Instant::now();
+            while in_flight(&m) < 8 {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "the stalled uploads started"
+                );
+                std::thread::yield_now();
+            }
+            let (mut client, mut conn) = pair();
+            client.write_all(b"hello").unwrap();
+            let said = m
+                .serve(
+                    &["JOIN", "5", sig.as_str()],
+                    vec![],
+                    &mut conn,
+                    0,
+                    "10.0.0.9",
+                )
+                .unwrap();
+            assert!(!said.contains("busy"), "{said}");
+            drop(stalled);
+        });
+    }
+
+    fn in_flight(m: &Market) -> usize {
+        m.uploads.lock().unwrap().by_address.values().sum()
     }
 
     /// Acceptance 3.1b (d) and N6: the table carries series and secret mark from a 2017-18 catalogue (a secret HOLE at
