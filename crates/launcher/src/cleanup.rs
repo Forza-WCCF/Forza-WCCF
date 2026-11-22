@@ -2,7 +2,8 @@
 //! can make the next start misbehave.  The bad-ending counter itself is CLEAR BAD ENDINGS' job (the panel; 2017-18:
 //! `club::clear_bad_endings`); this clears the run's leftovers:
 //! - `data\running.json` of a run nobody supervises, and the requests and answers a run left (`*.request`, `*.answer`);
-//! - a club still marked out in an arcade (`club_out.json`, `club_last.json` in `data\save\gamesvr`);
+//! - a club still marked out in an arcade (`club_out.json`, `club_last.json` in `data\save\gamesvr`), and the undo of
+//!   an arcade copy put home (`club_undo.json`; the home club from before stays in its `backups`);
 //! - game programs left running without a window (`match_Release`, `control_Release`, `FPR_Emu`, `logowin`), only those
 //!   whose path is under this install's folders.
 //!
@@ -30,8 +31,8 @@ const LEFT: [&str; 8] = [
     "report.request",
 ];
 
-/// The arcade copy kept beside the club's store.
-const ARCADE_COPY: [&str; 2] = ["club_out.json", "club_last.json"];
+/// The arcade copy kept beside the club's store, and the undo of one put home (`club::take`).
+const ARCADE_COPY: [&str; 3] = ["club_out.json", "club_last.json", "club_undo.json"];
 
 /// What a clean-up did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -180,6 +181,7 @@ mod tests {
         fs::write(store.join("gamesvr.db"), b"the club").unwrap();
         fs::write(store.join("club_out.json"), b"{\"arcade\":\"x\"}").unwrap();
         fs::write(store.join("club_last.json"), b"{\"last\":1}").unwrap();
+        fs::write(store.join("club_undo.json"), b"{\"undo\":1}").unwrap();
         fs::write(data.join("save").join("seat1_aime.txt"), b"50123456789012345678").unwrap();
         for n in LEFT {
             fs::write(data.join(n), b"stale").unwrap();
@@ -217,6 +219,12 @@ mod tests {
             assert!(!data.join(n).exists(), "{n} goes");
         }
         assert!(!store.join("club_out.json").exists() && !store.join("club_last.json").exists());
+        // the undo of an arcade copy put home ends with the visit (#434)
+        assert!(!store.join("club_undo.json").exists());
+        assert_eq!(
+            fs::read(r.backup.as_ref().unwrap().join(r"save\gamesvr\club_undo.json")).unwrap(),
+            b"{\"undo\":1}"
+        );
         // the club save is untouched
         assert_eq!(fs::read(store.join("gamesvr.db")).unwrap(), b"the club");
         assert_eq!(

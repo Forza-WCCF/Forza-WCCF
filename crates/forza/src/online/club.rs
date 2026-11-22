@@ -20,7 +20,9 @@
 //! The guest's side keeps `club_out.json` (the marker: in which arcade since when, the id map, the home club's stamp)
 //! beside its store while the club is out, and `club_last.json`, the last copy pulled. A marker found at the next
 //! start means the session did not end cleanly: the home copy stays, the last pulled copy goes to `backups`, and the
-//! player is told ([`leftover`]).
+//! player is told ([`leftover`]). Before that start the Launcher window reads what was left ([`left`]): when the
+//! last copy never came home, the player may put it home ([`take`], the home club backed up first and `club_undo.json`
+//! kept for [`undo`] until the next start).
 //!
 //! Online on a server's own arcade (`forza-server all`, its game server beside the desk) the trip is the same, to
 //! that server's store; there no seat is needed and the brought club replaces what the server kept for the card
@@ -679,6 +681,19 @@ impl Store {
         *link = next;
         Ok(Some(stamp))
     }
+
+    /// Guest: `club` (home ids) replaces the home rows of `club.aime` in one transaction, unless the home club's
+    /// stamp is no longer `expect` (false: nothing written).
+    pub fn put_home(&mut self, club: &Club, expect: &str) -> Result<bool, String> {
+        let tx = self.0.transaction().map_err(db_err)?;
+        if export(&tx, club.aime).map_err(db_err)?.stamp() != expect {
+            return Ok(false);
+        }
+        delete(&tx, club.aime).map_err(db_err)?;
+        insert(&tx, club).map_err(db_err)?;
+        tx.commit().map_err(db_err)?;
+        Ok(true)
+    }
 }
 
 // ---- the host's desk ----
@@ -1054,13 +1069,28 @@ pub fn clear_bad_endings(dir: &Path) -> Result<String, String> {
 }
 
 /// At a start: a club still marked out means the last arcade session ended without bringing it home. The home copy
-/// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes. `Some(path)` (the backup,
-/// or the store folder when no copy came) when the player must be told.
-pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
+/// stays; the last copy pulled from the host (if any) goes to `backups`, the marker goes, and so does an undo of
+/// [`take`] (a start ends it). `Some((path, home))` when the player must be told: the backup (or the store folder
+/// when no copy came), and `home` = `Some(time)` when that copy was already home (`time`: when the club last came
+/// home, else when it left), `None` when it differed or could not be read.
+pub fn leftover(dir: &Path) -> io::Result<Option<(PathBuf, Option<i64>)>> {
+    match std::fs::remove_file(undo_file(dir)) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    settle(dir)
+}
+
+/// [`leftover`] without the undo's end.
+fn settle(dir: &Path) -> io::Result<Option<(PathBuf, Option<i64>)>> {
     let out = out_file(dir);
     if !out.exists() {
         return Ok(None);
     }
+    let home = match read_left(dir) {
+        Ok(Some(l)) => l.home_at(),
+        _ => None,
+    };
     let last = last_file(dir);
     let kept = match std::fs::read(&last) {
         // file prefix kept from before the arcade rename: players' backups already carry it
@@ -1071,7 +1101,253 @@ pub fn leftover(dir: &Path) -> io::Result<Option<PathBuf>> {
     };
     let _ = std::fs::remove_file(&last);
     std::fs::remove_file(&out)?;
-    Ok(Some(kept))
+    Ok(Some((kept, home)))
+}
+
+/// What a club still marked out left (read only, [`left`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Left {
+    /// The arcade's last copy is the home club (or no copy came): `back` is when it last came home, else when it left.
+    Same { back: i64 },
+    /// The arcade's last copy is sound and differs from the home club: [`take`] can put it home.
+    Differs(Offer),
+}
+
+impl Left {
+    fn home_at(&self) -> Option<i64> {
+        match self {
+            Left::Same { back } => Some(*back),
+            Left::Differs(_) => None,
+        }
+    }
+}
+
+/// The arcade's copy on offer, for the question: unix times on this PC's clock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offer {
+    pub arcade: String,
+    /// When the copy was pulled (`club_last.json` written).
+    pub pulled: i64,
+    /// When the home club last came home, else when it left.
+    pub home_at: i64,
+    /// The play totals (home, arcade copy) over each copy's cards, only when they differ and no card is at the cap.
+    pub plays: Option<(u32, u32)>,
+}
+
+/// `club_undo.json`: what [`undo`] puts back after [`take`].
+#[derive(Serialize, Deserialize)]
+struct Undo {
+    home_aime: u32,
+    /// The home club from before, a file name in `backups`.
+    backup: String,
+    /// The home club's stamp right after [`take`]: a club changed since is never replaced.
+    stamp: String,
+}
+
+fn undo_file(dir: &Path) -> PathBuf {
+    dir.join("club_undo.json")
+}
+
+/// Whether [`undo`] has something to put back.
+pub fn can_undo(dir: &Path) -> bool {
+    undo_file(dir).is_file()
+}
+
+/// A file read whole, refused past `cap` bytes.
+fn read_capped(path: &Path, cap: usize) -> io::Result<Vec<u8>> {
+    let mut b = Vec::new();
+    std::fs::File::open(path)?
+        .take(cap as u64 + 1)
+        .read_to_end(&mut b)?;
+    if b.len() > cap {
+        return Err(io::Error::other(format!(
+            "{} is over {cap} bytes",
+            path.display()
+        )));
+    }
+    Ok(b)
+}
+
+/// The marker and the last pulled copy, checked as a copy-back is ([`sound`]). `Ok(None)`: no marker.
+struct Pending {
+    out: Out,
+    /// The pulled copy and when it was written; `None` when no copy came.
+    copy: Option<(Club, i64)>,
+}
+
+impl Pending {
+    fn home_at(&self) -> Option<i64> {
+        self.left(None).home_at()
+    }
+
+    fn left(&self, plays: Option<(u32, u32)>) -> Left {
+        let back = if self.out.back != 0 {
+            self.out.back
+        } else {
+            self.out.since
+        };
+        match &self.copy {
+            Some((host, pulled)) if host.stamp() != self.out.back_stamp => Left::Differs(Offer {
+                arcade: self.out.arcade.clone(),
+                pulled: *pulled,
+                home_at: back,
+                plays,
+            }),
+            _ => Left::Same { back },
+        }
+    }
+}
+
+fn read_left(dir: &Path) -> Result<Option<Pending>, String> {
+    let out = match read_capped(&out_file(dir), 64 << 10) {
+        Ok(b) => serde_json::from_slice::<Out>(&b).map_err(|e| format!("club_out.json: {e}"))?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("club_out.json: {e}")),
+    };
+    let last = last_file(dir);
+    let copy = match read_capped(&last, MAX_BYTES + (64 << 10)) {
+        Ok(b) => {
+            let (_, host): (Link, Club) =
+                serde_json::from_slice(&b).map_err(|e| format!("club_last.json: {e}"))?;
+            sound(out.arcade_aime, &out.link, &host).map_err(|e| format!("club_last.json: {e}"))?;
+            let pulled = std::fs::metadata(&last)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs() as i64);
+            Some((host, pulled))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("club_last.json: {e}")),
+    };
+    Ok(Some(Pending { out, copy }))
+}
+
+/// The club's play total, `None` when a card is at its cap (255) and the total says nothing.
+fn plays(c: &Club) -> Option<u32> {
+    c.coaches.iter().try_fold(0u32, |n, k| {
+        (k.play_count < u8::MAX).then(|| n + u32::from(k.play_count))
+    })
+}
+
+/// Read only, before PLAY: what a club still marked out left in `dir` (`data\save\gamesvr`). `Ok(None)`: no
+/// marker; `Err`: a marker or copy that cannot be read or fails the checks, which is never offered (the next start
+/// handles it as [`leftover`] always did). Not while a run is on: a trip in progress keeps a marker too.
+pub fn left(dir: &Path) -> Result<Option<Left>, String> {
+    let Some(p) = read_left(dir)? else {
+        return Ok(None);
+    };
+    let mut left = p.left(None);
+    if let (Left::Differs(o), Some((host, _))) = (&mut left, &p.copy) {
+        let db = dir.join("gamesvr.db");
+        let home = db
+            .is_file()
+            .then(|| Store::open(&db).and_then(|s| s.club(p.out.home_aime)).ok())
+            .flatten();
+        o.plays = home
+            .and_then(|h| plays(&h).zip(plays(host)))
+            .filter(|(a, b)| a != b);
+    }
+    Ok(Some(left))
+}
+
+/// Why [`take`] or [`undo`] replaced nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NotReplaced {
+    /// The home club changed in between: the copies are in this folder.
+    Changed(PathBuf),
+    Failed(String),
+}
+
+impl From<String> for NotReplaced {
+    fn from(e: String) -> Self {
+        NotReplaced::Failed(e)
+    }
+}
+
+fn io_err(e: io::Error) -> NotReplaced {
+    NotReplaced::Failed(e.to_string())
+}
+
+/// USE THE ARCADE COPY: the copy [`left`] offers goes home after the home club is backed up; the marker and the copy
+/// then go as at a start ([`leftover`]), and [`undo`] can put the home club back until the next start. Returns the
+/// home club's backup.
+pub fn take(dir: &Path) -> Result<PathBuf, NotReplaced> {
+    let p = read_left(dir)?.ok_or_else(|| "no club is out".to_owned())?;
+    let (host, _) = match (&p.copy, p.left(None)) {
+        (Some(c), Left::Differs(_)) => c,
+        _ => return Err("the arcade's last copy is already home".to_owned().into()),
+    };
+    let mut out = p.out.clone();
+    let mut store = Store::open(&dir.join("gamesvr.db")).map_err(db_err)?;
+    let home = store.club(out.home_aime).map_err(db_err)?;
+    let json = serde_json::to_vec(&home).map_err(|e| e.to_string())?;
+    let saved = backup(dir, &format!("club-{}", out.home_aime), &json).map_err(io_err)?;
+    let Some(stamp) = store.write_home(host, &mut out.link, out.home_aime, &home.stamp())? else {
+        // both copies in `backups` for the player; the marker stays for the next start
+        if let Ok(b) = std::fs::read(last_file(dir)) {
+            let _ = backup(dir, "club-shop", &b);
+        }
+        return Err(NotReplaced::Changed(dir.join("backups")));
+    };
+    // a stop right here must not offer the same copy again
+    out.home_stamp.clone_from(&stamp);
+    out.host_stamp = host.stamp();
+    out.back_stamp.clone_from(&out.host_stamp);
+    out.back = now();
+    write_atomic(
+        &out_file(dir),
+        &serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?,
+    )
+    .map_err(io_err)?;
+    let undo = Undo {
+        home_aime: out.home_aime,
+        backup: saved
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
+        stamp,
+    };
+    write_atomic(
+        &undo_file(dir),
+        &serde_json::to_vec_pretty(&undo).map_err(|e| e.to_string())?,
+    )
+    .map_err(io_err)?;
+    settle(dir).map_err(io_err)?;
+    Ok(saved)
+}
+
+/// PUT THE HOME CLUB BACK: the home club from before [`take`], while the club is still the one it put home. The
+/// current club is backed up first; a club changed since is left as it is and the undo goes.
+pub fn undo(dir: &Path) -> Result<(), NotReplaced> {
+    let u: Undo = serde_json::from_slice(&read_capped(&undo_file(dir), 64 << 10).map_err(io_err)?)
+        .map_err(|e| format!("club_undo.json: {e}"))?;
+    let b = dir.join("backups");
+    // a plain name in `backups`, nothing else
+    if Path::new(&u.backup).file_name() != Some(std::ffi::OsStr::new(&u.backup)) {
+        return Err(format!("club_undo.json: a bad backup name {:?}", u.backup).into());
+    }
+    let old: Club =
+        serde_json::from_slice(&read_capped(&b.join(&u.backup), MAX_BYTES).map_err(io_err)?)
+            .map_err(|e| format!("{}: {e}", u.backup))?;
+    old.check()?;
+    if old.aime != u.home_aime {
+        return Err(format!("{}: the club of Aime id {}", u.backup, old.aime).into());
+    }
+    let mut store = Store::open(&dir.join("gamesvr.db")).map_err(db_err)?;
+    let current = store.club(u.home_aime).map_err(db_err)?;
+    if current.stamp() != u.stamp {
+        let _ = std::fs::remove_file(undo_file(dir));
+        return Err(NotReplaced::Changed(b));
+    }
+    let json = serde_json::to_vec(&current).map_err(|e| e.to_string())?;
+    backup(dir, &format!("club-{}", u.home_aime), &json).map_err(io_err)?;
+    if !store.put_home(&old, &u.stamp)? {
+        let _ = std::fs::remove_file(undo_file(dir));
+        return Err(NotReplaced::Changed(b));
+    }
+    std::fs::remove_file(undo_file(dir)).map_err(io_err)
 }
 
 /// How a trip went, for the run's end: read after the [`Trip`] is dropped (dropping it joins the trip's thread, so
@@ -1094,6 +1370,23 @@ fn server_gone(e: &str) -> bool {
     ["10061", "10054", "111", "104"]
         .iter()
         .any(|code| e.contains(&format!("(os error {code})")))
+}
+
+/// Whether the host's copy `host` may be written home: a sound club under the arcade's Aime id that still holds
+/// every club the guest brought or made there (`link`; nothing deletes a club in the game).
+fn sound(arcade_aime: u32, link: &Link, host: &Club) -> Result<(), String> {
+    host.check()?;
+    if host.aime != arcade_aime {
+        return Err(format!("the copy is of Aime id {}", host.aime));
+    }
+    match link
+        .coaches
+        .iter()
+        .find(|(_, there)| !host.coaches.iter().any(|k| k.coach == *there))
+    {
+        Some((_, lost)) => Err(format!("coach {lost} is missing from the copy")),
+        None => Ok(()),
+    }
 }
 
 /// The guest's card for an arcade.
@@ -1225,23 +1518,6 @@ impl Guest {
         }
     }
 
-    /// Whether the host's copy `host` may be written home: a sound club under this arcade's Aime id that still
-    /// holds every club the guest brought or made there (`link`; nothing deletes a club in the game).
-    fn sound(&self, link: &Link, host: &Club) -> Result<(), String> {
-        host.check()?;
-        if host.aime != self.arcade_aime {
-            return Err(format!("the copy is of Aime id {}", host.aime));
-        }
-        match link
-            .coaches
-            .iter()
-            .find(|(_, there)| !host.coaches.iter().any(|k| k.coach == *there))
-        {
-            Some((_, lost)) => Err(format!("coach {lost} is missing from the copy")),
-            None => Ok(()),
-        }
-    }
-
     /// One copy-back; true when the home club now matches the host's (or nothing changed). `all`: ask even when
     /// the stamp is the same (the last one).
     fn pull(
@@ -1273,7 +1549,7 @@ impl Guest {
             return true;
         }
         let pulled = serde_json::to_vec(&(&out.link, &host)).unwrap_or_default();
-        if let Err(why) = self.sound(&out.link, &host) {
+        if let Err(why) = sound(self.arcade_aime, &out.link, &host) {
             // asked again only once the host's copy changes; the home club and the last good copy stay
             out.host_stamp = stamp;
             let _ = self.mark(out);
