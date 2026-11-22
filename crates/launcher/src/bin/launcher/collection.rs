@@ -120,8 +120,14 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
             .map(|(k, _)| k.clone())
             .collect(),
         market,
-        test_build: forza::release::is_test_build(env!("FORZA_VERSION")),
+        test_build: test_build(),
     }
+}
+
+/// This Launcher is a test build (`forza::release::is_test_build` of its own version): the tab says its numbers may
+/// change (#375).
+pub fn test_build() -> bool {
+    forza::release::is_test_build(env!("FORZA_VERSION"))
 }
 
 /// The market's part of the view (step 4.1) from the log's `text` and the installation's `data`: in the market or not,
@@ -405,6 +411,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (coll, data) = profile(dir.path());
         let v = view(&cat, &coll, None).unwrap();
+        // #375: the view carries this build's own test-build decision
+        assert_eq!(v.test_build, forza::release::is_test_build(env!("FORZA_VERSION")));
         let Step::Choose { starts, .. } = &v.step else {
             panic!("a new profile opens on the picker")
         };

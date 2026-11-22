@@ -1089,7 +1089,7 @@ impl App {
                 offers: Vec::new(),
                 craftable: Vec::new(),
                 market: Default::default(),
-                test_build: forza::release::is_test_build(env!("FORZA_VERSION")),
+                test_build: collection::test_build(),
             }),
         );
         if let (Some(v), Some(cat), Ok(text)) = (&mut self.st.collection, &self.catalogue, &text)

@@ -2059,7 +2059,8 @@ fn collection_cards_and_marks_fit_the_page() {
         let mut st =
             launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
         st.profile = Some(forza::profile::Profile::CreateATeam);
-        let view = CollectionView::sample(Scenario::Page);
+        let mut view = CollectionView::sample(Scenario::Page);
+        view.test_build = true;
         let cards = view.cards.clone();
         st.collection = Some(view);
         st.tab = launcher::Tab::Collection;
@@ -2216,21 +2217,36 @@ fn the_detail_shows_convert_inside_the_page() {
 }
 
 /// #375 test build: the "numbers may change" line tops the first start, the collection page and the market's opt-in
-/// of a test build only, inside the smallest window in every language (Italian is the longest) and above the title.
+/// of a test build only, inside the smallest window in every language (Italian is the longest), above the screen's
+/// first line (its title, the page's tokens, a tab's problem line).
 #[test]
 fn a_test_build_says_its_numbers_may_change() {
     use forza_ui::collection::{CollectionView, Scenario};
     let size = launcher::window_size(Some(700.0));
     for lang in Lang::ALL {
         let notice = forza_ui::text(lang, "collection.test_notice", &[]);
-        for (s, title) in [
-            (Scenario::Choose, Some("collection.choose_title")),
-            (Scenario::Page, None),
-            (Scenario::MarketOptIn, Some("collection.market_optin_title")),
+        let problem = "no catalogue".to_owned();
+        for (s, title, args, why) in [
+            (Scenario::Choose, "collection.choose_title", vec![], None),
+            (
+                Scenario::Page,
+                "collection.tokens",
+                vec![("n", "150")],
+                None,
+            ),
+            (
+                Scenario::MarketOptIn,
+                "collection.market_optin_title",
+                vec![],
+                None,
+            ),
+            // a tab that cannot work shows only its reason, still under the notice
+            (Scenario::Page, "", vec![], Some(problem.clone())),
         ] {
             for test_build in [true, false] {
                 let mut view = CollectionView::sample(s);
                 view.test_build = test_build;
+                view.problem = why.clone();
                 let mut st = launcher::LauncherState::sample(
                     Edition::E1718,
                     lang,
@@ -2254,16 +2270,15 @@ fn a_test_build_says_its_numbers_may_change() {
                     r.left() >= 16.0 && r.right() <= size.x - 16.0 && r.bottom() <= size.y,
                     "{tag}: the notice {r:?} inside the page"
                 );
-                if let Some(key) = title {
-                    let t = h
-                        .query_by_label(&forza_ui::text(lang, key, &[]))
-                        .expect(key)
-                        .rect();
-                    assert!(
-                        r.bottom() <= t.top(),
-                        "{tag}: the notice {r:?} above the title {t:?}"
-                    );
-                }
+                let below = match &why {
+                    Some(p) => p.clone(),
+                    None => forza_ui::text(lang, title, &args),
+                };
+                let t = h.query_by_label(&below).expect(&below).rect();
+                assert!(
+                    r.bottom() <= t.top(),
+                    "{tag}: the notice {r:?} above {below:?} {t:?}"
+                );
             }
         }
     }
@@ -2279,11 +2294,13 @@ fn the_market_page_holds_its_buttons() {
     for lang in Lang::ALL {
         let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
         for joined in [true, false] {
-            let view = CollectionView::sample(if joined {
+            let mut view = CollectionView::sample(if joined {
                 Scenario::Market
             } else {
                 Scenario::MarketOptIn
             });
+            // the test build is the one players get the market in: its notice takes room above the page
+            view.test_build = true;
             let price = view.market.stock[2].price.to_string();
             let names: Vec<String> = view
                 .market
