@@ -232,7 +232,9 @@ fn board_reset_lineup_asks_first() {
         h.run_steps(4);
         assert_eq!(h.query_by_label("UNDO").is_some(), reset);
         if choice == "DON'T ASK AGAIN" {
-            // asked no more: the next click resets at once
+            // asked no more: the next click resets at once (the table moved again: a reset to it is greyed)
+            st.borrow_mut().reset_ready = true;
+            h.run_steps(2);
             h.get_by_label("RESET LINEUP").click();
             h.run_steps(4);
             assert!(st.borrow().reset_ask.is_none(), "no question");
@@ -296,6 +298,14 @@ fn catalogue_search_and_add() {
     assert_eq!(
         st.borrow().catalogue.results.len(),
         forza_ui::sample::cards().len()
+    );
+    // an empty search line: Enter adds nothing (it was the catalogue's first card; owner, 2026-11-22)
+    h.key_press(egui::Key::Enter);
+    h.run_steps(1);
+    assert_eq!(
+        st.borrow_mut().add.take(),
+        None,
+        "Enter with no words typed"
     );
     h.event(egui::Event::Text("italia porto".into()));
     h.run_steps(2);
@@ -374,6 +384,44 @@ fn keys_click_then_press() {
     h.get_by_label("Advanced").click();
     h.run_steps(3);
     assert!(st.borrow().keys_advanced);
+}
+
+/// KEYS' Reset keys wipes every key and controller button, so it arms on its first click and resets on the second
+/// (UX review 2026-11-22: one click did it); a lone click changes no binding.
+#[test]
+fn reset_keys_asks_a_second_click() {
+    use std::cell::RefCell;
+    let st = RefCell::new(panel::PanelState::new(
+        Edition::E1718,
+        Lang::En,
+        forza_ui::sample::board(),
+        forza_ui::sample::cards().into(),
+    ));
+    {
+        let mut s = st.borrow_mut();
+        s.page = panel::Page::Keys;
+        s.keys[2] = 0x70; // F1, no default
+        s.pads[2] = 3;
+    }
+    let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st.borrow_mut())
+    });
+    h.run_steps(3);
+    h.get_by_label("Reset keys").click();
+    h.run_steps(2);
+    {
+        let s = st.borrow();
+        assert_eq!(
+            (s.keys[2], s.pads[2], s.keys_changed),
+            (0x70, 3, false),
+            "one click"
+        );
+    }
+    h.get_by_label("Click again").click();
+    h.run_steps(2);
+    let s = st.borrow();
+    assert_eq!(s.keys, forza::keys::defaults(true));
+    assert_eq!((s.pads[2], s.keys_changed), (0, true));
 }
 
 /// 2017-18 SETTINGS: CLEAR BAD ENDINGS (no CLUB CARD page there) asks for the reset by its second click.

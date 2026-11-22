@@ -764,6 +764,7 @@ fn board_foot_inside_the_board() {
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            st.reset_ready = true;
             snap(
                 &mut all,
                 &format!("board_foot_{tag}_{}", lang.code()),

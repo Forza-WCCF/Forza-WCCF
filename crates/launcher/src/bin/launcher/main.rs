@@ -2169,7 +2169,11 @@ mod tests {
             language_note(Edition::E1718, "it", "en"),
             Some(t("launcher.msg_text_next_play"))
         );
-        assert_eq!(language_note(Edition::E1718, "it", "it"), None, "the game has it already");
+        assert_eq!(
+            language_note(Edition::E1718, "it", "it"),
+            None,
+            "the game has it already"
+        );
         assert_eq!(language_note(Edition::E1011, "it", "en"), None);
     }
 

@@ -202,12 +202,24 @@ pub(super) fn keys(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
         });
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        if action(ui, &tr!(lang, "keys.defaults")).clicked() {
-            st.keys = forza::keys::defaults(st.edition == Edition::E1718);
-            st.pads = [0; forza::keys::COUNT];
-            (st.capturing, st.pad_capturing, st.changed, st.keys_changed) =
-                (None, None, None, true);
-            st.say(Tone::Done, "keys.msg_defaults");
+        let now = ui.input(|i| i.time);
+        let armed = st.keys_reset_armed > now;
+        if armed {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64(
+                    st.keys_reset_armed - now,
+                ));
+        }
+        let label = tr!(
+            lang,
+            if armed {
+                "keys.defaults_again"
+            } else {
+                "keys.defaults"
+            }
+        );
+        if action(ui, &label).clicked() {
+            reset_click(st, now);
         }
         ui.add_space(12.0);
         note_line(ui, &mut st.message);
@@ -288,4 +300,18 @@ fn row(ui: &mut Ui, st: &mut PanelState, lang: Lang, i: usize, cell_w: f32) {
             st.note(Tone::Done, tr!(lang, "keys.msg_cleared", action = label));
         }
     }
+}
+
+/// Reset keys: the first click arms it for 8 s (it wipes every key and button at once), the second resets.
+fn reset_click(st: &mut PanelState, now: f64) {
+    if st.keys_reset_armed <= now {
+        st.keys_reset_armed = now + 8.0;
+        st.say(Tone::Notice, "keys.msg_reset_armed");
+        return;
+    }
+    st.keys_reset_armed = 0.0;
+    st.keys = forza::keys::defaults(st.edition == Edition::E1718);
+    st.pads = [0; forza::keys::COUNT];
+    (st.capturing, st.pad_capturing, st.changed, st.keys_changed) = (None, None, None, true);
+    st.say(Tone::Done, "keys.msg_defaults");
 }

@@ -412,8 +412,8 @@ cat.skip_duplicate: {en: "same player twice", it: "giocatore doppio", ja: "同�
 cat.skip_not_in_catalogue: {en: "not in this game", it: "non presente in questo gioco", ja: "このゲームにない"}
 cat.skip_no_room: {en: "no room on the table", it: "nessuno spazio sul tavolo", ja: "テーブルに空きなし"}
 board.reset_to: {en: "Back to the lineup from the start of the last match (%{at})", it: "Torna alla formazione di inizio dell'ultima partita (%{at})", ja: "直前の試合開始時の編成に戻します（%{at}）"}
-board.reset_same: {en: "Already the lineup from the start of the last match (%{at})", it: "È già la formazione di inizio dell'ultima partita (%{at})", ja: "すでに直前の試合開始時の編成です（%{at}）"}
-board.reset_none: {en: "No match played yet", it: "Nessuna partita giocata", ja: "まだ試合をしていません"}
+board.reset_same: {en: "The table already holds the lineup from the start of the last match (%{at}).", it: "Il tavolo ha già la formazione di inizio dell'ultima partita (%{at}).", ja: "テーブルはすでに直前の試合開始時の編成です（%{at}）。"}
+board.reset_none: {en: "RESET LINEUP works after your first match.", it: "RIPRISTINA funziona dopo la prima partita.", ja: "「試合前に戻す」は最初の試合のあとに使えます。"}
 board.reset_match: {en: "The lineup cannot be reset during a match.", it: "Durante una partita la formazione non si può ripristinare.", ja: "試合中は編成を戻せません。"}
 board.reset_done: {en: "Lineup reset", it: "Formazione ripristinata", ja: "編成を戻しました"}
 board.imported: {en: "Lineup imported", it: "Formazione importata", ja: "編成を読み込みました"}
@@ -423,7 +423,7 @@ board.reset_moves: {en: "Gold: players who change place", it: "In oro: chi cambi
 board.reset_always: {en: "DON'T ASK AGAIN", it: "NON CHIEDERE PIÙ", ja: "今後確認しない"}
 
 # ---- keys ----
-keys.hint: {en: "Click a cell, then press a key or button.", it: "Clicca una cella, poi premi un tasto o un pulsante.", ja: "マスをクリックし、キーまたはボタンを押す。"}
+keys.hint: {en: "Click a cell, then press a key or button. Right-click a controller cell to clear it.", it: "Clicca una cella, poi premi un tasto o un pulsante. Clic destro su una cella del controller per svuotarla.", ja: "マスをクリックし、キーまたはボタンを押す。コントローラーのマスは右クリックで解除。"}
 keys.no_controller: {en: "No controller found.", it: "Nessun controller trovato.", ja: "コントローラーが見つかりません。"}
 keys.none: {en: "none", it: "nessuno", ja: "なし"}
 keys.msg_keeps: {en: "%{action} keeps %{key}", it: "%{action} resta su %{key}", ja: "%{action} は %{key} のままです"}
@@ -436,6 +436,7 @@ keys.msg_no_pad_yet: {en: "No controller found", it: "Nessun controller trovato"
 keys.msg_no_control: {en: "No button for %{action}", it: "Nessun pulsante per %{action}", ja: "%{action} のボタンなし"}
 keys.msg_cleared: {en: "%{action}: controller button cleared", it: "%{action}: pulsante del controller rimosso", ja: "%{action}：コントローラーの割り当てを解除しました"}
 keys.msg_defaults: {en: "Keys reset", it: "Tasti ripristinati", ja: "キーを初期化しました"}
+keys.msg_reset_armed: {en: "Click again to reset every key and controller button.", it: "Clicca ancora per ripristinare tutti i tasti e i pulsanti del controller.", ja: "もう一度押すと、すべてのキーとコントローラーのボタンを初期化します。"}
 keys.msg_not_saved: {en: "Keys not saved. Try again.", it: "Tasti non salvati. Riprova.", ja: "キーを保存できません。再試行してください。"}
 keys.controller_found: {en: "Controller found: %{name}", it: "Controller trovato: %{name}", ja: "コントローラーを検出：%{name}"}
 keys.action: {en: "ACTION", it: "AZIONE", ja: "操作"}
@@ -450,6 +451,7 @@ keys.sw2: {en: "SW2", it: "SW2", ja: "SW2"}
 keys.pause: {en: "PAUSE", it: "PAUSA", ja: "一時停止"}
 keys.flip: {en: "FLIP CARD", it: "GIRA CARTA", ja: "カードを裏返す"}
 keys.defaults: {en: "Reset keys", it: "Ripristina tasti", ja: "キーを初期化"}
+keys.defaults_again: {en: "Click again", it: "Clicca ancora", ja: "もう一度押す"}
 
 # ---- settings ----
 settings.now: {en: "NOW", it: "ADESSO", ja: "現在"}
@@ -623,7 +625,7 @@ lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
 lobby.empty: {en: "No arcades yet. Host one or type a server address.", it: "Nessuna sala. Aprine una o scrivi l'indirizzo di un server.", ja: "ゲームセンターなし。開くかサーバーアドレスを入力。"}
-lobby.quick_none: {en: "No arcade has a free seat now. Host one, or refresh the list later.", it: "Nessuna sala ha un posto libero ora. Aprine una, o aggiorna l'elenco più tardi.", ja: "いま空き席のあるゲームセンターはありません。開くか、あとで一覧を更新してください。"}
+lobby.quick_none: {en: "No open arcade", it: "Nessuna sala aperta", ja: "空きのあるゲームセンターなし"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
 lobby.why_offline: {en: "Server offline", it: "Server offline", ja: "サーバーに接続できません"}

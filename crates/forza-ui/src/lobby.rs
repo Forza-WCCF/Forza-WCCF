@@ -94,8 +94,6 @@ pub enum Notice {
     ArcadeClosed,
     /// HOST ARCADE: the lobby no longer holds this PC's room.
     RoomLost,
-    /// QUICK MATCH on ARCADES found no arcade to join.
-    NoArcade,
 }
 
 /// A player in a room, by random club id only.
@@ -1467,12 +1465,29 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 .inner
                 .clicked()
         };
-        if on(
-            ui,
-            live && !v.view_only_now(),
-            tr!(lang, "lobby.quick"),
-            Cab::Plain,
-        ) {
+        // ARCADES: QUICK MATCH joins the open arcade with the lowest ping (launcher::lobby::quick_arcade), so with none
+        // it is grey and says why, as JOIN does
+        let quick = live && !v.view_only_now();
+        let none_open =
+            v.kind == Kind::Arcades && !v.arcades.iter().any(|r| r.state == RowState::Open);
+        let clicked = ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let clicked = on(
+                ui,
+                quick && !none_open,
+                tr!(lang, "lobby.quick"),
+                Cab::Plain,
+            );
+            if quick && none_open {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "lobby.quick_none"))
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT_DIM),
+                );
+            }
+            clicked
+        });
+        if clicked.inner {
             *act = Some(LobbyAction::QuickMatch);
         }
         let join = ui.vertical(|ui| {
@@ -1841,7 +1856,6 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
         Some(Notice::RoomLost) => Some("lobby.room_lost"),
         Some(Notice::RoomFull) => Some("lobby.room_full"),
         Some(Notice::ArcadeClosed) => Some("lobby.arcade_closed"),
-        Some(Notice::NoArcade) => Some("lobby.quick_none"),
         None => None,
     };
     if let Some(k) = key {
