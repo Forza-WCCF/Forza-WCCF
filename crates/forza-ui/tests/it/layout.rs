@@ -2859,6 +2859,181 @@ fn start_over_asks_first_and_its_question_fits() {
     }
 }
 
+/// #375: CONVERT and LEAVE THE MARKET ask first: the click only asks, the question (CONVERT's names the card and the
+/// tokens; LEAVE's body is the leave hint) fits the window, Cancel sends nothing, and yes sends the action.
+#[test]
+fn convert_and_leave_ask_first() {
+    use forza_ui::collection::{CollectionAction, CollectionView, Scenario};
+    use std::cell::RefCell;
+    let size = launcher::window_size(Some(700.0));
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        for leave in [false, true] {
+            let tag = format!("{lang:?} leave={leave}");
+            let view = CollectionView::sample(if leave {
+                Scenario::Market
+            } else {
+                Scenario::Spare
+            });
+            let (card, copies) = view
+                .cards
+                .iter()
+                .find(|(k, _)| Some(k.number) == view.open)
+                .cloned()
+                .unwrap_or_else(|| {
+                    let none = forza::collection::Copies {
+                        earned: 0,
+                        starter: 0,
+                        imported: 0,
+                        listed: 0,
+                    };
+                    (forza_ui::sample::cards()[0].clone(), none)
+                });
+            let row = &forza::cards::collection_cards(std::slice::from_ref(&card))[0];
+            let pays = forza::collection::convert(&copies, row).unwrap_or(0);
+            let n = pays.to_string();
+            let (button, asked, question, yes, then) = if leave {
+                (
+                    t("collection.market_leave", &[]),
+                    CollectionAction::MarketLeaveAsk,
+                    t(
+                        "collection.market_leave_ask",
+                        &[("hint", &t("collection.market_leave_hint", &[]))],
+                    ),
+                    t("collection.market_leave", &[]),
+                    CollectionAction::MarketLeave,
+                )
+            } else {
+                (
+                    t("collection.convert", &[("n", &n)]),
+                    CollectionAction::ConvertAsk(card.number, pays),
+                    t("collection.convert_ask", &[("name", &card.name), ("n", &n)]),
+                    t("collection.convert", &[("n", &n)]),
+                    CollectionAction::Convert(card.number),
+                )
+            };
+            let mut start =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            start.profile = Some(forza::profile::Profile::CreateATeam);
+            start.collection = Some(view);
+            start.tab = launcher::Tab::Collection;
+            let st = RefCell::new(start);
+            let got = RefCell::new(None);
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                    *got.borrow_mut() = Some(a);
+                }
+            });
+            h.run_steps(4);
+            h.get_by_label(&button).scroll_to_me();
+            h.run_steps(4);
+            h.get_by_label(&button).click();
+            h.run_steps(2);
+            let c = |a| launcher::Action::Collection(a);
+            assert_eq!(got.take(), Some(c(asked)), "{tag}: the click only asks");
+            assert!(question.contains(&card.name) || leave, "{tag}: {question}");
+            assert!(question.contains(&n) || leave, "{tag}: {question}");
+            for answer in [false, true] {
+                // the Launcher's answer (main.rs)
+                st.borrow_mut().confirm = Some(launcher::Confirm::new(
+                    &question,
+                    yes.clone(),
+                    c(then.clone()),
+                ));
+                h.run_steps(4);
+                let (title, body) = question.split_once("\n\n").unwrap();
+                let drawn = drawn_texts(&h);
+                for line in [title, body] {
+                    let at = drawn
+                        .iter()
+                        .find(|s| s.galley.text() == line)
+                        .map(|s| egui::Rect::from_min_size(s.pos, s.galley.size()))
+                        .unwrap_or_else(|| panic!("{tag}: {line:?} drawn"));
+                    assert!(
+                        window.contains_rect(at),
+                        "{tag}: {line:?} {at:?} in the window"
+                    );
+                }
+                let label = if answer {
+                    yes.clone()
+                } else {
+                    t("common.cancel", &[])
+                };
+                let at = h
+                    .root()
+                    .children_recursive()
+                    .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Dialog)
+                    .flat_map(|d| d.children_recursive().collect::<Vec<_>>())
+                    .find(|n| {
+                        n.accesskit_node().role() == egui::accesskit::Role::Button
+                            && n.accesskit_node().label().as_deref() == Some(label.as_str())
+                    })
+                    .map(|n| n.rect())
+                    .unwrap_or_else(|| panic!("{tag}: {label:?} in the dialog"));
+                h.get_all_by_label(&label)
+                    .find(|n| n.rect() == at)
+                    .unwrap()
+                    .click();
+                h.run_steps(2);
+                let want = answer.then(|| c(then.clone()));
+                assert_eq!(got.take(), want, "{tag}: answer={answer}");
+                assert!(st.borrow().confirm.is_none(), "{tag}: the question closes");
+            }
+        }
+    }
+}
+
+/// #375: Create-a-Team without its starter cards greys the footer's PLAY with the reason under it, inside the window
+/// in every language; started, PLAY is on and the line is gone.
+#[test]
+fn play_waits_for_the_starter_cards() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        for started in [false, true] {
+            let tag = format!("{lang:?} started={started}");
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(CollectionView::sample(if started {
+                Scenario::Page
+            } else {
+                Scenario::Choose
+            }));
+            st.tab = launcher::Tab::Play;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let play = forza_ui::text(lang, "launcher.play", &[]);
+            let play = h
+                .get_all_by_label(&play)
+                .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+                .unwrap();
+            let (r, on) = (play.rect(), !play.accesskit_node().is_disabled());
+            assert_eq!(on, started, "{tag}: PLAY on");
+            let why = forza_ui::text(lang, "launcher.msg_no_starter", &[]);
+            let lines: Vec<egui::Rect> = h
+                .query_all_by_label(&why)
+                .map(|n| n.rect())
+                .filter(|l| l.top() >= r.bottom())
+                .collect();
+            assert_eq!(
+                lines.len(),
+                usize::from(!started),
+                "{tag}: the reason under PLAY"
+            );
+            for l in lines {
+                assert!(
+                    l.bottom() <= size.y && l.right() <= size.x,
+                    "{tag}: {l:?} in the window"
+                );
+            }
+        }
+    }
+}
+
 /// #375: the start picker and the deal offer START OVER, in view, while the market may hold an old log (a START OVER
 /// whose RESET could not be queued lands there and says to press it again); a first start out of the market does not.
 #[test]

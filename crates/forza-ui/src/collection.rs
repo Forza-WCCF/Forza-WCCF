@@ -274,7 +274,9 @@ pub enum CollectionAction {
     Buy(PackChoice),
     /// CRAFT the card with this number.
     Craft(u32),
-    /// CONVERT one spare earned copy of the card with this number into tokens.
+    /// CONVERT clicked on the card with this number, paying this many tokens: the Launcher asks to confirm.
+    ConvertAsk(u32, u32),
+    /// CONVERT confirmed: one spare earned copy of the card with this number into tokens.
     Convert(u32),
     /// SAVE STATS: the anonymous stats file into the folder the player picks (`PLAN.md` 2.4).
     Stats,
@@ -282,7 +284,9 @@ pub enum CollectionAction {
     Market,
     /// JOIN THE MARKET on the opt-in.
     MarketJoin,
-    /// LEAVE THE MARKET.
+    /// LEAVE THE MARKET clicked: the Launcher asks to confirm.
+    MarketLeaveAsk,
+    /// LEAVE THE MARKET confirmed.
     MarketLeave,
     /// BUY a slot of the own list: slot, card, price.
     StockBuy(u64, u32, u32),
@@ -1122,7 +1126,7 @@ fn detail(
                             if widgets::action(ui, &tr!(lang, "collection.convert", n = n.as_str()))
                                 .clicked()
                             {
-                                *act = Some(CollectionAction::Convert(card.number));
+                                *act = Some(CollectionAction::ConvertAsk(card.number, pays));
                             }
                         }
                         if widgets::action(ui, &tr!(lang, "collection.close")).clicked() {
@@ -1704,7 +1708,7 @@ fn market(
             *act = Some(CollectionAction::Market);
         }
         if button(ui, "collection.market_leave") {
-            *act = Some(CollectionAction::MarketLeave);
+            *act = Some(CollectionAction::MarketLeaveAsk);
         }
     });
     hint(ui, &tr!(lang, "collection.market_leave_hint"));

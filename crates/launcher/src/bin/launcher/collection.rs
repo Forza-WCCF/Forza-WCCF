@@ -66,6 +66,14 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
     Ok(view_of(catalogue, dir, c::fold(&Log::new(dir).lines()?), old))
 }
 
+/// Whether the log in `dir` holds the starter cards (an unreadable one does not): a start from the command line waits
+/// for them as PLAY does (#375).
+pub fn started(dir: &Path) -> bool {
+    Log::new(dir)
+        .lines()
+        .is_ok_and(|t| c::fold(&t).state.cards.values().any(|k| k.starter > 0))
+}
+
 /// [`view`] of a log already read and folded (the Launcher logs the fold's warnings from the same read).
 pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<CollectionView>) -> CollectionView {
     let s = folded.state;
@@ -441,7 +449,9 @@ mod tests {
             rares,
             picked: Some(2),
         };
+        assert!(!started(&coll), "a deal is no start");
         let lines = take(&coll, &data, &step).unwrap();
+        assert!(started(&coll), "TAKE THIS TEAM starts");
         assert_eq!(lines.iter().filter(|e| e.kind == c::Kind::Starter).count(), 12);
         assert!(
             lines

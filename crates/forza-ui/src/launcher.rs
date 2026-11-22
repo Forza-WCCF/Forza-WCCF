@@ -728,11 +728,23 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                 .cup
                 .plan(st.lobby.clock.unwrap_or_else(lobby::local_clock))
                 .is_err();
+        // Create-a-Team without its starter cards greys PLAY under its reason, as the cup time does (#375); a log that
+        // cannot be read keeps PLAY, which says its own reason
+        let no_starter = !st.running
+            && st.tab != Tab::Online
+            && st.profile == Some(Profile::CreateATeam)
+            && st
+                .collection
+                .as_ref()
+                .is_some_and(|v| !v.started() && v.problem.is_none());
         let resp = ui
-            .add_enabled_ui(st.running || (!st.busy && !refused), |ui| {
+            .add_enabled_ui(st.running || (!st.busy && !refused && !no_starter), |ui| {
                 cabinet(ui, size, &label, kind, st.set_up || st.running)
             })
             .inner;
+        if no_starter {
+            status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_no_starter"));
+        }
         if resp.clicked() {
             if st.running {
                 let (a, stop) = stop_click(st.stop_armed, now);

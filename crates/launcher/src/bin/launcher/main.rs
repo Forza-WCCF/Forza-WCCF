@@ -684,6 +684,27 @@ fn send_report(words: String, crashed: bool) {
 
 /// A game start was given on the command line (a shortcut's `play`, a dropped game folder is no start): the window it
 /// opens is there for that run and ends with it; one the player starts in the window goes back to its screen instead.
+/// Whether a game may start in the installation's profile: Create-a-Team (2017-18) once its starter cards are chosen.
+fn starter_ready(kit: &Kit) -> bool {
+    kit.edition() != Edition::E1718
+        || kit.profile() != forza::profile::Profile::CreateATeam
+        || kit
+            .profile()
+            .collection(&kit.data())
+            .is_some_and(|dir| collection::started(&dir))
+}
+
+/// Whether a log that could not be read is damaged (START OVER is its way out), or only held past the lock's time box
+/// by a writer (the game panel), which a later read gets past (#375).
+fn log_damaged(e: &std::io::Error) -> bool {
+    e.kind() != std::io::ErrorKind::WouldBlock
+}
+
+/// COLLECTION read again: shown now and not before, while its view says the log could not be read.
+fn read_on_show(before: bool, now: bool, v: Option<&forza_ui::collection::CollectionView>) -> bool {
+    now && !before && v.is_some_and(|v| v.problem.is_some())
+}
+
 fn starts_a_run(steps: &[Step]) -> bool {
     steps.iter().any(|s| matches!(s, Step::Game(_) | Step::Host(_)))
 }
@@ -824,6 +845,8 @@ struct App {
     collection_warnings: Vec<String>,
     /// The market page's request on its way (step 4.1).
     market: market::Market,
+    /// COLLECTION was the tab on the last frame.
+    collection_was_shown: bool,
 }
 
 /// The collection read's warnings to log now, and the list the next refresh compares to (`said`): `None` is a log that
@@ -941,6 +964,7 @@ impl App {
             catalogue: None,
             collection_warnings: Vec::new(),
             market: market::Market::default(),
+            collection_was_shown: false,
         };
         app.collection(kit);
         // COLLECT at start: the sales paid and the listings past 7 days back, while in the market or a sale waits
@@ -1074,7 +1098,7 @@ impl App {
         let made = match (&self.catalogue, read) {
             (None, _) => Err((t("launcher.msg_no_catalogue"), false)),
             (Some(cat), Ok(f)) => Ok(collection::view_of(cat, &dir, f, old.clone())),
-            (Some(_), Err(e)) => Err((read_failed(log_file.path(), e), true)),
+            (Some(_), Err(e)) => Err((read_failed(log_file.path(), e), log_damaged(e))),
         };
         self.st.collection = Some(
             made.unwrap_or_else(|(why, damaged)| forza_ui::collection::CollectionView {
@@ -1100,6 +1124,16 @@ impl App {
         {
             collection::market_of(v, cat, text, &kit.data());
         }
+    }
+
+    /// COLLECTION shown again while its log could not be read (a lock held past its time box, #375): read again, with
+    /// no action from the player.
+    fn collection_shown(&mut self, kit: &Kit) {
+        let shown = self.st.tab == Tab::Collection;
+        if read_on_show(self.collection_was_shown, shown, self.st.collection.as_ref()) {
+            self.collection(kit);
+        }
+        self.collection_was_shown = shown;
     }
 
     /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
@@ -1670,6 +1704,30 @@ impl App {
                     Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
                 }
             }
+            Action::Collection(CollectionAction::ConvertAsk(no, pays)) => {
+                // one click beside CLOSE, and the copy is gone for good: asked first (#375)
+                let name = self
+                    .catalogue
+                    .as_ref()
+                    .and_then(|cat| cat.iter().find(|k| k.number == no))
+                    .map(|k| k.name.clone())
+                    .unwrap_or_default();
+                let n = pays.to_string();
+                let yes = ui_text(self.st.lang, "collection.convert", &[("n", &n)]);
+                self.st.confirm = Some(Confirm::new(
+                    &tf("collection.convert_ask", &[("name", &name), ("n", &n)]),
+                    yes,
+                    Action::Collection(CollectionAction::Convert(no)),
+                ));
+            }
+            Action::Collection(CollectionAction::MarketLeaveAsk) => self.ask(
+                &tf(
+                    "collection.market_leave_ask",
+                    &[("hint", &t("collection.market_leave_hint"))],
+                ),
+                "collection.market_leave",
+                Action::Collection(CollectionAction::MarketLeave),
+            ),
             Action::Collection(CollectionAction::Convert(no)) => {
                 let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
                 else {
@@ -2118,6 +2176,7 @@ impl eframe::App for App {
         if self.st.tab == Tab::Update {
             self.notes(&Kit::here());
         }
+        self.collection_shown(&Kit::here());
         // a safety net for anything that changed without a poke
         ctx.request_repaint_after(Duration::from_millis(if self.st.busy { 250 } else { 1000 }));
     }
@@ -2198,6 +2257,14 @@ fn window(kit: &Kit, first: Vec<Step>, folder: Option<&OsStr>) {
     if check_due(unix_now(), last) {
         ask_updates();
     }
+    // a game start given on the command line waits for Create-a-Team's starter cards, as PLAY does (#375)
+    let first = if starts_a_run(&first) && !starter_ready(kit) {
+        log("Launcher.exe: a start from the command line refused: no starter cards in CREATE-A-TEAM");
+        refuse(t("launcher.msg_no_starter"));
+        Vec::new()
+    } else {
+        first
+    };
     // a game start given on the command line: this window is there for that run alone
     let run_from_command = starts_a_run(&first);
     if !first.is_empty() {
@@ -2541,6 +2608,34 @@ mod tests {
             assert!(!sent.contains(&again) && sent.contains("old"), "{lang:?}: {sent}");
         }
         text::set(Lang::En);
+    }
+
+    /// #375: a log held past the lock's time box (the game panel writing) is no damaged log, so the tab offers no START
+    /// OVER; shown again, the tab reads it again, and the page is whole once the lock is gone.
+    #[test]
+    fn a_log_held_by_a_writer_is_read_again_when_the_tab_shows() {
+        use forza_ui::collection::{CollectionView, Scenario};
+        let dir = scratch();
+        let log = forza::collection::Log::new(dir.path());
+        log.append(forza::collection::Kind::Starter, Some(1), 0, "starter")
+            .unwrap();
+        let holder = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(log.path())
+            .unwrap();
+        holder.lock().unwrap();
+        let e = log.lines().unwrap_err();
+        assert!(!log_damaged(&e), "{e:?}: a lock time-out");
+        assert!(log_damaged(&std::io::Error::from(std::io::ErrorKind::InvalidData)));
+        holder.unlock().unwrap();
+        assert!(collection::started(dir.path()), "read whole after the lock");
+        let mut v = CollectionView::sample(Scenario::Page);
+        assert!(!read_on_show(false, true, Some(&v)), "a whole page is not read again");
+        v.problem = Some("held".into());
+        assert!(read_on_show(false, true, Some(&v)), "shown: read again");
+        assert!(!read_on_show(true, true, Some(&v)), "once per showing");
+        assert!(!read_on_show(false, false, Some(&v)), "not while another tab shows");
     }
 
     /// F1: a pack, a craft or a conversion waits while a market request is on its way; START OVER too; the market's
