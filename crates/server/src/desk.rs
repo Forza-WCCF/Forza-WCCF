@@ -40,7 +40,7 @@ const MAX_PER_IP: usize = 16;
 /// Open connections in all (a thread each); the desk hangs up on the rest.
 const MAX_OPEN: usize = 512;
 
-/// Whether the per-address limits ([`MAX_PER_IP`], `lobby_gap`, `ask_limit`) apply to `ip`. Not to loopback on a
+/// Whether the per-address limits ([`MAX_PER_IP`], `lobby_gap`, `ask_limit`, `market_limit`) apply to `ip`. Not to loopback on a
 /// desk behind a 2017-18 arcade tunnel ([`DeskConfig::tunnel`]): there every guest arrives as 127.0.0.1, and the
 /// tunnel holds each guest to a few streams itself (`vslink::arcade`), so one address is many players.
 fn per_address(tunnel: bool, ip: &str) -> bool {
@@ -108,8 +108,12 @@ pub struct DeskConfig {
     /// The same for a room made without a secret (Launchers up to 0.7.0), by a `CREATE shop` with its tunnel id from
     /// its creator's address: 15 s, the rule whose 15 + 2 s wait those Launchers have compiled in.
     pub old_host_stale: Duration,
-    /// `RESERVE` and `CREATE` per address in [`DeskConfig::ask_window`], else `ERR slow` (20 per 60 s).
+    /// `RESERVE`, `CREATE`, `JOIN` and public `CLUB PUT` per address in [`DeskConfig::ask_window`], else `ERR slow`
+    /// (`NO slow` for `CLUB PUT`; 20 per 60 s).
     pub ask_limit: u32,
+    /// `MARKET` requests per address in [`DeskConfig::ask_window`], else `NO slow` (60 per 60 s): a counter of their
+    /// own, so a busy market screen never refuses the same PC's arcade words.
+    pub market_limit: u32,
     pub ask_window: Duration,
     /// Behind a 2017-18 arcade tunnel (`WCCF_DESK_TUNNEL=1`, set by the Launcher's arcade host): loopback is many guests.
     pub tunnel: bool,
@@ -196,6 +200,7 @@ impl DeskConfig {
             vs: None,
             max_rooms: 200,
             ask_limit: 20,
+            market_limit: 60,
             vs_rooms_per_address: env_count("WCCF_ROOMS_PER_ADDRESS", 8),
             arcade_rooms_per_address: env_count("WCCF_SHOP_ROOMS_PER_ADDRESS", 2),
             join_fail_per_address: 10,
@@ -398,8 +403,10 @@ struct Shared {
     notice: Mutex<Option<(Option<SystemTime>, Option<Notice>)>>,
     /// Open connections per address ([`MAX_PER_IP`]), each one a [`Slot`].
     open: Arc<Mutex<HashMap<String, usize>>>,
-    /// `RESERVE` + `CREATE` per address: window start, count.
+    /// `RESERVE` + `CREATE` + `JOIN` + public `CLUB PUT` per address: window start, count.
     asks: Mutex<HashMap<String, (Instant, u32)>>,
+    /// `MARKET` per address: window start, count.
+    market_asks: Mutex<HashMap<String, (Instant, u32)>>,
     /// Wrong `JOIN` codes, desk-wide: window start, count.
     join_fails: Mutex<(Instant, u32)>,
     /// Wrong `JOIN` codes per address: window start, count.
@@ -414,17 +421,33 @@ impl Shared {
         }
     }
 
-    /// One more `RESERVE` or `CREATE` from `ip`; true when that is over the limit.
+    /// One more arcade or room word (`RESERVE`, `CREATE`, `JOIN`, public `CLUB PUT`) from `ip`; true when that is
+    /// over the limit.
     fn slow(&self, ip: &str, now: Instant) -> bool {
+        self.over(&self.asks, self.cfg.ask_limit, ip, now)
+    }
+
+    /// One more `MARKET` request from `ip`; true when that is over the market's own limit.
+    fn market_slow(&self, ip: &str, now: Instant) -> bool {
+        self.over(&self.market_asks, self.cfg.market_limit, ip, now)
+    }
+
+    fn over(
+        &self,
+        asks: &Mutex<HashMap<String, (Instant, u32)>>,
+        limit: u32,
+        ip: &str,
+        now: Instant,
+    ) -> bool {
         if !per_address(self.cfg.tunnel, ip) {
             return false;
         }
         let w = self.cfg.ask_window;
-        let mut asks = lock(&self.asks);
+        let mut asks = lock(asks);
         asks.retain(|_, (t, _)| now.duration_since(*t) < w);
         let a = asks.entry(ip.to_string()).or_insert((now, 0));
         a.1 += 1;
-        a.1 > self.cfg.ask_limit
+        a.1 > limit
     }
 
     /// Drops a whole room (its host left, or its lease ended) and the guest's ticket with it.
@@ -731,12 +754,12 @@ fn session(
         }
         ["SHOP", t] if !e1011 => return arcade_peers(sh, t, None, &mut out),
         ["SHOP", t, own] if !e1011 => return arcade_peers(sh, t, Some(own), &mut out),
-        // Create-a-Team's market (crate::market): signed requests with a body, under the per-address ask limit
+        // Create-a-Team's market (crate::market): signed requests with a body, under the market's own per-address limit
         ["MARKET", ref words @ ..] => {
             let Some(market) = &sh.cfg.market else {
                 return out.write_all(format!("NO {}\n", forza::market::NOT_SET_UP).as_bytes());
             };
-            if sh.slow(ip, Instant::now()) {
+            if sh.market_slow(ip, Instant::now()) {
                 return out.write_all(b"NO slow\n");
             }
             let said = market.serve(
@@ -1621,6 +1644,7 @@ pub fn start(cfg: DeskConfig, log: Log) -> io::Result<Handle> {
         notice: Mutex::default(),
         open: Arc::default(),
         asks: Mutex::default(),
+        market_asks: Mutex::default(),
         join_fails: Mutex::new((Instant::now(), 0)),
         join_fails_by: Mutex::default(),
     });

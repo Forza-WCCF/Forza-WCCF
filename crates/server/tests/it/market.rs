@@ -433,3 +433,20 @@ fn owed_and_one_key_per_log_over_the_desk() {
         assert_eq!(String::from_utf8(got).unwrap(), want, "{verb:?}");
     }
 }
+
+/// One address may send 60 market requests a minute, the 61st answers `NO slow`, and that limit is the market's own:
+/// a busy market screen leaves the same PC's arcade `JOIN` and `CREATE` unrefused.
+#[test]
+fn the_market_limit_is_60_a_minute_and_its_own() {
+    let root = scratch("market_limit");
+    let table = Table::of(&[(1, forza::collection::Rarity::Regular, 80)]);
+    let d = desk(Some(Market::with(table, &root.join("market.db")).unwrap()));
+    for n in 1..=60 {
+        assert_ne!(answer(d.addr(), b"MARKET\n"), b"NO slow\n", "request {n}");
+    }
+    assert_eq!(answer(d.addr(), b"MARKET\n"), b"NO slow\n");
+    for line in ["JOIN ABCDE\n", "CREATE shop 0123\n"] {
+        let got = String::from_utf8(answer(d.addr(), line.as_bytes())).unwrap();
+        assert!(!got.contains("slow"), "{line}: {got}");
+    }
+}

@@ -94,7 +94,7 @@ No name is sent or stored: listings never show the seller. `key` is the installa
 (`data\market.key`, hex), `at` Unix milliseconds (later than the key's last request, within a day of the server's
 clock; an older one answers `NO an old request (sent twice?), the last at <ms>` and `forza::market::ask` signs it
 again past that time), `sig` the signature of the whole body (hex), `size` at most 8 MiB (the Launcher refuses a
-bigger log before sending). The words count in the per-address `RESERVE`/`CREATE` limit (`NO slow`), and the bodies
+bigger log before sending). The words have their own per-address limit, 60 per 60 s (`NO slow`), apart from the arcade words', and the bodies
 read at once hold 8 × 8 MiB of body bytes in all at most, counted as they arrive, 2 bodies from one address. The replay test comes before the check. The check (`market::check`)
 refuses, naming the line: a broken chain, a line dated before 2026-11-11 (rules 2) or more than a day past the server's
 clock, `match` lines under 3 minutes apart or past 120 in a week, a match not
