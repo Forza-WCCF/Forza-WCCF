@@ -1043,10 +1043,13 @@ mod tests {
         );
         craft(&cat, &coll, free[1]).unwrap();
         convert(&cat, &coll, free[2]).unwrap();
-        assert_eq!(buy(&cat, &coll, PackChoice::Standard).unwrap().len(), 3);
-        log.append(c::Kind::Match, Some(free[3]), 50, "match").unwrap();
+        let drawn = buy(&cat, &coll, PackChoice::Standard).unwrap();
+        assert_eq!(drawn.len(), 3);
+        // the pack draws at random from every card: the match takes a free card it did not draw
+        let fresh = *free[3..].iter().find(|n| !drawn.contains(n)).unwrap();
+        log.append(c::Kind::Match, Some(fresh), 50, "match").unwrap();
         let f = c::fold(&log.lines().unwrap());
         assert!(f.warnings.is_empty() && !f.unreadable, "{:?}", f.warnings);
-        assert_eq!(f.state.copies(free[3]).earned, 1);
+        assert_eq!(f.state.copies(fresh).earned, 1);
     }
 }
