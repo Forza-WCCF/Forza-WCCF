@@ -725,6 +725,13 @@ collection.market_why_no_card: {en: "card %{card} is not in this server's card t
 collection.market_why_old: {en: "a request arrived twice. Try again.", it: "una richiesta è arrivata due volte. Riprova.", ja: "リクエストが二重に届きました。もう一度お試しください。"}
 collection.market_why_fork: {en: "this collection lacks %{n} entries the market server already has. Put the newer copy back, or press START OVER.", it: "a questa collezione mancano %{n} voci che il server del mercato ha già. Rimetti la copia più recente o premi RICOMINCIA.", ja: "このコレクションには、マーケットサーバーにある記録が %{n} 件ありません。新しいほうのコピーを戻すか、「最初からやり直す」を押してください。"}
 collection.market_why_busy: {en: "the market server is busy. Try again in a minute.", it: "il server del mercato è occupato. Riprova tra un minuto.", ja: "マーケットサーバーが混み合っています。1 分ほどしてから、もう一度お試しください。"}
+collection.market_why_slow: {en: "the market server got too many requests from this connection. Try again in a minute.", it: "il server del mercato ha ricevuto troppe richieste da questa connessione. Riprova tra un minuto.", ja: "この接続からのリクエストが多すぎます。1 分ほどしてから、もう一度お試しください。"}
+collection.market_said_bought: {en: "The card is in your collection.", it: "La carta è nella tua collezione.", ja: "カードをコレクションに追加しました。"}
+collection.market_said_listed: {en: "Your card is on the market.", it: "La tua carta è sul mercato.", ja: "カードを出品しました。"}
+collection.market_said_unlisted: {en: "Your card is back in your collection.", it: "La tua carta è tornata nella tua collezione.", ja: "出品を取り下げ、カードが手元に戻りました。"}
+collection.market_said_sold: {en: "Cards sold on the market: %{n}. Their tokens are in your balance.", it: "Carte vendute sul mercato: %{n}. I gettoni sono nel tuo saldo.", ja: "マーケットで売れたカード：%{n} 枚。トークンを受け取りました。"}
+collection.market_word_buy: {en: "BUY", it: "COMPRA", ja: "購入"}
+collection.market_word_list: {en: "LIST", it: "METTI IN VENDITA", ja: "出品"}
 collection.market_stock_title: {en: "YOUR LIST OF THE DAY", it: "LA TUA LISTA DEL GIORNO", ja: "今日のあなたのリスト"}
 collection.market_stock_hint: {en: "Cards drawn for this installation alone. A new list comes every day at 04:00 UTC.", it: "Carte estratte solo per questa installazione. Ogni giorno alle 04:00 UTC arriva una nuova lista.", ja: "このインストールだけのために選ばれたカードです。毎日 13:00（日本時間）に新しいリストになります。"}
 collection.market_left: {en: "Purchases left today: %{n}", it: "Acquisti rimasti oggi: %{n}", ja: "今日の残り購入数：%{n}"}

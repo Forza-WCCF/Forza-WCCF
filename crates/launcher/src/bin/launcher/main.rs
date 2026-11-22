@@ -987,46 +987,49 @@ impl App {
     /// A market request came back: the log read again (its lines, the listings), the page's lists and what it said.
     fn market_done(&mut self, kit: &Kit, d: market::Done) {
         use forza::market::Fail;
-        let note = match &d.said {
-            Ok(()) => None,
-            Err(Fail::Unanswered(e)) => {
+        let line = |e: &Fail| match e {
+            Fail::Unanswered(e) => {
                 log(&format!("market: {:?} unanswered: {e}", d.action));
                 // only the outbox's words are sent again (a purchase, a listing, a take back, COLLECT, RESET)
-                Some(if forza::market::Client::saved(&kit.data()).outbox.is_some() {
+                if forza::market::Client::saved(&kit.data()).outbox.is_some() {
                     t("collection.market_offline")
                 } else {
                     t("collection.market_unanswered")
-                })
+                }
             }
-            Err(Fail::Refused(why)) => {
+            Fail::Refused(why) => {
                 log(&format!("market: {:?} refused: {why}", d.action));
-                Some(tf("collection.market_refused", &[("why", &market::reason(why))]))
+                tf("collection.market_refused", &[("why", &market::reason(why))])
             }
-            Err(Fail::Unresolved(server)) => {
+            Fail::Unresolved(server) => {
                 log(&format!("market: {:?}: {server} could not be resolved", d.action));
-                Some(tf("collection.market_no_name", &[("server", server)]))
+                tf("collection.market_no_name", &[("server", server)])
             }
-            Err(Fail::Disk(e)) => {
+            Fail::Disk(e) => {
                 log(&format!("market: {:?} failed on this PC: {e}", d.action));
-                Some(tf("collection.market_disk", &[("error", e)]))
+                tf("collection.market_disk", &[("error", e)])
             }
         };
+        let note = d.said.as_ref().err().map(line);
         if d.said.is_ok() {
             log(&format!("market: {:?} done", d.action));
         }
+        // the word went through; only the page's lists after it did not come
+        let note = note.or_else(|| d.visit.as_ref().map(line));
         if let Some(why) = &d.resent {
             log(&format!("market: a request sent again was refused: {why}"));
         }
         let note = note.or_else(|| {
-            // `VERB: why`: the server's words translated after the verb
             d.resent.as_ref().map(|said| {
-                let why = said.split_once(": ").map_or_else(
-                    || said.clone(),
-                    |(verb, why)| format!("{verb}: {}", market::reason(why)),
-                );
-                tf("collection.market_resent_refused", &[("why", &why)])
+                tf(
+                    "collection.market_resent_refused",
+                    &[("why", &market::resent_in(text::lang(), said))],
+                )
             })
         });
+        if let Some((tone, line)) = market::footer(text::lang(), &d, d.said.as_ref().err().and(note.as_deref())) {
+            say_tone(tone, line, 0);
+        }
         self.collection(kit);
         if let (Some(v), Some(cat)) = (&mut self.st.collection, &self.catalogue) {
             v.market.busy = false;

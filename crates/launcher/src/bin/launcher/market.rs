@@ -8,6 +8,7 @@ use std::thread;
 
 use forza::market::{Client, Fail, Row, Saved, StockList, Verb};
 use forza_ui::collection::{CollectionAction, MarketView, Offered};
+use forza_ui::widgets::Tone;
 use launcher::Edition;
 
 /// BROWSE pages one visit asks at most, and MORE after them.
@@ -23,12 +24,16 @@ pub struct Done {
     pub more: bool,
     /// A request kept from before, sent again and refused, as `VERB: why`.
     pub resent: Option<String>,
+    /// The visit after a player's word that went through failed (#375): the word's own answer is `said`.
+    pub visit: Option<Fail>,
+    /// Sales paid into the log by this job's COLLECT.
+    pub sold: usize,
 }
 
 /// The job running, if any.
 #[derive(Default)]
 pub struct Market {
-    rx: Option<mpsc::Receiver<Done>>,
+    rx: Option<(mpsc::Receiver<Done>, CollectionAction)>,
 }
 
 impl Market {
@@ -43,7 +48,7 @@ impl Market {
             return false;
         }
         let (tx, rx) = mpsc::channel();
-        self.rx = Some(rx);
+        self.rx = Some((rx, action.clone()));
         thread::spawn(move || {
             let _ = tx.send(run(&data, &collection, action));
             super::poke();
@@ -51,19 +56,20 @@ impl Market {
         true
     }
 
-    /// The finished job, once.
+    /// The finished job, once; a worker that ended without an answer (a panic) is one that failed on this PC, so the
+    /// page leaves its busy state with a note (#375).
     pub fn poll(&mut self) -> Option<Done> {
-        match self.rx.as_ref()?.try_recv() {
-            Ok(done) => {
-                self.rx = None;
-                Some(done)
-            }
-            Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.rx = None;
-                None
-            }
-        }
+        let (rx, action) = self.rx.as_ref()?;
+        let done = match rx.try_recv() {
+            Ok(done) => done,
+            Err(mpsc::TryRecvError::Empty) => return None,
+            Err(mpsc::TryRecvError::Disconnected) => Done {
+                said: Err(Fail::Disk("the market request stopped without an answer".into())),
+                ..Done::new(action.clone())
+            },
+        };
+        self.rx = None;
+        Some(done)
     }
 }
 
@@ -80,15 +86,35 @@ pub fn put_back(data: &Path, collection: &Path, before: &Saved) -> Result<(), Fa
     Client::open(([0, 0, 0, 0], 0).into(), data, collection)?.save(before)
 }
 
+impl Done {
+    fn new(action: CollectionAction) -> Self {
+        Self {
+            action,
+            said: Ok(()),
+            stock: None,
+            sale: None,
+            more: false,
+            resent: None,
+            visit: None,
+            sold: 0,
+        }
+    }
+}
+
+/// A player's word (BUY, LIST, TAKE BACK, JOIN, LEAVE), not the page's own visit or MORE.
+pub fn is_word(a: &CollectionAction) -> bool {
+    !matches!(a, CollectionAction::Market | CollectionAction::MarketMore(_))
+}
+
+/// The `market_sell` lines of the log: the sales paid into it.
+fn sales(collection: &Path) -> usize {
+    forza::collection::Log::new(collection)
+        .lines()
+        .map_or(0, |l| l.matches(r#""kind":"market_sell""#).count())
+}
+
 fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
-    let mut done = Done {
-        action: action.clone(),
-        said: Ok(()),
-        stock: None,
-        sale: None,
-        more: false,
-        resent: None,
-    };
+    let mut done = Done::new(action.clone());
     let c = desk(&launcher::lobby::project_server(Edition::E1718)).and_then(|d| Client::open(d, data, collection));
     let c = match c {
         Ok(c) => c,
@@ -97,32 +123,74 @@ fn run(data: &Path, collection: &Path, action: CollectionAction) -> Done {
             return done;
         }
     };
-    done.said = (|| {
-        let n = |x: u32| u64::from(x);
-        match action {
-            CollectionAction::MarketJoin => c.ask(Verb::Join, &[]).map(drop)?,
-            CollectionAction::MarketLeave => return c.leave().map(drop),
-            CollectionAction::StockBuy(slot, card, price) => {
-                c.ask(Verb::StockBuy, &[slot, n(card), n(price)]).map(drop)?;
-            }
-            CollectionAction::MarketBuy(id, card, price) => {
-                c.ask(Verb::Buy, &[id, n(card), n(price)]).map(drop)?;
-            }
-            CollectionAction::List(card, price) => c.ask(Verb::List, &[n(card), n(price)]).map(drop)?,
-            CollectionAction::Unlist(id) => c.ask(Verb::Cancel, &[id]).map(drop)?,
-            CollectionAction::MarketMore(after) => {
-                let (sale, more) = c.browse_pages(after, BROWSE_PAGES)?;
-                (done.sale, done.more) = (Some(sale), more);
-                return Ok(());
-            }
-            _ => c.flush()?,
+    let sold = sales(collection);
+    let n = |x: u32| u64::from(x);
+    let (said, visit) = match action {
+        CollectionAction::MarketJoin => (c.ask(Verb::Join, &[]).map(drop), true),
+        CollectionAction::MarketLeave => (c.leave().map(drop), false),
+        CollectionAction::StockBuy(slot, card, price) => {
+            (c.ask(Verb::StockBuy, &[slot, n(card), n(price)]).map(drop), true)
         }
-        let v = c.visit(BROWSE_PAGES)?;
-        (done.stock, done.sale, done.more) = (v.stock, v.sale, v.more);
-        Ok(())
-    })();
+        CollectionAction::MarketBuy(id, card, price) => (c.ask(Verb::Buy, &[id, n(card), n(price)]).map(drop), true),
+        CollectionAction::List(card, price) => (c.ask(Verb::List, &[n(card), n(price)]).map(drop), true),
+        CollectionAction::Unlist(id) => (c.ask(Verb::Cancel, &[id]).map(drop), true),
+        CollectionAction::MarketMore(after) => (
+            c.browse_pages(after, BROWSE_PAGES)
+                .map(|(sale, more)| (done.sale, done.more) = (Some(sale), more)),
+            false,
+        ),
+        _ => (c.flush(), true),
+    };
+    done.said = said;
+    if visit && done.said.is_ok() {
+        match c.visit(BROWSE_PAGES) {
+            Ok(v) => (done.stock, done.sale, done.more) = (v.stock, v.sale, v.more),
+            // a word that went through stays a success when the visit after it is refused (`slow`)
+            Err(e) if is_word(&action) => done.visit = Some(e),
+            Err(e) => done.said = Err(e),
+        }
+    }
+    done.sold = sales(collection).saturating_sub(sold);
     done.resent = c.resent_refused();
     done
+}
+
+/// The footer line for a finished job (#375): a player's word refused or unanswered says `note` (the market page's
+/// own line), one that went through says so, and sales paid say so; the page's own visit says nothing else.
+pub fn footer(lang: forza_ui::Lang, d: &Done, note: Option<&str>) -> Option<(Tone, String)> {
+    if d.said.is_err() && is_word(&d.action) {
+        return note.map(|n| (Tone::Refused, n.to_owned()));
+    }
+    let key = match d.action {
+        _ if d.said.is_err() => None,
+        CollectionAction::StockBuy(..) | CollectionAction::MarketBuy(..) => Some("collection.market_said_bought"),
+        CollectionAction::List(..) => Some("collection.market_said_listed"),
+        CollectionAction::Unlist(_) => Some("collection.market_said_unlisted"),
+        _ => None,
+    };
+    let sold = (d.sold > 0).then(|| forza_ui::text(lang, "collection.market_said_sold", &[("n", &d.sold.to_string())]));
+    let line = [key.map(|k| forza_ui::text(lang, k, &[])), sold]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!line.is_empty()).then_some((Tone::Done, line))
+}
+
+/// A kept request's `VERB: why` with the verb as the page's button reads in `lang` (#375).
+pub fn resent_in(lang: forza_ui::Lang, said: &str) -> String {
+    let Some((verb, why)) = said.split_once(": ") else {
+        return said.to_owned();
+    };
+    let key = match verb {
+        "BUY" | "STOCKBUY" => "collection.market_word_buy",
+        "LIST" => "collection.market_word_list",
+        "CANCEL" => "collection.market_unlist",
+        "COLLECT" => "collection.market_refresh",
+        "RESET" => "collection.reset",
+        _ => return format!("{verb}: {}", reason_in(lang, why)),
+    };
+    format!("{}: {}", forza_ui::text(lang, key, &[]), reason_in(lang, why))
 }
 
 /// Whether the page's `a` asks the server: a player's word always; the page's own visit (`Market`) only in the market,
@@ -150,7 +218,7 @@ fn desk(server: &str) -> Result<std::net::SocketAddr, Fail> {
 /// The server's refusal reasons a player meets, in the server's words (`crates/server/src/market.rs`, the desk's
 /// [`forza::market::NOT_SET_UP`]), each with its `ui.yml` key; `{name}` stands for a number. A reason not here (a log
 /// the server's check refuses, line by line) shows in English as the server said it.
-const REASONS: [(&str, &str); 25] = [
+const REASONS: [(&str, &str); 26] = [
     ("this installation is not in the market", "collection.market_why_not_in"),
     ("that listing is no longer on the market", "collection.market_why_gone"),
     ("that listing sold: COLLECT pays it", "collection.market_why_sold"),
@@ -239,6 +307,8 @@ const REASONS: [(&str, &str); 25] = [
         "collection.market_why_fork",
     ),
     ("busy, try again in a minute", "collection.market_why_busy"),
+    // the desk's request limit per address
+    ("slow", "collection.market_why_slow"),
 ];
 
 /// The server's refusal `why` in the player's language, for the "refused" lines.
@@ -308,6 +378,10 @@ mod tests {
             reason_in(Lang::It, "an old request (sent twice?), the last at 1763700000000"),
             "una richiesta è arrivata due volte. Riprova."
         );
+        // the desk's request limit (#375): no longer "refused: slow"
+        for lang in Lang::ALL {
+            assert_ne!(reason_in(lang, "slow"), "slow", "{lang:?}");
+        }
         let check = "line 15: a match 179 s after the one before";
         assert_eq!(reason_in(Lang::It, check), check);
         assert_eq!(
@@ -331,6 +405,87 @@ mod tests {
                 let said = reason_in(lang, &why);
                 assert_eq!(said, forza_ui::text(lang, key, &numbers(shape, &why).unwrap()), "{why}");
                 assert!(said != why && !said.contains("%{"), "{lang:?} {why}: {said}");
+            }
+        }
+    }
+
+    /// #375: a worker that ends without an answer (a panic) is a finished job carrying an error, so the page leaves its
+    /// busy state with a note.
+    #[test]
+    fn a_worker_gone_without_an_answer_is_a_failed_job() {
+        let (tx, rx) = mpsc::channel();
+        let mut m = Market {
+            rx: Some((rx, CollectionAction::List(7, 40))),
+        };
+        assert!(m.busy() && m.poll().is_none(), "still running");
+        drop(tx);
+        let d = m.poll().expect("a Done");
+        assert_eq!(d.action, CollectionAction::List(7, 40));
+        assert!(matches!(d.said, Err(Fail::Disk(_))), "{:?}", d.said);
+        assert!(!m.busy() && m.poll().is_none(), "once");
+    }
+
+    /// #375: a refused word says its note in the footer (LIST is pressed on the collection page, which has no market
+    /// line); one that went through says so, also when the visit after it was refused; sales paid say so; the page's
+    /// own visit says nothing else.
+    #[test]
+    fn the_footer_says_each_refusal_and_success() {
+        use forza_ui::Lang;
+        let done = |action, said| Done {
+            said,
+            ..Done::new(action)
+        };
+        let refused = done(CollectionAction::List(7, 40), Err(Fail::Refused("slow".into())));
+        assert_eq!(
+            footer(Lang::En, &refused, Some("why")),
+            Some((Tone::Refused, "why".into()))
+        );
+        let visit = done(CollectionAction::Market, Err(Fail::Refused("slow".into())));
+        assert_eq!(footer(Lang::En, &visit, Some("why")), None, "the page's line only");
+        assert_eq!(footer(Lang::En, &done(CollectionAction::Market, Ok(())), None), None);
+        for lang in Lang::ALL {
+            for (a, key) in [
+                (CollectionAction::MarketBuy(1, 7, 40), "collection.market_said_bought"),
+                (CollectionAction::StockBuy(1, 7, 40), "collection.market_said_bought"),
+                (CollectionAction::List(7, 40), "collection.market_said_listed"),
+                (CollectionAction::Unlist(1), "collection.market_said_unlisted"),
+            ] {
+                let mut d = done(a, Ok(()));
+                d.visit = Some(Fail::Refused("slow".into()));
+                let (tone, line) = footer(lang, &d, None).expect("a line");
+                assert_eq!((tone, line), (Tone::Done, forza_ui::text(lang, key, &[])));
+                assert!(
+                    !forza_ui::text(lang, key, &[]).starts_with("collection."),
+                    "{lang:?} {key}"
+                );
+            }
+            let mut d = done(CollectionAction::Market, Ok(()));
+            d.sold = 2;
+            let (tone, line) = footer(lang, &d, None).expect("a sale paid");
+            assert!(
+                tone == Tone::Done && line.contains('2') && !line.contains("%{"),
+                "{lang:?}: {line}"
+            );
+        }
+    }
+
+    /// #375: a kept request's refusal names the action as the page's button reads, not the protocol word.
+    #[test]
+    fn a_kept_request_names_its_button() {
+        use forza_ui::Lang;
+        let said = "CANCEL: this installation has no listing with that id";
+        assert_eq!(
+            resent_in(Lang::It, said),
+            "RITIRA: questa installazione non ha questa inserzione."
+        );
+        for lang in Lang::ALL {
+            for verb in ["BUY", "STOCKBUY", "LIST", "CANCEL", "COLLECT", "RESET"] {
+                let line = resent_in(lang, &format!("{verb}: slow"));
+                assert!(!line.starts_with(verb) || lang == Lang::En, "{lang:?}: {line}");
+                assert!(
+                    !line.contains("collection.") && !line.ends_with("slow"),
+                    "{lang:?}: {line}"
+                );
             }
         }
     }
