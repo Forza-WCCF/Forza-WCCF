@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 pub use time::OffsetDateTime;
 
 /// The economy table's version: every line states the table it was written under, and the market refuses an older one.
+/// 2 is the test week's table (#375 T.1): no release wrote it, and the tuning after the test week raises it, so the
+/// server tells test-week lines and requests apart by this number alone.
 pub const RULES: u32 = 2;
 
 /// A card's craft value at TOTAL under 85: white 40, black 160, RARE 400, LEGEND 1,500, ALL TIME LEGEND 2,500
