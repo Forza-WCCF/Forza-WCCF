@@ -289,8 +289,6 @@ const MATCH_GAP: time::Duration = time::Duration::minutes(3);
 /// them with no card cap; its heaviest reference player plays 12 a day (84 a week), so 120 leaves that player room and
 /// still bounds a forged log to 120 cards a week.
 const MATCHES_PER_WEEK: u32 = 120;
-/// Import lines only this long after the first `starter` line (PLAN.md 3.8).
-const IMPORT_WINDOW: time::Duration = time::Duration::days(7);
 /// The starter's copies: 11 REGULAR cards and the picked RARE.
 const STARTER_CARDS: u32 = 12;
 const PACK_PRICES: [i64; 3] = [
@@ -331,9 +329,8 @@ pub struct Checked<'a> {
 /// week's counter ([`collection::week`], the line's own offset, as the Launcher counts it), one `welcome` of
 /// [`collection::WELCOME`], pack lines at a pack's price, crafts of white and
 /// black cards only at the table's price, conversions at [`collection::CONVERT_SHARE`] and only while another unlisted
-/// earned copy remains, no `convert` or `list` of a starter or imported copy, `import` lines only before the first
-/// `list`, `market_buy` or `stock_buy` and within 7 days after the first `starter`, market lines inside the price
-/// band, each `stock_buy` matching one of `stock` (this key's stock sales: card and price), and a balance never below
+/// earned copy remains, no `convert` or `list` of a starter or imported copy, no `import` line while the 2010-11
+/// import is off, market lines inside the price band, each `stock_buy` matching one of `stock` (this key's stock sales: card and price), and a balance never below
 /// zero. An unparsable last line is left out (the Launcher stopped mid-append; its next append cuts it). Returns the
 /// log's lines, or the first line that fails and why.
 pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Checked<'a>, String> {
@@ -344,9 +341,7 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
     let mut last_match: Option<time::OffsetDateTime> = None;
     // a week: its match tokens earned and its `match` lines so far
     let mut match_weeks: HashMap<u32, (i64, u32)> = HashMap::new();
-    let mut first_starter: Option<time::OffsetDateTime> = None;
     let mut starters = 0;
-    let mut market_used = false;
     let mut pack_left = 0;
     for (n, raw) in log.lines().enumerate().map(|(n, l)| (n + 1, l)) {
         if raw.trim().is_empty() {
@@ -435,7 +430,6 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 }
                 h.starter += 1;
                 starters += 1;
-                first_starter.get_or_insert(e.at);
             }
             Kind::Welcome => {
                 if card.is_some() || e.tokens != collection::WELCOME {
@@ -545,23 +539,13 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 }
                 h.earned -= 1;
             }
+            // shortcut: no Launcher writes an import while 5.1 is unbuilt, and nothing here can tell a real 2010-11
+            // collection from a list of every card; 5.1 brings the arm back (one copy per card, before any market line,
+            // 7 days after the starter: this arm's history) with a cap on what the server can believe of a 2010-11 save
             Kind::Import => {
-                let (c, _) = need()?;
-                zero("an import")?;
-                if market_used {
-                    return Err(no("an import after a market listing or purchase".into()));
-                }
-                let Some(start) = first_starter else {
-                    return Err(no("an import before the starter".into()));
-                };
-                if !(start..=start + IMPORT_WINDOW).contains(&e.at) {
-                    return Err(no("an import outside the 7 days after the starter".into()));
-                }
-                let h = held.entry(c).or_default();
-                if h.imported > 0 {
-                    return Err(no(format!("a second imported copy of card {c}")));
-                }
-                h.imported += 1;
+                return Err(no(
+                    "an import line, but the 2010-11 import is not open on this server".into(),
+                ));
             }
             Kind::List => {
                 let (c, _) = need()?;
@@ -575,7 +559,6 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                     }));
                 }
                 h.listed += 1;
-                market_used = true;
             }
             Kind::Unlist => {
                 let (c, _) = need()?;
@@ -595,7 +578,6 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                     )));
                 }
                 held.entry(c).or_default().earned += 1;
-                market_used = true;
                 out.bought.push((c, price));
             }
             Kind::MarketSell => {
@@ -624,7 +606,6 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 };
                 stock.swap_remove(i);
                 held.entry(c).or_default().earned += 1;
-                market_used = true;
                 out.stock_bought.push((c, price));
             }
         }
@@ -2016,30 +1997,12 @@ mod tests {
         );
     }
 
-    /// Acceptance 3.1 (b): an import after a listing is refused, with the reason; so is one outside the 7 days after
-    /// the starter, before it in time (N3) or before any starter line.
+    /// #375 final review M4: the 2010-11 import is off (5.1 is not built), so no honest log holds an `import` line.
     #[test]
-    fn an_import_after_a_listing_is_refused() {
+    fn an_import_line_is_refused_while_the_import_is_off() {
         let mut l = started();
-        l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(20), 50)
-            .add(t("2026-11-01T12:01:00+09:00"), Kind::List, Some(20), 0)
-            .add(t("2026-11-01T12:02:00+09:00"), Kind::Import, Some(30), 0);
-        let why = refused(&l);
-        assert!(why.contains("import after a market listing"), "{why}");
-        for late in ["2026-11-09T10:00:01+09:00", "2026-11-01T09:59:59+09:00"] {
-            let mut l = started();
-            l.add(t(late), Kind::Import, Some(30), 0);
-            assert!(
-                refused(&l).contains("outside the 7 days after the starter"),
-                "{late}"
-            );
-        }
-        let mut l = started();
-        l.add(t("2026-11-08T10:00:00+09:00"), Kind::Import, Some(30), 0);
-        assert_eq!(passes(&l), 14);
-        let mut l = Log::default();
-        l.add(t(START), Kind::Import, Some(30), 0);
-        assert!(refused(&l).contains("before the starter"));
+        l.add(t("2026-11-01T12:00:00+09:00"), Kind::Import, Some(30), 0);
+        assert!(refused(&l).contains("2010-11 import"), "{}", refused(&l));
     }
 
     /// Acceptance 3.1 (b): a convert or a listing of a starter or imported copy is refused, with the reason; a spare
@@ -2051,13 +2014,8 @@ mod tests {
         l.add(at, Kind::Convert, Some(1), 8);
         assert!(refused(&l).contains("convert of a starter or imported copy of card 1"));
         let mut l = started();
-        l.add(at, Kind::Import, Some(30), 0)
-            .add(at, Kind::Convert, Some(30), 8);
-        assert!(refused(&l).contains("convert of a starter or imported copy of card 30"));
-        let mut l = started();
-        l.add(at, Kind::Import, Some(30), 0)
-            .add(at, Kind::List, Some(30), 0);
-        assert!(refused(&l).contains("listing of a starter or imported copy of card 30"));
+        l.add(at, Kind::List, Some(51), 0);
+        assert!(refused(&l).contains("listing of a starter or imported copy of card 51"));
         // 1 earned + 1 starter copy: the earned copy is the last earned one
         let mut l = started();
         l.add(at, Kind::Match, Some(1), 50)
@@ -2201,7 +2159,7 @@ mod tests {
     /// The honest month's one stock purchase, as `market.db` holds it.
     const STOCK: [(u32, i64); 1] = [(45, 360)];
 
-    /// An honest month: the deal and the welcome, an import on day 3, 8 matches every day paying up to the week's cap,
+    /// An honest month: the deal and the welcome, 8 matches every day paying up to the week's cap,
     /// Standard and Season packs, a black craft, kept copies, conversions of spares only, a listing returned, a sale, a
     /// purchase and a stock purchase.
     fn honest_month() -> String {
@@ -2211,11 +2169,6 @@ mod tests {
         let mut week = (0, 0);
         for d in 0..30 {
             let morning = day0 + time::Duration::days(d);
-            if d == 2 {
-                for c in [30, 31, 2] {
-                    l.add(morning, Kind::Import, Some(c), 0);
-                }
-            }
             for m in 0..8 {
                 let at = morning + mins(9 * m);
                 if week.0 != collection::week(at) {
@@ -2261,8 +2214,8 @@ mod tests {
         l.text
     }
 
-    /// Acceptance 3.1 (c), 3.1b (c): an honest 1-month log under rules 2 with kept copies, conversions, an import and a
-    /// stock purchase passes.
+    /// Acceptance 3.1 (c), 3.1b (c): an honest 1-month log under rules 2 with kept copies, conversions and a stock
+    /// purchase passes.
     #[test]
     fn an_honest_month_passes() {
         let text = honest_month();
@@ -2272,7 +2225,6 @@ mod tests {
         let folded = collection::fold(&text);
         assert!(folded.warnings.is_empty(), "{:?}", folded.warnings);
         assert!(folded.state.copies(12).earned >= 2, "kept copies");
-        assert_eq!(folded.state.copies(30).imported, 1);
         assert_eq!(folded.state.copies(45).earned, 1);
     }
 
@@ -2740,22 +2692,16 @@ mod tests {
         market(dir.path());
     }
 
-    /// Acceptance 3.2 (c): LIST of a card held only as a starter (a REGULAR and the picked RARE) or as an imported copy
-    /// is refused; an earned copy lists.
+    /// Acceptance 3.2 (c): LIST of a card held only as a starter (a REGULAR and the picked RARE) is refused; an earned
+    /// copy lists (an import line never passes while the import is off).
     #[test]
     fn a_starter_or_imported_copy_is_never_listed() {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
         let mut l = started();
-        l.add(
-            t(START) + time::Duration::days(1),
-            Kind::Import,
-            Some(30),
-            0,
-        )
-        .add(t("2026-11-03T12:00:00+09:00"), Kind::Match, Some(20), 50);
+        l.add(t("2026-11-03T12:00:00+09:00"), Kind::Match, Some(20), 50);
         ask(&m, 1, Verb::Join, NOW, &[], &l.text).unwrap();
-        for (at, c) in [(NOW + 1, 1u32), (NOW + 2, 51), (NOW + 3, 30)] {
+        for (at, c) in [(NOW + 1, 1u32), (NOW + 2, 51)] {
             let price = collection::ceiling_value(table().value(c).unwrap());
             let why = ask(&m, 1, Verb::List, at, &[c.into(), price.into()], &l.text).unwrap_err();
             assert_eq!(
