@@ -1681,7 +1681,7 @@ mod tests {
 
     /// F3, F2, F4: START OVER queues RESET for a key that ever signed, even one this PC thinks is out (its JOIN's
     /// answer lost); the kept RESET is signed afresh when it goes; a `NOT_IN` refusal of it clears it silently; a sale
-    /// waiting since LEAVE goes with the old log. A key that never signed queues nothing.
+    /// waiting since LEAVE goes with the old log. A key made by this open (so never signed) queues nothing.
     #[test]
     fn start_over_resets_a_key_that_ever_signed() {
         let dir = tempfile::tempdir().unwrap();
@@ -1746,7 +1746,37 @@ mod tests {
                 Some("RESET"),
                 "{lost:?}"
             );
+            // the unreadable state is kept aside once, its bytes untouched
+            let bad: Vec<_> = std::fs::read_dir(&data)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.to_string_lossy().contains("market.json.bad-"))
+                .collect();
+            assert_eq!(bad.len(), usize::from(lost.is_some()), "{bad:?}");
+            if let Some(t) = lost {
+                assert_eq!(std::fs::read(&bad[0]).unwrap(), t.as_bytes());
+            }
         }
+    }
+
+    /// B1 review m4: a key made by an earlier open that never signed queues a RESET (its state cannot tell it from
+    /// a key whose state was lost); the server's `NOT_IN` clears it with no note.
+    #[test]
+    fn start_over_resets_a_key_from_an_earlier_open_that_never_signed() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        drop(scripted_client(dir.path()));
+        assert!(data.join(KEY_FILE).is_file());
+        let c = scripted_client(dir.path());
+        let (before, _) = c.queue_reset().unwrap();
+        assert_eq!(before.last_at, 0);
+        let o = Client::saved(&data).outbox.expect("RESET queued");
+        assert_eq!(o.verb, "RESET");
+        script([Ok(Err(NOT_IN.into()))]);
+        c.flush().unwrap();
+        assert_eq!(c.resent_refused(), None);
+        assert!(Client::saved(&data).outbox.is_none());
+        assert_eq!(sent(), ["RESET"]);
     }
 
     /// m1: a request from the outbox refused when sent again is reported once, and the new request still goes.
