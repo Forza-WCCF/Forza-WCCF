@@ -1164,27 +1164,22 @@ pub fn first_start(
 /// Whether `log` or a log archived by a reset (`profiles\archive\*\collection` beside `mark`, see
 /// [`crate::profile::reset`]) holds a welcome line.
 fn welcomed(log: &Log, mark: &std::path::Path) -> io::Result<bool> {
-    let mut logs = vec![log.clone()];
-    let archive = mark.with_file_name("profiles").join("archive");
-    match std::fs::read_dir(&archive) {
-        Ok(dirs) => {
-            for d in dirs {
-                logs.push(Log::new(d?.path().join("collection")));
-            }
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    for l in logs {
-        if l.lines()?
-            .lines()
+    let has = |text: String| {
+        text.lines()
             .filter_map(|t| serde_json::from_str::<Entry>(t).ok())
             .any(|e| e.kind == Kind::Welcome)
-        {
-            return Ok(true);
-        }
+    };
+    if has(log.lines()?) {
+        return Ok(true);
     }
-    Ok(false)
+    // the archive may only lose the welcome check, never the start: a stray or unreadable entry counts as no welcome
+    let archive = mark.with_file_name("profiles").join("archive");
+    Ok(std::fs::read_dir(archive)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|d| d.file_type().is_ok_and(|t| t.is_dir()))
+        .any(|d| Log::new(d.path().join("collection")).lines().is_ok_and(has)))
 }
 
 /// Why a copy cannot convert; the caller words it.
@@ -2612,6 +2607,36 @@ mod tests {
         let out = first_start(&Log::new(&col), &mark, at, &cards, "starter 2013").unwrap();
         assert_eq!(out.len(), 12);
         assert!(out.iter().all(|e| e.kind == Kind::Starter));
+        assert!(mark.is_file());
+    }
+
+    /// m6: a stray file in `profiles\archive` (an Explorer `desktop.ini`) and an archived log that cannot be read
+    /// (here a folder in its place) with the mark lost still take the team: the archive scan may only lose the welcome
+    /// check, never the start.
+    #[test]
+    fn a_stray_file_in_the_archive_never_blocks_the_first_start() {
+        let data = tempfile::tempdir().unwrap();
+        let mark = data.path().join(WELCOME_MARK);
+        let archive = data.path().join("profiles").join("archive");
+        std::fs::create_dir_all(&archive).unwrap();
+        std::fs::write(archive.join("desktop.ini"), "[.ShellClassInfo]\n").unwrap();
+        std::fs::create_dir_all(
+            archive
+                .join("create-a-team-1")
+                .join("collection")
+                .join("grants.jsonl"),
+        )
+        .unwrap();
+        let col = data
+            .path()
+            .join("profiles")
+            .join("create-a-team")
+            .join("collection");
+        std::fs::create_dir_all(&col).unwrap();
+        let at = when("2026-11-11T12:00:00+01:00");
+        let cards: Vec<u32> = (101..=112).collect();
+        let out = first_start(&Log::new(&col), &mark, at, &cards, "starter All seasons").unwrap();
+        assert_eq!(out.len(), 13);
         assert!(mark.is_file());
     }
 }
