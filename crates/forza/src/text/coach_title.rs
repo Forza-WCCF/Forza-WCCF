@@ -140,7 +140,10 @@ impl Ctx {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Edition, spec, tests::note_words};
+    use super::super::{
+        Edition, spec,
+        tests::{note_words, says},
+    };
     use super::*;
     use std::fs;
     use std::path::Path;
@@ -259,7 +262,10 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
             println!("{note}");
-            assert!(!note.contains("do not fit"), "{note}");
+            assert!(
+                !notes.iter().any(|l| says(l, "text.note_title_misfit")),
+                "{note}"
+            );
             fs::write(f.with_extension(lang.code()), &files[0].1).unwrap();
         }
     }

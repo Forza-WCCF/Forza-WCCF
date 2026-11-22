@@ -291,8 +291,11 @@ fn empty_scene_text_keeps_the_original() {
         retext(&mut d, &json!({"id": "t", "labels": [lab]}), &mut notes).unwrap();
         assert_eq!(&d, original, "the original bytes stay");
         assert_eq!(notes.len(), 1, "{notes:?}");
-        let said = super::super::tests::note_words("en", &notes[0]);
-        assert!(said.contains("original text"), "{said}");
+        assert!(
+            super::super::tests::says(&notes[0], "text.note_picture_no_words"),
+            "{:?}",
+            notes[0]
+        );
     }
 }
 
