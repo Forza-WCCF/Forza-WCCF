@@ -94,14 +94,14 @@ No name is sent or stored: listings never show the seller. `key` is the installa
 (`data\market.key`, hex), `at` Unix milliseconds (later than the key's last request, within a day of the server's
 clock; an older one answers `NO an old request (sent twice?), the last at <ms>` and `forza::market::ask` signs it
 again past that time), `sig` the signature of the whole body (hex), `size` at most 8 MiB (the Launcher refuses a
-bigger log before sending). The words count in the per-address `RESERVE`/`CREATE` limit (`NO slow`), and 8 bodies
-are read at once at most, 2 from one address. The replay test comes before the check. The check (`market::check`)
+bigger log before sending). The words count in the per-address `RESERVE`/`CREATE` limit (`NO slow`), and the bodies
+read at once hold 8 × 8 MiB of body bytes in all at most, counted as they arrive, 2 bodies from one address. The replay test comes before the check. The check (`market::check`)
 refuses, naming the line: a broken chain, `match` lines under 3 minutes apart or past 120 in a week, a match not
 paying what its week's counter says (50 each until the week's cap of 1,050, nothing from the 22nd; the week turns
 Monday 05:00 in the line's own offset), a second `welcome` (also after a
 RESET: the key keeps the mark), a pack or craft not paid at the table's price, a craft above black, a convert of a
-starter, imported or last unlisted earned copy, a listing of a starter or imported copy, an `import` after a `list`,
-`market_buy` or `stock_buy` or outside the 7 days after the first `starter`, market lines outside the price band, a
+starter, imported or last unlisted earned copy, a listing of a starter or imported copy, any `import` line (the
+2010-11 import is off until it comes back with its own limits), market lines outside the price band, a
 `stock_buy` without a stock sale of that card and price in `market.db`, a balance below zero, a card not in the table.
 A torn last line is left out. A JOIN whose log drops lines the server accepted is a fork (`NO a fork: ...`, counted in
 `keys.forks`); nothing is banned.

@@ -762,7 +762,9 @@ fn spendable(tx: &Connection, kh: &str, checked: &Checked<'_>) -> Result<i64, St
 }
 
 /// Body bytes held at once across the desk, as many as this many full bodies ([`MAX_BODY`] each), counted as they
-/// arrive: a body that sends nothing holds nothing, so stalled uploads cannot keep the market busy for everyone.
+/// arrive: a body that sends nothing holds nothing, so stalled uploads cannot keep the market busy for everyone. The
+/// count is body length only: each upload's 64 KiB read buffer, a body's spare `Vec` capacity and the copies one
+/// `handle` makes sit outside it, so the desk's memory peak is a few times this budget, still bounded.
 const MAX_UPLOADS: usize = 8;
 /// Bodies read at once from one address.
 const MAX_UPLOADS_PER_ADDRESS: usize = 2;
@@ -3674,7 +3676,7 @@ mod tests {
         assert!(m.handle(&req(Verb::Reset, NOW, ""), NOW).unwrap_err() == NOT_IN);
     }
 
-    /// N4: one address holds 2 of the 8 body slots at most.
+    /// N4: 2 uploads from one address at most; 8 full bodies across the desk.
     #[test]
     fn one_address_holds_two_upload_slots_at_most() {
         let slots = Mutex::default();
