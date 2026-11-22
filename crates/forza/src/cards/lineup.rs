@@ -14,13 +14,12 @@
 //! A bare list of numbers (first 11 start, the next 5 sit on the bench) is read too. Numbers are the game's own card
 //! numbers (the catalogue's `card_no`); `ver/card` refs have none and are skipped.
 
-use super::{BENCH_X, BENCH_Y, MAX_CARDS, Placed, add, round3};
+use super::{BENCH_X, BENCH_Y, MAX_CARDS, PITCH, Placed, add, round3};
 use crate::Edition;
 use crate::board::Card;
 use regex::Regex;
 use std::sync::LazyLock;
 
-const PITCH: usize = 11;
 const BENCH: usize = MAX_CARDS - PITCH;
 
 /// One card of the lineup: its game card number, where the text puts it, and the text to name it by when it is skipped.
@@ -588,7 +587,7 @@ mod tests {
             Edition::E1011,
         )
         .unwrap();
-        assert_eq!((l.pitch.len(), l.bench.len()), (11, 5));
+        assert_eq!((l.pitch.len(), l.bench.len()), (PITCH, BENCH));
         assert_eq!(l.pitch.iter().filter(|e| e.at.is_some()).count(), 0);
         assert_eq!(why(&l), [("17", Skip::NoRoom), ("18", Skip::NoRoom)]);
         let mut c = cat(&(1..=18).collect::<Vec<_>>());
@@ -610,7 +609,7 @@ mod tests {
         let i = table(&l, &c).unwrap();
         assert_eq!(i.placed.len(), 16);
         assert_eq!((i.placed[0].x, i.placed[0].y), (0.0, 0.9)); // the GK on the 4-4-2 GK spot
-        assert!(i.placed[11..].iter().all(Placed::on_bench));
+        assert!(i.placed[PITCH..].iter().all(Placed::on_bench));
         assert_eq!(
             i.placed.iter().map(|p| p.slot).collect::<Vec<_>>(),
             (1..=16).collect::<Vec<_>>()
@@ -620,7 +619,7 @@ mod tests {
     #[test]
     fn a_skipped_ref_in_a_bare_list_leaves_its_pitch_place_to_the_next() {
         let l = parse("1 13/A01 2 3 4 5 6 7 8 9 10 11 12", Edition::E1718).unwrap();
-        assert_eq!((l.pitch.len(), l.bench.len()), (11, 1));
+        assert_eq!((l.pitch.len(), l.bench.len()), (PITCH, 1));
         assert_eq!(l.bench[0].no, 12);
     }
 
@@ -641,7 +640,7 @@ mod tests {
         }
         let l = parse(&t, Edition::E1718).unwrap();
         // as the site: the 12th starter takes the first free bench box, the subs after it
-        assert_eq!(l.pitch.len(), 11);
+        assert_eq!(l.pitch.len(), PITCH);
         assert_eq!(
             l.bench.iter().map(|e| e.no).collect::<Vec<_>>(),
             [12, 21, 22, 23, 24]
@@ -770,7 +769,7 @@ mod tests {
             y: BENCH_Y[1],
         });
         let t = export(&placed, Edition::E1011, "");
-        assert_eq!(t.matches("\nP ").count(), 11);
+        assert_eq!(t.matches("\nP ").count(), PITCH);
         assert!(t.starts_with("# WCCF DB lineup\ngame 1011\nP 1 50 50\n"));
         assert!(t.ends_with("S 91\nS 90\n"));
         // a saved formation's file names each substitute's box; the site reads the line before its comment
@@ -815,7 +814,10 @@ mod tests {
         const REAL: &str = "# WCCF DB lineup\ngame 1718\nname Sample XI\nP 10000 50 94   # SZCZESNY · 11-12 001\nP 10006 20 72   # A.SANTOS · 11-12 002\nP 10001 40 74   # GIBBS · 11-12 003\nP 10002 60 74   # KOSCIELNY · 11-12 004\nP 10003 80 72   # MERTESACKER · 11-12 005\nP 10004 18 48   # SAGNA · 11-12 006\nP 10007 38 52   # VERMAELEN · 11-12 007\nP 10009 62 52   # ARTETA · 11-12 008\nP 10010 82 48   # RAMSEY · 11-12 009\nP 10012 38 26 K # SONG · 11-12 010\nP 10013 62 26   # WILSHERE · 11-12 011\nS 10014         # GERVINHO · 11-12 012\nS 10017         # RYO · 11-12 013\nS 10019         # CHAMBERLAIN · 11-12 014\nS 10020         # V.PERSIE · 11-12 015\nS 10022         # WALCOTT · 11-12 016\n";
         let l = parse(REAL, Edition::E1718).unwrap();
         assert!(l.skipped.is_empty());
-        assert_eq!((l.pitch.len(), l.bench.len(), l.kp), (11, 5, Some(10012)));
+        assert_eq!(
+            (l.pitch.len(), l.bench.len(), l.kp),
+            (PITCH, BENCH, Some(10012))
+        );
         assert_eq!(l.pitch[0].label, "SZCZESNY · 11-12 001");
         let c = cat(&l
             .pitch
