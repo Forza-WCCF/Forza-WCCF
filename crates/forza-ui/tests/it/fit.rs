@@ -5,7 +5,6 @@
 use egui::accesskit::Role;
 use egui::{Ui, Vec2};
 use egui_kittest::kittest::NodeT as _;
-use egui_kittest::kittest::Queryable as _;
 use forza_ui::theme::Edition;
 use forza_ui::{Lang, installer, launcher, lobby, panel, widgets};
 
@@ -146,16 +145,16 @@ fn overlaps(name: &str, size: Vec2, ed: Edition, show: impl FnMut(&mut Ui)) -> V
     overlaps_of(name, size, &h.ctx, nodes, |r| on_page(&h.ctx, r)).1
 }
 
-/// The clickables among `nodes` and their children that a click reaches at `keep` and that sit on each other, and how
-/// many of them it looked at (a dialog whose buttons are found nowhere would pass a pair check for nothing).
+/// The clickables among `nodes` and their children that a click reaches at `keep` and that sit on each other, and the
+/// ids of those it looked at (a dialog whose buttons are found nowhere would pass a pair check for nothing).
 fn overlaps_of<'a>(
     name: &str,
     size: Vec2,
     ctx: &egui::Context,
     nodes: impl Iterator<Item = egui_kittest::Node<'a>>,
     keep: impl Fn(egui::Rect) -> bool,
-) -> (usize, Vec<String>) {
-    let mut clicks: Vec<(String, egui::Rect)> = nodes
+) -> (Vec<u64>, Vec<String>) {
+    let mut clicks: Vec<(u64, String, egui::Rect)> = nodes
         .filter_map(|n| {
             let a = n.accesskit_node();
             let label = a.label();
@@ -168,28 +167,29 @@ fn overlaps_of<'a>(
                 egui::pos2(b.x0 as f32, b.y0 as f32),
                 egui::pos2(b.x1 as f32, b.y1 as f32),
             );
+            let bits = a.locate().0.0;
             // the rect a click reaches: the widget's own cut by its clip rect (a scroll area's viewport, say), empty
             // once it is scrolled out of sight. egui keeps the two together, under the id it stores as this node's
             // accesskit id.
             // SAFETY: the value is the high-entropy one egui stored for this very widget (`Id::accesskit_id`, the way
             // back `from_high_entropy_bits` names); the lookup only reads the rects of the frame just run.
-            let id = unsafe { egui::Id::from_high_entropy_bits(a.locate().0.0) };
+            let id = unsafe { egui::Id::from_high_entropy_bits(bits) };
             let r = ctx.read_response(id).map_or(r, |resp| resp.interact_rect);
             // of no size, scrolled out of the window or clipped away, or in a dialog over the page
             let shown = r.width() > 1.0 && r.height() > 1.0 && keep(r);
-            shown.then_some((format!("{:?} {label:?}", a.role()), r))
+            shown.then_some((bits, format!("{:?} {label:?}", a.role()), r))
         })
         .collect();
-    clicks.sort_by(|a, b| a.1.min.y.total_cmp(&b.1.min.y));
+    clicks.sort_by(|a, b| a.2.min.y.total_cmp(&b.2.min.y));
     let mut over = vec![];
-    for (i, (a, ra)) in clicks.iter().enumerate() {
-        for (b, rb) in &clicks[i + 1..] {
+    for (i, (_, a, ra)) in clicks.iter().enumerate() {
+        for (_, b, rb) in &clicks[i + 1..] {
             if shared(*ra, *rb).is_some() {
                 over.push(format!("{name} {size:?}: {a} {ra:?} on {b} {rb:?}"));
             }
         }
     }
-    (clicks.len(), over)
+    (clicks.into_iter().map(|c| c.0).collect(), over)
 }
 
 /// The room two clickables share, when it is room a player can aim a click at: `None` for a widget inside another (a
@@ -233,14 +233,27 @@ fn no_two_clickables_overlap() {
 
 /// UI audit invariant 2 (#306): every clickable lies whole inside the window and inside what clips it (its tab, the
 /// scroll viewport it sits in), or the scroll area it sits in brings it there, so none is cut at an edge for good. A
-/// widget wholly out of sight is in the check too: egui gives it an empty interact rect.
+/// widget wholly out of sight is in the check too: egui gives it an empty interact rect. With each such widget brought
+/// into view, the clickables then on screen are in [`no_two_clickables_overlap`]'s pair check too: the rows below the
+/// first screen of a scrolling page (2017-18 SETTINGS, #361) and the lobby's scrolled folds (#419), which that check,
+/// reading the first screen only, never reached.
 #[test]
 fn every_clickable_inside_the_window() {
     let mut out = vec![];
     let mut thin = vec![];
+    let mut over = vec![];
+    // clickables seen on a screen's first frame, and those only a scroll brought into the pair check
+    let (mut first_n, mut below_n) = (0, 0);
     screens(|name, size, ed, show| {
         let mut h = harness(size, 1.0, ed, show);
         h.run_steps(8);
+        let pairs_now = |h: &egui_kittest::Harness<'_>| {
+            overlaps_of(name, size, &h.ctx, h.root().children_recursive(), |r| {
+                on_page(&h.ctx, r)
+            })
+        };
+        let mut paired: std::collections::HashSet<u64> = pairs_now(&h).0.into_iter().collect();
+        first_n += paired.len();
         let win = h.ctx.content_rect().expand(0.5);
         // the widget's whole rect, and the part its clip leaves a click (egui: `clip_rect ∩ rect`)
         let rects = |h: &egui_kittest::Harness<'_>, id: u64| {
@@ -328,8 +341,20 @@ fn every_clickable_inside_the_window() {
                     rects(&h, id).map(|g| (g.0, g.1))
                 ));
             }
+            let (ids, pairs) = pairs_now(&h);
+            over.extend(pairs);
+            for i in ids {
+                below_n += usize::from(paired.insert(i));
+            }
         }
     });
+    eprintln!("pair check: {first_n} clickables on first screens, {below_n} more after a scroll");
+    assert!(below_n > 0, "no scrolled clickable reached the pair check");
+    assert!(
+        over.is_empty(),
+        "clickable widgets on each other once scrolled into view:\n{}",
+        over.join("\n")
+    );
     assert!(
         thin.is_empty(),
         "screens with no clickable examined:\n{}",
@@ -385,13 +410,14 @@ fn dialog_overlaps(name: &str, st: &mut panel::PanelState) -> (usize, Vec<String
         })
         .expect("the dialog's frame with a button in it");
     let window = h.ctx.content_rect();
-    overlaps_of(
+    let (seen, over) = overlaps_of(
         name,
         panel::SIZE,
         &h.ctx,
         dialog.children_recursive(),
         |r| window.contains_rect(r),
-    )
+    );
+    (seen.len(), over)
 }
 
 /// #353: a dialog's buttons are apart too, in every language — the close warning's KEEP PLAYING and QUIT, and RESET
@@ -428,44 +454,6 @@ fn no_two_dialog_buttons_overlap() {
             over.join("\n")
         );
     }
-}
-
-/// #353, from #349's review (F3): SETTINGS is taller than its sheet at 1440x900 in 2017-18 and scrolls, and the check
-/// reads each widget's clipped rect, so the rows below the viewport were out of its reach. Scrolled to the page's last
-/// setting (the way #349's tests scroll to one and wait four frames), the foot of SETTINGS is in the check too.
-#[test]
-fn no_two_clickables_overlap_at_the_foot_of_settings() {
-    let mut over = vec![];
-    for lang in Lang::ALL {
-        let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Settings);
-        let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
-            panel::show(ui, &mut st)
-        });
-        h.run_steps(8);
-        let fps = forza_ui::text(lang, "settings.fps", &[]);
-        h.get_by_label(&fps).scroll_to_me();
-        h.run_steps(8); // the scroll lands on the 4th frame (#349's wait) and its 0.1 s animation finishes by the 8th
-        assert!(
-            h.ctx
-                .content_rect()
-                .contains_rect(h.get_by_label(&fps).rect()),
-            "SETTINGS did not scroll to its last row"
-        );
-        let nodes = h.root().children_recursive();
-        let (_, pairs) = overlaps_of(
-            &format!("settings foot {}", lang.code()),
-            panel::SIZE,
-            &h.ctx,
-            nodes,
-            |r| on_page(&h.ctx, r),
-        );
-        over.extend(pairs);
-    }
-    assert!(
-        over.is_empty(),
-        "clickable widgets on each other:\n{}",
-        over.join("\n")
-    );
 }
 
 /// The audit's pair rule still catches a button on another (#285's foot buttons), and only that: two widgets side by
