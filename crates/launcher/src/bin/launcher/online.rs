@@ -732,23 +732,35 @@ mod tests {
     }
 
     /// DIRECT ADDRESS with a server listed under another spelling (#419): nothing added, and the status line names
-    /// the listed entry.
+    /// the listed entry, in the language in force.
     #[test]
     fn a_direct_address_listed_already_says_under_which() {
+        let _globals = crate::text::TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = std::env::temp_dir().join(format!("forza_direct_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let settings = dir.join("settings.json");
+        let mut st = LauncherState::sample(
+            launcher::Edition::E1718,
+            crate::text::lang(),
+            forza_ui::launcher::Scenario::Ready,
+        );
         let mut o = Online::default();
         o.servers.push("lobby.wccf.it:20032".into());
-        let said = o.direct_address(" LOBBY.wccf.it:20032 ", &settings).unwrap_err();
+        super::super::shared().status = None;
+        o.act(
+            LobbyAction::DirectAddress(" LOBBY.wccf.it:20032 ".into()),
+            &mut st,
+            &settings,
+        );
         assert_eq!(o.servers, ["lobby.wccf.it:20032"]);
-        // in whichever language another test set meanwhile: the language is global
-        let listed = |l: &forza_ui::Lang| {
-            forza_ui::text(*l, "launcher.msg_address_listed", &[("server", "lobby.wccf.it:20032")]) == said
-        };
-        assert!(forza_ui::Lang::ALL.iter().any(listed), "{said}");
-        assert!(said.contains("lobby.wccf.it:20032"));
-        o.direct_address("10.0.0.5", &settings).unwrap();
+        let said = super::super::shared().status.clone().map(|(_, s)| s);
+        assert_eq!(
+            said,
+            Some(tf("launcher.msg_address_listed", &[("server", "lobby.wccf.it:20032")]))
+        );
+        o.act(LobbyAction::DirectAddress("10.0.0.5".into()), &mut st, &settings);
         assert_eq!(o.servers, ["10.0.0.5", "lobby.wccf.it:20032"]);
         let _ = std::fs::remove_dir_all(&dir);
     }

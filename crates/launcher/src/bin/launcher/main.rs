@@ -2091,6 +2091,7 @@ mod tests {
 
     #[test]
     fn messages_filled_in_each_language() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
         for lang in Lang::ALL {
             text::set(lang);
             let s = tf("launcher.msg_write_failed", &[("path", "P"), ("error", "E")]);
