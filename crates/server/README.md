@@ -102,7 +102,9 @@ Monday 05:00 in the line's own offset), a second `welcome` (also after a
 RESET: the key keeps the mark), a pack or craft not paid at the table's price, a craft above black, a convert of a
 starter, imported or last unlisted earned copy, a listing of a starter or imported copy, any `import` line (the
 2010-11 import is off until it comes back with its own limits), market lines outside the price band, a
-`stock_buy` without a stock sale of that card and price in `market.db`, a balance below zero, a card not in the table.
+`stock_buy`, `market_buy` or `market_sell` line without its own stock sale, listing purchase or paid sale of that
+card and price in `market.db` (paid sales and purchases outlive LEAVE, retired, so a rejoining log still matches), a
+balance below zero, a card not in the table.
 A torn last line is left out. A JOIN whose log drops lines the server accepted is a fork (`NO a fork: ...`, counted in
 `keys.forks`); nothing is banned.
 

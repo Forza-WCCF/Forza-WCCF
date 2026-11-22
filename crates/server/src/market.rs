@@ -324,18 +324,38 @@ pub struct Checked<'a> {
     pub sold: Vec<(u32, i64)>,
 }
 
+/// A key's ledger rows that its log's lines take, one row per line: card and price each.
+#[derive(Debug, Default, Clone)]
+pub struct Rows {
+    /// Stock slots it bought (`stock`, `stock_gone`): one per `stock_buy` line.
+    pub stock: Vec<(u32, i64)>,
+    /// Listings it bought (`bought`, `bought_gone`): one per `market_buy` line.
+    pub bought: Vec<(u32, i64)>,
+    /// Its sales COLLECT paid (`paid`, `paid_gone`): one per `market_sell` line.
+    pub paid: Vec<(u32, i64)>,
+}
+
+/// Takes one `row` out of `rows`; false when none is left.
+fn take(rows: &mut Vec<(u32, i64)>, row: (u32, i64)) -> bool {
+    let Some(i) = rows.iter().position(|&r| r == row) else {
+        return false;
+    };
+    rows.swap_remove(i);
+    true
+}
+
 /// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 3
 /// minutes apart and [`MATCHES_PER_WEEK`] a week at most, each paying what [`collection::match_tokens`] says at the
 /// week's counter ([`collection::week`], the line's own offset, as the Launcher counts it), one `welcome` of
 /// [`collection::WELCOME`], pack lines at a pack's price, crafts of white and
 /// black cards only at the table's price, conversions at [`collection::CONVERT_SHARE`] and only while another unlisted
 /// earned copy remains, no `convert` or `list` of a starter or imported copy, no `import` line while the 2010-11
-/// import is off, market lines inside the price band, each `stock_buy` matching one of `stock` (this key's stock sales: card and price), and a balance never below
-/// zero. An unparsable last line is left out (the Launcher stopped mid-append; its next append cuts it). Returns the
+/// import is off, market lines inside the price band, each `stock_buy`, `market_buy` and `market_sell` line taking one
+/// row of `rows` (this key's ledger), and a balance never below zero. An unparsable last line is left out (the Launcher stopped mid-append; its next append cuts it). Returns the
 /// log's lines, or the first line that fails and why.
-pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Checked<'a>, String> {
+pub fn check<'a>(log: &'a str, table: &Table, rows: &Rows) -> Result<Checked<'a>, String> {
     let mut out = Checked::default();
-    let mut stock = stock.to_vec();
+    let mut rows = rows.clone();
     let mut held: HashMap<u32, Copies> = HashMap::new();
     let mut balance: i64 = 0;
     let mut last_match: Option<time::OffsetDateTime> = None;
@@ -577,6 +597,11 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                         "a purchase of card {c} for {price} tokens, outside its price band"
                     )));
                 }
+                if !take(&mut rows.bought, (c, price)) {
+                    return Err(no(format!(
+                        "a purchase of card {c} for {price} tokens the market never sold to this installation"
+                    )));
+                }
                 held.entry(c).or_default().earned += 1;
                 out.bought.push((c, price));
             }
@@ -592,6 +617,12 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
                 if h.listed == 0 || h.earned == 0 {
                     return Err(no(format!("a sale of card {c}, which is not listed")));
                 }
+                if !take(&mut rows.paid, (c, e.tokens)) {
+                    return Err(no(format!(
+                        "a sale of card {c} for {} tokens the market never paid this installation",
+                        e.tokens
+                    )));
+                }
                 h.listed -= 1;
                 h.earned -= 1;
                 out.sold.push((c, e.tokens));
@@ -599,12 +630,11 @@ pub fn check<'a>(log: &'a str, table: &Table, stock: &[(u32, i64)]) -> Result<Ch
             Kind::StockBuy => {
                 let (c, _) = need()?;
                 let price = spent()?;
-                let Some(i) = stock.iter().position(|&s| s == (c, price)) else {
+                if !take(&mut rows.stock, (c, price)) {
                     return Err(no(format!(
                         "a stock purchase of card {c} for {price} tokens the server never sold to this installation"
                     )));
-                };
-                stock.swap_remove(i);
+                }
                 held.entry(c).or_default().earned += 1;
                 out.stock_bought.push((c, price));
             }
@@ -712,8 +742,8 @@ struct Owed {
 
 /// The key `kh`'s ledger rows its log (`checked`) has no line for, each line taking the oldest row of its card and
 /// price: listings bought (`bought`, no `market_buy` line), stock slots (`stock`, no `stock_buy` line) and sales COLLECT
-/// paid (`sold`, no `market_sell` line), in that order. A `stock_gone` row (bought before the key expired) takes its
-/// line first and is never owed.
+/// paid (`sold`, no `market_sell` line), in that order. A retired row (`stock_gone`, `bought_gone`, `paid_gone`: from
+/// before the key's LEAVE or expiry) takes its line first and is never owed.
 fn owed(
     tx: &Connection,
     kh: &str,
@@ -721,9 +751,9 @@ fn owed(
 ) -> Result<Vec<(&'static str, Owed)>, String> {
     let mut out = vec![];
     for (word, states, written) in [
-        ("bought", "'bought'", &checked.bought),
+        ("bought", "'bought_gone', 'bought'", &checked.bought),
         ("stock", "'stock_gone', 'stock'", &checked.stock_bought),
-        ("sold", "'paid'", &checked.sold),
+        ("sold", "'paid_gone', 'paid'", &checked.sold),
     ] {
         let mut lines: HashMap<(u32, i64), usize> = HashMap::new();
         for b in written {
@@ -732,7 +762,7 @@ fn owed(
         let rows: Vec<(i64, u32, i64, String)> = tx
             .prepare(&format!(
                 "SELECT id, card, price, state FROM ledger WHERE key_hash = ?1 AND state IN ({states})
-                 ORDER BY state <> 'stock_gone', id"
+                 ORDER BY state NOT IN ('stock_gone', 'bought_gone', 'paid_gone'), id"
             ))
             .and_then(|mut s| {
                 s.query_map(params![kh], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
@@ -742,7 +772,7 @@ fn owed(
         for (id, card, price, state) in rows {
             match lines.get_mut(&(card, price)) {
                 Some(n) if *n > 0 => *n -= 1,
-                _ if state != "stock_gone" => out.push((word, Owed { id, card, price })),
+                _ if !state.ends_with("_gone") => out.push((word, Owed { id, card, price })),
                 _ => {}
             }
         }
@@ -793,11 +823,12 @@ CREATE TABLE IF NOT EXISTS keys (
     answer     TEXT                        -- its answer: that request sent again answers it once more
 );
 -- listings, sales and purchases by key (steps 3.2, 3.3 fill it). state: open (listed at `at`), sold (sold, the
--- proceeds wait for the seller's COLLECT), paid (collected), bought (this key's purchase of a listing: one
--- `market_buy` line matches it), stock (this key's stock-list purchase: one `stock_buy` line matches it),
--- stock_reset (one from before a RESET: the slot stays sold, no line matches it), stock_gone (a stock row of a key
--- dropped 7 days after LEAVE: its line still matches it when that log JOINs again, and it withholds nothing). Ids are never reused: a listing's
--- id names it in CANCEL and BUY.
+-- proceeds wait for the seller's COLLECT), paid (collected: one `market_sell` line matches it), bought (this key's
+-- purchase of a listing: one `market_buy` line matches it), stock (this key's stock-list purchase: one `stock_buy`
+-- line matches it), stock_reset (one from before a RESET: the slot stays sold, no line matches it), paid_gone (a paid
+-- row at LEAVE), bought_gone and stock_gone (a bought or stock row of a key dropped 7 days after LEAVE): a retired
+-- row's line still matches it when that log JOINs again, and it withholds nothing; RESET deletes them. Ids are never
+-- reused: a listing's id names it in CANCEL and BUY.
 CREATE TABLE IF NOT EXISTS ledger (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     key_hash TEXT    NOT NULL,
@@ -1023,10 +1054,10 @@ impl Market {
             )
             .map_err(store_err)?;
         if gone > 0 {
-            // stock purchases stay, retired: the player's log keeps their `stock_buy` lines for a later JOIN
+            // purchases and paid sales stay, retired: the player's log keeps their lines for a later JOIN
             for sql in [
-                "UPDATE ledger SET state = 'stock_gone' WHERE state = 'stock' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
-                "DELETE FROM ledger WHERE state <> 'stock_gone' AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
+                "UPDATE ledger SET state = state || '_gone' WHERE state IN ('stock', 'bought', 'paid') AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
+                "DELETE FROM ledger WHERE state NOT IN ('stock_gone', 'bought_gone', 'paid_gone') AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = ledger.key_hash)",
                 "DELETE FROM stock WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = stock.key_hash)",
                 "DELETE FROM roots WHERE NOT EXISTS (SELECT 1 FROM keys k WHERE k.key_hash = roots.key_hash)",
             ] {
@@ -1078,12 +1109,36 @@ impl Market {
             // JOIN, LIST, BUY, STOCK, STOCKBUY and OWED: the log is checked against the table and the key's last log, then kept
             let mut checked = Checked::default();
             if req.verb.logged() {
-                let stock = pairs(
-                    &tx,
-                    "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
-                    &kh,
-                )?;
-                checked = check(&req.log, &self.table, &stock)?;
+                // a log that moves to this key (its old key quiet for 7 days, below) brings its ledger rows, so its
+                // market lines still match here; a refusal rolls the move back
+                if let Some(first) = req.log.lines().find(|l| !l.trim().is_empty()) {
+                    tx.execute(
+                        "UPDATE ledger SET key_hash = ?2 WHERE key_hash IN (SELECT r.key_hash FROM roots r
+                         WHERE r.root = ?1 AND r.key_hash <> ?2 AND NOT EXISTS
+                         (SELECT 1 FROM keys k WHERE k.key_hash = r.key_hash AND k.last_at > ?3))",
+                        params![
+                            collection::hash(first),
+                            kh,
+                            now.saturating_sub(KEEP_LEFT_MS) as i64
+                        ],
+                    )
+                    .map_err(store_err)?;
+                }
+                let rows = |states: &str| {
+                    pairs(
+                        &tx,
+                        &format!(
+                            "SELECT card, price FROM ledger WHERE key_hash = ?1 AND state IN ({states})"
+                        ),
+                        &kh,
+                    )
+                };
+                let rows = Rows {
+                    stock: rows("'stock', 'stock_gone'")?,
+                    bought: rows("'bought', 'bought_gone'")?,
+                    paid: rows("'paid', 'paid_gone'")?,
+                };
+                checked = check(&req.log, &self.table, &rows)?;
                 let lines = &checked.lines;
                 let old: Vec<&str> = row
                     .as_ref()
@@ -1114,8 +1169,6 @@ impl Market {
                     if held {
                         return Err(ANOTHER_KEY.into());
                     }
-                    // shortcut: a moved log leaves the old key's purchases its lines lack behind (spent once more),
-                    // at most once per 7 idle days; carry them over if that is ever seen
                     tx.execute(
                         "INSERT INTO roots (root, key_hash) VALUES (?1, ?2)
                          ON CONFLICT (root) DO UPDATE SET key_hash = ?2",
@@ -1155,7 +1208,7 @@ impl Market {
                     let r: Option<(u32, String)> = tx
                         .query_row(
                             "SELECT card, state FROM ledger WHERE id = ?1 AND key_hash = ?2
-                         AND state IN ('open', 'sold', 'paid')",
+                         AND state IN ('open', 'sold', 'paid', 'paid_gone')",
                             params![id, kh],
                             |r| Ok((r.get(0)?, r.get(1)?)),
                         )
@@ -1272,9 +1325,9 @@ impl Market {
                         }
                     }
                     if !joined {
-                        // after LEAVE a paid sale's row goes at once (PLAN.md 3.4 privacy)
+                        // after LEAVE a paid sale's row retires at once: its `market_sell` line matches it on a later JOIN
                         tx.execute(
-                            "DELETE FROM ledger WHERE key_hash = ?1 AND state = 'paid'",
+                            "UPDATE ledger SET state = 'paid_gone' WHERE key_hash = ?1 AND state = 'paid'",
                             params![kh],
                         )
                         .map_err(store_err)?;
@@ -1296,7 +1349,7 @@ impl Market {
                     )
                     .map_err(store_err)?;
                     for sql in [
-                        "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'sold', 'paid', 'bought')",
+                        "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'sold', 'paid', 'bought', 'paid_gone', 'bought_gone')",
                         "UPDATE ledger SET state = 'stock_reset' WHERE key_hash = ?1 AND state IN ('stock', 'stock_gone')",
                     ] {
                         tx.execute(sql, params![kh]).map_err(store_err)?;
@@ -1315,11 +1368,12 @@ impl Market {
                     .prepare("SELECT card FROM ledger WHERE key_hash = ?1 AND state = 'open' ORDER BY id")
                     .and_then(|mut s| s.query_map(params![kh], |r| r.get(0))?.collect())
                     .map_err(store_err)?;
-                    tx.execute(
-                        "DELETE FROM ledger WHERE key_hash = ?1 AND state IN ('open', 'paid')",
-                        params![kh],
-                    )
-                    .map_err(store_err)?;
+                    for sql in [
+                        "DELETE FROM ledger WHERE key_hash = ?1 AND state = 'open'",
+                        "UPDATE ledger SET state = 'paid_gone' WHERE key_hash = ?1 AND state = 'paid'",
+                    ] {
+                        tx.execute(sql, params![kh]).map_err(store_err)?;
+                    }
                     let waiting: i64 = tx
                         .query_row(
                             "SELECT COUNT(*) FROM ledger WHERE key_hash = ?1 AND state = 'sold'",
@@ -1863,11 +1917,14 @@ mod tests {
     }
 
     fn refused(log: &Log) -> String {
-        check(&log.text, &table(), &[]).unwrap_err()
+        check(&log.text, &table(), &Rows::default()).unwrap_err()
     }
 
     fn passes(log: &Log) -> usize {
-        check(&log.text, &table(), &[]).unwrap().lines.len()
+        check(&log.text, &table(), &Rows::default())
+            .unwrap()
+            .lines
+            .len()
     }
 
     /// Acceptance 3.1 (b): 8 matches in 10 minutes are refused, with the reason.
@@ -2089,7 +2146,7 @@ mod tests {
         let l = started();
         let text = l.text.replacen("\"why\":\"\"", "\"why\":\"x\"", 1);
         assert!(
-            check(&text, &table(), &[])
+            check(&text, &table(), &Rows::default())
                 .unwrap_err()
                 .contains("line 2: prev")
         );
@@ -2100,7 +2157,7 @@ mod tests {
             .map(|x| format!("{x}\n"))
             .collect();
         assert!(
-            check(&text, &table(), &[])
+            check(&text, &table(), &Rows::default())
                 .unwrap_err()
                 .contains("line 3: seq 4")
         );
@@ -2111,7 +2168,7 @@ mod tests {
             .add(at, Kind::MarketSell, Some(20), 39);
         assert!(refused(&l).contains("outside its price band"));
         assert!(
-            check(&format!("not json\n{}", l.text), &table(), &[])
+            check(&format!("not json\n{}", l.text), &table(), &Rows::default())
                 .unwrap_err()
                 .contains("line 1 does not parse")
         );
@@ -2123,10 +2180,10 @@ mod tests {
         let l = started();
         let half = l.text.get(..40).unwrap();
         for log in [format!("{}{half}", l.text), format!("{}{half}\n\n", l.text)] {
-            let c = check(&log, &table(), &[]).unwrap();
+            let c = check(&log, &table(), &Rows::default()).unwrap();
             assert_eq!(c.lines.len(), 13);
         }
-        let why = check(&format!("{half}\n{}", l.text), &table(), &[]).unwrap_err();
+        let why = check(&format!("{half}\n{}", l.text), &table(), &Rows::default()).unwrap_err();
         assert!(why.starts_with("line 1 does not parse"), "{why}");
     }
 
@@ -2154,12 +2211,15 @@ mod tests {
         let never = "a stock purchase of card 41 for 360 tokens the server never sold";
         assert!(refused(&l).contains(never));
         assert!(
-            check(&l.text, &table(), &[(41, 300)])
+            check(&l.text, &table(), &sold_slots(&[(41, 300)]))
                 .unwrap_err()
                 .contains(never)
         );
         assert_eq!(
-            check(&l.text, &table(), &[(41, 360)]).unwrap().lines.len(),
+            check(&l.text, &table(), &sold_slots(&[(41, 360)]))
+                .unwrap()
+                .lines
+                .len(),
             19
         );
         l.add(
@@ -2169,13 +2229,13 @@ mod tests {
             -360,
         );
         assert!(
-            check(&l.text, &table(), &[(41, 360)])
+            check(&l.text, &table(), &sold_slots(&[(41, 360)]))
                 .unwrap_err()
                 .contains(never)
         );
         let mut l = started();
         l.add(at, Kind::StockBuy, Some(56), -5_400);
-        let why = check(&l.text, &table(), &[(56, 5_400)]).unwrap_err();
+        let why = check(&l.text, &table(), &sold_slots(&[(56, 5_400)])).unwrap_err();
         assert!(why.contains("below zero"), "{why}");
     }
 
@@ -2195,8 +2255,22 @@ mod tests {
         assert!(refused(&l).contains("a welcome of 200 tokens"));
     }
 
-    /// The honest month's one stock purchase, as `market.db` holds it.
-    const STOCK: [(u32, i64); 1] = [(45, 360)];
+    /// The honest month's stock purchase, listing purchase and paid sale, as `market.db` holds them.
+    fn month_rows() -> Rows {
+        Rows {
+            stock: vec![(45, 360)],
+            bought: vec![(42, 360)],
+            paid: vec![(14, 36)],
+        }
+    }
+
+    /// `slots` as a key's stock purchases, with no other ledger row.
+    fn sold_slots(slots: &[(u32, i64)]) -> Rows {
+        Rows {
+            stock: slots.to_vec(),
+            ..Rows::default()
+        }
+    }
 
     /// An honest month: the deal and the welcome, 8 matches every day paying up to the week's cap,
     /// Standard and Season packs, a black craft, kept copies, conversions of spares only, a listing returned, a sale, a
@@ -2258,7 +2332,7 @@ mod tests {
     #[test]
     fn an_honest_month_passes() {
         let text = honest_month();
-        let checked = check(&text, &table(), &STOCK).unwrap();
+        let checked = check(&text, &table(), &month_rows()).unwrap();
         assert!(checked.lines.len() > 300, "{}", checked.lines.len());
         assert!(checked.welcome.is_some());
         let folded = collection::fold(&text);
@@ -2329,13 +2403,17 @@ mod tests {
     fn a_dropped_line_is_a_fork_until_a_reset() {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
-        Connection::open(dir.path().join("market.db"))
-            .unwrap()
-            .execute(
-                "INSERT INTO ledger (key_hash, card, price, state, at) VALUES (?1, 45, 360, 'stock', 0)",
-                params![key_hash(&[9; 32])],
-            )
-            .unwrap();
+        let c = Connection::open(dir.path().join("market.db")).unwrap();
+        let r = month_rows();
+        for (state, rows) in [("stock", r.stock), ("bought", r.bought), ("paid", r.paid)] {
+            for (card, price) in rows {
+                c.execute(
+                    "INSERT INTO ledger (key_hash, card, price, state, at) VALUES (?1, ?2, ?3, ?4, 0)",
+                    params![key_hash(&[9; 32]), card, price, state],
+                )
+                .unwrap();
+            }
+        }
         let month = honest_month();
         let first: String = month.lines().take(100).map(|l| format!("{l}\n")).collect();
         assert_eq!(
@@ -2688,9 +2766,10 @@ mod tests {
         again.key = [1; 32];
         let past = NOW + 3 + KEEP_LEFT_MS + 1000;
         assert_eq!(m.handle(&again, past).unwrap(), "collected sold 1:57:228");
+        // the paid sale retired at once: its `market_sell` line matches it on a later JOIN
         assert_eq!(
             row(dir.path(), "SELECT state FROM ledger ORDER BY id"),
-            [[s("bought")]]
+            [[s("paid_gone")], [s("bought")]]
         );
         let seller_rows = format!(
             "SELECT COUNT(*) FROM keys WHERE key_hash = '{}'",
@@ -3089,7 +3168,14 @@ mod tests {
             key_hash(&[2; 32])
         );
         assert_eq!(row(dir.path(), &stock2), [[s("1")]]);
-        // 899 tokens: 150 + 11 matches + a sale of card 57 at 199
+        // 899 tokens: 150 + 11 matches + a sale of card 57 at 199, which COLLECT paid
+        Connection::open(dir.path().join("market.db"))
+            .unwrap()
+            .execute(
+                "INSERT INTO ledger (key_hash, card, price, state, at) VALUES (?1, 57, 199, 'paid', 0)",
+                params![key_hash(&[3; 32])],
+            )
+            .unwrap();
         let mut l = started_at("2026-11-01T10:00:03+09:00");
         l.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(57), 50)
             .add(t("2026-11-03T10:01:00+09:00"), Kind::List, Some(57), 0)
@@ -3285,7 +3371,7 @@ mod tests {
             Ok(format!("{} lines", written.lines().count()))
         );
         let kh = key_hash(&[1; 32]);
-        let checked = check(&written, &m.table, &[(card, price)]).unwrap();
+        let checked = check(&written, &m.table, &sold_slots(&[(card, price)])).unwrap();
         let db = m.db.lock().unwrap();
         assert_eq!(spendable(&db, &kh, &checked).unwrap(), checked.balance);
         db.execute(
@@ -3504,7 +3590,7 @@ mod tests {
 
     /// Acceptance 3.1 (e), M3, M4: RESET drops the open listings and every sale of the old history, keeping the day's
     /// stock slots sold; LEAVE deletes the log, returns the open listings by card, keeps a sale waiting for COLLECT
-    /// and only the key's hash with its counters, for 7 days and until no sale waits.
+    /// and only the key's hash with its counters, for 7 days and until no sale waits, and its paid sales retired.
     #[test]
     fn leave_returns_listings_and_keeps_only_the_key_hash_and_its_counters() {
         let dir = tempfile::tempdir().unwrap();
@@ -3548,7 +3634,11 @@ mod tests {
         );
         assert_eq!(
             row(dir.path(), "SELECT card, state FROM ledger ORDER BY card"),
-            [[s("6"), s("sold")], [s("8"), s("stock_reset")]]
+            [
+                [s("6"), s("sold")],
+                [s("8"), s("stock_reset")],
+                [s("9"), s("paid_gone")]
+            ]
         );
         assert_eq!(
             m.handle(&req(Verb::Leave, NOW + 4, ""), NOW).unwrap_err(),
@@ -3577,7 +3667,11 @@ mod tests {
             NOT_IN
         );
         assert!(row(dir.path(), "SELECT * FROM keys").is_empty());
-        assert!(row(dir.path(), "SELECT * FROM ledger").is_empty());
+        // only the paid sales stay, retired, for the log's `market_sell` lines on a later JOIN
+        assert_eq!(
+            row(dir.path(), "SELECT card, state FROM ledger ORDER BY card"),
+            [[s("6"), s("paid_gone")], [s("9"), s("paid_gone")]]
+        );
     }
 
     /// M2: after LEAVE the log's bytes are in neither `market.db` nor its write-ahead log.
@@ -4104,5 +4198,91 @@ mod tests {
             why.contains("the server never sold to this installation"),
             "{why}"
         );
+    }
+
+    /// #375 B1: a `list` and a `market_sell` line of an earned copy with no LIST request behind them (no ledger row)
+    /// are refused, and so is a `market_buy` line no BUY made: each market line takes one row of the key.
+    #[test]
+    fn a_sale_or_purchase_the_market_never_made_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let log = earned(&[57, 20, 20]);
+        ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
+        let sold = plus(&plus(&log, Kind::List, 57, 0), Kind::MarketSell, 57, 228);
+        let why = ask(&m, 1, Verb::Join, NOW + 1, &[], &sold).unwrap_err();
+        assert!(
+            why.contains(
+                "a sale of card 57 for 228 tokens the market never paid this installation"
+            ),
+            "{why}"
+        );
+        let bought = plus(&log, Kind::MarketBuy, 57, -228);
+        let why = ask(&m, 1, Verb::Join, NOW + 2, &[], &bought).unwrap_err();
+        assert!(
+            why.contains(
+                "a purchase of card 57 for 228 tokens the market never sold to this installation"
+            ),
+            "{why}"
+        );
+    }
+
+    /// #375 B1: a seller whose sale COLLECT paid writes its lines, leaves and joins again with the same log, and the
+    /// buyer comes back after its key expired: the rows stay retired (`paid_gone`, `bought_gone`) and still match.
+    #[test]
+    fn a_rejoin_after_leave_with_real_sales_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        let seller = plus(&seller, Kind::List, 57, 0);
+        let buyer = own(2, &[20, 20]);
+        ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
+        ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
+        let buyer = plus(&buyer, Kind::MarketBuy, 57, -228);
+        assert_eq!(
+            ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap(),
+            "collected sold 1:57:228"
+        );
+        let seller = plus(&seller, Kind::MarketSell, 57, 228);
+        ask(&m, 1, Verb::Join, NOW + 5, &[], &seller).unwrap();
+        ask(&m, 1, Verb::Leave, NOW + 6, &[], "").unwrap();
+        ask(&m, 2, Verb::Join, NOW + 6, &[], &buyer).unwrap();
+        ask(&m, 2, Verb::Leave, NOW + 7, &[], "").unwrap();
+        assert_eq!(
+            ask(&m, 1, Verb::Join, NOW + 8, &[], &seller),
+            Ok(format!("{} lines", seller.lines().count()))
+        );
+        let back = NOW + 8 + KEEP_LEFT_MS;
+        assert_eq!(
+            ask(&m, 2, Verb::Join, back, &[], &buyer),
+            Ok(format!("{} lines", buyer.lines().count()))
+        );
+        assert_eq!(
+            row(dir.path(), "SELECT card, state FROM ledger ORDER BY id"),
+            [[s("57"), s("paid_gone")], [s("57"), s("bought_gone")]]
+        );
+    }
+
+    /// #375 B1: a log that moves to a new key (the old one quiet for 7 days) brings its ledger rows, so its sale's
+    /// `market_sell` line still matches under the new key.
+    #[test]
+    fn a_moved_log_brings_its_sales() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = market(dir.path());
+        let seller = earned(&[57]);
+        ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+        ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+        let buyer = own(2, &[20, 20]);
+        ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
+        ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
+        ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap();
+        let seller = plus(&plus(&seller, Kind::List, 57, 0), Kind::MarketSell, 57, 228);
+        ask(&m, 3, Verb::Join, NOW + 4 + KEEP_LEFT_MS, &[], &seller).unwrap();
+        let moved = format!(
+            "SELECT state FROM ledger WHERE key_hash = '{}'",
+            key_hash(&[3; 32])
+        );
+        assert_eq!(row(dir.path(), &moved), [[s("paid")]]);
     }
 }
