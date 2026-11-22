@@ -1837,7 +1837,8 @@ fn the_catalogue_keeps_its_place_when_the_search_line_gives_up_the_keys() {
 /// then cut with "…" on a whole character. On the pop-out board in English, Italian and Japanese at 1920x1080 and
 /// 2360x1640 with and without the cabinet buttons, and on the narrowest big faces the app draws (the docked hover
 /// face, the catalogue grid's least big tile), for the sample's clubs, a long one, one too long even shrunk, and a
-/// Japanese one. The chip and the mark sat on the club line and the card's foot cut it ("Porto Azzurro").
+/// Japanese one, each with the sample's season and one far too long for the foot row (#306). The chip and the mark sat
+/// on the club line and the card's foot cut it ("Porto Azzurro").
 #[test]
 fn card_badges_keep_off_the_club_name() {
     use forza_ui::{board, sizing};
@@ -1904,12 +1905,19 @@ fn card_badges_keep_off_the_club_name() {
                 for ci in st.board.slots.iter().flatten() {
                     let mut card = st.board.cards[*ci].clone();
                     let own = (card.club.clone(), false);
-                    for (club, cut) in clubs
+                    // #306: a season far wider than the foot row's left part
+                    let seasons = [
+                        card.season.clone(),
+                        "2017-18 EUROPEAN EXTRA STARS".to_owned(),
+                    ];
+                    for (club, cut, season) in clubs
                         .iter()
                         .map(|&(c, cut)| (c.to_owned(), cut))
                         .chain([own])
+                        .flat_map(|(c, cut)| seasons.clone().map(|s| (c.clone(), cut, s)))
                     {
                         card.club = club;
+                        card.season = season;
                         big += 1;
                         let f = board::face_parts(p, *rect, &card);
                         let case = format!("{} {at} {rect:?} {:?}: {f:?}", lang.code(), card.club);
@@ -1931,6 +1939,20 @@ fn card_badges_keep_off_the_club_name() {
                             }
                         }
                         assert!(!f.pic.intersects(f.club), "{case}: the club on the picture");
+                        // the drawn season: its room's size, short of the chip and the mark
+                        let sg = board::season_galley(
+                            p,
+                            *rect,
+                            &card,
+                            egui::Color32::WHITE,
+                            f.chip,
+                            f.mark,
+                        );
+                        assert!(
+                            (sg.size() - f.season.size()).length() < 0.01,
+                            "{case}: drawn season {:?}",
+                            sg.size()
+                        );
                         // the drawn club text: its line's size, inside the card's margins
                         let g = board::club_galley(p, *rect, &card, egui::Color32::WHITE);
                         assert!(
