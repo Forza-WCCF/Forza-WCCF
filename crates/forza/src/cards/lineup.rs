@@ -145,6 +145,8 @@ fn from_percent(v: f32) -> f32 {
 /// (entries that fail are in `skipped`). Entries are read as the site's import does, so a bare list works and a
 /// starter line with no valid x y is auto-placed.
 pub fn parse(text: &str, edition: Edition) -> Result<Lineup, LineupError> {
+    // a byte-order mark (Notepad's UTF-8) misreads the first line: a `game` line then skips the edition check
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let lines: Vec<(String, Vec<Tok>, String)> = text
         .lines()
         .map(|l| {
@@ -348,6 +350,7 @@ static SHARE_LINK: LazyLock<Regex> = LazyLock::new(|| {
 /// `http://` or no scheme, or the board's `.../#/board?s=ID`; the id is 4 to 16 letters and digits. `None`: not a
 /// link (read as lineup text).
 pub fn share_id(text: &str) -> Option<&str> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let c = SHARE_LINK.captures(text.trim())?;
     c.get(1).or_else(|| c.get(2)).map(|m| m.as_str())
 }
@@ -425,6 +428,7 @@ mod tests {
     fn share_links_are_recognised_and_nothing_else() {
         for (text, id) in [
             ("https://db.wccf.it/s/Ab3dE7x", "Ab3dE7x"),
+            ("\u{feff}https://db.wccf.it/s/Ab3dE7x", "Ab3dE7x"),
             ("  http://db.wccf.it/s/Ab3dE7x/\r\n", "Ab3dE7x"),
             ("db.wccf.it/s/abcd", "abcd"),
             ("https://db.wccf.it/s/Ab3dE7x?utm=x", "Ab3dE7x"),
@@ -526,6 +530,25 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn a_byte_order_mark_before_the_first_line_reads_as_the_same_lineup() {
+        // Notepad saves a UTF-8 file with a byte-order mark (U+FEFF) ahead of the first line
+        let plain = parse(SITE, Edition::E1718).unwrap();
+        let l = parse(&format!("\u{feff}{SITE}"), Edition::E1718).unwrap();
+        assert_eq!(l.name, plain.name);
+        assert_eq!(l.pitch, plain.pitch);
+        assert_eq!(l.bench, plain.bench);
+        assert_eq!((l.kp, &l.skipped), (plain.kp, &plain.skipped));
+        // a first line that is no comment: under the old code it was read whole, not split off
+        assert_eq!(
+            parse("\u{feff}game 0506\nP 5 50 50\n", Edition::E1718),
+            Err(LineupError::WrongEdition("0506".into()))
+        );
+        let l = parse("\u{feff}1 2 3", Edition::E1718).unwrap();
+        assert_eq!((l.pitch.len(), l.bench.len()), (3, 0));
+        assert!(l.skipped.is_empty());
     }
 
     #[test]
