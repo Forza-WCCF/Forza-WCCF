@@ -653,6 +653,8 @@ impl Online {
             LobbyAction::QuickMatch => {
                 if let Some(id) = quick_arcade(&st.lobby) {
                     self.join(st, &id, None);
+                } else {
+                    st.lobby.notice = Some(Notice::NoArcade);
                 }
             }
             LobbyAction::HostVs => self.host(false),
@@ -763,6 +765,22 @@ mod tests {
         o.act(LobbyAction::DirectAddress("10.0.0.5".into()), &mut st, &settings);
         assert_eq!(o.servers, ["10.0.0.5", "lobby.wccf.it:20032"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// QUICK MATCH on ARCADES with no open arcade answers in the lobby status, not with nothing (UX review 2026-11-22).
+    #[test]
+    fn quick_match_with_no_open_arcade_says_so() {
+        let mut st = LauncherState::sample(
+            launcher::Edition::E1718,
+            crate::text::lang(),
+            forza_ui::launcher::Scenario::Ready,
+        );
+        st.lobby.kind = Kind::Arcades;
+        st.lobby.arcades.retain(|r| r.state != RowState::Open);
+        st.lobby.notice = None;
+        let mut o = Online::default();
+        o.act(LobbyAction::QuickMatch, &mut st, Path::new("settings.json"));
+        assert_eq!(st.lobby.notice, Some(Notice::NoArcade));
     }
 
     /// No opponent in time: the CPU countdown; KEEP WAITING starts the wait again, the countdown running out or PLAY

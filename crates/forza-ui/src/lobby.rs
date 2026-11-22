@@ -94,6 +94,8 @@ pub enum Notice {
     ArcadeClosed,
     /// HOST ARCADE: the lobby no longer holds this PC's room.
     RoomLost,
+    /// QUICK MATCH on ARCADES found no arcade to join.
+    NoArcade,
 }
 
 /// A player in a room, by random club id only.
@@ -1839,6 +1841,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
         Some(Notice::RoomLost) => Some("lobby.room_lost"),
         Some(Notice::RoomFull) => Some("lobby.room_full"),
         Some(Notice::ArcadeClosed) => Some("lobby.arcade_closed"),
+        Some(Notice::NoArcade) => Some("lobby.quick_none"),
         None => None,
     };
     if let Some(k) = key {

@@ -269,6 +269,11 @@ fn game_text_for(lang: Lang, over: Option<&str>) -> &'static str {
     }
 }
 
+/// The status line after a language switch: 2017-18's game text follows it only at the next PLAY.
+fn language_note(edition: Edition, wanted: &str, now: &str) -> Option<String> {
+    (edition == Edition::E1718 && wanted != now).then(|| t("launcher.msg_text_next_play"))
+}
+
 fn game_text(kit: &Kit) -> &'static str {
     let over = std::env::var("WCCF_GAME_TEXT")
         .ok()
@@ -1392,6 +1397,9 @@ impl App {
                 let lang = self.st.lang;
                 text::set(lang);
                 let _ = choices::set_setting(&kit.settings_file(), "language", lang.code());
+                if let Some(line) = language_note(kit.edition(), game_text(&kit), kit.game_language()) {
+                    say(line, 0);
+                }
             }
         }
     }
@@ -2152,6 +2160,17 @@ mod tests {
         let steps = steps_after_update(Edition::E1718, "D:\\game", "it");
         assert!(matches!(steps.as_slice(), [Step::Setup { .. }, Step::Pictures]));
         assert_eq!(steps_after_update(Edition::E1011, "D:\\game", "").len(), 2);
+    }
+
+    #[test]
+    fn a_language_switch_says_when_the_game_text_follows() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(
+            language_note(Edition::E1718, "it", "en"),
+            Some(t("launcher.msg_text_next_play"))
+        );
+        assert_eq!(language_note(Edition::E1718, "it", "it"), None, "the game has it already");
+        assert_eq!(language_note(Edition::E1011, "it", "en"), None);
     }
 
     #[test]
