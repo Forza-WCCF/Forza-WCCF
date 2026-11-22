@@ -509,6 +509,10 @@ pub fn show(ui: &mut Ui, st: &mut LauncherState) -> Option<Action> {
                         if action(ui, &tr!(lang, "collection.back")).clicked() {
                             st.tab = Tab::Play;
                         }
+                        // the game reads the collection once at its start (#375)
+                        if st.running {
+                            status_line(ui, Tone::Notice, &tr!(lang, "collection.running_notice"));
+                        }
                         if let Some(a) = collection::show(ui, v, lang) {
                             act = Some(Action::Collection(a));
                         }

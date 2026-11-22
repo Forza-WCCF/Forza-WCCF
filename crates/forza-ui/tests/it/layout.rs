@@ -3034,6 +3034,37 @@ fn play_waits_for_the_starter_cards() {
     }
 }
 
+/// #375: while a game runs, COLLECTION says new cards reach the game at its next start, inside the window; not
+/// otherwise.
+#[test]
+fn collection_says_new_cards_wait_for_the_next_start() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        for running in [false, true] {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(CollectionView::sample(Scenario::Page));
+            st.tab = launcher::Tab::Collection;
+            st.running = running;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let line = forza_ui::text(lang, "collection.running_notice", &[]);
+            let found = h.query_by_label(&line).map(|n| n.rect());
+            assert_eq!(found.is_some(), running, "{lang:?} running={running}");
+            if let Some(r) = found {
+                assert!(
+                    r.right() <= size.x && r.bottom() <= size.y,
+                    "{lang:?}: {r:?}"
+                );
+            }
+        }
+    }
+}
+
 /// #375: the start picker and the deal offer START OVER, in view, while the market may hold an old log (a START OVER
 /// whose RESET could not be queued lands there and says to press it again); a first start out of the market does not.
 #[test]

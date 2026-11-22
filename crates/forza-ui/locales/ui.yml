@@ -9,7 +9,7 @@ common.close: {en: "Close", it: "Chiudi", ja: "閉じる"}
 launcher.play_section: {en: "PLAY", it: "PARTITA", ja: "プレイ"}
 launcher.profile_free: {en: "FREE", it: "LIBERO", ja: "フリー"}
 launcher.profile_cat: {en: "CREATE-A-TEAM", it: "CREA LA TUA SQUADRA", ja: "クリエイト・ア・チーム"}
-launcher.profile_hint: {en: "Each mode keeps its own club and card table.", it: "Ogni modalità ha il suo club e il suo tavolo delle carte.", ja: "モードごとにクラブとカードテーブルは別々です。"}
+launcher.profile_hint: {en: "FREE plays with every card; CREATE-A-TEAM plays with the cards you collect, and each mode keeps its own club.", it: "LIBERO gioca con tutte le carte; CREA LA TUA SQUADRA gioca con le carte che collezioni, e ogni modalità ha il suo club.", ja: "フリーはすべてのカードで、クリエイト・ア・チームは集めたカードでプレイします。クラブはモードごとに別々です。"}
 launcher.collection: {en: "COLLECTION ›", it: "COLLEZIONE ›", ja: "コレクション ›"}
 launcher.msg_no_starter: {en: "Choose your start in COLLECTION before you play.", it: "Scegli come iniziare in COLLEZIONE prima di giocare.", ja: "プレイする前に「コレクション」でスタートを選んでください。"}
 launcher.msg_pack_tokens: {en: "Not enough tokens for this pack.", it: "Gettoni insufficienti per questo pacchetto.", ja: "このパックを買うにはトークンが足りません。"}
@@ -420,7 +420,7 @@ cat.msg_import_none: {en: "None of these cards is in this game.", it: "Nessuna d
 cat.msg_import_match: {en: "Not possible during a match. Try again between matches.", it: "Non si può fare durante una partita. Riprova tra una partita e l'altra.", ja: "試合中はできません。試合の合間にもう一度お試しください。"}
 cat.ask_title: {en: "IMPORT LINEUP?", it: "IMPORTARE LA FORMAZIONE?", ja: "編成を読み込みますか？"}
 cat.ask_body: {en: "Replace your table with %{n} cards from this lineup?", it: "Sostituire il tavolo con %{n} carte di questa formazione?", ja: "テーブルをこの編成の %{n} 枚に置き換えますか？"}
-cat.ask_skipped: {en: "Cards not usable in this game: %{n}.", it: "Carte non usabili in questo gioco: %{n}.", ja: "このゲームで使えないカード：%{n} 枚。"}
+cat.ask_skipped: {en: "Cards skipped: %{n}.", it: "Carte saltate: %{n}.", ja: "スキップするカード：%{n} 枚。"}
 cat.ask_confirm: {en: "CONFIRM", it: "CONFERMA", ja: "確定"}
 cat.ask_cancel: {en: "CANCEL", it: "ANNULLA", ja: "キャンセル"}
 cat.skip_no_number: {en: "no number in this game", it: "senza numero in questo gioco", ja: "このゲームに番号なし"}
@@ -601,9 +601,9 @@ club.row_copies: {en: "SAVED COPIES", it: "COPIE SALVATE", ja: "保存コピー"
 club.row_saved: {en: "CARD SAVED", it: "CARTA SALVATA", ja: "カード保存"}
 
 # ---- Create-a-Team collection (Launcher COLLECTION) ----
-collection.back: {en: "‹ PLAY", it: "‹ GIOCA", ja: "‹ プレイ"}
+collection.back: {en: "‹ PLAY", it: "‹ PARTITA", ja: "‹ プレイ"}
 collection.choose_title: {en: "CHOOSE YOUR START", it: "SCEGLI COME INIZIARE", ja: "スタートを選ぶ"}
-collection.choose_hint: {en: "You get 11 player cards from your choice, then pick 1 of 3 RARE cards. You choose once.", it: "Ricevi 11 carte giocatore dalla tua scelta, poi scegli 1 di 3 carte RARE. Si sceglie una volta sola.", ja: "選んだ範囲から選手カードが 11 枚配られ、レアカード 3 枚から 1 枚を選びます。選べるのは一度だけです。"}
+collection.choose_hint: {en: "You get 11 player cards from your choice, then pick 1 of 3 RARE cards. DEAL locks your choice: you choose once.", it: "Ricevi 11 carte giocatore dalla tua scelta, poi scegli 1 di 3 carte RARE. DISTRIBUISCI blocca la scelta: si sceglie una volta sola.", ja: "選んだ範囲から選手カードが 11 枚配られ、レアカード 3 枚から 1 枚を選びます。「配る」を押すと選択は確定し、やり直せません。"}
 collection.all_seasons: {en: "All seasons", it: "Tutte le stagioni", ja: "全シーズン"}
 # a start tile's line, a season's: %{n} is the mean TOTAL its 11 land near (75)
 collection.mean: {en: "Mean TOTAL %{n}", it: "TOTALE medio %{n}", ja: "平均総合 %{n}"}
@@ -672,7 +672,7 @@ collection.odds_guarantee: {en: "Every pack holds at least 1 SPECIAL card or bet
 collection.odds_step_down: {en: "This pack has no cards of a rarity marked –. Its chance goes to the next rarity below.", it: "Questo pacchetto non ha carte della rarità segnata con –. La sua probabilità passa alla rarità inferiore.", ja: "このパックには「–」のレア度のカードがありません。その確率は 1 つ下のレア度に回ります。"}
 collection.buy: {en: "BUY · %{n} TOKENS", it: "COMPRA · %{n} GETTONI", ja: "購入・%{n} トークン"}
 collection.buy_short: {en: "This pack costs %{n} tokens. Play matches to earn more.", it: "Questo pacchetto costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このパックは %{n} トークンです。試合をしてトークンを集めましょう。"}
-collection.buy_pool: {en: "This pack has too few different players to fill its 3 cards. Choose another pack.", it: "Questo pacchetto ha troppi pochi giocatori diversi per le sue 3 carte. Scegli un altro pacchetto.", ja: "このパックは選手の種類が少なく、3 枚そろえられません。別のパックを選んでください。"}
+collection.buy_pool: {en: "This pack has too few different players to fill its 3 cards. Choose another pack.", it: "Questo pacchetto ha troppo pochi giocatori diversi per le sue 3 carte. Scegli un altro pacchetto.", ja: "このパックは選手の種類が少なく、3 枚そろえられません。別のパックを選んでください。"}
 collection.to_page: {en: "‹ COLLECTION", it: "‹ COLLEZIONE", ja: "‹ コレクション"}
 collection.open_title: {en: "YOUR PACK", it: "IL TUO PACCHETTO", ja: "パックの中身"}
 collection.new_card: {en: "NEW", it: "NUOVA", ja: "初入手"}
@@ -687,6 +687,7 @@ collection.craft_buy: {en: "CRAFT · %{n} TOKENS", it: "CREA · %{n} GETTONI", j
 collection.craft_short: {en: "This card costs %{n} tokens. Play matches to earn more.", it: "Questa carta costa %{n} gettoni. Gioca partite per guadagnarne altri.", ja: "このカードは %{n} トークンです。試合をしてトークンを集めましょう。"}
 # the market (PLAN.md 3.5): the opt-in, the own list of the day, listings; server reasons come in English (%{why})
 collection.test_notice: {en: "Card values, tokens and prices in this test build may change after the test week.", it: "Valori delle carte, gettoni e prezzi di questa versione di prova possono cambiare dopo la settimana di prova.", ja: "このテスト版のカードの価値・トークン・価格は、テスト週間のあとに変わることがあります。"}
+collection.running_notice: {en: "The game is running. New cards reach it at its next start.", it: "Il gioco è in esecuzione. Le nuove carte arrivano nel gioco al prossimo avvio.", ja: "ゲームの実行中です。新しいカードは次にゲームを起動したときに反映されます。"}
 collection.market: {en: "MARKET", it: "MERCATO", ja: "マーケット"}
 collection.market_optin_title: {en: "BEFORE YOU JOIN", it: "PRIMA DI ENTRARE", ja: "参加する前に"}
 collection.market_optin: {en: "The market runs on the project server. When you join, your collection log goes there: every card and token you got, and when, signed with this installation's code. No name is asked, kept or shown. The server checks the log at each listing and purchase. A listing never shows its seller, and a sale never names its buyer. When you leave, the server deletes your log and your open listings come back to you. It keeps your purchases and sales (card, price and time, under the installation's code, with no name), so your collection still checks out if you join again.", it: "Il mercato funziona sul server del progetto. Quando entri, il registro della tua collezione viene inviato lì: ogni carta e ogni gettone ottenuti, con data e ora, firmati con il codice di questa installazione. Nessun nome viene chiesto, conservato o mostrato. Il server controlla il registro a ogni messa in vendita e a ogni acquisto. Un'inserzione non mostra mai chi vende, e una vendita non indica mai chi compra. Quando esci, il server cancella il tuo registro e le tue inserzioni aperte tornano a te. Conserva i tuoi acquisti e le tue vendite (carta, prezzo e ora, con il codice dell'installazione, senza nome), così la tua collezione resta verificabile se rientri.", ja: "マーケットはプロジェクトのサーバーで動いています。参加すると、コレクションの記録（入手したカードとトークン、その日時）が、このインストールのコードで署名されてサーバーに送られます。名前は尋ねず、保存も表示もしません。サーバーは出品と購入のたびに記録を確認します。出品に出品者は表示されず、売れたときも購入者は分かりません。マーケットから抜けると、サーバーは記録を削除し、出品中のカードは手元に戻ります。購入と売却（カード、価格、日時。インストールのコードに紐づけて、名前なしで）はサーバーに残るため、再び参加してもコレクションは正しく確認されます。"}
@@ -722,11 +723,11 @@ collection.market_why_clock: {en: "this PC's clock is more than a day off. Set t
 collection.market_why_update: {en: "this Launcher's market rules are older than the server's. Update the Launcher first.", it: "le regole del mercato di questo Launcher sono più vecchie di quelle del server. Aggiorna prima il Launcher.", ja: "この Launcher のマーケットのルールはサーバーより古いです。先に Launcher を更新してください。"}
 collection.market_why_server_old: {en: "the server's market rules are older than this Launcher's. Try again later.", it: "le regole del mercato del server sono più vecchie di quelle di questo Launcher. Riprova più tardi.", ja: "サーバーのマーケットのルールはこの Launcher より古いです。しばらくしてから、もう一度お試しください。"}
 collection.market_why_not_set_up: {en: "the market is not set up on this server.", it: "il mercato non è attivo su questo server.", ja: "このサーバーではマーケットが準備されていません。"}
-collection.market_why_another_key: {en: "this collection is in the market under another installation.", it: "questa collezione è nel mercato con un'altra installazione.", ja: "このコレクションは別のインストールでマーケットに参加しています。"}
+collection.market_why_another_key: {en: "this collection is in the market under another installation's key. Copy data\\market.key from that installation into this one, or wait until that key has sent nothing for 7 days.", it: "questa collezione è nel mercato con la chiave di un'altra installazione. Copia qui il file data\\market.key di quell'installazione, oppure aspetta che quella chiave non invii nulla per 7 giorni.", ja: "このコレクションは別のインストールのキーでマーケットに参加しています。そのインストールの data\\market.key をこちらにコピーするか、そのキーから 7 日間リクエストがなくなるまでお待ちください。"}
 collection.market_why_welcome: {en: "this installation got its starting tokens before.", it: "questa installazione ha già ricevuto i gettoni iniziali.", ja: "このインストールはすでに最初のトークンを受け取っています。"}
 collection.market_why_no_card: {en: "card %{card} is not in this server's card table.", it: "la carta %{card} non è nella tabella delle carte di questo server.", ja: "カード %{card} はこのサーバーのカード表にありません。"}
 collection.market_why_old: {en: "a request arrived twice. Try again.", it: "una richiesta è arrivata due volte. Riprova.", ja: "リクエストが二重に届きました。もう一度お試しください。"}
-collection.market_why_fork: {en: "this collection lacks %{n} entries the market server already has. Put the newer copy back, or press START OVER.", it: "a questa collezione mancano %{n} voci che il server del mercato ha già. Rimetti la copia più recente o premi RICOMINCIA.", ja: "このコレクションには、マーケットサーバーにある記録が %{n} 件ありません。新しいほうのコピーを戻すか、「最初からやり直す」を押してください。"}
+collection.market_why_fork: {en: "this collection lacks %{n} entries the market server already has. Put the newer copy of data\\profiles\\create-a-team\\collection\\grants.jsonl back, or press START OVER.", it: "a questa collezione mancano %{n} voci che il server del mercato ha già. Rimetti la copia più recente di data\\profiles\\create-a-team\\collection\\grants.jsonl o premi RICOMINCIA.", ja: "このコレクションには、マーケットサーバーにある記録が %{n} 件ありません。data\\profiles\\create-a-team\\collection\\grants.jsonl の新しいほうのコピーを戻すか、「最初からやり直す」を押してください。"}
 collection.market_why_busy: {en: "the market server is busy. Try again in a minute.", it: "il server del mercato è occupato. Riprova tra un minuto.", ja: "マーケットサーバーが混み合っています。1 分ほどしてから、もう一度お試しください。"}
 collection.market_why_slow: {en: "the market server got too many requests from this connection. Try again in a minute.", it: "il server del mercato ha ricevuto troppe richieste da questa connessione. Riprova tra un minuto.", ja: "この接続からのリクエストが多すぎます。1 分ほどしてから、もう一度お試しください。"}
 collection.market_said_bought: {en: "The card is in your collection.", it: "La carta è nella tua collezione.", ja: "カードをコレクションに追加しました。"}
