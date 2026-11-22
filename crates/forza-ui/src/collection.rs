@@ -206,8 +206,8 @@ pub struct MarketView {
     pub busy: bool,
     /// What the last request said, when worth a line (a refusal, no answer).
     pub note: Option<String>,
-    /// This installation has a market key: START OVER also has a RESET to send, so the first start offers it too.
-    pub keyed: bool,
+    /// In the market, or a request waiting to go: the server may hold an old log, so the first start offers START OVER.
+    pub holds_log: bool,
     /// The own list of the day, slot order.
     pub stock: Vec<Offered>,
     /// Purchases left today, under a server's daily limit.
@@ -559,7 +559,7 @@ pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<Collectio
     }
     // a damaged log's way out, under its line (B1); a whole one has it at the page's foot; the first start has it while
     // the market may hold an old log (#375: a START OVER whose RESET could not be queued lands there and says so)
-    let first = !v.started() && v.market.keyed;
+    let first = !v.started() && v.market.holds_log;
     if (v.damaged || first) && widgets::action(ui, &tr!(lang, "collection.reset")).clicked() {
         act = Some(CollectionAction::ResetAsk);
     }

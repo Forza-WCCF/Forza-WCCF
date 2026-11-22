@@ -138,7 +138,7 @@ pub fn market_of(v: &mut CollectionView, catalogue: &[Card], text: &str, data: &
     let saved = forza::market::Client::saved(data);
     let m = &mut v.market;
     m.joined = saved.joined;
-    m.keyed = data.join(forza::market::KEY_FILE).is_file();
+    m.holds_log = saved.joined || saved.outbox.is_some();
     if !m.joined {
         m.stock.clear();
         m.sale.clear();
@@ -334,6 +334,13 @@ pub fn reset_kit(kit: &Kit) -> Result<PathBuf, ResetRefused> {
     }
     let seat = run::seat_of(kit).ok_or(ResetRefused::NoSeat)?;
     reset(&kit.data(), &seat).map_err(ResetRefused::Failed)
+}
+
+/// START OVER already done: no Create-a-Team profile folder, and an archive beside it (a fresh install has neither).
+/// A START OVER then has nothing to archive, only the market's RESET to send (#375).
+pub fn profile_gone(data: &Path) -> bool {
+    let profiles = data.join("profiles");
+    !profiles.join(forza::profile::Profile::CreateATeam.code()).is_dir() && profiles.join("archive").is_dir()
 }
 
 /// START OVER (`PLAN.md` 1.5): the profile's folder into its archive (`forza::profile::reset`) under this PC's time.
@@ -611,6 +618,33 @@ mod tests {
         reset(&data, &dir.path().join("seat1")).unwrap();
         let v = view(&cat, &coll, Some(old)).unwrap();
         assert!(matches!(v.step, Step::Choose { .. }), "{:?}", v.step);
+    }
+
+    /// #375: the profile counts as gone only after a START OVER: not on a fresh install, nor after a deal or a take.
+    #[test]
+    fn the_profile_is_gone_only_after_start_over() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        assert!(!profile_gone(&data), "fresh");
+        deal(&cat, &coll, Choice::League(0)).unwrap();
+        assert!(!profile_gone(&data), "after DEAL");
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("DEAL leaves the deal on the screen")
+        };
+        let step = Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: Some(0),
+        };
+        take(&coll, &data, &step).unwrap();
+        assert!(!profile_gone(&data), "after TAKE");
+        reset(&data, &dir.path().join("seat1")).unwrap();
+        assert!(profile_gone(&data), "after START OVER");
     }
 
     /// 1.5 review M1: START OVER is refused while a start holds the kit's admission (between its checks and its game,

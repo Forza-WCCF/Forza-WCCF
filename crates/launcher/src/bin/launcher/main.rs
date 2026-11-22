@@ -1524,7 +1524,12 @@ impl App {
                 self.collection(&kit);
             }
             Action::Collection(CollectionAction::ResetAsk) => self.ask(
-                &t("collection.reset_ask"),
+                // the start picker after a START OVER archives nothing more: only the market's RESET is left
+                &t(if collection::profile_gone(&kit.data()) {
+                    "collection.reset_ask_market"
+                } else {
+                    "collection.reset_ask"
+                }),
                 "collection.reset",
                 Action::Collection(CollectionAction::Reset),
             ),
@@ -1538,7 +1543,12 @@ impl App {
                     let queued = self.st.profile.and_then(|p| p.collection(&kit.data())).and_then(|dir| {
                         market::queue_reset(&kit.data(), &dir)
                             .inspect_err(|e| {
-                                unsent = Some(format!("{e:?}"));
+                                unsent = Some(match e {
+                                    forza::market::Fail::Unanswered(s)
+                                    | forza::market::Fail::Refused(s)
+                                    | forza::market::Fail::Disk(s)
+                                    | forza::market::Fail::Unresolved(s) => s.clone(),
+                                });
                                 log(&format!("market: RESET could not be queued: {e:?}"));
                             })
                             .ok()
@@ -1550,12 +1560,7 @@ impl App {
                             })
                     });
                     // the start picker after a START OVER: the profile is in its archive already, only the RESET is left
-                    let gone = !kit
-                        .data()
-                        .join("profiles")
-                        .join(forza::profile::Profile::CreateATeam.code())
-                        .is_dir();
-                    let done = if gone {
+                    let done = if collection::profile_gone(&kit.data()) {
                         Ok(None)
                     } else {
                         collection::reset_kit(&kit).map(Some)
@@ -1570,7 +1575,7 @@ impl App {
                 };
                 match done {
                     Ok(None) => match unsent {
-                        Some(e) => refuse(tf("collection.reset_failed", &[("error", &e)])),
+                        Some(e) => refuse(tf("collection.reset_market_failed", &[("error", &e)])),
                         None => {
                             log("collection: no profile to archive, only the market RESET");
                             say(t("collection.reset_market"), 0);

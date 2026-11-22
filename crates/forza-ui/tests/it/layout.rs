@@ -2612,9 +2612,9 @@ fn start_over_asks_first_and_its_question_fits() {
 }
 
 /// #375: the start picker and the deal offer START OVER, in view, while the market may hold an old log (a START OVER
-/// whose RESET could not be queued lands there and says to press it again); a first start with no market key does not.
+/// whose RESET could not be queued lands there and says to press it again); a first start out of the market does not.
 #[test]
-fn the_first_start_offers_start_over_with_a_market_key() {
+fn the_first_start_offers_start_over_while_the_market_holds_a_log() {
     use forza_ui::collection::{CollectionAction, CollectionView, Scenario};
     use std::cell::RefCell;
     let size = launcher::window_size(Some(700.0));
@@ -2630,7 +2630,7 @@ fn the_first_start_offers_start_over_with_a_market_key() {
                 );
                 start.profile = Some(forza::profile::Profile::CreateATeam);
                 let mut view = CollectionView::sample(s);
-                view.market.keyed = keyed;
+                view.market.holds_log = keyed;
                 start.collection = Some(view);
                 start.tab = launcher::Tab::Collection;
                 let st = RefCell::new(start);
