@@ -292,24 +292,27 @@ impl Inner {
             }
             Err(e) => {
                 i.saved = false;
-                log(&format!(
-                    "notice: {} not written ({e}), again on the next answer",
-                    i.file.display()
-                ));
+                log(&format!("notice: not written ({e}), again on the next answer"));
             }
         }
         changed
     }
 
     /// The notice as shown into the panel's file and as heard into [`LAN_FILE`], or both removed with none.  Both are
-    /// written even when one fails; the first error is returned.
+    /// written even when one fails; an error names the file it was on, both when both fail.
     fn save(&self) -> std::io::Result<()> {
-        let put = |file: &Path, n: Option<ServerNotice>| match n {
-            Some(n) => crate::choices::write(file, &serde_json::to_string(&n).expect("plain data serializes")),
-            None => remove(file),
+        let put = |file: &Path, n: Option<ServerNotice>| {
+            match n {
+                Some(n) => crate::choices::write(file, &serde_json::to_string(&n).expect("plain data serializes")),
+                None => remove(file),
+            }
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", file.display())))
         };
         let lan = put(&self.file.with_file_name(LAN_FILE), self.notice.notice.clone());
-        lan.and(put(&self.file, self.notice.shown()))
+        match (lan, put(&self.file, self.notice.shown())) {
+            (Err(a), Err(b)) => Err(std::io::Error::new(a.kind(), format!("{a}; {b}"))),
+            (lan, panel) => lan.and(panel),
+        }
     }
 
     /// The watcher waits `every` after a round that asked `asked`, less when [`Notices::ask`] named another server.
@@ -418,10 +421,43 @@ mod tests {
         assert!(n.heard(&a, &log));
         let kept: ServerNotice = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         assert_eq!(kept.id, "n8", "the panel's file is written");
+        let said = said.into_inner().unwrap();
+        let failed: Vec<&String> = said.iter().filter(|l| l.contains("not written")).collect();
+        assert_eq!(failed.len(), 1, "{said:?}");
+        let lan = lan.display().to_string();
         assert!(
-            said.lock().unwrap().iter().any(|l| l.contains("not written")),
-            "the failure is still reported"
+            failed[0].contains(&lan),
+            "the line names the file that failed: {}",
+            failed[0]
         );
+        assert!(
+            !failed[0].replace(&lan, "").contains("notice.json"),
+            "and only that one: {}",
+            failed[0]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// When both files fail, the line names both, each with its own error (#419).
+    #[test]
+    fn both_failed_writes_are_reported() {
+        let dir = dir("both_fail");
+        let file = dir.join("notice.json");
+        let n = Notices::new(file.clone());
+        std::fs::create_dir_all(dir.join(LAN_FILE)).unwrap();
+        std::fs::create_dir_all(&file).unwrap();
+        let said = Mutex::new(Vec::new());
+        let log = |line: &str| said.lock().unwrap().push(line.to_owned());
+        let a = answer(Some(ServerNotice {
+            id: "n9".into(),
+            en: "Server update at 23:00".into(),
+            ..ServerNotice::default()
+        }));
+        assert!(n.heard(&a, &log));
+        let said = said.into_inner().unwrap();
+        let line = said.iter().find(|l| l.contains("not written")).expect("a failure line");
+        assert!(line.contains(&dir.join(LAN_FILE).display().to_string()), "{line}");
+        assert!(line.contains(&format!("{}:", file.display())), "{line}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
