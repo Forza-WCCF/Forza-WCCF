@@ -253,6 +253,8 @@ pub struct CollectionView {
     /// The cards CRAFT offers: the catalogue's white and black cards with no copy held, in catalogue order.
     pub craftable: Vec<Card>,
     pub market: MarketView,
+    /// A test build (`forza::release::is_test_build`): every screen of the tab says its numbers may change.
+    pub test_build: bool,
 }
 
 /// What the player asked for.
@@ -343,6 +345,7 @@ impl CollectionView {
             offers: sample_offers(),
             craftable: vec![],
             market: MarketView::default(),
+            test_build: false,
         };
         match s {
             Scenario::Choose => {
@@ -539,6 +542,14 @@ fn sample_offers() -> Vec<Offer> {
 /// The tab; what the player asked for, if anything.
 pub fn show(ui: &mut Ui, v: &mut CollectionView, lang: Lang) -> Option<CollectionAction> {
     let mut act = None;
+    // above every step, the first start and the market's opt-in included
+    if v.test_build {
+        widgets::status_line(
+            ui,
+            widgets::Tone::Notice,
+            &tr!(lang, "collection.test_notice"),
+        );
+    }
     if let Some(p) = &v.problem {
         widgets::status_line(ui, widgets::Tone::Refused, p);
     } else if v.damaged {

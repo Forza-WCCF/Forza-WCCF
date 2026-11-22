@@ -120,6 +120,7 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
             .map(|(k, _)| k.clone())
             .collect(),
         market,
+        test_build: forza::release::is_test_build(env!("FORZA_VERSION")),
     }
 }
 

@@ -2215,6 +2215,60 @@ fn the_detail_shows_convert_inside_the_page() {
     }
 }
 
+/// #375 test build: the "numbers may change" line tops the first start, the collection page and the market's opt-in
+/// of a test build only, inside the smallest window in every language (Italian is the longest) and above the title.
+#[test]
+fn a_test_build_says_its_numbers_may_change() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let notice = forza_ui::text(lang, "collection.test_notice", &[]);
+        for (s, title) in [
+            (Scenario::Choose, Some("collection.choose_title")),
+            (Scenario::Page, None),
+            (Scenario::MarketOptIn, Some("collection.market_optin_title")),
+        ] {
+            for test_build in [true, false] {
+                let mut view = CollectionView::sample(s);
+                view.test_build = test_build;
+                let mut st = launcher::LauncherState::sample(
+                    Edition::E1718,
+                    lang,
+                    launcher::Scenario::Ready,
+                );
+                st.profile = Some(forza::profile::Profile::CreateATeam);
+                st.collection = Some(view);
+                st.tab = launcher::Tab::Collection;
+                let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                    launcher::show(ui, &mut st);
+                });
+                h.run_steps(4);
+                let tag = format!("{lang:?} {s:?} test_build={test_build}");
+                let Some(n) = h.query_by_label(&notice) else {
+                    assert!(!test_build, "{tag}: the notice is shown");
+                    continue;
+                };
+                assert!(test_build, "{tag}: a normal build has no notice");
+                let r = n.rect();
+                assert!(
+                    r.left() >= 16.0 && r.right() <= size.x - 16.0 && r.bottom() <= size.y,
+                    "{tag}: the notice {r:?} inside the page"
+                );
+                if let Some(key) = title {
+                    let t = h
+                        .query_by_label(&forza_ui::text(lang, key, &[]))
+                        .expect(key)
+                        .rect();
+                    assert!(
+                        r.bottom() <= t.top(),
+                        "{tag}: the notice {r:?} above the title {t:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Step 4.1 (g): the market page at the Launcher's smallest window in every language: in the market the picked offer's
 /// BUY, each TAKE BACK, MORE (#375: the server holds more listings), REFRESH and LEAVE THE MARKET inside the page and apart, every offer card inside it; outside
 /// the market the opt-in's JOIN THE MARKET inside it and no list; and a listable card's detail shows LIST at the band's floor.
