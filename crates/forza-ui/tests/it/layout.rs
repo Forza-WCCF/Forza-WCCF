@@ -2136,6 +2136,128 @@ fn collection_cards_and_marks_fit_the_page() {
     );
 }
 
+/// Step 2.3: a card with a spare earned copy shows CONVERT with its amount beside CLOSE, both inside the page and apart,
+/// and its market price above them, at the Launcher's smallest window in every language; a starter card's detail
+/// shows neither.
+#[test]
+fn the_detail_shows_convert_inside_the_page() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        for spare in [true, false] {
+            // the snapshot suite's two details: a starter card's and a spare's
+            let view = CollectionView::sample(if spare {
+                Scenario::Spare
+            } else {
+                Scenario::Detail
+            });
+            let (card, copies) = view
+                .cards
+                .iter()
+                .find(|(k, _)| Some(k.number) == view.open)
+                .cloned()
+                .expect("an open card");
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let row = &forza::cards::collection_cards(std::slice::from_ref(&card))[0];
+            let pays = (forza::collection::value(row) * forza::collection::CONVERT_SHARE / 100)
+                .to_string();
+            let label = t("collection.convert", &[("n", &pays)]);
+            let tag = format!("{lang:?} spare={spare} {label:?}");
+            let close = h
+                .query_by_label(&t("collection.close", &[]))
+                .expect("CLOSE")
+                .rect();
+            let convert = h.query_by_label(&label).map(|n| n.rect());
+            assert_eq!(convert.is_some(), spare, "{tag}: CONVERT only for a spare");
+            // the market price: only an earned copy sells, inside the page and above the buttons
+            let floor = forza::collection::floor_value(forza::collection::value(row)).to_string();
+            let sell = h
+                .query_by_label(&t("deal.sell_from", &[("n", &floor)]))
+                .map(|n| n.rect());
+            assert_eq!(
+                sell.is_some(),
+                copies.earned > copies.listed,
+                "{tag}: the market price"
+            );
+            if let Some(s) = sell {
+                assert!(
+                    s.left() >= 16.0 && s.right() <= size.x - 16.0 && s.bottom() <= close.top(),
+                    "{tag}: the market price {s:?} inside the page, above CLOSE {close:?}"
+                );
+            }
+            assert_eq!(
+                forza::collection::convert(&copies, row).is_ok(),
+                spare,
+                "{tag}"
+            );
+            if let Some(r) = convert {
+                for b in [r, close] {
+                    assert!(
+                        b.left() >= 16.0 && b.right() <= size.x - 16.0 && b.bottom() <= size.y,
+                        "{tag}: {b:?} inside the page"
+                    );
+                }
+                assert!(
+                    !r.shrink(0.5).intersects(close),
+                    "{tag}: {r:?} overlaps CLOSE {close:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Review 7 m3: a card whose earned copies are all on the market, with a starter beside them, shows no market price
+/// above its "can never be sold" line: the panel's rule (`panel::card_mark`, `earned > listed`).
+#[test]
+fn the_detail_prices_no_card_whose_earned_copies_are_all_listed() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let lang = Lang::En;
+    let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+    let mut view = CollectionView::sample(Scenario::Spare);
+    let open = view.open;
+    let (card, copies) = view
+        .cards
+        .iter_mut()
+        .find(|(k, _)| Some(k.number) == open)
+        .expect("an open card");
+    copies.listed = copies.earned;
+    copies.starter = 1;
+    let card = card.clone();
+    let mut st = launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(
+        launcher::window_size(Some(700.0)),
+        1.0,
+        Edition::E1718,
+        |ui| {
+            launcher::show(ui, &mut st);
+        },
+    );
+    h.run_steps(4);
+    let row = &forza::cards::collection_cards(std::slice::from_ref(&card))[0];
+    let floor = forza::collection::floor_value(forza::collection::value(row)).to_string();
+    assert!(
+        h.query_by_label(&t("collection.no_sell", &[])).is_some(),
+        "the card cannot sell"
+    );
+    assert!(
+        h.query_by_label(&t("deal.sell_from", &[("n", &floor)]))
+            .is_none(),
+        "no market price for a card that cannot sell"
+    );
+}
+
 /// #374: the deal window holds its collection lines inside it and above its foot line, for every grant state and
 /// language (the damaged note is the longest).
 #[test]
@@ -2380,3 +2502,304 @@ fn the_start_picker_and_the_deal_fit_the_page() {
         }
     }
 }
+
+/// #374: the pack store at the Launcher's smallest window, in every language: the odds of each card and their notes lie
+/// inside the page and apart, above BUY, which is in view; the nation tiles lie apart and carry the language's names.
+/// The opened pack's 3 cards lie apart with each badge under its own card.
+#[test]
+fn the_store_and_the_opened_pack_fit_the_page() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionView, Scenario, nation};
+    let size = launcher::window_size(Some(700.0));
+    let inside = |r: egui::Rect, tag: &str| {
+        assert!(
+            r.left() >= 16.0 && r.right() <= size.x - 16.0,
+            "{tag}: {r:?} inside the page"
+        );
+    };
+    let apart = |rects: &[egui::Rect], tag: &str| {
+        for (i, a) in rects.iter().enumerate() {
+            inside(*a, tag);
+            for b in &rects[i + 1..] {
+                assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+            }
+        }
+    };
+    let rect = |s: &egui::epaint::TextShape| egui::Rect::from_min_size(s.pos, s.galley.size());
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        // the Korea pack (two tiers) and Standard (all five) in the store, then the opened pack
+        for (s, standard) in [
+            (Scenario::Store, false),
+            (Scenario::Store, true),
+            (Scenario::Open, false),
+        ] {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            let mut view = CollectionView::sample(s);
+            if standard {
+                view.step = forza_ui::collection::Step::Store { chosen: 0 };
+            }
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let tag = format!("{lang:?} {s:?} standard={standard}");
+            let drawn = drawn_texts(&h);
+            if s == Scenario::Store {
+                let korea = nation("Korea Republic", lang);
+                let pack = if standard {
+                    t("collection.pack_standard", &[])
+                } else {
+                    korea.to_owned()
+                };
+                let head = t("collection.odds_title", &[("pack", &pack)]);
+                let top = drawn
+                    .iter()
+                    .find(|d| d.galley.text() == head)
+                    .map(|d| d.pos.y)
+                    .unwrap_or_else(|| panic!("{tag}: {head:?} not drawn"));
+                let price = if standard {
+                    forza::collection::STANDARD_PACK
+                } else {
+                    forza::collection::NATION_PACK
+                }
+                .to_string();
+                let buy = h
+                    .query_by_label(&t("collection.buy", &[("n", &price)]))
+                    .expect("BUY")
+                    .rect();
+                assert!(buy.bottom() <= size.y, "{tag}: BUY {buy:?} in view");
+                inside(buy, &tag);
+                let between: Vec<&egui::epaint::TextShape> = drawn
+                    .iter()
+                    .filter(|d| rect(d).top() >= top && rect(d).bottom() <= buy.top() + 0.5)
+                    .collect();
+                // row by row: a label in a wrapped line starts its galley at the line's left, before its own text
+                let odds: Vec<egui::Rect> = between
+                    .iter()
+                    .flat_map(|d| {
+                        d.galley
+                            .rows
+                            .iter()
+                            .filter(|r| !r.row.glyphs.is_empty())
+                            .map(|r| r.rect_without_leading_space().translate(d.pos.to_vec2()))
+                    })
+                    .collect();
+                let tag = format!(
+                    "{tag} {:?}",
+                    between.iter().map(|d| d.galley.text()).collect::<Vec<_>>()
+                );
+                for n in ["1", "2", "3"] {
+                    let card = t("collection.odds_card", &[("n", n)]);
+                    assert!(
+                        drawn.iter().any(|d| d.galley.text() == card
+                            && d.pos.y > top
+                            && d.pos.y < buy.top()),
+                        "{tag}: {card:?} between the title and BUY"
+                    );
+                }
+                apart(&odds, &tag);
+                let tiles: Vec<egui::Rect> = h
+                    .query_all_by_role(Role::RadioButton)
+                    .map(|n| n.rect())
+                    .filter(|r| r.top() > buy.bottom() && r.bottom() <= size.y)
+                    .collect();
+                apart(&tiles, &tag);
+                if lang != Lang::En && !standard {
+                    // the nation tiles (Standard has none): every nation in Japanese; in Italian the 18 the game names differently (Argentina stays)
+                    let named = forza::collection::NATIONS
+                        .iter()
+                        .filter(|n| nation(n, lang) != **n)
+                        .count();
+                    assert_eq!(named, if lang == Lang::Ja { 24 } else { 18 }, "{tag}");
+                    assert!(h.query_by_label(korea).is_some(), "{tag}: {korea}");
+                }
+            } else {
+                let view = CollectionView::sample(s);
+                let forza_ui::collection::Step::Open { cards, .. } = &view.step else {
+                    panic!("no pack open")
+                };
+                let mut faces = vec![];
+                for o in cards {
+                    let face = h
+                        .query_all_by_role_and_label(Role::Image, &o.card.name)
+                        .next()
+                        .unwrap_or_else(|| panic!("{tag}: {} not shown", o.card.name))
+                        .rect();
+                    let badge = if o.copies <= 1 {
+                        t("collection.new_card", &[])
+                    } else {
+                        t("collection.copy_n", &[("n", &o.copies.to_string())])
+                    };
+                    assert!(
+                        drawn.iter().any(|d| d.galley.text() == badge
+                            && rect(d).left() >= face.left()
+                            && rect(d).right() <= face.right()
+                            && rect(d).top() >= face.bottom()),
+                        "{tag}: {badge:?} under its card {face:?}"
+                    );
+                    faces.push(face);
+                }
+                apart(&faces, &tag);
+            }
+        }
+    }
+}
+
+/// 2.2: CRAFT at the Launcher's smallest window, in every language: the page's PACKS and CRAFT lie apart inside the
+/// page; on CRAFT the hint, the picked card's CRAFT button and its short note lie inside the page, the button in view,
+/// and the cards in view lie inside the page and apart.
+#[test]
+fn craft_fits_the_page() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionView, Scenario, Step};
+    let size = launcher::window_size(Some(700.0));
+    let inside = |r: egui::Rect, tag: &str| {
+        assert!(
+            r.left() >= 16.0 && r.right() <= size.x - 16.0,
+            "{tag}: {r:?} inside the page"
+        );
+    };
+    let rect = |s: &egui::epaint::TextShape| egui::Rect::from_min_size(s.pos, s.galley.size());
+    for lang in Lang::ALL {
+        let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(lang, k, args);
+        let run = |view: CollectionView| {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, move |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            h
+        };
+        let tag = format!("{lang:?} page");
+        let h = run(CollectionView::sample(Scenario::Page));
+        let packs = h
+            .query_by_label(&t("collection.packs", &[]))
+            .expect("PACKS")
+            .rect();
+        let craft = h
+            .query_by_label(&t("collection.craft", &[]))
+            .expect("CRAFT")
+            .rect();
+        inside(packs, &tag);
+        inside(craft, &tag);
+        assert!(
+            !packs.shrink(0.5).intersects(craft),
+            "{tag}: {packs:?} overlaps {craft:?}"
+        );
+
+        let tag = format!("{lang:?} craft");
+        let view = CollectionView::sample(Scenario::Craft);
+        let Step::Craft { picked: Some(no) } = view.step else {
+            panic!("no card picked")
+        };
+        let card = view
+            .craftable
+            .iter()
+            .find(|c| c.number == no)
+            .unwrap()
+            .clone();
+        let price = forza::collection::craft(
+            &forza::cards::collection_cards(std::slice::from_ref(&card))[0],
+        )
+        .expect("a black card crafts")
+        .to_string();
+        assert!(
+            view.tokens < price.parse().unwrap(),
+            "{tag}: the sample shows the short note"
+        );
+        let names: Vec<String> = view.craftable.iter().map(|c| c.name.clone()).collect();
+        let h = run(view);
+        let drawn = drawn_texts(&h);
+        let buy = h
+            .query_by_label(&t("collection.craft_buy", &[("n", &price)]))
+            .expect("CRAFT · n TOKENS")
+            .rect();
+        inside(buy, &tag);
+        assert!(buy.bottom() <= size.y, "{tag}: {buy:?} in view");
+        for key in ["collection.craft_hint", "collection.craft_short"] {
+            let text = t(key, &[("n", &price)]);
+            let r = drawn
+                .iter()
+                .find(|d| d.galley.text() == text)
+                .map(rect)
+                .unwrap_or_else(|| panic!("{tag}: {key} not drawn"));
+            inside(r, &tag);
+        }
+        let short = drawn
+            .iter()
+            .find(|d| d.galley.text() == t("collection.craft_short", &[("n", &price)]))
+            .map(rect)
+            .unwrap();
+        assert!(
+            short.top() >= buy.bottom() - 0.5,
+            "{tag}: the note {short:?} under {buy:?}"
+        );
+        let mut cards: Vec<egui::Rect> = names
+            .iter()
+            .flat_map(|n| h.query_all_by_role_and_label(Role::Button, n))
+            .map(|n| n.rect())
+            .filter(|r| r.top() > buy.bottom() && r.bottom() <= size.y)
+            .collect();
+        cards.dedup();
+        assert!(
+            cards.len() >= COLLECTION_COLUMNS,
+            "{tag}: {} cards in view",
+            cards.len()
+        );
+        for (i, a) in cards.iter().enumerate() {
+            inside(*a, &tag);
+            for b in &cards[i + 1..] {
+                assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+            }
+        }
+    }
+}
+
+/// Step 2.4: the collection page carries SAVE STATS and the text on what the file holds, inside the page in every
+/// language.
+#[test]
+fn the_page_shows_save_stats_and_what_the_file_holds() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let mut view = CollectionView::sample(Scenario::Page);
+        // a short page, so its foot (the buttons) is inside the window
+        view.cards.truncate(2);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let tag = format!("{lang:?}");
+        let save = h
+            .query_by_label(&t("collection.stats"))
+            .unwrap_or_else(|| panic!("{tag}: SAVE STATS"))
+            .rect();
+        assert!(
+            save.left() >= 16.0 && save.right() <= size.x - 16.0,
+            "{tag}: SAVE STATS inside the page: {save:?}"
+        );
+        let head: String = t("collection.stats_what").chars().take(12).collect();
+        assert_eq!(
+            h.query_all_by_label_contains(&head).count(),
+            1,
+            "{tag}: what the file holds, once"
+        );
+    }
+}
+
+const COLLECTION_COLUMNS: usize = forza_ui::collection::COLUMNS;

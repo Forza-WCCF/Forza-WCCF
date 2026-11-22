@@ -818,6 +818,28 @@ struct App {
     run_from_command: bool,
     /// The setup's card list, read the first time COLLECTION needs it.
     catalogue: Option<Vec<forza::board::Card>>,
+    /// The collection read's warnings last logged: a refresh logs them again only when they change, and a read that
+    /// could not happen leaves no list behind (the warnings that follow it are logged again).
+    collection_warnings: Vec<String>,
+}
+
+/// The collection read's warnings to log now, and the list the next refresh compares to (`said`): `None` is a log that
+/// could not be read; its one line replaces the list, so it is logged once (a read failing from the first refresh
+/// too), and a damaged line still there after it is logged again, with its cause beside it.
+fn warnings_to_log(read: Option<&[String]>, said: &mut Vec<String>) -> Vec<String> {
+    const FAILED: &str = "collection: the log could not be read; its warnings are logged again once it can be";
+    let Some(warnings) = read else {
+        if said.len() == 1 && said[0] == FAILED {
+            return Vec::new();
+        }
+        *said = vec![FAILED.into()];
+        return said.clone();
+    };
+    if warnings == said.as_slice() {
+        return Vec::new();
+    }
+    *said = warnings.to_vec();
+    warnings.iter().map(|w| format!("collection: {w}")).collect()
 }
 
 /// The LAN fold searches this often while it is open.
@@ -914,6 +936,7 @@ impl App {
             lan_at: None,
             run_from_command,
             catalogue: None,
+            collection_warnings: Vec::new(),
         };
         app.collection(kit);
         app
@@ -934,12 +957,21 @@ impl App {
         if self.catalogue.is_none() {
             self.catalogue = forza::cards::load_catalogue(&file).ok().filter(|c| !c.is_empty());
         }
+        let log_file = forza::collection::Log::new(&dir);
+        let read = log_file.lines().map(|text| forza::collection::fold(&text));
+        // what the read found (a damaged line, a pack cut from its cards) goes to DETAILS and launcher.txt, once
+        for w in warnings_to_log(
+            read.as_ref().ok().map(|f| f.warnings.as_slice()),
+            &mut self.collection_warnings,
+        ) {
+            log(&w);
+        }
         let old = self.st.collection.take();
         // the reason, and whether it is the log (START OVER is its way out)
-        let made = match &self.catalogue {
-            None => Err((t("launcher.msg_no_catalogue"), false)),
-            Some(cat) => collection::view(cat, &dir, old.clone())
-                .map_err(|e| (read_failed(forza::collection::Log::new(&dir).path(), &e), true)),
+        let made = match (&self.catalogue, read) {
+            (None, _) => Err((t("launcher.msg_no_catalogue"), false)),
+            (Some(cat), Ok(f)) => Ok(collection::view_of(cat, &dir, f, old.clone())),
+            (Some(_), Err(e)) => Err((read_failed(log_file.path(), &e), true)),
         };
         self.st.collection = Some(
             made.unwrap_or_else(|(why, damaged)| forza_ui::collection::CollectionView {
@@ -954,6 +986,8 @@ impl App {
                 open: None,
                 problem: Some(why),
                 damaged,
+                offers: Vec::new(),
+                craftable: Vec::new(),
             }),
         );
     }
@@ -961,11 +995,7 @@ impl App {
     /// A Create-a-Team profile without its starter cards: PLAY waits for COLLECTION's first start.
     fn needs_start(&self) -> bool {
         self.st.profile == Some(forza::profile::Profile::CreateATeam)
-            && self
-                .st
-                .collection
-                .as_ref()
-                .is_some_and(|v| !matches!(v.step, forza_ui::collection::Step::Page))
+            && self.st.collection.as_ref().is_some_and(|v| !v.started())
     }
 
     /// The release list with this folder's marks.
@@ -1406,6 +1436,123 @@ impl App {
                     }
                 }
                 self.collection(&kit);
+            }
+            Action::Collection(CollectionAction::Buy(choice)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                if self
+                    .st
+                    .collection
+                    .as_ref()
+                    .is_some_and(|v| v.tokens < choice.pack().price())
+                {
+                    refuse(t("launcher.msg_pack_tokens"));
+                    return;
+                }
+                match collection::buy(cat, &dir, choice) {
+                    Ok(cards) => {
+                        log(&format!("collection: {}, cards {cards:?}", choice.pack().why()));
+                        self.collection(&kit);
+                        if let Some(v) = &mut self.st.collection {
+                            v.open_pack(&cards);
+                        }
+                    }
+                    // the log moved on since the view was read (another Launcher): the same words as above
+                    Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
+                        refuse(t("launcher.msg_pack_tokens"));
+                    }
+                    // the pool refused the pack, the disk did not fail
+                    Err(e) if e.to_string() == forza::collection::TOO_FEW_PLAYERS => {
+                        refuse(t("collection.buy_pool"));
+                    }
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
+            Action::Collection(CollectionAction::Craft(no)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                match collection::craft(cat, &dir, no) {
+                    Ok(e) => {
+                        log(&format!("collection: craft card {no}, {} tokens", e.tokens));
+                        let name = cat
+                            .iter()
+                            .find(|k| k.number == no)
+                            .map(|k| k.name.clone())
+                            .unwrap_or_default();
+                        say(tf("launcher.msg_crafted", &[("name", &name)]), 0);
+                        self.collection(&kit);
+                        if let Some(v) = &mut self.st.collection {
+                            v.step = forza_ui::collection::Step::Craft { picked: None };
+                        }
+                    }
+                    Err(e) if e.to_string() == forza::collection::NOT_ENOUGH_TOKENS => {
+                        refuse(t("launcher.msg_craft_tokens"));
+                    }
+                    // a line the fold cannot read: nothing new is saved until a reset (the tab says so too)
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => refuse(t("collection.damaged")),
+                    // held already (another Launcher crafted it): the view made again drops it from the list
+                    Err(e) if e.to_string() == forza::collection::ALREADY_HELD => self.collection(&kit),
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
+            Action::Collection(CollectionAction::Convert(no)) => {
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                match collection::convert(cat, &dir, no) {
+                    Ok(e) => {
+                        log(&format!("collection: convert card {no}, {} tokens", e.tokens));
+                        let name = cat
+                            .iter()
+                            .find(|k| k.number == no)
+                            .map(|k| k.name.clone())
+                            .unwrap_or_default();
+                        let n = e.tokens.to_string();
+                        say(tf("launcher.msg_converted", &[("name", &name), ("n", &n)]), 0);
+                        self.collection(&kit);
+                    }
+                    // the log moved on since the view was read (another Launcher): the view made again drops CONVERT
+                    Err(e) if e.to_string() == forza::collection::NO_SPARE => {
+                        refuse(t("launcher.msg_no_spare"));
+                        self.collection(&kit);
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::InvalidData => refuse(t("collection.damaged")),
+                    Err(e) => refuse(write_failed(forza::collection::Log::new(&dir).path(), &e)),
+                }
+            }
+            Action::Collection(CollectionAction::Stats) => {
+                // the log is only read; the file goes where the player picks, and they send it by hand
+                let (Some(dir), Some(cat)) = (self.st.profile.and_then(|p| p.collection(&kit.data())), &self.catalogue)
+                else {
+                    return;
+                };
+                let Some(folder) = rfd::FileDialog::new()
+                    .set_title(t("collection.stats"))
+                    .set_parent(frame)
+                    .pick_folder()
+                else {
+                    return;
+                };
+                // the log is read first: the game may still be writing it, and that is no write error
+                let grants = forza::collection::Log::new(&dir);
+                let lines = match grants.lines() {
+                    Ok(lines) => lines,
+                    Err(e) => return refuse(read_failed(grants.path(), &e)),
+                };
+                match collection::stats(cat, &lines, &folder) {
+                    Ok(file) => {
+                        log(&format!("collection: stats written to {}", file.display()));
+                        let to = folder.display().to_string();
+                        say(tf("launcher.msg_stats_saved", &[("folder", &to)]), 0);
+                        show_in_explorer(&file);
+                    }
+                    Err(e) => refuse(write_failed(&folder, &e)),
+                }
             }
             Action::VsLink => {
                 // data\settings.json "vs_link" (default on), which run::start_vslink reads
@@ -2184,6 +2331,36 @@ mod tests {
         let kit = Kit::at(dir.path());
         assert_eq!(version(&kit), "0.6.0");
         assert_eq!(Some(version(&kit)), kit.release());
+    }
+
+    /// #374 review 3: a read that fails leaves no warning list behind, so a damaged line that is still there once the
+    /// log can be read again is logged again (once per change, not once per session).
+    #[test]
+    fn a_failed_read_forgets_the_warnings_said_before() {
+        let mut said = Vec::new();
+        let damaged = vec!["line 12 does not parse".to_owned()];
+        assert_eq!(
+            warnings_to_log(Some(&damaged), &mut said),
+            ["collection: line 12 does not parse"]
+        );
+        assert_eq!(said, damaged);
+        assert!(warnings_to_log(Some(&damaged), &mut said).is_empty(), "once");
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "the failed read is logged");
+        assert!(warnings_to_log(None, &mut said).is_empty(), "once");
+        assert_eq!(
+            warnings_to_log(Some(&damaged), &mut said),
+            ["collection: line 12 does not parse"],
+            "logged again after the failed read"
+        );
+        // review 5: a read that fails from the first refresh is logged, once
+        let mut said = Vec::new();
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "the first failed read");
+        assert!(warnings_to_log(None, &mut said).is_empty(), "once");
+        assert!(
+            warnings_to_log(Some(&[]), &mut said).is_empty(),
+            "a good empty read says nothing"
+        );
+        assert_eq!(warnings_to_log(None, &mut said).len(), 1, "a new failure after it");
     }
 
     /// A session the player started in the window ends on its own screen (2026-11-06: the window closed after a joined
