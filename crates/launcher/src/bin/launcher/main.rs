@@ -1530,13 +1530,17 @@ impl App {
             ),
             Action::Collection(CollectionAction::Reset) => {
                 // never while a game runs or starts: the run holds the save and the table, and the panel writes the log
+                let mut unsent = false;
                 let done = if RUNNING.load(Ordering::Relaxed) {
                     Err(collection::ResetRefused::Busy)
                 } else {
                     // RESET into the market outbox first (`PLAN.md` 3.6): a crash after the archive still sends it
                     let queued = self.st.profile.and_then(|p| p.collection(&kit.data())).and_then(|dir| {
                         market::queue_reset(&kit.data(), &dir)
-                            .inspect_err(|e| log(&format!("market: RESET could not be queued: {e:?}")))
+                            .inspect_err(|e| {
+                                unsent = true;
+                                log(&format!("market: RESET could not be queued: {e:?}"));
+                            })
                             .ok()
                             .map(|(before, lost)| {
                                 if let Some(e) = lost {
@@ -1558,7 +1562,7 @@ impl App {
                     Ok(to) => {
                         let to = to.display().to_string();
                         log(&format!("collection: reset, the old profile is in {to}"));
-                        say(tf("collection.reset_done", &[("folder", &to)]), 0);
+                        say(reset_done_line(&to, unsent), 0);
                         if forza::market::Client::saved(&kit.data()).outbox.is_some() {
                             log("market: RESET queued for the reset");
                             self.market_job(&kit, CollectionAction::Market);
@@ -2460,6 +2464,16 @@ fn market_busy_refusal(a: &CollectionAction, busy: bool) -> Option<String> {
     }
 }
 
+/// The START OVER line; `unsent`: the market RESET could not be queued, so the server may take the new log for a fork.
+fn reset_done_line(folder: &str, unsent: bool) -> String {
+    let key = if unsent {
+        "collection.reset_done_unsent"
+    } else {
+        "collection.reset_done"
+    };
+    tf(key, &[("folder", folder)])
+}
+
 #[cfg(test)]
 fn scratch() -> tempfile::TempDir {
     tempfile::Builder::new().prefix("wccf-").tempdir().unwrap()
@@ -2484,6 +2498,15 @@ mod tests {
             let before = lines[..i].iter().rev().find(|l| !l.is_empty() && !l.starts_with("//"));
             assert_eq!(before, Some(&"self.online.hosting();"), "before `{}`", lines[i]);
         }
+    }
+
+    /// #375: START OVER whose market RESET could not be queued tells the player, not only the log.
+    #[test]
+    fn start_over_says_when_the_market_reset_was_not_queued() {
+        let unsent = reset_done_line("old", true);
+        assert_eq!(unsent, tf("collection.reset_done_unsent", &[("folder", "old")]));
+        assert_ne!(unsent, reset_done_line("old", false));
+        assert!(unsent.contains("old"), "{unsent}");
     }
 
     /// F1: a pack, a craft or a conversion waits while a market request is on its way; START OVER too; the market's
