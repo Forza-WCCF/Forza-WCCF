@@ -776,7 +776,8 @@ struct Owed {
 /// The key `kh`'s ledger rows its log (`checked`) has no line for, each line taking the oldest row of its card and
 /// price: listings bought (`bought`, no `market_buy` line), stock slots (`stock`, no `stock_buy` line) and sales COLLECT
 /// paid (`sold`, no `market_sell` line), in that order. A retired row (`stock_gone`, `bought_gone`, `paid_gone`: from
-/// before the key's LEAVE or expiry) takes its line first and is never owed.
+/// before the key's LEAVE or expiry) takes its line first and is never owed, except a `paid_gone` sale while the log
+/// still lists a copy of its card: the server holds its price's only record.
 fn owed(
     tx: &Connection,
     kh: &str,
@@ -802,11 +803,25 @@ fn owed(
                     .collect()
             })
             .map_err(store_err)?;
+        let mut retired = vec![];
         for (id, card, price, state) in rows {
             match lines.get_mut(&(card, price)) {
                 Some(n) if *n > 0 => *n -= 1,
                 _ if !state.ends_with("_gone") => out.push((word, Owed { id, card, price })),
+                _ if word == "sold" => retired.push(Owed { id, card, price }),
                 _ => {}
+            }
+        }
+        // a retired sale the log never wrote (its COLLECT answer lost, then LEAVE) is owed while the log still holds a
+        // listed copy of its card for the line to take, after the live sales; one whose copy came back (`unlist`) is not
+        for o in retired {
+            let taken = out
+                .iter()
+                .filter(|(w, x)| *w == "sold" && x.card == o.card)
+                .count();
+            let listed = checked.held.get(&o.card).map_or(0, |h| h.listed as usize);
+            if taken < listed {
+                out.push(("sold", o));
             }
         }
     }
@@ -4304,10 +4319,57 @@ mod tests {
             ask(&m, 2, Verb::Join, back, &[], &buyer),
             Ok(format!("{} lines", buyer.lines().count()))
         );
+        // the seller's key expired too: its `market_sell` line still takes the retired row, which OWED does not name
+        assert_eq!(
+            ask(&m, 1, Verb::Join, back + 1, &[], &seller),
+            Ok(format!("{} lines", seller.lines().count()))
+        );
+        assert_eq!(
+            ask(&m, 1, Verb::Owed, back + 2, &[], &seller).unwrap(),
+            "owed"
+        );
         assert_eq!(
             row(dir.path(), "SELECT card, state FROM ledger ORDER BY id"),
             [[s("57"), s("paid_gone")], [s("57"), s("bought_gone")]]
         );
+    }
+
+    /// #375 review minor 1: a sale COLLECT paid whose answer was lost, then LEAVE retired: on the next JOIN OWED names it
+    /// while the log still lists the copy, so the seller writes its `market_sell` line; a log whose copy came back
+    /// (`unlist`) is not owed it, since that line would leave the log unreadable.
+    #[test]
+    fn owed_names_a_retired_sale_the_log_never_wrote() {
+        let left = |dir: &Path| {
+            let m = market(dir);
+            let seller = earned(&[57]);
+            ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
+            ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
+            let seller = plus(&seller, Kind::List, 57, 0);
+            let buyer = own(2, &[20, 20]);
+            ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
+            ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
+            // the COLLECT answer is lost: no `market_sell` line
+            ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap();
+            ask(&m, 1, Verb::Leave, NOW + 5, &[], "").unwrap();
+            assert_eq!(
+                row(dir, "SELECT state FROM ledger WHERE id = 1"),
+                [[s("paid_gone")]]
+            );
+            ask(&m, 1, Verb::Join, NOW + 6, &[], &seller).unwrap();
+            assert_eq!(
+                ask(&m, 1, Verb::Owed, NOW + 7, &[], &seller).unwrap(),
+                "owed sold 1:57:228"
+            );
+            (m, seller)
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let (m, seller) = left(dir.path());
+        let paid = plus(&seller, Kind::MarketSell, 57, 228);
+        assert_eq!(ask(&m, 1, Verb::Owed, NOW + 8, &[], &paid).unwrap(), "owed");
+        let dir = tempfile::tempdir().unwrap();
+        let (m, seller) = left(dir.path());
+        let back = plus(&seller, Kind::Unlist, 57, 0);
+        assert_eq!(ask(&m, 1, Verb::Owed, NOW + 8, &[], &back).unwrap(), "owed");
     }
 
     /// #375 B1: a log that moves to a new key (the old one quiet for 7 days) brings its ledger rows, so its sale's
