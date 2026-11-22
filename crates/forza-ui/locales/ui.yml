@@ -635,7 +635,8 @@ collection.value: {en: "Value: %{n} tokens", it: "Valore: %{n} gettoni", ja: "�
 # how the value is made: the tier's base, the step the card's TOTAL gives (1, 1.5, 2.5, 4) and the series factor
 collection.value_parts: {en: "Base %{base} × TOTAL step %{step} × series %{factor}", it: "Base %{base} × passo TOTALE %{step} × serie %{factor}", ja: "基本 %{base} × 総合ステップ %{step} × シリーズ %{factor}"}
 collection.value_secret: {en: "A SECRET card has one fixed price.", it: "Una carta SEGRETO ha un prezzo fisso.", ja: "SECRET カードは価格が一律です。"}
-collection.copies: {en: "Earned %{earned} · Starter %{starter} · Imported %{imported} · On the market %{listed}", it: "Ottenute %{earned} · Iniziali %{starter} · Importate %{imported} · Sul mercato %{listed}", ja: "獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中 %{listed}"}
+collection.copies: {en: "In hand: earned %{earned} · starter %{starter} · On the market: %{listed}", it: "In mano: ottenute %{earned} · iniziali %{starter} · Sul mercato: %{listed}", ja: "手持ち：獲得 %{earned}・初期 %{starter}・出品中：%{listed}"}
+collection.copies_imported: {en: "In hand: earned %{earned} · starter %{starter} · imported %{imported} · On the market: %{listed}", it: "In mano: ottenute %{earned} · iniziali %{starter} · importate %{imported} · Sul mercato: %{listed}", ja: "手持ち：獲得 %{earned}・初期 %{starter}・引継ぎ %{imported}・出品中：%{listed}"}
 collection.no_sell: {en: "Starter and imported copies can play, but they can never be sold or converted.", it: "Le copie iniziali e importate possono giocare, ma non si possono mai vendere né convertire.", ja: "初期カードと引継ぎカードは対戦で使えますが、売却も変換もできません。"}
 collection.close: {en: "CLOSE", it: "CHIUDI", ja: "閉じる"}
 collection.convert: {en: "CONVERT · +%{n} TOKENS", it: "CONVERTI · +%{n} GETTONI", ja: "変換・+%{n} トークン"}
@@ -736,6 +737,8 @@ collection.market_stock_title: {en: "YOUR LIST OF THE DAY", it: "LA TUA LISTA DE
 collection.market_stock_hint: {en: "Cards drawn for this installation alone. A new list comes every day at 04:00 UTC.", it: "Carte estratte solo per questa installazione. Ogni giorno alle 04:00 UTC arriva una nuova lista.", ja: "このインストールだけのために選ばれたカードです。毎日 13:00（日本時間）に新しいリストになります。"}
 collection.market_left: {en: "Purchases left today: %{n}", it: "Acquisti rimasti oggi: %{n}", ja: "今日の残り購入数：%{n}"}
 collection.market_bought: {en: "BOUGHT", it: "COMPRATA", ja: "購入済み"}
+collection.market_held: {en: "Copies of this card you hold: %{n}", it: "Copie di questa carta che hai: %{n}", ja: "このカードの所持数：%{n} 枚"}
+collection.market_held_none: {en: "You do not have this card yet.", it: "Non hai ancora questa carta.", ja: "このカードはまだ持っていません。"}
 collection.market_mine_title: {en: "YOUR LISTINGS · %{n}/%{max}", it: "LE TUE INSERZIONI · %{n}/%{max}", ja: "出品中のカード・%{n}/%{max}"}
 collection.market_mine_none: {en: "You have no cards on the market. Open a card in your collection to list it.", it: "Non hai carte sul mercato. Apri una carta della tua collezione per metterla in vendita.", ja: "出品中のカードはありません。コレクションのカードを開くと出品できます。"}
 collection.market_listed: {en: "%{n} tokens · days left: %{d}", it: "%{n} gettoni · giorni rimasti: %{d}", ja: "%{n} トークン・残り %{d} 日"}

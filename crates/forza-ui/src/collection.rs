@@ -833,6 +833,8 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
             v.step = Step::Store { chosen: 0 };
         }
         if widgets::action(ui, &tr!(lang, "collection.craft")).clicked() {
+            // the page's filter may name a rarity CRAFT never lists (#375): CRAFT opens on every craftable card
+            v.filter = Filter::default();
             v.step = Step::Craft { picked: None };
         }
         if widgets::action(ui, &tr!(lang, "collection.market")).clicked() {
@@ -840,7 +842,13 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
             *act = Some(CollectionAction::Market);
         }
     });
-    filters(ui, v.cards.iter().map(|(c, _)| c), &mut v.filter, lang);
+    filters(
+        ui,
+        v.cards.iter().map(|(c, _)| c),
+        &mut v.filter,
+        &RARITIES,
+        lang,
+    );
     if let Some(no) = v.open
         && let Some((card, copies)) = v.cards.iter().find(|(c, _)| c.number == no)
         && detail(ui, card, copies, &mut v.market, lang, act)
@@ -880,6 +888,10 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
                     );
                 }
                 if resp.clicked() {
+                    // LIST's price starts at this card's floor, not at the last card's price (#375)
+                    if v.open != Some(card.number) {
+                        v.market.price = 0;
+                    }
                     v.open = Some(card.number);
                 }
             }
@@ -900,14 +912,73 @@ fn page(ui: &mut Ui, v: &mut CollectionView, lang: Lang, act: &mut Option<Collec
     }
 }
 
+/// The detail's copies line: the earned copies in hand (a listed copy is out on the market, not in hand), and the
+/// imported ones only when there are some (#375).
+fn copies_line(c: &Copies, lang: Lang) -> String {
+    let n = |x: u32| x.to_string();
+    let (e, s, i, l) = (
+        n(c.earned.saturating_sub(c.listed)),
+        n(c.starter),
+        n(c.imported),
+        n(c.listed),
+    );
+    let (e, s, i, l) = (e.as_str(), s.as_str(), i.as_str(), l.as_str());
+    if c.imported > 0 {
+        tr!(
+            lang,
+            "collection.copies_imported",
+            earned = e,
+            starter = s,
+            imported = i,
+            listed = l
+        )
+    } else {
+        tr!(
+            lang,
+            "collection.copies",
+            earned = e,
+            starter = s,
+            listed = l
+        )
+    }
+}
+
+/// Whether the player holds the offered card (#375): the copies held, or that it would be new.
+fn held_line(cards: &[(Card, Copies)], no: u32, lang: Lang) -> String {
+    match cards
+        .iter()
+        .find(|(c, _)| c.number == no)
+        .map_or(0, |(_, c)| c.earned + c.starter + c.imported)
+    {
+        0 => tr!(lang, "collection.market_held_none"),
+        n => tr!(lang, "collection.market_held", n = n.to_string().as_str()),
+    }
+}
+
 /// A card's mark key: STARTER or IMPORT when no copy held can be sold (`crate::panel::card_mark`'s rule).
 fn card_mark(c: &Copies) -> Option<&'static str> {
     let one = std::collections::BTreeMap::from([(0, *c)]);
     crate::panel::card_mark(Some(&one), 0)
 }
 
-/// The filter row; the season and nation lists are the ones `cards` hold.
-fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filter, lang: Lang) {
+/// The page's RARITY list, and CRAFT's (REGULAR and SPECIAL only in this release, `collection.craft_hint`).
+const RARITIES: [Rarity; 5] = [
+    Rarity::Regular,
+    Rarity::Special,
+    Rarity::Rare,
+    Rarity::Legend,
+    Rarity::AllTime,
+];
+const CRAFT_RARITIES: [Rarity; 2] = [Rarity::Regular, Rarity::Special];
+
+/// The filter row; the season and nation lists are the ones `cards` hold, the RARITY list `rarities`.
+fn filters<'a>(
+    ui: &mut Ui,
+    cards: impl Iterator<Item = &'a Card>,
+    f: &mut Filter,
+    rarities: &[Rarity],
+    lang: Lang,
+) {
     let all = tr!(lang, "cat.all");
     let (mut seasons, mut nations): (Vec<String>, Vec<String>) =
         cards.map(|c| (c.season.clone(), c.country.clone())).unzip();
@@ -957,13 +1028,7 @@ fn filters<'a>(ui: &mut Ui, cards: impl Iterator<Item = &'a Card>, f: &mut Filte
             .map_or_else(|| tr!(lang, "cat.rarity"), |r| tr!(lang, rarity_key(r)));
         combo(ui, "coll-rarity", label, w, &mut |ui| {
             ui.selectable_value(&mut f.rarity, None, &all);
-            for r in [
-                Rarity::Regular,
-                Rarity::Special,
-                Rarity::Rare,
-                Rarity::Legend,
-                Rarity::AllTime,
-            ] {
+            for &r in rarities {
                 ui.selectable_value(&mut f.rarity, Some(r), tr!(lang, rarity_key(r)));
             }
         });
@@ -984,7 +1049,7 @@ fn detail(
 ) -> bool {
     let row = &forza::cards::collection_cards(std::slice::from_ref(card))[0];
     let mut close = false;
-    egui::Frame::new()
+    let panel = egui::Frame::new()
         .fill(theme::DEEP)
         .stroke(egui::Stroke::new(1.0, theme::RIM))
         .corner_radius(theme::RADIUS_BIG)
@@ -1047,24 +1112,7 @@ fn detail(
                             list(ui, card.number, collection::value(row), market, lang, act);
                         }
                     }
-                    let n = |x: u32| x.to_string();
-                    let (e, s, i, l) = (
-                        n(copies.earned),
-                        n(copies.starter),
-                        n(copies.imported),
-                        n(copies.listed),
-                    );
-                    hint(
-                        ui,
-                        &tr!(
-                            lang,
-                            "collection.copies",
-                            earned = e.as_str(),
-                            starter = s.as_str(),
-                            imported = i.as_str(),
-                            listed = l.as_str()
-                        ),
-                    );
+                    hint(ui, &copies_line(copies, lang));
                     if card_mark(copies).is_some() {
                         hint(ui, &tr!(lang, "collection.no_sell"));
                     }
@@ -1084,7 +1132,24 @@ fn detail(
                 });
             });
         });
+    reveal(ui, "detail", card.number, panel.response.rect);
     close
+}
+
+/// Scrolls a panel drawn above its list into view on the first frame it shows for `key`, or shows again after a frame
+/// without it (#375: the detail, the CRAFT pick and the market's BUY panel open above a list that may be scrolled past
+/// them).
+fn reveal(ui: &Ui, what: &'static str, key: impl std::hash::Hash + std::fmt::Debug, rect: Rect) {
+    let id = egui::Id::unique(("reveal", what));
+    let (key, now) = (egui::Id::unique(key), ui.ctx().cumulative_pass_nr());
+    let last = ui.data_mut(|d| {
+        let last = d.get_temp::<(egui::Id, u64)>(id);
+        d.insert_temp(id, (key, now));
+        last
+    });
+    if last.is_none_or(|(k, pass)| k != key || pass + 1 < now) {
+        ui.scroll_to_rect(rect, None);
+    }
 }
 
 /// A tier's chance in tenths of a percent as the store prints it: 680 -> "68 %", 2 -> "0.2 %" (it: "0,2 %").
@@ -1286,7 +1351,7 @@ fn craft(
             collection::craft(&forza::cards::collection_cards(std::slice::from_ref(card))[0]);
         let price = i64::from(price.unwrap_or(0));
         let can = price > 0 && v.tokens >= price && !v.damaged;
-        ui.horizontal(|ui| {
+        let panel = ui.horizontal(|ui| {
             let (r, resp) = ui.allocate_exact_size(card_size(84.0), Sense::hover());
             resp.widget_info(|| WidgetInfo::labeled(Role::Image, true, &card.name));
             board::card_face(ui.painter(), r, card, Look::default());
@@ -1323,8 +1388,9 @@ fn craft(
                 }
             });
         });
+        reveal(ui, "craft", card.number, panel.response.rect);
     }
-    filters(ui, v.craftable.iter(), &mut v.filter, lang);
+    filters(ui, v.craftable.iter(), &mut v.filter, &CRAFT_RARITIES, lang);
     let list = shown(&v.craftable, &v.filter);
     let gap = ui.spacing().item_spacing;
     let w = ((ui.available_width() - gap.x * (COLUMNS - 1) as f32) / COLUMNS as f32).floor();
@@ -1532,7 +1598,7 @@ fn market(
     });
     if let Some((stock, o)) = picked {
         let can = !busy && !o.sold && !v.damaged && v.tokens >= i64::from(o.price);
-        ui.horizontal(|ui| {
+        let panel = ui.horizontal(|ui| {
             let (r, resp) = ui.allocate_exact_size(card_size(84.0), Sense::hover());
             resp.widget_info(|| WidgetInfo::labeled(Role::Image, true, &o.card.name));
             board::card_face(ui.painter(), r, &o.card, Look::default());
@@ -1549,6 +1615,7 @@ fn market(
                 let row = &forza::cards::collection_cards(std::slice::from_ref(&o.card))[0];
                 let value = collection::value(row).to_string();
                 hint(ui, &tr!(lang, "collection.value", n = value.as_str()));
+                hint(ui, &held_line(&v.cards, o.card.number, lang));
                 let n = o.price.to_string();
                 let w = ui.available_width();
                 let label = if o.sold {
@@ -1576,6 +1643,7 @@ fn market(
                 }
             });
         });
+        reveal(ui, "market", (stock, o.id), panel.response.rect);
     }
     title(ui, &tr!(lang, "collection.market_stock_title"));
     hint(ui, &tr!(lang, "collection.market_stock_hint"));

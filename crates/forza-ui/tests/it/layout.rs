@@ -2216,6 +2216,254 @@ fn the_detail_shows_convert_inside_the_page() {
     }
 }
 
+/// 30 cards of distinct names and numbers, for a page longer than the window.
+fn thirty_cards() -> Vec<forza_ui::board::Card> {
+    let base = forza_ui::sample::cards();
+    (0..30)
+        .map(|i| {
+            let mut c = base[i % base.len()].clone();
+            c.number = 500 + i as u32;
+            c.name = format!("Card {i:02}");
+            c
+        })
+        .collect()
+}
+
+/// Scrolls the page until the card button `name` is in the window: CRAFT lays out only the rows in view, so the
+/// last card shown is scrolled to until `name` is one of them.
+fn scroll_to_card(h: &mut Harness<'_>, names: &[String], name: &str) {
+    let button = egui::accesskit::Role::Button;
+    for _ in 0..20 {
+        if h.query_all_by_role_and_label(button, name).next().is_some() {
+            h.get_by_role_and_label(button, name).scroll_to_me();
+            h.run_steps(4);
+            return;
+        }
+        let last = names
+            .iter()
+            .rev()
+            .find(|n| h.query_all_by_role_and_label(button, n).next().is_some())
+            .expect("a card on the page");
+        h.get_by_role_and_label(button, last).scroll_to_me();
+        h.run_steps(4);
+    }
+    panic!("{name} never came into view");
+}
+
+/// #375: a card picked low on a scrolled list opens its panel above the list, which comes into view on the next
+/// frames: the page's detail, CRAFT's pick and a FOR SALE pick's BUY panel, at the Launcher's smallest window.
+#[test]
+fn a_picked_card_comes_into_view() {
+    use forza::collection::Copies;
+    use forza_ui::collection::{CollectionView, Offered, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    let cards = thirty_cards();
+    let names: Vec<String> = cards.iter().map(|c| c.name.clone()).collect();
+    let last = names[29].clone();
+    for which in ["page", "craft", "market"] {
+        let mut view = CollectionView::sample(match which {
+            "page" => Scenario::Page,
+            "craft" => Scenario::Craft,
+            _ => Scenario::Market,
+        });
+        match which {
+            "page" => {
+                let c = Copies {
+                    earned: 1,
+                    starter: 0,
+                    imported: 0,
+                    listed: 0,
+                };
+                view.cards = cards.iter().map(|k| (k.clone(), c)).collect();
+            }
+            "craft" => {
+                view.craftable = cards.clone();
+                view.step = forza_ui::collection::Step::Craft { picked: None };
+            }
+            _ => {
+                view.market.picked = None;
+                view.market.sale = cards
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| Offered {
+                        id: 100 + i as u64,
+                        card: k.clone(),
+                        price: 40,
+                        sold: false,
+                    })
+                    .collect();
+                view.market.more = false;
+            }
+        }
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        scroll_to_card(&mut h, &names, &last);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, &last)
+            .click();
+        h.run_steps(4);
+        // the panel's own node: CLOSE on the detail, the card's picture on CRAFT and BUY
+        let r = if which == "page" {
+            h.get_by_label("CLOSE").rect()
+        } else {
+            h.get_by_role_and_label(egui::accesskit::Role::Image, &last)
+                .rect()
+        };
+        assert!(
+            r.top() >= 0.0 && r.bottom() <= size.y,
+            "{which}: the picked panel {r:?} in the window {size:?}"
+        );
+    }
+}
+
+/// #375: CRAFT opened from a page filtered to RARE lists its cards, and its RARITY list holds ALL, REGULAR and
+/// SPECIAL only.
+#[test]
+fn craft_opens_unfiltered_on_its_own_rarities() {
+    use forza_ui::collection::{CollectionView, Filter, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    let mut view = CollectionView::sample(Scenario::Page);
+    view.craftable = CollectionView::sample(Scenario::Craft).craftable;
+    let first = view.craftable[0].name.clone();
+    view.filter = Filter {
+        rarity: Some(forza_ui::board::Rarity::Rare),
+        ..Filter::default()
+    };
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    h.get_by_label("CRAFT").click();
+    h.run_steps(4);
+    assert!(
+        h.query_all_by_role_and_label(egui::accesskit::Role::Button, &first)
+            .next()
+            .is_some(),
+        "CRAFT lists its cards"
+    );
+    h.get_by_label("RARITY").click();
+    h.run_steps(4);
+    let t = |k: &str| forza_ui::text(Lang::En, k, &[]);
+    for (k, there) in [
+        ("cat.regular", true),
+        ("cat.special", true),
+        ("cat.rare", false),
+        ("cat.legend", false),
+        ("cat.all_time", false),
+    ] {
+        assert_eq!(h.query_by_label(&t(k)).is_some(), there, "{k}");
+    }
+    assert!(h.query_by_label(&t("cat.all")).is_some(), "ALL");
+}
+
+/// #375: the detail counts the earned copies in hand, a listed one on the market only, and leaves Imported out at 0;
+/// LIST's price starts at the floor of each card opened, not at the last card's price.
+#[test]
+fn the_detail_counts_copies_in_hand_and_lists_from_the_floor() {
+    use forza::collection::Copies;
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    let mut view = CollectionView::sample(Scenario::Page);
+    view.market.joined = true;
+    let one_listed = Copies {
+        earned: 1,
+        starter: 0,
+        imported: 0,
+        listed: 1,
+    };
+    view.cards[15].1 = one_listed;
+    let (a, b) = (view.cards[16].0.clone(), view.cards[17].0.clone());
+    view.open = Some(view.cards[15].0.number);
+    view.market.price = 100_000; // as after a dear card: clamped to the card's ceiling when not reset
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    let t = |k: &str, args: &[(&str, &str)]| forza_ui::text(Lang::En, k, args);
+    let line = t(
+        "collection.copies",
+        &[("earned", "0"), ("starter", "0"), ("listed", "1")],
+    );
+    assert!(h.query_by_label(&line).is_some(), "{line:?}");
+    assert!(!line.contains("mported"), "{line}");
+    let floor = |c: &forza_ui::board::Card| {
+        let row = &forza::cards::collection_cards(std::slice::from_ref(c))[0];
+        forza::collection::floor_value(forza::collection::value(row)).to_string()
+    };
+    for card in [&a, &b] {
+        h.get_by_role_and_label(egui::accesskit::Role::Button, &card.name)
+            .scroll_to_me();
+        h.run_steps(4);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, &card.name)
+            .click();
+        h.run_steps(4);
+        let list = t("collection.market_list", &[("n", &floor(card))]);
+        assert!(h.query_by_label(&list).is_some(), "{}: {list:?}", card.name);
+    }
+}
+
+/// #375: the picked offer says whether the player holds the card: the copies held, or that it is new.
+#[test]
+fn the_picked_offer_says_whether_the_card_is_held() {
+    use forza::collection::Copies;
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for held in [false, true] {
+        let mut view = CollectionView::sample(Scenario::Market);
+        let (stock, id) = view.market.picked.expect("a pick");
+        assert!(stock);
+        let card = view
+            .market
+            .stock
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .card
+            .clone();
+        view.cards.retain(|(c, _)| c.number != card.number);
+        if held {
+            let c = Copies {
+                earned: 2,
+                starter: 1,
+                imported: 0,
+                listed: 0,
+            };
+            view.cards.push((card.clone(), c));
+        }
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let line = if held {
+            forza_ui::text(Lang::En, "collection.market_held", &[("n", "3")])
+        } else {
+            forza_ui::text(Lang::En, "collection.market_held_none", &[])
+        };
+        assert!(h.query_by_label(&line).is_some(), "held={held}: {line:?}");
+    }
+}
+
 /// #375 test build: the "numbers may change" line tops the first start, the collection page and the market's opt-in
 /// of a test build only, inside the smallest window in every language (Italian is the longest), above the screen's
 /// first line (its title, the page's tokens, a tab's problem line).
