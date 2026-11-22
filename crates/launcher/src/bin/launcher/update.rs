@@ -358,8 +358,10 @@ fn install(top: &Path, dir: &Path, work: &Path, replace: impl FnOnce() -> Result
 /// At the start: the Launcher.exe.old an earlier update left, and the launchers an earlier kit had that this one replaced (a kit
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
-    if let Ok(me) = env::current_exe() {
-        tidy_beside(&me);
+    if let Ok(me) = env::current_exe()
+        && let Some(e) = tidy_beside(&me)
+    {
+        log(&format!("update: cannot remove {e}"));
     }
     if let Some(shipped) = manifest(&kit.dir().join("files.txt")) {
         let legacy: Vec<String> = LEGACY.iter().map(|&f| f.to_owned()).collect();
@@ -370,18 +372,22 @@ pub fn tidy(kit: &Kit) {
 }
 
 /// The self_replace leftovers, the `Launcher.exe.old` beside `me`, the running Launcher.exe, and the
-/// `Launcher.exe.restore` a killed put-back left.
-fn tidy_beside(me: &Path) {
+/// `Launcher.exe.restore` a killed put-back left.  Returns why `Launcher.exe.old` could not go, unless a swap holds it.
+fn tidy_beside(me: &Path) -> Option<io::Error> {
     if let Some(dir) = me.parent() {
         sweep_replaced(dir, me);
     }
     let mut old = me.as_os_str().to_owned();
     old.push(".old");
+    let old = Path::new(&old);
     match fs::remove_file(old) {
-        // held: a swap runs in another Launcher ([`swap_self`]), and its put-back may be writing the restore copy
-        Err(e) if e.kind() != io::ErrorKind::NotFound => {}
-        _ => {
+        // held without delete sharing (a sharing violation): a swap runs in another Launcher ([`swap_self`]), and its
+        // put-back may be writing the restore copy
+        Err(e) if old.is_file() && matches!(e.raw_os_error(), Some(32 | 33)) => None,
+        r => {
             let _ = fs::remove_file(me.with_extension("exe.restore"));
+            let e = r.err().filter(|e| e.kind() != io::ErrorKind::NotFound)?;
+            Some(io::Error::new(e.kind(), format!("{}: {e}", old.display())))
         }
     }
 }
@@ -774,12 +780,27 @@ mod tests {
             .share_mode(1) // as swap_self holds it
             .open(&kept)
             .unwrap();
-        tidy_beside(&me);
+        assert!(tidy_beside(&me).is_none(), "a held spare is not a failure");
         assert!(restore.exists() && kept.exists(), "a swap runs: both stay");
         drop(held);
-        tidy_beside(&me);
+        assert!(tidy_beside(&me).is_none());
         assert!(!restore.exists() && !kept.exists());
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// A `Launcher.exe.old` that can never go (here a folder; a read-only file or an ACL alike) is no swap: the stray
+    /// restore copy still goes, and the failure is returned for the log (#361).
+    #[test]
+    fn a_spare_that_cannot_go_does_not_keep_a_stray_restore() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&restore, b"half a launcher").unwrap();
+        fs::create_dir(&kept).unwrap();
+        let e = tidy_beside(&me).expect("the failure on Launcher.exe.old");
+        assert!(e.to_string().contains("Launcher.exe.old"), "{e}");
+        assert!(!restore.exists());
     }
 
     /// A second Launcher started between the copy and the swap runs its start's tidy: the kept copy must survive it,
