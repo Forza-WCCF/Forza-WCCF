@@ -2520,13 +2520,19 @@ mod tests {
         }
     }
 
-    /// #375: START OVER whose market RESET could not be queued tells the player, not only the log.
+    /// #375: START OVER whose market RESET could not be queued tells the player to press it again, in every language;
+    /// one that queued it does not. The `Reset` arm that sets the flag is not run here.
     #[test]
     fn start_over_says_when_the_market_reset_was_not_queued() {
-        let unsent = reset_done_line("old", true);
-        assert_eq!(unsent, tf("collection.reset_done_unsent", &[("folder", "old")]));
-        assert_ne!(unsent, reset_done_line("old", false));
-        assert!(unsent.contains("old"), "{unsent}");
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        for lang in Lang::ALL {
+            text::set(lang);
+            let again = t("collection.reset");
+            let (unsent, sent) = (reset_done_line("old", true), reset_done_line("old", false));
+            assert!(unsent.contains(&again) && unsent.contains("old"), "{lang:?}: {unsent}");
+            assert!(!sent.contains(&again) && sent.contains("old"), "{lang:?}: {sent}");
+        }
+        text::set(Lang::En);
     }
 
     /// F1: a pack, a craft or a conversion waits while a market request is on its way; START OVER too; the market's
