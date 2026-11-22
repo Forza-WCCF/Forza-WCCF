@@ -921,14 +921,20 @@ impl Client {
     /// START OVER in the market (PLAN.md 3.6): a RESET into the outbox, in place of a request in flight (the RESET
     /// undoes whatever that did on the server). Sent by the next [`Self::flush`] or request, also outside the market as
     /// this PC sees it (a JOIN whose answer was lost); nothing for a key made by this open. A sale waiting since LEAVE is
-    /// dropped with the old log. Gives the state before, for [`Self::save`] to put back when the profile reset fails.
-    pub fn queue_reset(&self) -> Result<Saved, Fail> {
-        // an unreadable state is moved aside by the first load, so the second reads the one it left
-        let before = Self::load(&self.data).or_else(|_| Self::load(&self.data))?;
-        // a lost or unreadable state has no time: a key from before may still be in the market (the server answers a
-        // RESET it does not know with `NOT_IN`, taken silently)
+    /// dropped with the old log. Gives the state before, for [`Self::save`] to put back when the profile reset fails,
+    /// and the [`Fail::Disk`] naming a state that could not be read and was moved aside, for the caller to log.
+    pub fn queue_reset(&self) -> Result<(Saved, Option<Fail>), Fail> {
+        // an unreadable state is moved aside by the first load, so the second reads the one it left in its place (none,
+        // so not joined, when that write failed too)
+        let (before, lost) = match Self::load(&self.data) {
+            Ok(s) => (s, None),
+            Err(e) => (Self::load(&self.data)?, Some(e)),
+        };
+        // a lost or unreadable state has no time: a key from before may still be in the market. A key made by an
+        // earlier open that never signed queues one too; the server answers a RESET it holds nothing for with
+        // `NOT_IN`, which `flush` takes silently (accepted: one round trip)
         if before.last_at == 0 && !self.had_key {
-            return Ok(before);
+            return Ok((before, lost));
         }
         let mut s = Saved {
             outbox: None,
@@ -938,7 +944,7 @@ impl Client {
         };
         let at = now_ms().max(s.last_at + 1);
         self.sign(&mut s, Verb::Reset, &[], at)?;
-        Ok(before)
+        Ok((before, lost))
     }
 
     /// COLLECT until it answers `collected` alone: the sales paid and the listings past 7 days back, in the log.
@@ -1681,7 +1687,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let c = scripted_client(dir.path());
         let data = dir.path().join("data");
-        assert_eq!(c.queue_reset().unwrap().last_at, 0);
+        assert_eq!(c.queue_reset().unwrap().0.last_at, 0);
         assert!(
             Client::saved(&data).outbox.is_none(),
             "never signed: nothing to reset"
@@ -1728,7 +1734,12 @@ mod tests {
                 None => std::fs::remove_file(data.join(STATE_FILE)).unwrap(),
                 Some(t) => std::fs::write(data.join(STATE_FILE), t).unwrap(),
             }
-            scripted_client(dir.path()).queue_reset().unwrap();
+            let (_, moved) = scripted_client(dir.path()).queue_reset().unwrap();
+            assert_eq!(
+                moved.is_some(),
+                lost.is_some(),
+                "the move aside is reported"
+            );
             let s = Client::saved(&data);
             assert_eq!(
                 s.outbox.map(|o| o.verb).as_deref(),

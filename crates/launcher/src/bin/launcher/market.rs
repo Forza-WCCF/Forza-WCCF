@@ -70,7 +70,7 @@ impl Market {
 /// START OVER in the market: RESET into the outbox on disk before the profile is archived, so it goes before any later
 /// request (the next job sends it) even after a crash between. Gives the state before, for [`put_back`] when the
 /// archive fails. Never while a job runs: that job's own save would drop it.
-pub fn queue_reset(data: &Path, collection: &Path) -> Result<Saved, Fail> {
+pub fn queue_reset(data: &Path, collection: &Path) -> Result<(Saved, Option<Fail>), Fail> {
     // the desk is not used: queueing sends nothing
     Client::open(([0, 0, 0, 0], 0).into(), data, collection)?.queue_reset()
 }

@@ -1538,7 +1538,12 @@ impl App {
                         market::queue_reset(&kit.data(), &dir)
                             .inspect_err(|e| log(&format!("market: RESET could not be queued: {e:?}")))
                             .ok()
-                            .map(|before| (dir, before))
+                            .map(|(before, lost)| {
+                                if let Some(e) = lost {
+                                    log(&format!("market: {e:?}"));
+                                }
+                                (dir, before)
+                            })
                     });
                     let done = collection::reset_kit(&kit);
                     if done.is_err()
