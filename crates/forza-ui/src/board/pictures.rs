@@ -591,13 +591,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
         true,
     );
     if let Some(f) = parts {
-        let g = fit(
-            p,
-            &card.name,
-            theme::display(rect.width() * 0.15),
-            theme::TEXT.gamma_multiply(alpha),
-            pic.width() - 8.0,
-        );
+        let g = name_galley(p, rect, pic, card, theme::TEXT.gamma_multiply(alpha));
         p.galley(
             pos2(
                 pic.center().x - g.size().x / 2.0,
@@ -626,7 +620,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
             alpha,
         );
     } else {
-        let g = fit(
+        let g = fit_elided(
             p,
             card.short_name(),
             theme::display(rect.width() * 0.26),
@@ -666,6 +660,18 @@ const MARK: f32 = 14.0;
 /// A drawn face's position band height.
 fn band_height(rect: Rect) -> f32 {
     (rect.height() * 0.17).max(13.0)
+}
+
+/// A big face's name on the foot of its picture `pic`, shrunk to the picture's width, cut with "…" past it (#306: a
+/// long catalogue name ran across the card).
+pub fn name_galley(p: &Painter, rect: Rect, pic: Rect, card: &Card, color: Color32) -> Arc<Galley> {
+    fit_elided(
+        p,
+        &card.name,
+        theme::display(rect.width() * 0.15),
+        color,
+        pic.width() - 8.0,
+    )
 }
 
 /// A big face's club line, shrunk to its room, cut with "…" past it.

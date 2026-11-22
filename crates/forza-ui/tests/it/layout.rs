@@ -1905,18 +1905,22 @@ fn card_badges_keep_off_the_club_name() {
                 for ci in st.board.slots.iter().flatten() {
                     let mut card = st.board.cards[*ci].clone();
                     let own = (card.club.clone(), false);
-                    // #306: a season far wider than the foot row's left part
-                    let seasons = [
-                        card.season.clone(),
-                        "2017-18 EUROPEAN EXTRA STARS".to_owned(),
+                    // #306: a name and a season far wider than their rooms
+                    let named = [
+                        (card.name.clone(), card.season.clone()),
+                        (
+                            "José Francisco MOLINA Giménez".to_owned(),
+                            "2017-18 EUROPEAN EXTRA STARS".to_owned(),
+                        ),
                     ];
-                    for (club, cut, season) in clubs
+                    for (club, cut, (name, season)) in clubs
                         .iter()
                         .map(|&(c, cut)| (c.to_owned(), cut))
                         .chain([own])
-                        .flat_map(|(c, cut)| seasons.clone().map(|s| (c.clone(), cut, s)))
+                        .flat_map(|(c, cut)| named.clone().map(|n| (c.clone(), cut, n)))
                     {
                         card.club = club;
+                        card.name = name;
                         card.season = season;
                         big += 1;
                         let f = board::face_parts(p, *rect, &card);
@@ -1939,6 +1943,17 @@ fn card_badges_keep_off_the_club_name() {
                             }
                         }
                         assert!(!f.pic.intersects(f.club), "{case}: the club on the picture");
+                        // the drawn name, centred on the picture's foot as `card_face` draws it: on the card
+                        let ng = board::name_galley(p, *rect, f.pic, &card, egui::Color32::WHITE);
+                        let name_at = egui::Rect::from_center_size(
+                            egui::pos2(f.pic.center().x, f.pic.bottom() - 2.0 - ng.size().y / 2.0),
+                            ng.size(),
+                        );
+                        assert!(
+                            rect.contains_rect(name_at),
+                            "{case}: name {:?} at {name_at:?}",
+                            card.name
+                        );
                         // the drawn season: its room's size, short of the chip and the mark
                         let sg = board::season_galley(
                             p,
