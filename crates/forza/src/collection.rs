@@ -1126,7 +1126,12 @@ pub fn first_start(
     cards: &[u32],
     why: &str,
 ) -> io::Result<Vec<Entry>> {
-    let welcome = !mark.exists();
+    // A welcome line already in this log or an archived one (START OVER) with the mark lost (a crash between the two
+    // writes, a restored or hand-cleaned `data\`): the mark comes back and no second welcome is paid (m6).
+    let welcome = !mark.exists() && !welcomed(log, mark)?;
+    if !welcome && !mark.exists() {
+        std::fs::write(mark, format!("{}\n", at.unix_timestamp()))?;
+    }
     let out = log.append_lines_at(at, |state| {
         if state.cards.values().any(|c| c.starter > 0) {
             return Ok(vec![]);
@@ -1151,11 +1156,35 @@ pub fn first_start(
         Ok(lines)
     })?;
     if out.iter().any(|e| e.kind == Kind::Welcome) {
-        // shortcut: a crash between the log's write and this one leaves no mark, so a later reset pays the welcome
-        // again; the market refuses a second welcome per key (3.1b). Upgrade if local tokens ever matter alone.
         std::fs::write(mark, format!("{}\n", at.unix_timestamp()))?;
     }
     Ok(out)
+}
+
+/// Whether `log` or a log archived by a reset (`profiles\archive\*\collection` beside `mark`, see
+/// [`crate::profile::reset`]) holds a welcome line.
+fn welcomed(log: &Log, mark: &std::path::Path) -> io::Result<bool> {
+    let mut logs = vec![log.clone()];
+    let archive = mark.with_file_name("profiles").join("archive");
+    match std::fs::read_dir(&archive) {
+        Ok(dirs) => {
+            for d in dirs {
+                logs.push(Log::new(d?.path().join("collection")));
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    for l in logs {
+        if l.lines()?
+            .lines()
+            .filter_map(|t| serde_json::from_str::<Entry>(t).ok())
+            .any(|e| e.kind == Kind::Welcome)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Why a copy cannot convert; the caller words it.
@@ -2546,13 +2575,43 @@ mod tests {
         assert_eq!(out.len(), 12);
         assert!(out.iter().all(|e| e.kind == Kind::Starter));
 
-        // the reset-after-crash path: starters in the log and the mark gone, so no second welcome
+        // the reset-after-crash path: starters in the log and the mark gone, so no second welcome; the mark is back
         std::fs::remove_file(&mark).unwrap();
         assert!(
             first_start(&log, &mark, at, &cards, "starter 2013")
                 .unwrap()
                 .is_empty()
         );
-        assert!(!mark.exists());
+        assert!(mark.is_file());
+    }
+
+    /// m6: the mark lost and the welcome's log archived by a reset (START OVER): the new log gets its starters and no
+    /// second welcome, and the mark comes back.
+    #[test]
+    fn a_lost_mark_with_an_archived_welcome_pays_no_second_welcome() {
+        let data = tempfile::tempdir().unwrap();
+        let mark = data.path().join(WELCOME_MARK);
+        let col = data
+            .path()
+            .join("profiles")
+            .join("create-a-team")
+            .join("collection");
+        std::fs::create_dir_all(&col).unwrap();
+        let at = when("2026-11-11T12:00:00+01:00");
+        let cards: Vec<u32> = (101..=112).collect();
+        assert_eq!(
+            first_start(&Log::new(&col), &mark, at, &cards, "starter All seasons")
+                .unwrap()
+                .len(),
+            13
+        );
+        crate::profile::reset(data.path(), None, "20261111-1200").unwrap();
+        std::fs::remove_file(&mark).unwrap();
+
+        std::fs::create_dir_all(&col).unwrap();
+        let out = first_start(&Log::new(&col), &mark, at, &cards, "starter 2013").unwrap();
+        assert_eq!(out.len(), 12);
+        assert!(out.iter().all(|e| e.kind == Kind::Starter));
+        assert!(mark.is_file());
     }
 }
