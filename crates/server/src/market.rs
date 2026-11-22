@@ -4079,7 +4079,9 @@ mod tests {
         fresh.add(t("2026-11-20T12:00:00+09:00"), Kind::Match, Some(20), 50);
         ask(&m, 1, Verb::Join, back + 2, &[], &fresh.text).unwrap();
         let list = stock_rows(&ask(&m, 1, Verb::Stock, back + 3, &[], &fresh.text).unwrap());
-        let (slot, card, price, _) = list[0];
+        // not the old purchase's card: at the same price its `stock_buy` line would match the new row
+        let old = card;
+        let &(slot, card, price, _) = list.iter().find(|r| r.1 != old).unwrap();
         assert_eq!(price, 36);
         assert_eq!(
             ask(
