@@ -341,6 +341,8 @@ fn board_and_buttons_with_real_data() {
     ];
     fs::write(&table, cards::table_text(&start)).unwrap();
     let spots = cards::board(&start, &[]).spots;
+    // the 2010-11 board this test drives: `board_slot_center` lays it out at the window's width, where the clamped
+    // `board_slot_center_1718` is the 2017-18 docked board's, whose mats move every pitch spot (#306)
     let at = |slot: usize| {
         let p = panel::board_slot_center(1440.0, &spots, slot);
         format!("{},{}", p.x as i32, p.y as i32)
