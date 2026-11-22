@@ -625,6 +625,7 @@ lobby.club: {en: "Club #%{id}", it: "Club #%{id}", ja: "クラブ #%{id}"}
 lobby.waiting: {en: "waiting…", it: "in attesa…", ja: "待機中…"}
 lobby.starting: {en: "Both ready: starting", it: "Entrambi pronti: si parte", ja: "両者準備OK：開始します"}
 lobby.empty: {en: "No arcades yet. Host one or type a server address.", it: "Nessuna sala. Aprine una o scrivi l'indirizzo di un server.", ja: "ゲームセンターなし。開くかサーバーアドレスを入力。"}
+lobby.empty_vs: {en: "No VS rooms yet. Host one or type a server address.", it: "Nessuna stanza VS. Aprine una o scrivi l'indirizzo di un server.", ja: "対戦ルームなし。開くかサーバーアドレスを入力。"}
 lobby.quick_none: {en: "No open arcade", it: "Nessuna sala aperta", ja: "空きのあるゲームセンターなし"}
 lobby.offline: {en: "Server not answering. Try again later.", it: "Il server non risponde. Riprova più tardi.", ja: "サーバーが応答しません。後でもう一度お試しください。"}
 lobby.retry: {en: "RETRY", it: "RIPROVA", ja: "再試行"}
