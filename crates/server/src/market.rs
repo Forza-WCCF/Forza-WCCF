@@ -289,6 +289,9 @@ const MATCH_GAP: time::Duration = time::Duration::minutes(3);
 /// them with no card cap; its heaviest reference player plays 12 a day (84 a week), so 120 leaves that player room and
 /// still bounds a forged log to 120 cards a week.
 const MATCHES_PER_WEEK: u32 = 120;
+/// No line is older than this (2026-11-11T00:00:00Z, Unix seconds): rules 2 and the collection log itself were first
+/// built that day (`7655f127`), so an honest log holds no earlier line.
+const RULES_2_FROM: i64 = 1_794_355_200;
 /// The starter's copies: 11 REGULAR cards and the picked RARE.
 const STARTER_CARDS: u32 = 12;
 const PACK_PRICES: [i64; 3] = [
@@ -344,16 +347,22 @@ fn take(rows: &mut Vec<(u32, i64)>, row: (u32, i64)) -> bool {
     true
 }
 
-/// The plausibility check (PLAN.md 3.4) under rules 2: the chain (`seq` and `prev` of every line), `match` lines 3
+/// The plausibility check (PLAN.md 3.4) under rules 2 at the server's time `now` (Unix ms): the chain (`seq` and
+/// `prev` of every line), no line dated before [`RULES_2_FROM`] or more than a day after `now`, `match` lines 3
 /// minutes apart and [`MATCHES_PER_WEEK`] a week at most, each paying what [`collection::match_tokens`] says at the
 /// week's counter ([`collection::week`], the line's own offset, as the Launcher counts it), one `welcome` of
-/// [`collection::WELCOME`], pack lines at a pack's price, crafts of white and
+/// [`collection::WELCOME`], pack lines at a pack's price and no card twice in one pack, crafts of white and
 /// black cards only at the table's price, conversions at [`collection::CONVERT_SHARE`] and only while another unlisted
 /// earned copy remains, no `convert` or `list` of a starter or imported copy, no `import` line while the 2010-11
 /// import is off, market lines inside the price band, each `stock_buy`, `market_buy` and `market_sell` line taking one
 /// row of `rows` (this key's ledger), and a balance never below zero. An unparsable last line is left out (the Launcher stopped mid-append; its next append cuts it). Returns the
 /// log's lines, or the first line that fails and why.
-pub fn check<'a>(log: &'a str, table: &Table, rows: &Rows) -> Result<Checked<'a>, String> {
+pub fn check<'a>(
+    log: &'a str,
+    table: &Table,
+    rows: &Rows,
+    now: u64,
+) -> Result<Checked<'a>, String> {
     let mut out = Checked::default();
     let mut rows = rows.clone();
     let mut held: HashMap<u32, Copies> = HashMap::new();
@@ -363,6 +372,7 @@ pub fn check<'a>(log: &'a str, table: &Table, rows: &Rows) -> Result<Checked<'a>
     let mut match_weeks: HashMap<u32, (i64, u32)> = HashMap::new();
     let mut starters = 0;
     let mut pack_left = 0;
+    let mut pack_cards: Vec<u32> = vec![];
     for (n, raw) in log.lines().enumerate().map(|(n, l)| (n + 1, l)) {
         if raw.trim().is_empty() {
             continue;
@@ -388,6 +398,20 @@ pub fn check<'a>(log: &'a str, table: &Table, rows: &Rows) -> Result<Checked<'a>
                 .unwrap_or_default()
         {
             return Err(no("prev is not the SHA-256 of the line before".into()));
+        }
+        // a forged log cannot invent weeks outside the real ones
+        let at_ms = e.at.unix_timestamp_nanos() / 1_000_000;
+        if e.at.unix_timestamp() < RULES_2_FROM {
+            return Err(no(format!(
+                "dated {}, before the collection log's rules 2 (2026-11-11)",
+                e.at
+            )));
+        }
+        if at_ms > i128::from(now) + i128::from(CLOCK_SLACK_MS) {
+            return Err(no(format!(
+                "dated {}, more than a day after the server's clock",
+                e.at
+            )));
         }
         let cap = match_cap(e.rules).ok_or_else(|| {
             no(format!(
@@ -517,12 +541,21 @@ pub fn check<'a>(log: &'a str, table: &Table, rows: &Rows) -> Result<Checked<'a>
                         )));
                     }
                     pack_left = collection::PACK_CARDS;
+                    pack_cards.clear();
                 }
+                // shortcut: a log can still name any card of an allowed tier on a pack or match line (the server deals
+                // none of them), so a forged log picks the most valuable; a statistical cap or server-dealt cards
+                // (#375 B2) close it before the release
                 Some((c, _)) => {
                     zero("a pack's card")?;
                     if pack_left == 0 {
                         return Err(no("a pack card without a paid pack before it".into()));
                     }
+                    // the Launcher deals no player twice in one pack (`collection::pack`)
+                    if pack_cards.contains(&c) {
+                        return Err(no(format!("card {c} twice in one pack")));
+                    }
+                    pack_cards.push(c);
                     pack_left -= 1;
                     held.entry(c).or_default().earned += 1;
                 }
@@ -1138,7 +1171,7 @@ impl Market {
                     bought: rows("'bought', 'bought_gone'")?,
                     paid: rows("'paid', 'paid_gone'")?,
                 };
-                checked = check(&req.log, &self.table, &rows)?;
+                checked = check(&req.log, &self.table, &rows, now)?;
                 let lines = &checked.lines;
                 let old: Vec<&str> = row
                     .as_ref()
@@ -1900,7 +1933,7 @@ mod tests {
         time::Duration::minutes(m)
     }
 
-    const START: &str = "2026-11-01T10:00:00+09:00";
+    const START: &str = "2026-11-15T10:00:00+09:00";
 
     /// The first start at `at`: 11 REGULAR starters (1-11), the picked RARE (51) and the welcome: 13 lines, 150 tokens.
     fn started_at(at: &str) -> Log {
@@ -1917,11 +1950,11 @@ mod tests {
     }
 
     fn refused(log: &Log) -> String {
-        check(&log.text, &table(), &Rows::default()).unwrap_err()
+        check(&log.text, &table(), &Rows::default(), NOW).unwrap_err()
     }
 
     fn passes(log: &Log) -> usize {
-        check(&log.text, &table(), &Rows::default())
+        check(&log.text, &table(), &Rows::default(), NOW)
             .unwrap()
             .lines
             .len()
@@ -1931,7 +1964,7 @@ mod tests {
     #[test]
     fn matches_closer_than_the_gap_are_refused() {
         let mut l = started();
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         for i in 0..8 {
             l.add(
                 at + time::Duration::seconds(75 * i),
@@ -1952,7 +1985,7 @@ mod tests {
     /// bound on the game itself.
     #[test]
     fn two_honest_matches_at_the_gap_pass() {
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         let mut l = started();
         l.add(at, Kind::Match, Some(20), 50)
             .add(at + MATCH_GAP, Kind::Match, Some(20), 50);
@@ -1984,21 +2017,21 @@ mod tests {
     /// 05:00) pass twice; past the cap a match deals its card for nothing.
     #[test]
     fn match_tokens_over_the_weeks_cap_are_refused() {
-        assert_eq!(passes(&matches("2026-11-03T10:00:00+09:00", 21)), 34);
-        let why = refused(&matches("2026-11-03T10:00:00+09:00", 22));
+        assert_eq!(passes(&matches("2026-11-17T10:00:00+09:00", 21)), 34);
+        let why = refused(&matches("2026-11-17T10:00:00+09:00", 22));
         assert!(
             why.contains("line 35")
-                && why.contains("the week 202645 holds 1050 of its 1050: this one pays 0"),
+                && why.contains("the week 202647 holds 1050 of its 1050: this one pays 0"),
             "{why}"
         );
-        let mut l = matches("2026-11-03T10:00:00+09:00", 21);
-        l.add(t("2026-11-04T10:00:00+09:00"), Kind::Match, Some(21), 0);
+        let mut l = matches("2026-11-17T10:00:00+09:00", 21);
+        l.add(t("2026-11-18T10:00:00+09:00"), Kind::Match, Some(21), 0);
         assert_eq!(passes(&l), 35);
         // Sunday night to 04:50 Monday, then from 05:00
-        let mut l = matches("2026-11-09T01:50:00+09:00", 21);
+        let mut l = matches("2026-11-23T01:50:00+09:00", 21);
         for i in 0..21 {
             l.add(
-                t("2026-11-09T05:00:00+09:00") + mins(9 * i),
+                t("2026-11-23T05:00:00+09:00") + mins(9 * i),
                 Kind::Match,
                 Some(21),
                 50,
@@ -2007,7 +2040,7 @@ mod tests {
         assert_eq!(passes(&l), 55);
         // one line paying more than a match pays
         let mut l = started();
-        l.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(20), 1_050);
+        l.add(t("2026-11-17T10:00:00+09:00"), Kind::Match, Some(20), 1_050);
         assert!(refused(&l).contains("one pays 0 to 50"));
     }
 
@@ -2015,7 +2048,7 @@ mod tests {
     /// refused, card or not.
     #[test]
     fn match_lines_over_the_weeks_count_are_refused() {
-        let at = t("2026-11-03T10:00:00+09:00");
+        let at = t("2026-11-17T10:00:00+09:00");
         let mut l = started();
         for i in 0..i64::from(MATCHES_PER_WEEK) {
             l.add(
@@ -2034,7 +2067,7 @@ mod tests {
         );
         let why = refused(&l);
         assert!(
-            why.contains("line 134") && why.contains("match 121 in the week 202645"),
+            why.contains("line 134") && why.contains("match 121 in the week 202647"),
             "{why}"
         );
     }
@@ -2042,14 +2075,14 @@ mod tests {
     /// M1: a `match` line pays what the week's counter says, so it cannot underpay to stay inside the cap.
     #[test]
     fn an_underpaid_match_is_refused() {
-        let at = t("2026-11-03T10:00:00+09:00");
+        let at = t("2026-11-17T10:00:00+09:00");
         let mut l = started();
         l.add(at, Kind::Match, Some(20), 50)
             .add(at + mins(3), Kind::Match, Some(20), 49);
         let why = refused(&l);
         assert!(
             why.contains("line 15")
-                && why.contains("the week 202645 holds 50 of its 1050: this one pays 50"),
+                && why.contains("the week 202647 holds 50 of its 1050: this one pays 50"),
             "{why}"
         );
         let mut l = started();
@@ -2061,7 +2094,7 @@ mod tests {
     /// reason, never an overflow panic.
     #[test]
     fn the_lowest_tokens_is_not_a_price() {
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         for (kind, card) in [
             (Kind::MarketBuy, Some(20)),
             (Kind::StockBuy, Some(20)),
@@ -2082,13 +2115,13 @@ mod tests {
     /// across a DST change); hopping offsets still meets each week's cap, so it gains at most the week at either end.
     #[test]
     fn offset_hopping_still_caps_each_week() {
-        let mut l = matches("2026-11-05T10:00:00+09:00", 21);
+        let mut l = matches("2026-11-19T10:00:00+09:00", 21);
         // Sunday 16:00 UTC: Monday 06:00 at +14:00 (the new week), then 9 minutes later Sunday 04:09 at -12:00
-        l.add(t("2026-11-09T06:00:00+14:00"), Kind::Match, Some(21), 50)
-            .add(t("2026-11-08T04:09:00-12:00"), Kind::Match, Some(21), 50);
+        l.add(t("2026-11-23T06:00:00+14:00"), Kind::Match, Some(21), 50)
+            .add(t("2026-11-22T04:09:00-12:00"), Kind::Match, Some(21), 50);
         let why = refused(&l);
         assert!(
-            why.contains("line 36") && why.contains("week 202645"),
+            why.contains("line 36") && why.contains("week 202647"),
             "{why}"
         );
     }
@@ -2097,7 +2130,7 @@ mod tests {
     #[test]
     fn an_import_line_is_refused_while_the_import_is_off() {
         let mut l = started();
-        l.add(t("2026-11-01T12:00:00+09:00"), Kind::Import, Some(30), 0);
+        l.add(t("2026-11-15T12:00:00+09:00"), Kind::Import, Some(30), 0);
         assert!(refused(&l).contains("2010-11 import"), "{}", refused(&l));
     }
 
@@ -2105,7 +2138,7 @@ mod tests {
     /// earned copy beside a starter copy is not a spare (the starter copy never makes an earned one convertible).
     #[test]
     fn a_starter_or_imported_copy_never_converts_or_lists() {
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         let mut l = started();
         l.add(at, Kind::Convert, Some(1), 8);
         assert!(refused(&l).contains("convert of a starter or imported copy of card 1"));
@@ -2121,7 +2154,7 @@ mod tests {
 
     #[test]
     fn prices_chain_and_balance_are_checked() {
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         // a craft below the table's price
         let mut l = started();
         l.add(at, Kind::Match, Some(20), 50)
@@ -2146,7 +2179,7 @@ mod tests {
         let l = started();
         let text = l.text.replacen("\"why\":\"\"", "\"why\":\"x\"", 1);
         assert!(
-            check(&text, &table(), &Rows::default())
+            check(&text, &table(), &Rows::default(), NOW)
                 .unwrap_err()
                 .contains("line 2: prev")
         );
@@ -2157,7 +2190,7 @@ mod tests {
             .map(|x| format!("{x}\n"))
             .collect();
         assert!(
-            check(&text, &table(), &Rows::default())
+            check(&text, &table(), &Rows::default(), NOW)
                 .unwrap_err()
                 .contains("line 3: seq 4")
         );
@@ -2168,9 +2201,14 @@ mod tests {
             .add(at, Kind::MarketSell, Some(20), 39);
         assert!(refused(&l).contains("outside its price band"));
         assert!(
-            check(&format!("not json\n{}", l.text), &table(), &Rows::default())
-                .unwrap_err()
-                .contains("line 1 does not parse")
+            check(
+                &format!("not json\n{}", l.text),
+                &table(),
+                &Rows::default(),
+                NOW
+            )
+            .unwrap_err()
+            .contains("line 1 does not parse")
         );
     }
 
@@ -2180,10 +2218,16 @@ mod tests {
         let l = started();
         let half = l.text.get(..40).unwrap();
         for log in [format!("{}{half}", l.text), format!("{}{half}\n\n", l.text)] {
-            let c = check(&log, &table(), &Rows::default()).unwrap();
+            let c = check(&log, &table(), &Rows::default(), NOW).unwrap();
             assert_eq!(c.lines.len(), 13);
         }
-        let why = check(&format!("{half}\n{}", l.text), &table(), &Rows::default()).unwrap_err();
+        let why = check(
+            &format!("{half}\n{}", l.text),
+            &table(),
+            &Rows::default(),
+            NOW,
+        )
+        .unwrap_err();
         assert!(why.starts_with("line 1 does not parse"), "{why}");
     }
 
@@ -2191,7 +2235,7 @@ mod tests {
     /// one beyond the balance are refused, each with the reason; a sold one at its price passes.
     #[test]
     fn a_rare_craft_and_unsold_stock_are_refused() {
-        let at = t("2026-11-01T12:00:00+09:00");
+        let at = t("2026-11-15T12:00:00+09:00");
         let mut l = started();
         l.add(at, Kind::Craft, Some(52), -600);
         assert!(
@@ -2201,9 +2245,9 @@ mod tests {
         let mut l = started();
         l.add(at, Kind::Craft, Some(21), -40);
         assert_eq!(passes(&l), 14);
-        let mut l = matches("2026-11-03T10:00:00+09:00", 5);
+        let mut l = matches("2026-11-17T10:00:00+09:00", 5);
         l.add(
-            t("2026-11-03T12:00:00+09:00"),
+            t("2026-11-17T12:00:00+09:00"),
             Kind::StockBuy,
             Some(41),
             -360,
@@ -2211,31 +2255,31 @@ mod tests {
         let never = "a stock purchase of card 41 for 360 tokens the server never sold";
         assert!(refused(&l).contains(never));
         assert!(
-            check(&l.text, &table(), &sold_slots(&[(41, 300)]))
+            check(&l.text, &table(), &sold_slots(&[(41, 300)]), NOW)
                 .unwrap_err()
                 .contains(never)
         );
         assert_eq!(
-            check(&l.text, &table(), &sold_slots(&[(41, 360)]))
+            check(&l.text, &table(), &sold_slots(&[(41, 360)]), NOW)
                 .unwrap()
                 .lines
                 .len(),
             19
         );
         l.add(
-            t("2026-11-03T12:01:00+09:00"),
+            t("2026-11-17T12:01:00+09:00"),
             Kind::StockBuy,
             Some(41),
             -360,
         );
         assert!(
-            check(&l.text, &table(), &sold_slots(&[(41, 360)]))
+            check(&l.text, &table(), &sold_slots(&[(41, 360)]), NOW)
                 .unwrap_err()
                 .contains(never)
         );
         let mut l = started();
         l.add(at, Kind::StockBuy, Some(56), -5_400);
-        let why = check(&l.text, &table(), &sold_slots(&[(56, 5_400)])).unwrap_err();
+        let why = check(&l.text, &table(), &sold_slots(&[(56, 5_400)]), NOW).unwrap_err();
         assert!(why.contains("below zero"), "{why}");
     }
 
@@ -2244,7 +2288,7 @@ mod tests {
     fn a_second_welcome_in_a_log_is_refused() {
         let mut l = started();
         l.add(
-            t("2026-11-02T10:00:00+09:00"),
+            t("2026-11-16T10:00:00+09:00"),
             Kind::Welcome,
             None,
             collection::WELCOME,
@@ -2277,7 +2321,7 @@ mod tests {
     /// purchase and a stock purchase.
     fn honest_month() -> String {
         let mut l = started();
-        let day0 = t("2026-11-01T11:00:00+09:00");
+        let day0 = t("2026-11-15T11:00:00+09:00");
         let mut balance = collection::WELCOME;
         let mut week = (0, 0);
         for d in 0..30 {
@@ -2332,7 +2376,7 @@ mod tests {
     #[test]
     fn an_honest_month_passes() {
         let text = honest_month();
-        let checked = check(&text, &table(), &month_rows()).unwrap();
+        let checked = check(&text, &table(), &month_rows(), NOW).unwrap();
         assert!(checked.lines.len() > 300, "{}", checked.lines.len());
         assert!(checked.welcome.is_some());
         let folded = collection::fold(&text);
@@ -2345,7 +2389,9 @@ mod tests {
         Market::with(table(), &dir.join("market.db")).unwrap()
     }
 
-    const NOW: u64 = 1_762_000_000_000;
+    /// 2027-01-30, a Saturday: after every test line (`rich(11)` ends 2027-01-26), since a line more than a day past
+    /// the server's clock is refused.
+    const NOW: u64 = 1_801_312_000_000;
 
     fn s(v: &str) -> Option<String> {
         Some(v.to_owned())
@@ -2436,7 +2482,7 @@ mod tests {
             for c in (1..=11).chain([51]) {
                 l.add(t(START), Kind::Starter, Some(c), 0);
             }
-            l.add(t("2026-11-01T12:00:00+09:00"), Kind::Match, Some(40), 50);
+            l.add(t("2026-11-15T12:00:00+09:00"), Kind::Match, Some(40), 50);
             l.text
         };
         let why = m
@@ -2490,14 +2536,14 @@ mod tests {
 
     /// [`earned`] as the key `[k; 32]`'s own log (its first start `k` seconds later): a log joins under one key.
     fn own(k: u8, cards: &[u32]) -> String {
-        earned_from(&format!("2026-11-01T10:00:{k:02}+09:00"), cards)
+        earned_from(&format!("2026-11-15T10:00:{k:02}+09:00"), cards)
     }
 
     /// [`earned`] with the first start at `start`: another installation's log.
     fn earned_from(start: &str, cards: &[u32]) -> String {
         let mut l = started_at(start);
         for (i, c) in cards.iter().enumerate() {
-            let at = t("2026-11-01T12:00:00+09:00") + mins(9 * i as i64);
+            let at = t("2026-11-15T12:00:00+09:00") + mins(9 * i as i64);
             l.add(at, Kind::Match, Some(*c), 50);
         }
         l.text
@@ -2817,7 +2863,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
         let mut l = started();
-        l.add(t("2026-11-03T12:00:00+09:00"), Kind::Match, Some(20), 50);
+        l.add(t("2026-11-17T12:00:00+09:00"), Kind::Match, Some(20), 50);
         ask(&m, 1, Verb::Join, NOW, &[], &l.text).unwrap();
         for (at, c) in [(NOW + 1, 1u32), (NOW + 2, 51)] {
             let price = collection::ceiling_value(table().value(c).unwrap());
@@ -2975,10 +3021,10 @@ mod tests {
 
     /// [`rich`] as the key `[k; 32]`'s own log, as [`own`].
     fn rich_of(k: u8, weeks: i64) -> String {
-        let mut l = started_at(&format!("2026-11-01T10:00:{k:02}+09:00"));
+        let mut l = started_at(&format!("2026-11-15T10:00:{k:02}+09:00"));
         for w in 0..weeks {
             for i in 0..21 {
-                let at = t("2026-11-03T10:00:00+09:00") + time::Duration::weeks(w) + mins(9 * i);
+                let at = t("2026-11-17T10:00:00+09:00") + time::Duration::weeks(w) + mins(9 * i);
                 l.add(at, Kind::Match, Some(20), 50);
             }
         }
@@ -2990,7 +3036,7 @@ mod tests {
         let last = log.lines().last().unwrap();
         let line = Entry {
             seq: log.lines().count() as u64 + 1,
-            at: t("2026-12-01T10:00:00+09:00"),
+            at: t("2026-12-15T10:00:00+09:00"),
             rules: RULES,
             kind,
             card: Some(card),
@@ -3081,7 +3127,7 @@ mod tests {
         }
         ask(&m, 1, Verb::Join, NOW, &[], &log).unwrap();
         let mut bad = started();
-        bad.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(20), 1_050);
+        bad.add(t("2026-11-17T10:00:00+09:00"), Kind::Match, Some(20), 1_050);
         for (at, verb) in [(NOW + 1, Verb::Stock), (NOW + 2, Verb::StockBuy)] {
             let args: &[u64] = if verb == Verb::Stock {
                 &[]
@@ -3176,18 +3222,18 @@ mod tests {
                 params![key_hash(&[3; 32])],
             )
             .unwrap();
-        let mut l = started_at("2026-11-01T10:00:03+09:00");
-        l.add(t("2026-11-03T10:00:00+09:00"), Kind::Match, Some(57), 50)
-            .add(t("2026-11-03T10:01:00+09:00"), Kind::List, Some(57), 0)
+        let mut l = started_at("2026-11-15T10:00:03+09:00");
+        l.add(t("2026-11-17T10:00:00+09:00"), Kind::Match, Some(57), 50)
+            .add(t("2026-11-17T10:01:00+09:00"), Kind::List, Some(57), 0)
             .add(
-                t("2026-11-03T10:02:00+09:00"),
+                t("2026-11-17T10:02:00+09:00"),
                 Kind::MarketSell,
                 Some(57),
                 199,
             );
         for i in 0..10 {
             l.add(
-                t("2026-11-03T11:00:00+09:00") + mins(9 * i),
+                t("2026-11-17T11:00:00+09:00") + mins(9 * i),
                 Kind::Match,
                 Some(20),
                 50,
@@ -3293,19 +3339,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = stock_market(dir.path(), Stock::default());
         let log = earned(&[20]);
-        ask(&m, 1, Verb::Join, ms("2026-11-19T03:00:00Z"), &[], &log).unwrap();
-        let night = ask(&m, 1, Verb::Stock, ms("2026-11-19T03:00:01Z"), &[], &log).unwrap();
+        ask(&m, 1, Verb::Join, ms("2026-12-03T03:00:00Z"), &[], &log).unwrap();
+        let night = ask(&m, 1, Verb::Stock, ms("2026-12-03T03:00:01Z"), &[], &log).unwrap();
         let late = ask(
             &m,
             1,
             Verb::Stock,
-            ms("2026-11-19T03:59:59.999Z"),
+            ms("2026-12-03T03:59:59.999Z"),
             &[],
             &log,
         )
         .unwrap();
         assert_eq!(late, night);
-        let at = ms("2026-11-19T04:00:00Z");
+        let at = ms("2026-12-03T04:00:00Z");
         let morning = ask(&m, 1, Verb::Stock, at, &[], &log).unwrap();
         assert_ne!(morning, night);
         assert_eq!(stock_day(at), stock_day(at - 1) + 1);
@@ -3371,7 +3417,7 @@ mod tests {
             Ok(format!("{} lines", written.lines().count()))
         );
         let kh = key_hash(&[1; 32]);
-        let checked = check(&written, &m.table, &sold_slots(&[(card, price)])).unwrap();
+        let checked = check(&written, &m.table, &sold_slots(&[(card, price)]), NOW).unwrap();
         let db = m.db.lock().unwrap();
         assert_eq!(spendable(&db, &kh, &checked).unwrap(), checked.balance);
         db.execute(
@@ -3430,7 +3476,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let m = stock_market(dir.path(), Stock::default());
         let log = earned(&[20]);
-        let now = ms("2026-11-19T03:00:00Z");
+        let now = ms("2026-12-03T03:00:00Z");
         ask(&m, 1, Verb::Join, now, &[], &log).unwrap();
         let today = ask(&m, 1, Verb::Stock, now + 1, &[], &log).unwrap();
         let ahead = now + 23 * 3600 * 1000;
@@ -3475,7 +3521,7 @@ mod tests {
         let why = ask(&m, 1, Verb::Buy, next(), &[1, 20, 38], &seller).unwrap_err();
         assert!(why.contains("own listing"), "{why}");
         // 150 tokens: three purchases at 38 whose lines the log lacks leave 36, with the lines too
-        let buyer = started_at("2026-11-01T10:00:02+09:00").text;
+        let buyer = started_at("2026-11-15T10:00:02+09:00").text;
         ask(&m, 2, Verb::Join, next(), &[], &buyer).unwrap();
         for id in 1..=3 {
             assert_eq!(
@@ -3488,10 +3534,10 @@ mod tests {
             ask(&m, 2, Verb::Buy, next(), &[4, 23, 38], &buyer).unwrap_err(),
             short
         );
-        let mut written = started_at("2026-11-01T10:00:02+09:00");
+        let mut written = started_at("2026-11-15T10:00:02+09:00");
         for c in 20..23 {
             written.add(
-                t("2026-11-02T12:00:00+09:00"),
+                t("2026-11-16T12:00:00+09:00"),
                 Kind::MarketBuy,
                 Some(c),
                 -38,
@@ -3511,7 +3557,7 @@ mod tests {
             "this installation has no listing with that id"
         );
         // the seller at the week's 10 sales: its listings leave BROWSE and do not sell until the week turns
-        let buyer3 = started_at("2026-11-01T10:00:03+09:00").text;
+        let buyer3 = started_at("2026-11-15T10:00:03+09:00").text;
         ask(&m, 3, Verb::Join, next(), &[], &buyer3).unwrap();
         let set = |n: u32| {
             Connection::open(dir.path().join("market.db"))
@@ -3685,14 +3731,14 @@ mod tests {
         l.why = "p".repeat(400);
         for i in 0..10 {
             l.add(
-                t("2026-11-01T12:00:00+09:00") + mins(9 * i),
+                t("2026-11-15T12:00:00+09:00") + mins(9 * i),
                 Kind::Match,
                 Some(20),
                 50,
             );
         }
         l.why = String::from_utf8(MARK.to_vec()).unwrap();
-        l.add(t("2026-11-01T14:00:00+09:00"), Kind::Match, Some(20), 50);
+        l.add(t("2026-11-15T14:00:00+09:00"), Kind::Match, Some(20), 50);
         let found = || {
             ["market.db", "market.db-wal"].iter().any(|f| {
                 std::fs::read(dir.path().join(f))
@@ -3724,7 +3770,7 @@ mod tests {
             .is_empty()
         );
         m.handle(&req(Verb::Reset, NOW + 1, ""), NOW).unwrap();
-        let again = started_at("2026-11-05T10:00:00+09:00");
+        let again = started_at("2026-11-19T10:00:00+09:00");
         let why = m
             .handle(&req(Verb::Join, NOW + 2, &again.text), NOW)
             .unwrap_err();
@@ -3951,7 +3997,7 @@ mod tests {
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
         let seller = plus(&seller, Kind::List, 57, 0);
-        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20, 20]); // 300 tokens
+        let buyer = earned_from("2026-11-15T10:00:07+09:00", &[20, 20, 20]); // 300 tokens
         ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
         ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
         let list = stock_rows(&ask(&m, 2, Verb::Stock, NOW + 4, &[], &buyer).unwrap());
@@ -3993,7 +4039,7 @@ mod tests {
         let seller = earned(&[57]);
         ask(&m, 1, Verb::Join, NOW, &[], &seller).unwrap();
         ask(&m, 1, Verb::List, NOW + 1, &[57, 228], &seller).unwrap();
-        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20]);
+        let buyer = earned_from("2026-11-15T10:00:07+09:00", &[20, 20]);
         ask(&m, 2, Verb::Join, NOW + 2, &[], &buyer).unwrap();
         ask(&m, 2, Verb::Buy, NOW + 3, &[1, 57, 228], &buyer).unwrap();
         ask(&m, 1, Verb::Collect, NOW + 4, &[], "").unwrap();
@@ -4018,7 +4064,7 @@ mod tests {
     fn a_refused_request_sent_again_is_old() {
         let dir = tempfile::tempdir().unwrap();
         let m = market(dir.path());
-        let buyer = earned_from("2026-11-01T10:00:07+09:00", &[20, 20]);
+        let buyer = earned_from("2026-11-15T10:00:07+09:00", &[20, 20]);
         ask(&m, 2, Verb::Join, NOW, &[], &buyer).unwrap();
         let early = ask(&m, 2, Verb::Buy, NOW + 1, &[1, 57, 228], &buyer);
         assert_eq!(early, Err(GONE.into()));
@@ -4050,7 +4096,7 @@ mod tests {
             ask(&m, 2, Verb::Stock, NOW + 2, &[], &log).unwrap_err(),
             NOT_IN
         );
-        let own = earned_from("2026-11-01T10:00:07+09:00", &[20]);
+        let own = earned_from("2026-11-15T10:00:07+09:00", &[20]);
         ask(&m, 2, Verb::Join, NOW + 3, &[], &own).unwrap();
         ask(&m, 1, Verb::Reset, NOW + 5, &[], "").unwrap();
         ask(&m, 1, Verb::Leave, NOW + 6, &[], "").unwrap();
@@ -4173,9 +4219,9 @@ mod tests {
         // the new history: 12 starters and a match, 50 tokens, no welcome
         let mut fresh = Log::default();
         for c in (1..=11).chain([51]) {
-            fresh.add(t("2026-11-20T10:00:00+09:00"), Kind::Starter, Some(c), 0);
+            fresh.add(t("2026-12-04T10:00:00+09:00"), Kind::Starter, Some(c), 0);
         }
-        fresh.add(t("2026-11-20T12:00:00+09:00"), Kind::Match, Some(20), 50);
+        fresh.add(t("2026-12-04T12:00:00+09:00"), Kind::Match, Some(20), 50);
         ask(&m, 1, Verb::Join, back + 2, &[], &fresh.text).unwrap();
         let list = stock_rows(&ask(&m, 1, Verb::Stock, back + 3, &[], &fresh.text).unwrap());
         // not the old purchase's card: at the same price its `stock_buy` line would match the new row
@@ -4284,5 +4330,41 @@ mod tests {
             key_hash(&[3; 32])
         );
         assert_eq!(row(dir.path(), &moved), [[s("paid")]]);
+    }
+
+    /// #375 B2: a pack that holds one card twice is refused; the Launcher never deals a player twice in one pack.
+    #[test]
+    fn a_pack_with_one_card_twice_is_refused() {
+        let at = t("2026-11-15T12:00:00+09:00");
+        let mut l = started();
+        l.add(at, Kind::Pack, None, -100);
+        for c in [20, 21, 20] {
+            l.add(at, Kind::Pack, Some(c), 0);
+        }
+        let why = refused(&l);
+        assert!(why.contains("line 17: card 20 twice in one pack"), "{why}");
+    }
+
+    /// #375 B2: a line dated more than a day after the server's clock is refused: a forged log cannot invent weeks
+    /// ahead of the real ones.
+    #[test]
+    fn a_line_past_the_servers_clock_is_refused() {
+        let mut l = started();
+        l.add(t("2030-01-07T12:00:00+09:00"), Kind::Match, Some(20), 50);
+        let why = refused(&l);
+        assert!(why.contains("line 14: dated 2030-01-07"), "{why}");
+        assert!(
+            why.contains("more than a day after the server's clock"),
+            "{why}"
+        );
+    }
+
+    /// #375 B2: a line dated before the collection log's rules 2 existed is refused: a forged log cannot invent weeks
+    /// before the real ones.
+    #[test]
+    fn a_line_before_rules_2_is_refused() {
+        let why = refused(&started_at("2026-11-10T10:00:00+09:00"));
+        assert!(why.contains("line 1: dated 2026-11-10"), "{why}");
+        assert!(why.contains("before the collection log's rules 2"), "{why}");
     }
 }

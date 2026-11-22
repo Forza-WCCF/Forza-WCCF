@@ -96,10 +96,11 @@ clock; an older one answers `NO an old request (sent twice?), the last at <ms>` 
 again past that time), `sig` the signature of the whole body (hex), `size` at most 8 MiB (the Launcher refuses a
 bigger log before sending). The words count in the per-address `RESERVE`/`CREATE` limit (`NO slow`), and the bodies
 read at once hold 8 × 8 MiB of body bytes in all at most, counted as they arrive, 2 bodies from one address. The replay test comes before the check. The check (`market::check`)
-refuses, naming the line: a broken chain, `match` lines under 3 minutes apart or past 120 in a week, a match not
+refuses, naming the line: a broken chain, a line dated before 2026-11-11 (rules 2) or more than a day past the server's
+clock, `match` lines under 3 minutes apart or past 120 in a week, a match not
 paying what its week's counter says (50 each until the week's cap of 1,050, nothing from the 22nd; the week turns
 Monday 05:00 in the line's own offset), a second `welcome` (also after a
-RESET: the key keeps the mark), a pack or craft not paid at the table's price, a craft above black, a convert of a
+RESET: the key keeps the mark), a pack or craft not paid at the table's price, a pack holding one card twice, a craft above black, a convert of a
 starter, imported or last unlisted earned copy, a listing of a starter or imported copy, any `import` line (the
 2010-11 import is off until it comes back with its own limits), market lines outside the price band, a
 `stock_buy`, `market_buy` or `market_sell` line without its own stock sale, listing purchase or paid sale of that
