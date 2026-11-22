@@ -29,8 +29,8 @@ INSTALLAZIONE (una volta sola)
 LAUNCHER
   GIOCA            DOVE GIOCARE (Questo PC o Online), poi GIOCA. FERMA IL GIOCO chiude il gioco (durante una
                    partita: CLICCA ANCORA).
-  CONFIGURAZIONE   cartella del gioco, CONFIGURA, ANNULLA CONFIGURAZIONE; IMMAGINI CARTE (Dal gioco, oppure
-                   Pacchetto HQ con Scegli pacchetto); RIPULISCI DOPO UN BLOCCO (toglie i resti di un blocco o di una visita in sala interrotta; il
+  CONFIGURAZIONE   cartella del gioco, CONFIGURA, ANNULLA CONFIGURAZIONE; IMMAGINI CARTE (Scarica le immagini
+                   delle carte in alta qualità; poi Rimuovi riporta quelle del gioco); RIPULISCI DOPO UN BLOCCO (toglie i resti di un blocco o di una visita in sala interrotta; il
                    club resta, una copia va prima in data\backup; non mentre il gioco è in esecuzione).
   AGGIORNAMENTO    elenca le versioni pubblicate: sceglietene una, poi AGGIORNA. Il gioco viene configurato di nuovo
                    da solo; club e impostazioni restano.
@@ -60,8 +60,8 @@ TASTI
 ONLINE
   1. In GIOCA scegliete Online. Aprite Indirizzo del server e scrivete l'indirizzo del server (HOST o HOST:PORTA). Il
      server del progetto accetta solo gli indirizzi della sua lista: chiedete a chi lo gestisce di aggiungere il
-     vostro. In SALE GIOCHI, APRI SALA apre una sala e ne mostra il codice; gli amici lo scrivono in Codice stanza,
-     oppure scelgono una stanza dell'elenco e premono ENTRA. Nome della sala, sotto APRI SALA, è il nome che gli altri
+     vostro. In SALE GIOCHI, APRI SALA apre una sala e ne mostra il codice; gli amici lo scrivono in Codice della sala,
+     oppure scelgono una sala dell'elenco e premono ENTRA. Nome della sala, sotto APRI SALA, è il nome che gli altri
      vedono nell'elenco.
   Tasti della lobby: Su/Giù riga, Invio ENTRA, H APRI SALA, F5 aggiorna, Esc ESCI.
   Gamepad: croce o stick sinistro per muoversi, A = Invio, B = Esc, X = aggiorna, Y = APRI SALA.

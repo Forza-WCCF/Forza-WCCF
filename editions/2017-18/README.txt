@@ -27,7 +27,7 @@ INSTALL (once)
 
 LAUNCHER
   PLAY      WHERE TO PLAY (This PC or Online), then PLAY. STOP THE GAME closes the game (during a match: CLICK AGAIN).
-  SETUP     game folder, SET UP, UNDO SETUP; CARD PICTURES (From the game, or High-quality pack with Choose pack);
+  SETUP     game folder, SET UP, UNDO SETUP; CARD PICTURES (Download high-quality card pictures; later Remove brings back the game's own);
             CLEAN UP AFTER A CRASH (removes what a crash or a dropped arcade visit left; your club is kept, a copy goes
             to data\backup first; not while the game runs).
   UPDATE    lists the published releases: pick one, then UPDATE. The game is set up again by itself; your clubs and
@@ -57,7 +57,7 @@ KEYS
 ONLINE
   1. Pick Online under PLAY. Open Server address and type the server's address (HOST or HOST:PORT). The project's
      server only admits addresses on its allow list: ask its operator to add yours. In ARCADES, HOST ARCADE opens
-     an arcade and shows its code; friends type it in Room code, or JOIN a listed arcade room. Arcade name, under
+     an arcade and shows its code; friends type it in Arcade code, or JOIN a listed arcade room. Arcade name, under
      HOST ARCADE, is the name others see in the list.
   Lobby keys: Up/Down row, Enter JOIN, H HOST ARCADE, F5 refresh, Esc LEAVE.
   Gamepad: D-pad or left stick move, A = Enter, B = Esc, X = refresh, Y = HOST ARCADE.
