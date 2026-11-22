@@ -2124,6 +2124,7 @@ mod tests {
 
     #[test]
     fn a_job_is_not_started_over_a_busy_one() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
         shared().busy = true;
         assert!(!start(vec![Step::Pictures]), "a busy worker takes no second job");
         shared().busy = false;

@@ -9,8 +9,8 @@ use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 
 static CHOSEN: AtomicUsize = AtomicUsize::new(0);
 
-/// Tests that set the language or read the status line hold it: both are global, and plain `cargo test` runs tests
-/// on threads of one process.
+/// Tests that set the language or touch the window's shared state (the status line, the bar) hold it: both are global
+/// and plain `cargo test` runs tests on threads of one process.
 #[cfg(test)]
 pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
