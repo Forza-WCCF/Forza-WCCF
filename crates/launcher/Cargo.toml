@@ -65,7 +65,6 @@ csv = "1.4.0"
 object.workspace = true
 sha2.workspace = true
 fs4.workspace = true
-self-replace.workspace = true
 
 [dev-dependencies]
 # tests/it/sound.rs: Core Audio's interface for the starting volumes forza::sound sets

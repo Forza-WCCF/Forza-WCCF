@@ -3534,7 +3534,6 @@ dependencies = [
  "object",
  "regex",
  "rfd",
- "self-replace",
  "serde_json",
  "sha2",
  "tempfile",
@@ -5931,17 +5930,6 @@ name = "seize"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
-
-[[package]]
-name = "self-replace"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "609c5606d9d357b26e4ee1a7a01beac396628d0fa01ebbade2a09cefb88e65af"
-dependencies = [
- "fastrand",
- "tempfile",
- "windows-sys 0.61.2",
-]
 
 [[package]]
 name = "self_cell"
