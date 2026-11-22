@@ -76,7 +76,7 @@ KNOWN ISSUES
   - The control program may crash after about 90 minutes idle. Restart the game; your club is kept.
   - Registering a team may wait about 95 seconds before it goes on.
   - An update that was cut off may leave the folder with no Launcher.exe. Rename Launcher.exe.old to
-    Launcher.exe, or unzip the download into the folder again to repair it.
+    Launcher.exe, or unzip the download again and copy its files over the ones in this folder.
 
 ANTIVIRUS AND SMARTSCREEN
   The programs are unsigned, and Forza-WCCF changes copies of the game's programs (never the originals, kept in

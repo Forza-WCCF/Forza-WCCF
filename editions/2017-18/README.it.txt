@@ -81,7 +81,7 @@ PROBLEMI NOTI
   - Il programma di controllo può chiudersi dopo circa 90 minuti di inattività. Riavviate il gioco; il club resta.
   - La registrazione di una squadra può restare ferma circa 95 secondi prima di andare avanti.
   - Un aggiornamento interrotto può lasciare la cartella senza Launcher.exe. Rinominate Launcher.exe.old in
-    Launcher.exe, oppure estraete di nuovo il download nella cartella per ripararla.
+    Launcher.exe, oppure estraete di nuovo il download e copiate i suoi file sopra quelli di questa cartella.
 
 ANTIVIRUS E SMARTSCREEN
   I programmi non sono firmati e Forza-WCCF modifica copie dei programmi del gioco (mai gli originali, che restano in
