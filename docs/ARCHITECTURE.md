@@ -91,7 +91,7 @@ and its `.sha256`.
 | Game controllers | `gilrs` |
 | Registry | `winreg` |
 | Crash dumps | `minidump-writer` |
-| UPDATE download and self-replace | `ureq`, `zip`, `self-replace` |
+| UPDATE download and the Launcher.exe swap (copy beside, flushed, two renames) | `ureq`, `zip` |
 | First-run junction | `junction` |
 | Catalogue table, card pictures | `egui_extras` |
 | Version info in the exes | `winresource` |

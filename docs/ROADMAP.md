@@ -20,8 +20,8 @@ Release 1 (1.0.0) waits on the live gates in #314.
 - **All Rust** (#28): the hooks, the guards (`wccfnet`, `netguard`), the 32-bit programs beside the game and the
   2010–11 server hook; the C sources, `clang-cl` and MinGW are gone.
 - **Releases:** 0.3.3 (2026-10-24), 0.4.0 and 0.4.1 (2026-10-26).
-- **UPDATE:** this repository's releases, one ZIP per edition, SHA-256 checked, `self-replace` for Launcher.exe, a
-  notice until UPDATE is opened; the new Launcher.exe starts after an update (#47).
+- **UPDATE:** this repository's releases, one ZIP per edition, SHA-256 checked, Launcher.exe swapped by two renames
+  after a flushed copy beside it, a notice until UPDATE is opened; the new Launcher.exe starts after an update (#47).
 - **Online:** one `forza-server` (desk, relay, 2017–18 game server, matcher, reflect); the lobby (2010–11 arcades,
   2017–18 VS rooms, Rejoin, gamepad); direct VS over `vslink`.
 - **2017–18 stand-in parity** (#25): whole saves round-trip, GAME_CTRL defaults, the item shop and purchases, Best
