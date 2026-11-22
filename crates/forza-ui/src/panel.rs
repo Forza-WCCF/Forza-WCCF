@@ -1584,6 +1584,12 @@ fn reset_lit(st: &PanelState) -> bool {
     !st.in_match && st.before_match.is_some() && st.reset_ready
 }
 
+/// RESET LINEUP is greyed for a table that already holds the lineup kept at the last match's start: the click that
+/// changed nothing.
+fn reset_same(st: &PanelState) -> bool {
+    !st.in_match && st.before_match.is_some() && !st.reset_ready
+}
+
 /// RESET LINEUP's hover text: where it goes back to, or why it is greyed out.
 fn reset_hint(st: &PanelState, lang: Lang) -> String {
     let at = st.before_match_at.clone().unwrap_or_default();
@@ -3831,8 +3837,9 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
                 .font(theme::body(HINT))
                 .color(theme::TEXT),
         );
-    } else if st.edition == Edition::E1718 && !reset_lit(st) {
-        // a greyed button takes no hover on a touch screen: why it is grey stays in view, in the hint's place
+    } else if st.edition == Edition::E1718 && reset_same(st) {
+        // a greyed button takes no hover on a touch screen: the reason the click changed nothing stays in view, in
+        // the hint's place; before the first match and in a match the drag hint keeps it, with the reason on hover
         b.add(
             egui::Label::new(
                 egui::RichText::new(reset_hint(st, lang))

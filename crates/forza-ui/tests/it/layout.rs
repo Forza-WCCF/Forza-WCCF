@@ -323,15 +323,16 @@ fn vs_lobby_and_pause_button_hidden_1718() {
 }
 
 /// RESET LINEUP is offered outside a match with a kept table the board does not already hold, and greyed out in a
-/// match, before any table was kept, or while the board holds the kept table (a click there changed nothing); while
-/// greyed, its reason shows under the board in the hint's place, without hover (UX review 2026-11-22).
+/// match, before any table was kept, or while the board holds the kept table (a click there changed nothing). Only
+/// the last case shows its reason under the board in the hint's place: the other two keep the drag hint, with the
+/// reason on hover (UX review 2026-11-22).
 #[test]
 fn board_reset_lineup_offered_outside_a_match() {
-    for (in_match, kept, ready, why) in [
-        (false, true, true, None),
-        (true, true, true, Some("board.reset_match")),
-        (false, false, false, Some("board.reset_none")),
-        (false, true, false, Some("board.reset_same")),
+    for (in_match, kept, ready, why, same) in [
+        (false, true, true, None, false),
+        (true, true, true, Some("board.reset_match"), false),
+        (false, false, false, Some("board.reset_none"), false),
+        (false, true, false, Some("board.reset_same"), true),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         st.in_match = in_match;
@@ -349,21 +350,22 @@ fn board_reset_lineup_offered_outside_a_match() {
             why.is_some(),
             "{why:?}"
         );
-        let hint = forza_ui::text(Lang::En, "board.hint", &[]);
-        match why {
-            Some(k) => {
-                let line = forza_ui::text(Lang::En, k, &[("at", "")]);
-                assert!(h.query_by_label(&line).is_some(), "{k} under the board");
-                assert!(h.query_by_label(&hint).is_none(), "{k} in the hint's place");
-            }
-            None => assert!(h.query_by_label(&hint).is_some()),
+        let key = if same { why.unwrap() } else { "board.hint" };
+        let line = forza_ui::text(Lang::En, key, &[("at", "")]);
+        assert!(h.query_by_label(&line).is_some(), "{key} under the board");
+        // the drag hint's place: the greyed button's reason stays on its hover
+        if let Some(k) = why.filter(|_| !same) {
+            h.get_by_label("RESET LINEUP").hover();
+            h.run_steps(12);
+            let reason = forza_ui::text(Lang::En, k, &[("at", "")]);
+            assert!(h.query_by_label(&reason).is_some(), "{k} on hover");
         }
     }
 }
 
-/// RESET LINEUP's reason, while it is greyed, keeps clear of the board's buttons: under them on the game window's
-/// board at 1440x900, at their left on the pop-out board, in English, Italian and Japanese. A just-taken-off card's
-/// UNDO line still takes its place. Laid out only: no GPU.
+/// RESET LINEUP's reason, while the table already holds the kept lineup, keeps clear of the board's buttons: under
+/// them on the game window's board at 1440x900, at their left on the pop-out board, in English, Italian and Japanese.
+/// A just-taken-off card's UNDO line still takes its place. Laid out only: no GPU.
 #[test]
 fn board_reset_reason_clear_of_the_buttons() {
     for (w, h, desk, buttons) in [
@@ -373,25 +375,19 @@ fn board_reset_reason_clear_of_the_buttons() {
     ] {
         let size = Vec2::new(w, h);
         for lang in Lang::ALL {
-            for (key, kept, in_match) in [
-                ("board.reset_none", false, false),
-                ("board.reset_same", true, false),
-                ("board.reset_match", true, true),
-            ] {
+            {
                 let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
                 st.desk = desk;
                 st.file.board_window = desk;
                 st.file.board_buttons = buttons;
-                st.in_match = in_match;
-                if kept {
-                    st.before_match = Some(forza::cards::table_after(&[], &st.board));
-                    st.before_match_at = Some("21:40".into());
-                }
+                st.before_match = Some(forza::cards::table_after(&[], &st.board));
+                st.before_match_at = Some("21:40".into());
                 let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
                 hs.run_steps(8);
                 let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
                 let first = if desk { "board.dock" } else { "board.pop_out" };
                 let r = [first, "board.reset", "form.open"].map(at);
+                let key = "board.reset_same";
                 let line = hs
                     .get_by_label(&forza_ui::text(lang, key, &[("at", "21:40")]))
                     .rect();
@@ -413,6 +409,8 @@ fn board_reset_reason_clear_of_the_buttons() {
     }
     // a card just taken off: its UNDO line, not the reason
     let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    st.before_match = Some(forza::cards::table_after(&[], &st.board));
+    st.before_match_at = Some("21:40".into());
     st.undo = Some((
         forza_ui::board::Removed {
             card: st.cards[0].clone(),
@@ -427,7 +425,7 @@ fn board_reset_reason_clear_of_the_buttons() {
         panel::show(ui, &mut st)
     });
     hs.run_steps(2);
-    let reason = forza_ui::text(Lang::En, "board.reset_none", &[]);
+    let reason = forza_ui::text(Lang::En, "board.reset_same", &[("at", "21:40")]);
     assert!(
         hs.query_by_label(&reason).is_none(),
         "the UNDO line in its place"
