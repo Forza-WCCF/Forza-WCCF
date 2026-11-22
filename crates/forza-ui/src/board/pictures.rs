@@ -591,13 +591,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
         true,
     );
     if let Some(f) = parts {
-        let g = fit(
-            p,
-            &card.name,
-            theme::display(rect.width() * 0.15),
-            theme::TEXT.gamma_multiply(alpha),
-            pic.width() - 8.0,
-        );
+        let g = name_galley(p, rect, pic, card, theme::TEXT.gamma_multiply(alpha));
         p.galley(
             pos2(
                 pic.center().x - g.size().x / 2.0,
@@ -608,13 +602,15 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
         );
         let club = club_galley(p, rect, card, theme::TEXT_DIM.gamma_multiply(alpha));
         p.galley(f.club.min, club, theme::TEXT_DIM);
-        p.text(
-            f.season.min,
-            Align2::LEFT_TOP,
-            &card.season,
-            theme::display(rect.width() * 0.1),
+        let season = season_galley(
+            p,
+            rect,
+            card,
             theme::TEXT_FAINT.gamma_multiply(alpha),
+            f.chip,
+            f.mark,
         );
+        p.galley(f.season.min, season, theme::TEXT_FAINT);
         rarity_mark(p, f.mark.center(), MARK, card.rarity);
         code_chip(
             p,
@@ -624,7 +620,7 @@ pub fn card_face(p: &Painter, rect: Rect, card: &Card, look: Look) -> u8 {
             alpha,
         );
     } else {
-        let g = fit(
+        let g = fit_elided(
             p,
             card.short_name(),
             theme::display(rect.width() * 0.26),
@@ -666,6 +662,18 @@ fn band_height(rect: Rect) -> f32 {
     (rect.height() * 0.17).max(13.0)
 }
 
+/// A big face's name on the foot of its picture `pic`, shrunk to the picture's width, cut with "…" past it (#306: a
+/// long catalogue name ran across the card).
+pub fn name_galley(p: &Painter, rect: Rect, pic: Rect, card: &Card, color: Color32) -> Arc<Galley> {
+    fit_elided(
+        p,
+        &card.name,
+        theme::display(rect.width() * 0.15),
+        color,
+        pic.width() - 8.0,
+    )
+}
+
 /// A big face's club line, shrunk to its room, cut with "…" past it.
 pub fn club_galley(p: &Painter, rect: Rect, card: &Card, color: Color32) -> Arc<Galley> {
     fit_elided(
@@ -674,6 +682,26 @@ pub fn club_galley(p: &Painter, rect: Rect, card: &Card, color: Color32) -> Arc<
         theme::body(rect.width() * 0.09),
         color,
         rect.width() - 12.0,
+    )
+}
+
+/// A big face's season at the foot's left, shrunk to its room before the series `chip` (or the rarity `mark` when the
+/// chip is [`Rect::NOTHING`]), cut with "…" past it (#306: a long season ran under the chip).
+pub fn season_galley(
+    p: &Painter,
+    rect: Rect,
+    card: &Card,
+    color: Color32,
+    chip: Rect,
+    mark: Rect,
+) -> Arc<Galley> {
+    let end = if chip == Rect::NOTHING { mark } else { chip };
+    fit_elided(
+        p,
+        &card.season,
+        theme::display(rect.width() * 0.1),
+        color,
+        end.left() - 2.0 - (rect.left() + 6.0),
     )
 }
 
@@ -719,7 +747,8 @@ pub fn face_parts(p: &Painter, rect: Rect, card: &Card) -> FaceParts {
         )
         .0
     };
-    let season = Rect::from_min_size(pos2(rect.left() + 6.0, row - season.y / 2.0), season);
+    let fitted = season_galley(p, rect, card, theme::TEXT, chip, mark).size();
+    let season = Rect::from_min_size(pos2(rect.left() + 6.0, row - fitted.y / 2.0), fitted);
     let club = club_galley(p, rect, card, theme::TEXT_DIM).size();
     let club_top = mark.top().min(chip.top()).min(season.top()) - 1.0 - club.y;
     let club = Rect::from_min_size(pos2(rect.center().x - club.x / 2.0, club_top), club);
