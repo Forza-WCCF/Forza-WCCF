@@ -22,13 +22,30 @@ pub(super) fn note_words(lang: &str, line: &Line) -> String {
                 .find(|l| l.starts_with(&format!("{key}: {{")))
                 .unwrap_or_else(|| panic!("{key} is not in ui.yml"));
             let start = row.find(&format!("{lang}: \"")).expect("the language") + lang.len() + 3;
-            let rest = &row[start..];
-            let mut own = rest[..rest.find('"').expect("the closing quote")].to_string();
+            // The closing quote is the first one no backslash escapes: `\"` and `\\` are the sheet's only escapes
+            // (a line such as `launcher.run_bad_server` opens with one).
+            let (mut own, mut it) = (String::new(), row[start..].chars());
+            while let Some(c) = it.next() {
+                match c {
+                    '\\' => own.extend(it.next()),
+                    '"' => break,
+                    c => own.push(c),
+                }
+            }
             for (name, value) in args {
                 own = own.replace(&format!("%{{{name}}}"), &note_words(lang, value));
             }
             own
         }
+    }
+}
+
+/// Whether `line`, or a piece it carries, is the `ui.yml` key `key`: a test that expects a note to say something
+/// reads the key, so a label reworded in the sheet cannot make the test pass on the old words.
+pub(super) fn says(line: &Line, key: &str) -> bool {
+    match line {
+        Line::Raw(_) => false,
+        Line::Key(k, args) => *k == key || args.iter().any(|(_, v)| says(v, key)),
     }
 }
 
@@ -70,6 +87,20 @@ fn the_player_reason_is_keyed() {
     assert!(!ja.contains("%{"), "every argument is filled: {ja}");
     assert!(!ja.contains("expected file"), "{ja}");
     assert_ne!(ja, it, "the Japanese is its own text");
+}
+
+#[test]
+fn a_quote_inside_a_line_does_not_cut_it() {
+    // `launcher.run_bad_server` opens with a quoted address: the first quote is not the end of the text
+    let line = Line::key("launcher.run_bad_server").arg("ip", "10.0.0.1");
+    assert_eq!(
+        note_words("en", &line),
+        "\"10.0.0.1\" is not a server address - playing on this PC. (Fix it under SETTINGS in the game.)"
+    );
+    assert_eq!(
+        note_words("it", &line),
+        "\"10.0.0.1\" non è un indirizzo di server - si gioca su questo PC. (Correggilo in IMPOSTAZIONI nel gioco.)"
+    );
 }
 
 #[test]
@@ -580,6 +611,183 @@ fn the_string_list_is_the_first_original_and_kit_sources_are_the_kit_s() {
         assert_eq!(spec(ed).originals[STRINGS].0, BIN, "{ed:?}");
     }
     assert!(Source::KitItalian.kit() && !Source::OriginalItalian.kit());
+}
+
+/// The sheets of a scratch kit, each file as it is.
+fn sheets_at(dir: &Path, files: &[(&str, &str)]) {
+    for (rel, text) in files {
+        let p = dir.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    }
+}
+
+/// An original whose SHA is this fixture's: `originals` holds `&'static str`, and it is the only way a scratch
+/// file can pass the build's "not the original" check.
+fn leak(d: &[u8]) -> &'static str {
+    Box::leak(sha(d).into_boxed_str())
+}
+
+/// A game folder holding the text files `build_strings` reads, so a test takes the real path instead of building
+/// the note's line by hand: `(key, Japanese, second column, third column)` as the `.hf` lists them, and the
+/// clients' table with that one line.
+fn text_game(
+    ed: Edition,
+    rows: &[(&str, &str, &str, &str)],
+    client: Option<(&str, &str)>,
+) -> (tempfile::TempDir, Ctx) {
+    let (mut body, mut hf) = (b"\0".to_vec(), b"header\r\n".to_vec());
+    for (k, jp, s2, s3) in rows {
+        let mut nums = vec![];
+        for s in [jp, s2, s3] {
+            if s.is_empty() {
+                nums.push(0); // the body's first byte is a zero: an empty column
+            } else {
+                nums.push(body.len());
+                body.extend(s.as_bytes());
+                body.push(0);
+            }
+        }
+        hf.extend(format!("{k} {} {} {}\r\n", nums[0], nums[1], nums[2]).as_bytes());
+    }
+    body.extend([0u8; 256]); // room for the new lines
+    let mut bin = b"TAG!".to_vec();
+    bin.extend((body.len() as u32).to_le_bytes());
+    bin.extend(&body);
+    let t = tempfile::tempdir().unwrap();
+    let game = t.path().join("game");
+    let mut originals = vec![(BIN, leak(&bin)), (HF, leak(&hf))];
+    let mut files = vec![(BIN, bin), (HF, hf.clone())];
+    if let Some((k, jp)) = client {
+        let rec = (
+            7u32,
+            [k, "comment", jp, "en", "it", "es", "fr", "de"]
+                .iter()
+                .map(|x| x.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+        );
+        let e = write_enum(&[rec]);
+        originals.push((ENUM, leak(&e)));
+        files.push((ENUM, e));
+    }
+    for (rel, d) in &files {
+        fs::create_dir_all(game.join(rel).parent().unwrap()).unwrap();
+        fs::write(game.join(rel), d).unwrap();
+    }
+    let mut c = Ctx::new_bare(ed, &game, &t.path().join("backup"));
+    c.sheets = t.path().join("sheets");
+    c.spec.originals = originals;
+    (t, c)
+}
+
+/// The note under the lines is read off a real build, so each of its `ui.yml` keys (`text.note_*`, `text.src_*`)
+/// is filled by `build_strings` itself: one line from each source, one that does not fit, one left Japanese and
+/// the clients' table. A hand-made `Line` would pass even if the build stopped filling a part.
+#[test]
+fn the_1718_lines_note_names_every_source_and_its_parts() {
+    let (t, c) = text_game(
+        Edition::E1718,
+        &[
+            ("A_KIT", "あ%d", "", ""),
+            ("A_BOTH", "い", "", ""),
+            ("MAKE_city_1", "う", "", "Barcellona"),
+            ("A_SECOND", "え", "second column", ""),
+            ("A_RSTR", "お%s", "", ""),
+            ("A_JP", "か", "", ""),
+        ],
+        Some(("A_BOTH", "い")),
+    );
+    sheets_at(
+        &t.path().join("sheets"),
+        &[
+            (
+                "english/screen_text.tsv",
+                "key\tenglish\nA_KIT\t%d kit\nA_BOTH\tboth\nMAKE_city_1\tcity\n",
+            ),
+            (
+                "english/original_rstring.tsv",
+                "key\tenglish\nA_RSTR\trstring %s\n",
+            ),
+            (
+                "italian/screen_text.tsv",
+                "key\titaliano\nA_BOTH\tentrambi\nMAKE_city_1\tcittł\n",
+            ),
+        ],
+    );
+    let (files, notes) = c.build_strings(Lang::It).unwrap();
+    assert_eq!(files.len(), 3, "the lines, the places, the clients' table");
+    let note = &notes[0];
+    for key in [
+        "text.note_lines",
+        "text.note_by",
+        "text.note_by_more",
+        "text.note_clients",
+        "text.note_misfit",
+        "text.note_japanese",
+        "text.src_kit",
+        "text.src_kit_it",
+        "text.src_original_second",
+        "text.src_original_english",
+        "text.src_original_it",
+    ] {
+        assert!(says(note, key), "{key} in {note:?}");
+    }
+    assert_eq!(
+        note_words("en", note),
+        "5 lines in Italian (kit 1, kit Italian 1, original European English 1, original Italian 1, original second column 1); 1 in the clients' table; 1 of the text lines do not fit this game's line and gave way to the next choice (MAKE_city_1 (kit Italian): a letter the game's font cannot show); 1 still Japanese (A_JP)"
+    );
+}
+
+/// The 2010-11 note: the original's European Italian, its unusable lines and a line left Japanese, with no
+/// clients' table to report.
+#[test]
+fn the_1011_lines_note_names_every_source_and_its_parts() {
+    let (t, c) = text_game(
+        Edition::E1011,
+        &[
+            ("B_KIT", "あ", "", ""),
+            ("B_EUIT", "い", "", ""),
+            ("B_BAD", "さ", "", ""),
+            ("B_JP", "か", "", ""),
+        ],
+        None,
+    );
+    sheets_at(
+        &t.path().join("sheets"),
+        &[
+            (
+                "languages/english/screen_text.tsv",
+                "key\tenglish\nB_KIT\tkit line\n",
+            ),
+            (
+                "languages/english/original_rstring.tsv",
+                "key\tenglish\nB_BAD\t100% sure\n",
+            ),
+            ("languages/italian/screen_text.tsv", "key\titaliano\n"),
+            (
+                "languages/italian/original_rstring.tsv",
+                "key\titaliano\nB_EUIT\triga\n",
+            ),
+        ],
+    );
+    let (files, notes) = c.build_strings(Lang::It).unwrap();
+    assert_eq!(files.len(), 2, "no clients' table in 2010-11");
+    let note = &notes[0];
+    for key in [
+        "text.note_lines",
+        "text.note_by",
+        "text.note_by_more",
+        "text.note_unusable",
+        "text.note_japanese",
+        "text.src_kit",
+        "text.src_original_eu_it",
+    ] {
+        assert!(says(note, key), "{key} in {note:?}");
+    }
+    assert_eq!(
+        note_words("en", note),
+        "2 lines in Italian (kit 1, original European Italian 1); 1 of the original lines unusable, the next choice taken; 2 still Japanese (B_BAD, B_JP)"
+    );
 }
 
 #[test]
@@ -1144,13 +1352,17 @@ fn the_real_text_has_no_line_that_gives_way() {
             .collect::<Vec<_>>()
             .join("\n");
         println!("{}: {note}", lang.name());
-        for bad in [
-            "do not fit",
-            "still Japanese",
-            "too long for the field",
-            "cannot show",
+        for key in [
+            "text.note_misfit",
+            "text.note_japanese",
+            "text.note_cut",
+            "text.note_unknown",
         ] {
-            assert!(!note.contains(bad), "{}: {note}", lang.name());
+            assert!(
+                !notes.iter().any(|l| says(l, key)),
+                "{}: {key} in {note}",
+                lang.name()
+            );
         }
     }
 }
