@@ -1530,7 +1530,7 @@ impl App {
             ),
             Action::Collection(CollectionAction::Reset) => {
                 // never while a game runs or starts: the run holds the save and the table, and the panel writes the log
-                let mut unsent = false;
+                let mut unsent = None;
                 let done = if RUNNING.load(Ordering::Relaxed) {
                     Err(collection::ResetRefused::Busy)
                 } else {
@@ -1538,7 +1538,7 @@ impl App {
                     let queued = self.st.profile.and_then(|p| p.collection(&kit.data())).and_then(|dir| {
                         market::queue_reset(&kit.data(), &dir)
                             .inspect_err(|e| {
-                                unsent = true;
+                                unsent = Some(format!("{e:?}"));
                                 log(&format!("market: RESET could not be queued: {e:?}"));
                             })
                             .ok()
@@ -1549,7 +1549,17 @@ impl App {
                                 (dir, before)
                             })
                     });
-                    let done = collection::reset_kit(&kit);
+                    // the start picker after a START OVER: the profile is in its archive already, only the RESET is left
+                    let gone = !kit
+                        .data()
+                        .join("profiles")
+                        .join(forza::profile::Profile::CreateATeam.code())
+                        .is_dir();
+                    let done = if gone {
+                        Ok(None)
+                    } else {
+                        collection::reset_kit(&kit).map(Some)
+                    };
                     if done.is_err()
                         && let Some((dir, before)) = &queued
                         && let Err(e) = market::put_back(&kit.data(), dir, before)
@@ -1559,10 +1569,20 @@ impl App {
                     done
                 };
                 match done {
-                    Ok(to) => {
+                    Ok(None) => match unsent {
+                        Some(e) => refuse(tf("collection.reset_failed", &[("error", &e)])),
+                        None => {
+                            log("collection: no profile to archive, only the market RESET");
+                            say(t("collection.reset_market"), 0);
+                            if forza::market::Client::saved(&kit.data()).outbox.is_some() {
+                                self.market_job(&kit, CollectionAction::Market);
+                            }
+                        }
+                    },
+                    Ok(Some(to)) => {
                         let to = to.display().to_string();
                         log(&format!("collection: reset, the old profile is in {to}"));
-                        say(reset_done_line(&to, unsent), 0);
+                        say(reset_done_line(&to, unsent.is_some()), 0);
                         if forza::market::Client::saved(&kit.data()).outbox.is_some() {
                             log("market: RESET queued for the reset");
                             self.market_job(&kit, CollectionAction::Market);

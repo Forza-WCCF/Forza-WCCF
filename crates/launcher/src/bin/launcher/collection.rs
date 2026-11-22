@@ -138,6 +138,7 @@ pub fn market_of(v: &mut CollectionView, catalogue: &[Card], text: &str, data: &
     let saved = forza::market::Client::saved(data);
     let m = &mut v.market;
     m.joined = saved.joined;
+    m.keyed = data.join(forza::market::KEY_FILE).is_file();
     if !m.joined {
         m.stock.clear();
         m.sale.clear();

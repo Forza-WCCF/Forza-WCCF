@@ -2611,6 +2611,57 @@ fn start_over_asks_first_and_its_question_fits() {
     }
 }
 
+/// #375: the start picker and the deal offer START OVER, in view, while the market may hold an old log (a START OVER
+/// whose RESET could not be queued lands there and says to press it again); a first start with no market key does not.
+#[test]
+fn the_first_start_offers_start_over_with_a_market_key() {
+    use forza_ui::collection::{CollectionAction, CollectionView, Scenario};
+    use std::cell::RefCell;
+    let size = launcher::window_size(Some(700.0));
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    for lang in Lang::ALL {
+        for s in [Scenario::Choose, Scenario::Pick] {
+            for keyed in [true, false] {
+                let tag = format!("{lang:?} {s:?} keyed={keyed}");
+                let mut start = launcher::LauncherState::sample(
+                    Edition::E1718,
+                    lang,
+                    launcher::Scenario::Ready,
+                );
+                start.profile = Some(forza::profile::Profile::CreateATeam);
+                let mut view = CollectionView::sample(s);
+                view.market.keyed = keyed;
+                start.collection = Some(view);
+                start.tab = launcher::Tab::Collection;
+                let st = RefCell::new(start);
+                let got = RefCell::new(None);
+                let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                    if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                        *got.borrow_mut() = Some(a);
+                    }
+                });
+                h.run_steps(4);
+                let label = forza_ui::text(lang, "collection.reset", &[]);
+                let found: Vec<_> = h.query_all_by_label(&label).collect();
+                if !keyed {
+                    assert!(found.is_empty(), "{tag}: no START OVER");
+                    continue;
+                }
+                assert_eq!(found.len(), 1, "{tag}: one START OVER");
+                let r = found[0].rect();
+                assert!(window.contains_rect(r), "{tag}: {r:?} in view");
+                found[0].click();
+                h.run_steps(2);
+                assert_eq!(
+                    got.take(),
+                    Some(launcher::Action::Collection(CollectionAction::ResetAsk)),
+                    "{tag}"
+                );
+            }
+        }
+    }
+}
+
 /// #374: the start picker and the deal at the Launcher's smallest window, in every language: the start tiles in view
 /// lie inside the page and apart; the 11 dealt cards and the 3 RARE cards too.
 #[test]
