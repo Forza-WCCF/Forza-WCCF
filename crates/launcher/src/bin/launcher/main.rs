@@ -42,7 +42,8 @@ use std::{env, mem, ptr, thread};
 
 use eframe::egui;
 use egui::ViewportCommand;
-use forza_ui::launcher::{self as screen, Action, Confirm, LauncherState, Tab};
+use forza::online::club::{self, Left, NotReplaced};
+use forza_ui::launcher::{self as screen, Action, ClubRow, Confirm, LauncherState, Tab};
 use forza_ui::lobby::LobbyAction;
 use forza_ui::theme;
 use forza_ui::widgets::Tone;
@@ -814,6 +815,9 @@ struct App {
     lan_at: Option<Instant>,
     /// The window was opened for a game start given on the command line (a shortcut's `play`): it ends with that run.
     run_from_command: bool,
+    /// What a club still marked out left (2017-18, #434), and whether PLAY asked about its arcade copy yet.
+    club: Option<Left>,
+    club_asked: bool,
 }
 
 /// The LAN fold searches this often while it is open.
@@ -888,6 +892,7 @@ impl App {
             vs_link: (kit.edition() == Edition::E1718).then(|| kit.settings()["vs_link"].as_bool() != Some(false)),
             clean_up: ed == Edition::E1718,
             clean_status: None,
+            club_row: None,
             updates: true,
             version: version(kit),
             update_available: saved_available(kit),
@@ -900,14 +905,124 @@ impl App {
             report: None,
             stop_armed: 0.0,
         };
-        App {
+        let mut app = App {
             st,
             releases: Vec::new(),
             notes_for: None,
             online: online_state,
             lan_at: None,
             run_from_command,
+            club: None,
+            club_asked: false,
+        };
+        app.club_look(kit);
+        app.club_say();
+        app
+    }
+
+    /// What a club still marked out left (#434), read again when the window opens, a job ends, after CLEAN UP and
+    /// after the arcade copy row's button. Nothing while a run is on: a trip in progress keeps its marker too.
+    fn club_look(&mut self, kit: &Kit) {
+        self.club = None;
+        self.st.club_row = None;
+        if kit.edition() != Edition::E1718 || RUNNING.load(Ordering::Relaxed) || run::any_on(kit) {
+            return;
         }
+        let dir = kit.save().join("gamesvr");
+        match club::left(&dir) {
+            Ok(l) => self.club = l,
+            Err(e) => log(&format!("arcade copy not offered: {e}")),
+        }
+        self.st.club_row = match &self.club {
+            Some(Left::Differs(o)) => Some(ClubRow::Offer(tf(
+                "launcher.club_offer_hint",
+                &[("arcade", &date_time(o.pulled)), ("home", &date_time(o.home_at))],
+            ))),
+            _ if club::can_undo(&dir) => Some(ClubRow::Undo),
+            _ => None,
+        };
+    }
+
+    /// The club's line in the status line when it says nothing else: a copy on offer, or the club as the arcade sent it.
+    fn club_say(&self) {
+        let line = match &self.club {
+            Some(Left::Differs(_)) => t("launcher.msg_club_offer"),
+            Some(Left::Same { back }) => tf("launcher.club_up_to_date", &[("time", &date_time(*back))]),
+            None => return,
+        };
+        let quiet = shared().status.as_ref().is_none_or(|(tone, _)| *tone == Tone::Done);
+        if quiet {
+            say(line, 0);
+        }
+    }
+
+    /// USE THE ARCADE COPY (`take`) or PUT THE HOME CLUB BACK: refused as CLEAN UP is while a run is on or a game window
+    /// is open; the result in the status line, the English and the paths in launcher.txt.
+    fn club_act(&mut self, kit: &Kit, take: bool) {
+        let game = game_folder(kit).unwrap_or_else(|| kit.dir().join("game"));
+        let open = launcher::procs::game_processes(&game)
+            .iter()
+            .any(|p| p.name.eq_ignore_ascii_case("client_release.exe") || launcher::procs::has_window(p.pid));
+        if open || RUNNING.load(Ordering::Relaxed) || run::any_on(kit) {
+            refuse(t("launcher.msg_game_running"));
+            return;
+        }
+        let dir = kit.save().join("gamesvr");
+        let done = if take {
+            club::take(&dir).map(|b| {
+                log(&format!(
+                    "arcade copy put home; the home club from before is {}",
+                    b.display()
+                ));
+                t("launcher.msg_club_arcade_used")
+            })
+        } else {
+            club::undo(&dir).map(|()| {
+                log("home club put back as it was before the arcade copy");
+                t("launcher.msg_club_home_back")
+            })
+        };
+        match done {
+            Ok(line) => say_tone(Tone::Done, line, 0),
+            Err(NotReplaced::Changed(p)) => {
+                log(&format!(
+                    "club not replaced: it changed meanwhile; the copies are in {}",
+                    p.display()
+                ));
+                refuse(tf("launcher.msg_club_changed", &[("path", &p.display().to_string())]));
+            }
+            Err(NotReplaced::Failed(e)) => {
+                log(&format!("club not replaced: {e}"));
+                refuse(tf("launcher.msg_club_not_replaced", &[("error", &e)]));
+            }
+        }
+        self.club_look(kit);
+    }
+
+    /// PLAY with the arcade's copy on offer asks once in this window (#434): true when it asks now. Cancel, then PLAY
+    /// again, starts as before, the home club kept.
+    fn club_question(&mut self) -> bool {
+        let Some(Left::Differs(o)) = &self.club else {
+            return false;
+        };
+        if !asks_first(true, &mut self.club_asked) {
+            return false;
+        }
+        let (home, arcade) = (date_time(o.home_at), date_time(o.pulled));
+        let q = match o.plays {
+            Some((h, a)) => tf(
+                "launcher.club_offer_ask_plays",
+                &[
+                    ("home", &home),
+                    ("arcade", &arcade),
+                    ("home_n", &h.to_string()),
+                    ("arcade_n", &a.to_string()),
+                ],
+            ),
+            None => tf("launcher.club_offer_ask", &[("home", &home), ("arcade", &arcade)]),
+        };
+        self.ask(&q, "launcher.club_use_arcade", Action::ClubUseArcade);
+        true
     }
 
     /// The release list with this folder's marks.
@@ -966,6 +1081,7 @@ impl App {
     /// when the player started it here, closed only when a command line's run ended well.  Runs also while the window is
     /// minimized.
     fn look(&mut self, ctx: &egui::Context) {
+        let ended;
         let (log, list, updated, failed, game, report_open, report_done) = {
             let mut s = shared();
             if reread_setup(self.st.busy, s.busy, s.setup_failed) {
@@ -983,6 +1099,7 @@ impl App {
                 (a.elapsed().as_secs_f32(), b.elapsed().as_secs_f32())
             });
             self.st.stage_secs = s.stage_secs;
+            ended = self.st.busy && !s.busy;
             self.st.busy = s.busy;
             s.setup_failed = false; // one look's: the next job says its own
             (
@@ -1000,6 +1117,10 @@ impl App {
         self.st.cup_started = launcher::run::cup_started().filter(|_| self.st.running);
         self.st.output.extend(log);
         let kit = Kit::here();
+        if ended {
+            self.club_look(&kit);
+            self.club_say();
+        }
         // HOST ARCADE: its code once the lobby gave it, gone with the room if the lobby loses it; the job over, the arcade is
         let (room, guests) = {
             let s = shared();
@@ -1173,6 +1294,7 @@ impl App {
             }
         };
         self.st.clean_status = Some((tone, line));
+        self.club_look(kit);
     }
 
     /// What the player asked for in the screen.
@@ -1226,6 +1348,8 @@ impl App {
                 save_logs(kit.dir(), game);
             }
             Action::CleanUp => self.clean_up(&kit),
+            Action::ClubUseArcade => self.club_act(&kit, true),
+            Action::ClubUndo => self.club_act(&kit, false),
             Action::Pictures { choose } => self.pictures_pick(&kit, frame, choose),
             Action::PicturesAsk => {
                 if self.st.pictures_hq {
@@ -1437,6 +1561,9 @@ impl App {
     /// PLAY: the choices into data\panel.txt, then the run (`words` empty: what the choices say; else play.py's words,
     /// an arcade room's `remote ID`).
     fn play(&mut self, kit: &Kit, words: Vec<OsString>) {
+        if self.club_question() {
+            return;
+        }
         let online = self.st.online;
         let mut server = self.st.lobby.address.trim().to_owned();
         // 2017-18: a club server alone is enough to play online (run::rules::vs_target)
@@ -1557,6 +1684,17 @@ impl App {
 }
 
 /// The downloaded card pictures are chosen.
+/// Whether a question about something on offer is asked now: once, the first time (`asked` remembers it).
+fn asks_first(offer: bool, asked: &mut bool) -> bool {
+    let ask = offer && !*asked;
+    *asked |= ask;
+    ask
+}
+
+fn date_time(unix: i64) -> String {
+    launcher::logs::date_time(unix)
+}
+
 fn pictures_hq(kit: &Kit) -> bool {
     choices::setting(&kit.settings_file(), "card_pictures").as_deref() == Some("hq")
 }
@@ -2152,6 +2290,23 @@ mod tests {
         let steps = steps_after_update(Edition::E1718, "D:\\game", "it");
         assert!(matches!(steps.as_slice(), [Step::Setup { .. }, Step::Pictures]));
         assert_eq!(steps_after_update(Edition::E1011, "D:\\game", "").len(), 2);
+    }
+
+    /// #434: with the arcade's copy on offer the first PLAY asks and starts nothing; the next PLAY starts (the run's
+    /// `club::leftover` then keeps the home club, `a_declined_copy_leaves_the_home_club`).
+    #[test]
+    fn the_first_play_with_an_arcade_copy_on_offer_asks() {
+        let mut asked = false;
+        assert!(asks_first(true, &mut asked), "the first PLAY asks");
+        assert!(!asks_first(true, &mut asked), "the next one starts");
+        let mut none = false;
+        assert!(!asks_first(false, &mut none) && !none, "nothing on offer: no question");
+        let code = include_str!("main.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        let play = code.find("fn play(&mut self").unwrap();
+        assert!(
+            code[play..].find("if self.club_question()").unwrap() < code[play..].find("take_ticket").unwrap(),
+            "asked before the ticket is taken"
+        );
     }
 
     #[test]

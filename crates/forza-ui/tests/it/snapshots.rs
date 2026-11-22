@@ -85,6 +85,7 @@ fn launcher_screens() {
             (Busy, "busy"),
             (Report, "report"),
             (CleanedUp, "cleanup"),
+            (ClubOffer, "club_offer"),
         ] {
             let mut st = launcher::LauncherState::sample(Edition::E1718, lang, s);
             snap(
