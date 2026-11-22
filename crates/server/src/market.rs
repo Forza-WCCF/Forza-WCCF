@@ -3712,7 +3712,9 @@ mod tests {
         std::thread::scope(|s| {
             let mut stalled = vec![];
             for i in 0..8 {
-                let (client, mut conn) = pair();
+                let (mut client, mut conn) = pair();
+                // one byte held each, so the hang-up below has budget to give back
+                client.write_all(b"x").unwrap();
                 let (m, ip) = (&m, format!("10.0.0.{}", i / 2 + 1));
                 s.spawn(move || m.serve(&words, vec![], &mut conn, 0, &ip));
                 stalled.push(client);
@@ -3739,6 +3741,9 @@ mod tests {
             assert!(!said.contains("busy"), "{said}");
             drop(stalled);
         });
+        // #375 review: the refused body and the eight hung-up ones gave every byte and slot back
+        assert_eq!(m.uploads.lock().unwrap().bytes, 0);
+        assert_eq!(in_flight(&m), 0);
     }
 
     fn in_flight(m: &Market) -> usize {
