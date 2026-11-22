@@ -39,6 +39,8 @@ impl Placed {
 
 /// The board holds at most 16 cards: 11 on the pitch and 5 on the bench (the table itself may hold more rows).
 pub const MAX_CARDS: usize = 16;
+/// The pitch's slots: the first of the board's 16, the bench's boxes follow them.
+pub(crate) const PITCH: usize = 11;
 /// Bench cards lie at x 1.24, y on one of the game's five band spots.
 pub const BENCH_X: f32 = 1.24;
 pub const BENCH_Y: [f32; 5] = [-0.68, -0.34, 0.0, 0.34, 0.68];
@@ -46,7 +48,7 @@ const ON_BENCH: f32 = 1.16;
 
 /// The 4-4-2 spots a card added with no drop point ("+ CARD") takes, with their lines (the C panel's
 /// `board_add_locked`, fpr_panel.py's default_spot). Dropped cards lie where they are dropped.
-const SPOTS_442: [(Position, f32, f32); 11] = [
+const SPOTS_442: [(Position, f32, f32); PITCH] = [
     (Position::Gk, 0.0, 0.9),
     (Position::Df, -0.6, 0.55),
     (Position::Df, -0.2, 0.6),
@@ -323,7 +325,7 @@ pub fn add(cards: &mut Vec<Placed>, no: u32, pos: Position) -> Result<Placed, Ad
     };
     let on_field = cards.iter().filter(|c| !c.on_bench()).count();
     let order = [pos, Position::Df, Position::Mf, Position::Fw, Position::Gk];
-    let field = (on_field < 11)
+    let field = (on_field < PITCH)
         .then(|| {
             order.iter().find_map(|line| {
                 SPOTS_442
@@ -394,11 +396,11 @@ fn unknown(no: u32, y: f32) -> Card {
 /// without a slot.
 pub fn board(cards: &[Placed], catalogue: &[Card]) -> Board {
     let mut slots = [None; 16];
-    let mut spots = [Pos2::ZERO; 11];
+    let mut spots = [Pos2::ZERO; PITCH];
     let mut pitch = 0;
     for (i, c) in cards.iter().enumerate() {
         if !c.on_bench() {
-            if pitch < 11 {
+            if pitch < PITCH {
                 slots[pitch] = Some(i);
                 spots[pitch] = spot_of(c.x, c.y);
                 pitch += 1;
@@ -406,7 +408,7 @@ pub fn board(cards: &[Placed], catalogue: &[Card]) -> Board {
         } else {
             let b = bench_band(c.y);
             if let Some(s) = (0..5)
-                .map(|k| 11 + (b + k) % 5)
+                .map(|k| PITCH + (b + k) % 5)
                 .find(|&s| slots[s].is_none())
             {
                 slots[s] = Some(i);
@@ -458,7 +460,7 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
                 // taken off, unless the board never had room for it
                 return (!shown.contains(&Some(i))).then_some(*old);
             };
-            let (x, y) = if s < 11 {
+            let (x, y) = if s < PITCH {
                 let sp = board.spots[s];
                 let (x, y) = (round3(sp.x * 2.0 - 1.0), round3(sp.y * 2.0 - 1.0));
                 if !old.on_bench() && (old.x - x).abs() < 0.0006 && (old.y - y).abs() < 0.0006 {
@@ -469,14 +471,17 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
             } else if let Some((_, t)) = board.rub.filter(|r| r.0 == s) {
                 // the game measures motion as dx * dy, so x and y move together; y stays under half a band, so the
                 // card keeps its band whether read by nearest or by floor
-                (BENCH_X + 0.05 + 0.05 * t, BENCH_Y[s - 11] + 0.09 + 0.07 * t)
+                (
+                    BENCH_X + 0.05 + 0.05 * t,
+                    BENCH_Y[s - PITCH] + 0.09 + 0.07 * t,
+                )
             } else if old.on_bench()
-                && bench_band(old.y) == s - 11
+                && bench_band(old.y) == s - PITCH
                 && (old.x - BENCH_X).abs() < 0.0006
             {
                 (old.x, old.y)
             } else {
-                (BENCH_X, BENCH_Y[s - 11])
+                (BENCH_X, BENCH_Y[s - PITCH])
             };
             Some(Placed { x, y, ..*old })
         })
@@ -486,11 +491,11 @@ pub fn table_after(before: &[Placed], board: &Board) -> Vec<Placed> {
         let Some(i) = ci.filter(|&i| i >= before.len()) else {
             continue;
         };
-        let (x, y) = if s < 11 {
+        let (x, y) = if s < PITCH {
             let sp = board.spots[s];
             (round3(sp.x * 2.0 - 1.0), round3(sp.y * 2.0 - 1.0))
         } else {
-            (BENCH_X, BENCH_Y[s - 11])
+            (BENCH_X, BENCH_Y[s - PITCH])
         };
         let slot = (1..=MAX_CARDS as i32).find(|n| !out.iter().any(|c| c.slot == *n));
         let Some(slot) = slot else {
@@ -957,7 +962,7 @@ mod tests {
         for no in 70..78 {
             add(&mut t, no, Position::Mf).unwrap();
         }
-        assert_eq!(t.len(), 11);
+        assert_eq!(t.len(), PITCH);
         assert_eq!(add(&mut t, 80, Position::Fw), Ok(p(12, 80, 1.24, -0.68)));
         for no in 81..85 {
             add(&mut t, no, Position::Df).unwrap();
@@ -968,8 +973,8 @@ mod tests {
         // a keeper moved a little off its spot still holds it: the next card does not land on top of it
         let mut t = vec![p(1, 50, 0.05, 0.84), p(2, 51, 1.24, -0.7)];
         assert_eq!(add(&mut t, 60, Position::Gk), Ok(p(3, 60, -0.6, 0.55)));
-        let mut full: Vec<Placed> = (0..11)
-            .map(|i| p(i + 1, 100 + i as u32, 0.0, 0.0))
+        let mut full: Vec<Placed> = (0..PITCH)
+            .map(|i| p(i as i32 + 1, 100 + i as u32, 0.0, 0.0))
             .collect();
         full.push(p(12, 200, 1.24, -0.7));
         assert_eq!(add(&mut full, 60, Position::Gk), Ok(p(13, 60, 1.24, -0.34)));
@@ -989,7 +994,7 @@ mod tests {
         let t = sample();
         let b = board(&t, &[]);
         assert_eq!(b.slots[..3], [Some(0), Some(1), Some(3)]);
-        assert_eq!(b.slots[11 + 3], Some(2));
+        assert_eq!(b.slots[PITCH + 3], Some(2));
         assert_eq!(b.cards[2].name, "103");
         // nothing moved: the same lines
         assert_eq!(table_after(&t, &b), t);
@@ -997,7 +1002,7 @@ mod tests {
         // taken off
         let mut m = b.clone();
         m.slots.swap(14, 5);
-        m.slots.swap(0, 11);
+        m.slots.swap(0, PITCH);
         m.slots[1] = None;
         let sp = m.spots[5];
         let after = table_after(&t, &m);
