@@ -2020,7 +2020,9 @@ mod tests {
             .collect();
         assert_eq!(starts.len(), 2, "HOST ARCADE and HOST LAN ARCADE");
         for i in starts {
-            assert_eq!(lines[i - 1], "self.online.hosting();", "before `{}`", lines[i]);
+            // the code line before it: blank lines and comments between them do not count
+            let before = lines[..i].iter().rev().find(|l| !l.is_empty() && !l.starts_with("//"));
+            assert_eq!(before, Some(&"self.online.hosting();"), "before `{}`", lines[i]);
         }
     }
 
@@ -2089,6 +2091,7 @@ mod tests {
 
     #[test]
     fn messages_filled_in_each_language() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
         for lang in Lang::ALL {
             text::set(lang);
             let s = tf("launcher.msg_write_failed", &[("path", "P"), ("error", "E")]);

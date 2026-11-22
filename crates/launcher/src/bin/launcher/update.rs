@@ -269,10 +269,11 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
     let me = dir.join("Launcher.exe");
     let kept = dir.join("Launcher.exe.old");
     install(&top, dir, &work, || {
-        let failed = |e: io::Error| {
+        let failed = |(p, e): (&Path, io::Error)| {
+            let name = p.file_name().map_or(p.as_os_str(), OsStr::new).display().to_string();
             tf(
                 "launcher.msg_write_failed",
-                &[("path", "Launcher.exe"), ("error", &e.to_string())],
+                &[("path", &name), ("error", &e.to_string())],
             )
         };
         swap_self(&me, &kept, || self_replace::self_replace(top.join("Launcher.exe"))).map_err(failed)
@@ -283,11 +284,22 @@ pub fn apply(kit: &Kit, r: &Release) -> Result<(), String> {
 /// fails (the folder would hold no Launcher.exe at all).  When even that copy fails, both errors are reported and the copy
 /// stays: `kept` sits beside `me`, since data\update goes on a rollback.  `kept` is held open without delete sharing
 /// until the swap is over: a second Launcher starting in between ([`tidy`] removes `Launcher.exe.old`) cannot take it.
-fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+/// An error comes with the file it was on.
+fn swap_self<'a>(
+    me: &'a Path,
+    kept: &'a Path,
+    swap: impl FnOnce() -> io::Result<()>,
+) -> Result<(), (&'a Path, io::Error)> {
     use std::io::{Seek, SeekFrom};
     use std::os::windows::fs::OpenOptionsExt;
     // `me` first: after a failed put-back it may be gone, and the spare is then the only copy, not to be truncated
-    let mut running = fs::File::open(me)?;
+    let mut running = fs::File::open(me).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound if kept.is_file() => {
+            let left = io::Error::new(e.kind(), format!("{e}; the Launcher left is {}", kept.display()));
+            (me, left)
+        }
+        _ => (me, e),
+    })?;
     let mut spare = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -295,22 +307,26 @@ fn swap_self(me: &Path, kept: &Path, swap: impl FnOnce() -> io::Result<()>) -> i
         .truncate(true)
         .share_mode(1) // FILE_SHARE_READ: no delete, no rename while held
         .open(kept)
-        .map_err(|e| io::Error::new(e.kind(), format!("{e} ({})", kept.display())))?;
-    io::copy(&mut running, &mut spare)?;
+        .map_err(|e| (kept, e))?;
+    io::copy(&mut running, &mut spare).map_err(|e| (kept, e))?;
     drop(running);
-    let done = swap();
-    if let Err(e) = &done
+    let done = swap().map_err(|e| (me, e));
+    if let Err((_, e)) = &done
         && !me.is_file()
     {
-        // written beside, then renamed in: a put-back that fails half way leaves no short Launcher.exe
+        // written beside, then renamed in: a put-back that fails half way leaves no short Launcher.exe.  A scanner may
+        // hold the fresh file for a moment: the rename tries again for up to 1 s
         let restore = me.with_extension("exe.restore");
         let back = spare
             .seek(SeekFrom::Start(0))
             .and_then(|_| io::copy(&mut spare, &mut fs::File::create(&restore)?))
-            .and_then(|_| fs::rename(&restore, me));
+            .and_then(|_| forza::cards::swap_in(&restore, me, 50, 20));
         if let Err(back) = back {
             let _ = fs::remove_file(&restore);
-            return Err(io::Error::new(e.kind(), format!("{e}; {back} ({})", kept.display())));
+            return Err((
+                me,
+                io::Error::new(e.kind(), format!("{e}; {back} ({})", kept.display())),
+            ));
         }
     }
     drop(spare);
@@ -342,8 +358,10 @@ fn install(top: &Path, dir: &Path, work: &Path, replace: impl FnOnce() -> Result
 /// At the start: the Launcher.exe.old an earlier update left, and the launchers an earlier kit had that this one replaced (a kit
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
-    if let Ok(me) = env::current_exe() {
-        tidy_beside(&me);
+    if let Ok(me) = env::current_exe()
+        && let Some(e) = tidy_beside(&me)
+    {
+        log(&format!("update: cannot remove {e}"));
     }
     if let Some(shipped) = manifest(&kit.dir().join("files.txt")) {
         let legacy: Vec<String> = LEGACY.iter().map(|&f| f.to_owned()).collect();
@@ -353,14 +371,25 @@ pub fn tidy(kit: &Kit) {
     }
 }
 
-/// The self_replace leftovers and the `Launcher.exe.old` beside `me`, the running Launcher.exe.
-fn tidy_beside(me: &Path) {
+/// The self_replace leftovers, the `Launcher.exe.old` beside `me`, the running Launcher.exe, and the
+/// `Launcher.exe.restore` a killed put-back left.  Returns why `Launcher.exe.old` could not go, unless a swap holds it.
+fn tidy_beside(me: &Path) -> Option<io::Error> {
     if let Some(dir) = me.parent() {
         sweep_replaced(dir, me);
     }
     let mut old = me.as_os_str().to_owned();
     old.push(".old");
-    let _ = fs::remove_file(old);
+    let old = Path::new(&old);
+    match fs::remove_file(old) {
+        // held without delete sharing (a sharing violation): a swap runs in another Launcher ([`swap_self`]), and its
+        // put-back may be writing the restore copy
+        Err(e) if old.is_file() && matches!(e.raw_os_error(), Some(32 | 33)) => None,
+        r => {
+            let _ = fs::remove_file(me.with_extension("exe.restore"));
+            let e = r.err().filter(|e| e.kind() != io::ErrorKind::NotFound)?;
+            Some(io::Error::new(e.kind(), format!("{}: {e}", old.display())))
+        }
+    }
 }
 
 /// What self_replace leaves next to Launcher.exe: `.Launcher.<random>.__selfdelete__.exe`, the helper that deletes the old
@@ -642,7 +671,10 @@ mod tests {
             Err(io::Error::other("the kit folder is locked"))
         })
         .unwrap_err();
-        assert_eq!(e.to_string(), "the kit folder is locked");
+        assert_eq!(
+            (e.0, e.1.to_string().as_str()),
+            (me.as_path(), "the kit folder is locked")
+        );
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
     }
 
@@ -659,7 +691,7 @@ mod tests {
             Err(io::Error::other("the kit folder is locked"))
         })
         .unwrap_err();
-        let e = e.to_string();
+        let e = e.1.to_string();
         assert!(
             e.contains("the kit folder is locked") && e.contains("Launcher.exe.old"),
             "{e}"
@@ -669,6 +701,106 @@ mod tests {
         swap_self(&me, &kept, || Err(io::Error::other("the kit folder is locked"))).unwrap_err();
         assert_eq!(fs::read(&kept).unwrap(), b"the running launcher");
         assert!(!t.path().join("Launcher.exe.restore").exists());
+    }
+
+    /// A spare that cannot be written is named, not Launcher.exe (#361); the swap is not tried.
+    #[test]
+    fn a_spare_that_cannot_be_written_is_the_file_named() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::create_dir(&kept).unwrap(); // it will not open as a file
+        let e = swap_self(&me, &kept, || panic!("no swap without a spare")).unwrap_err();
+        assert_eq!(e.0, kept);
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// A try after a put-back that failed finds no Launcher.exe: the error names the spare, the only copy left (#361).
+    #[test]
+    fn a_retry_with_no_launcher_names_the_spare_left() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        fs::write(&kept, b"the only copy").unwrap();
+        let e = swap_self(&me, &kept, || panic!("no swap without a Launcher.exe")).unwrap_err();
+        assert_eq!(e.0, me);
+        assert!(e.1.to_string().contains(&kept.display().to_string()), "{}", e.1);
+        assert_eq!(fs::read(&kept).unwrap(), b"the only copy");
+    }
+
+    /// A scanner holding the fresh restore copy for a moment (no delete sharing) does not fail the put-back (#361).
+    #[test]
+    fn a_put_back_waits_for_a_scanner_on_the_fresh_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        let scanner = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(3) // FILE_SHARE_READ | FILE_SHARE_WRITE: the copy is written, the rename waits
+            .open(&restore)
+            .unwrap();
+        let done = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            drop(scanner);
+        });
+        let e = swap_self(&me, &kept, || {
+            fs::remove_file(&me)?; // self_replace renames it away first
+            Err(io::Error::other("the kit folder is locked"))
+        })
+        .unwrap_err();
+        done.join().unwrap();
+        assert_eq!(
+            e.1.to_string(),
+            "the kit folder is locked",
+            "the put-back itself worked"
+        );
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+        assert!(!restore.exists() && !kept.exists());
+    }
+
+    /// The start removes a `Launcher.exe.restore` a killed put-back left, but not while another Launcher's swap holds
+    /// the spare: its put-back may be writing that file (#361).
+    #[test]
+    fn the_start_removes_a_stray_restore_unless_a_swap_runs() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&restore, b"half a launcher").unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(1) // as swap_self holds it
+            .open(&kept)
+            .unwrap();
+        assert!(tidy_beside(&me).is_none(), "a held spare is not a failure");
+        assert!(restore.exists() && kept.exists(), "a swap runs: both stay");
+        drop(held);
+        assert!(tidy_beside(&me).is_none());
+        assert!(!restore.exists() && !kept.exists());
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// A `Launcher.exe.old` that can never go (here a folder; a read-only file or an ACL alike) is no swap: the stray
+    /// restore copy still goes, and the failure is returned for the log (#361).
+    #[test]
+    fn a_spare_that_cannot_go_does_not_keep_a_stray_restore() {
+        let t = crate::scratch();
+        let (me, kept) = (t.path().join("Launcher.exe"), t.path().join("Launcher.exe.old"));
+        let restore = t.path().join("Launcher.exe.restore");
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&restore, b"half a launcher").unwrap();
+        fs::create_dir(&kept).unwrap();
+        let e = tidy_beside(&me).expect("the failure on Launcher.exe.old");
+        assert!(e.to_string().contains("Launcher.exe.old"), "{e}");
+        assert!(!restore.exists());
     }
 
     /// A second Launcher started between the copy and the swap runs its start's tidy: the kept copy must survive it,

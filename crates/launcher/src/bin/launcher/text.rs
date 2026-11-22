@@ -9,6 +9,11 @@ use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 
 static CHOSEN: AtomicUsize = AtomicUsize::new(0);
 
+/// Tests that set the language or read the status line hold it: both are global, and plain `cargo test` runs tests
+/// on threads of one process.
+#[cfg(test)]
+pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The words picked: WCCF_KIT_LANG=en|it|ja (to check a translation on any PC), the one saved in data\settings.json,
 /// Windows' display language (LANG_ITALIAN 0x10, LANG_JAPANESE 0x11), English.  The window's list changes it later.
 pub fn choose(saved: Option<&str>) {
