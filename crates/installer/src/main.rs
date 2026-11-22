@@ -788,6 +788,7 @@ static CANCEL: AtomicBool = AtomicBool::new(false);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// What a console control event is answered with.
+#[cfg(windows)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CtrlAction {
     /// Ask the run to stop and count the event as handled: the run drains on its own.
@@ -803,6 +804,7 @@ enum CtrlAction {
 /// install; a second one ends the process, since a stage that does not poll the flag between two steps (the verify
 /// pass, one large file) would otherwise swallow the keyboard for good. Windows ends the process as soon as a handler
 /// for a closed window, a logoff or a shutdown returns, so those wait for the cleanup instead.
+#[cfg(windows)]
 fn ctrl_action(event: u32, asked: bool) -> CtrlAction {
     match event {
         0 | 1 if !asked => CtrlAction::Cancel,
@@ -987,6 +989,7 @@ mod tests {
     /// and counts as handled, a second ends the process (a stage that polls nothing must not swallow the keyboard for
     /// good), and a closed window, a logoff or a shutdown holds the handler for the cleanup, since Windows ends the
     /// process when it returns.
+    #[cfg(windows)]
     #[test]
     fn a_console_control_event_cancels_once_then_ends() {
         assert_eq!(ctrl_action(0, false), CtrlAction::Cancel, "Ctrl+C");
