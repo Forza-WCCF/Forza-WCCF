@@ -270,15 +270,25 @@ fn with_suffix(p: &Path, suffix: &str) -> PathBuf {
     s.into()
 }
 
-/// `tmp` over `to` (MoveFileEx with replace); the reader may hold `to` this instant: a few tries a moment apart.
+/// `tmp` over `to` (MoveFileEx with replace); another program (the reader, a scanner) may hold either this instant.
+/// Contract: up to `tries` renames `ms` apart while the error is a sharing or lock violation or access denied; any other
+/// error returns at once, and `tries` 0 is an error, never a silent Ok.
 pub fn swap_in(tmp: &Path, to: &Path, tries: u32, ms: u64) -> io::Result<()> {
-    let mut last = Ok(());
-    for _ in 0..tries {
-        last = fs::rename(tmp, to);
-        if last.is_ok() {
-            break;
+    let mut last = Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "swap_in: no tries",
+    ));
+    for n in 0..tries {
+        if n > 0 {
+            std::thread::sleep(Duration::from_millis(ms));
         }
-        std::thread::sleep(Duration::from_millis(ms));
+        last = fs::rename(tmp, to);
+        match &last {
+            Err(e)
+                if e.kind() == io::ErrorKind::PermissionDenied
+                    || matches!(e.raw_os_error(), Some(32 | 33)) => {}
+            _ => break,
+        }
     }
     last
 }
@@ -857,6 +867,49 @@ mod tests {
             table_text(&two),
             "the skipped retry wrote nothing"
         );
+    }
+
+    /// `swap_in`'s contract: no tries is an error, an error that cannot clear (no `tmp`) returns at once, and there is
+    /// no wait after the last try.
+    #[test]
+    fn swap_in_tries_only_what_can_clear() {
+        let d = tempfile::tempdir().unwrap();
+        let (tmp, to) = (d.path().join("a.tmp"), d.path().join("a"));
+        fs::write(&tmp, "x").unwrap();
+        assert_eq!(
+            swap_in(&tmp, &to, 0, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(tmp.exists() && !to.exists());
+        let t0 = std::time::Instant::now();
+        let gone = d.path().join("gone.tmp");
+        assert_eq!(
+            swap_in(&gone, &to, 50, 20).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(
+            t0.elapsed() < Duration::from_millis(500),
+            "no retry: {:?}",
+            t0.elapsed()
+        );
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let _held = fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1)
+                .open(&tmp)
+                .unwrap(); // no delete sharing
+            let t0 = std::time::Instant::now();
+            assert!(swap_in(&tmp, &to, 1, 1000).is_err());
+            assert!(
+                t0.elapsed() < Duration::from_millis(500),
+                "no wait after the last try: {:?}",
+                t0.elapsed()
+            );
+        }
+        swap_in(&tmp, &to, 1, 0).unwrap();
+        assert!(to.exists() && !tmp.exists());
     }
 
     /// A state file that cannot be read for a moment (a sharing violation, a folder where it was) is not written over
