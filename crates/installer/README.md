@@ -122,9 +122,11 @@ a start with no arguments opens the wizard and shows no console. A redirect (`> 
 wins. An interactive shell does not wait for it: its prompt comes back at once and the progress
 lines print over it (press Enter to draw the prompt again). A batch file, or PowerShell whose
 output is redirected, waits for the run. Ctrl+C in that shell asks the run to stop at its next
-file and remove its `game.partial` staging folder; a second Ctrl+C ends it at once. Closing the
-window asks the same, but Windows ends the process a few seconds after the handler returns, so
-the cleanup gets only that time: a staging folder it could not remove is left for the next
+file and remove its `game.partial` staging folder; a second Ctrl+C ends it at once, and a run
+ended while that cleanup is under way leaves `game.partial` behind, which the next install
+removes. Closing the window asks the same, but Windows ends the process a few seconds after the
+handler returns, so the cleanup gets only that time: the installer waits up to 4 seconds for it,
+then Windows ends the process, and a staging folder it could not remove is left for the next
 extraction to clear. For the exit code use
 `Start-Process -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt`
 and read the files and `.ExitCode`.
