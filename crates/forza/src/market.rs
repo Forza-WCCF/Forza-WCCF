@@ -702,6 +702,8 @@ pub struct Client {
     pub transport: Transport,
     /// A request sent again from the outbox and refused, as `VERB: why`: the player's money action did not happen.
     resent_refused: std::cell::Cell<Option<String>>,
+    /// [`KEY_FILE`] was there before [`Self::open`]: the key may have signed even when [`STATE_FILE`] lost its time.
+    had_key: bool,
 }
 
 impl Client {
@@ -710,6 +712,7 @@ impl Client {
     pub fn open(desk: SocketAddr, data: &Path, collection: &Path) -> Result<Self, Fail> {
         Ok(Self {
             desk,
+            had_key: data.join(KEY_FILE).is_file(),
             key: load_key(&data.join(KEY_FILE)).map_err(disk)?,
             data: data.to_owned(),
             log: crate::collection::Log::new(collection),
@@ -917,11 +920,14 @@ impl Client {
 
     /// START OVER in the market (PLAN.md 3.6): a RESET into the outbox, in place of a request in flight (the RESET
     /// undoes whatever that did on the server). Sent by the next [`Self::flush`] or request, also outside the market as
-    /// this PC sees it (a JOIN whose answer was lost); nothing for a key that never signed. A sale waiting since LEAVE is
+    /// this PC sees it (a JOIN whose answer was lost); nothing for a key made by this open. A sale waiting since LEAVE is
     /// dropped with the old log. Gives the state before, for [`Self::save`] to put back when the profile reset fails.
     pub fn queue_reset(&self) -> Result<Saved, Fail> {
-        let before = Self::load(&self.data)?;
-        if before.last_at == 0 {
+        // an unreadable state is moved aside by the first load, so the second reads the one it left
+        let before = Self::load(&self.data).or_else(|_| Self::load(&self.data))?;
+        // a lost or unreadable state has no time: a key from before may still be in the market (the server answers a
+        // RESET it does not know with `NOT_IN`, taken silently)
+        if before.last_at == 0 && !self.had_key {
             return Ok(before);
         }
         let mut s = Saved {
@@ -1707,6 +1713,29 @@ mod tests {
         assert_eq!(c.resent_refused(), None);
         assert!(Client::saved(&data).outbox.is_none());
         assert_eq!(sent(), ["RESET"]);
+    }
+
+    /// B1: START OVER queues RESET for a key that signed before even when [`STATE_FILE`] is gone or unreadable (its
+    /// last time lost): otherwise the server refuses the new log as a fork.
+    #[test]
+    fn start_over_resets_a_key_whose_state_was_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        script([Ok(Ok("0 lines".into()))]);
+        scripted_client(dir.path()).ask(Verb::Join, &[]).unwrap();
+        for lost in [None, Some("not json")] {
+            match lost {
+                None => std::fs::remove_file(data.join(STATE_FILE)).unwrap(),
+                Some(t) => std::fs::write(data.join(STATE_FILE), t).unwrap(),
+            }
+            scripted_client(dir.path()).queue_reset().unwrap();
+            let s = Client::saved(&data);
+            assert_eq!(
+                s.outbox.map(|o| o.verb).as_deref(),
+                Some("RESET"),
+                "{lost:?}"
+            );
+        }
     }
 
     /// m1: a request from the outbox refused when sent again is reported once, and the new request still goes.
