@@ -413,3 +413,34 @@ fn club_on_a_public_server_follows_the_allowlist() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A public server's `CLUB PUT` is counted by its words: past the ask limit (20), a PUT with a tab or two spaces
+/// between `CLUB` and `PUT` is refused as `NO slow` like any other. Size 0 is refused by the club parser, so nothing
+/// is uploaded or stored.
+#[test]
+fn club_put_is_rate_limited_however_its_words_are_spaced() {
+    let dir = std::env::temp_dir().join(format!("forza_club_slow_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = desk(|c| {
+        c.club_db = Some(dir.join("gamesvr.db"));
+        c.club_public = true;
+    });
+    let token = "ab".repeat(32);
+    for n in 1..=20 {
+        assert_ne!(
+            say(d.addr(), &format!("CLUB PUT 1 5 {token} 0")),
+            "NO slow",
+            "PUT {n}"
+        );
+    }
+    assert_eq!(
+        say(d.addr(), &format!("CLUB\tPUT 1 5 {token} 0")),
+        "NO slow"
+    );
+    assert_eq!(
+        say(d.addr(), &format!("CLUB  PUT 1 5 {token} 0")),
+        "NO slow"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

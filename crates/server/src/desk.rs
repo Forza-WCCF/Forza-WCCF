@@ -786,7 +786,11 @@ fn session(
                 return out.write_all(b"NO not allowed on this server\n");
             }
             // no seat holds a public server's uploads back: the per-address ask limit does
-            if public && line.starts_with("CLUB PUT") && sh.slow(ip, Instant::now()) {
+            // the words, not the bytes: `CLUB\tPUT` is the same PUT to the club parser
+            if public
+                && line.split_whitespace().take(2).eq(["CLUB", "PUT"])
+                && sh.slow(ip, Instant::now())
+            {
                 return out.write_all(b"NO slow\n");
             }
             let held = |s: u8| lock(&sh.state).leases.contains_key(&s);
