@@ -1675,9 +1675,8 @@ impl Market {
         let Some(mut upload) = Upload::take(&self.uploads, ip) else {
             return no(conn, verb, BUSY);
         };
-        let body = match read_body(conn, rest, size, &mut upload) {
-            Err(e) if e.kind() == io::ErrorKind::OutOfMemory => return no(conn, verb, BUSY),
-            body => body?,
+        let Some(body) = read_body(conn, rest, size, &mut upload)? else {
+            return no(conn, verb, BUSY);
         };
         let req = match Request::open(v, &sig, &body) {
             Ok(r) => r,
@@ -1744,21 +1743,20 @@ impl Drop for Upload<'_> {
 }
 
 /// `size` bytes of body ([`MAX_BODY`] at most, checked by the caller): `data` (read past the line) and the rest from
-/// `conn`, within a minute, each byte counted on `upload` as it arrives; [`io::ErrorKind::OutOfMemory`] when the desk's
-/// budget has no room for it.
+/// `conn`, within a minute, each byte counted on `upload` as it arrives; `None` when the desk's budget has no room
+/// for it.
 fn read_body(
     conn: &mut TcpStream,
     mut data: Vec<u8>,
     size: usize,
     upload: &mut Upload<'_>,
-) -> io::Result<Vec<u8>> {
-    let full = || io::Error::new(io::ErrorKind::OutOfMemory, BUSY);
+) -> io::Result<Option<Vec<u8>>> {
     let size = size.min(MAX_BODY);
     let end = Instant::now() + Duration::from_secs(60);
     conn.set_read_timeout(Some(Duration::from_secs(30)))?;
     data.truncate(size);
     if !upload.grow(data.len()) {
-        return Err(full());
+        return Ok(None);
     }
     let mut chunk = vec![0u8; 64 * 1024];
     while data.len() < size {
@@ -1769,11 +1767,11 @@ fn read_body(
         let buf = chunk.get_mut(..want).unwrap_or_default();
         match conn.read(buf)? {
             0 => return Err(io::Error::other("the PC hung up mid-request")),
-            n if !upload.grow(n) => return Err(full()),
+            n if !upload.grow(n) => return Ok(None),
             n => data.extend_from_slice(buf.get(..n).unwrap_or_default()),
         }
     }
-    Ok(data)
+    Ok(Some(data))
 }
 
 #[cfg(test)]
