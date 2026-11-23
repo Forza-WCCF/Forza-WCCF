@@ -1034,23 +1034,20 @@ impl App {
                 tf("collection.market_disk", &[("error", e)])
             }
         };
-        let note = d.said.as_ref().err().map(line);
+        let said = d.said.as_ref().err().map(line);
         if d.said.is_ok() {
             log(&format!("market: {:?} done", d.action));
         }
-        // the word went through; only the page's lists after it did not come
-        let note = note.or_else(|| d.visit.as_ref().map(line));
+        if let Some(e) = &d.visit {
+            log(&format!(
+                "market: {:?} went through; the visit after it failed: {e:?}",
+                d.action
+            ));
+        }
         if let Some(why) = &d.resent {
             log(&format!("market: a request sent again was refused: {why}"));
         }
-        let note = note.or_else(|| {
-            d.resent.as_ref().map(|said| {
-                tf(
-                    "collection.market_resent_refused",
-                    &[("why", &market::resent_in(text::lang(), said))],
-                )
-            })
-        });
+        let note = market::page_note(text::lang(), &d, said);
         if let Some((tone, line)) = market::footer(text::lang(), &d, d.said.as_ref().err().and(note.as_deref())) {
             say_tone(tone, line, 0);
         }

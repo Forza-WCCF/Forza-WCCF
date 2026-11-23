@@ -177,6 +177,26 @@ pub fn footer(lang: forza_ui::Lang, d: &Done, note: Option<&str>) -> Option<(Ton
     (!line.is_empty()).then_some((Tone::Done, line))
 }
 
+/// The market page's own line for a finished job: the word's own failure (`said`, already worded), else, after a
+/// word that went through, that the page's lists could not be refreshed (the visit's refusal is not the word's), else
+/// a kept request refused.
+pub fn page_note(lang: forza_ui::Lang, d: &Done, said: Option<String>) -> Option<String> {
+    said.or_else(|| {
+        d.visit
+            .is_some()
+            .then(|| forza_ui::text(lang, "collection.market_not_refreshed", &[]))
+    })
+    .or_else(|| {
+        d.resent.as_ref().map(|s| {
+            forza_ui::text(
+                lang,
+                "collection.market_resent_refused",
+                &[("why", &resent_in(lang, s))],
+            )
+        })
+    })
+}
+
 /// A kept request's `VERB: why` with the verb as the page's button reads in `lang` (#375).
 pub fn resent_in(lang: forza_ui::Lang, said: &str) -> String {
     let Some((verb, why)) = said.split_once(": ") else {
@@ -423,6 +443,24 @@ mod tests {
         assert_eq!(d.action, CollectionAction::List(7, 40));
         assert!(matches!(d.said, Err(Fail::Disk(_))), "{:?}", d.said);
         assert!(!m.busy() && m.poll().is_none(), "once");
+    }
+
+    /// A BUY that went through with its visit refused (`NO slow`) puts no refusal on the market page, only that the
+    /// lists could not be refreshed; the word's own refusal stays the page's line.
+    #[test]
+    fn a_refused_visit_after_a_word_is_not_the_pages_refusal() {
+        use forza_ui::Lang;
+        for lang in Lang::ALL {
+            let mut d = Done::new(CollectionAction::StockBuy(1, 7, 40));
+            d.visit = Some(Fail::Refused("slow".into()));
+            let note = page_note(lang, &d, None).expect("a line");
+            assert_eq!(note, forza_ui::text(lang, "collection.market_not_refreshed", &[]));
+            let refused = forza_ui::text(lang, "collection.market_refused", &[("why", "")]);
+            assert!(!note.contains(refused.trim_end()), "{lang:?}: {note}");
+            assert!(!note.starts_with("collection."), "{lang:?}");
+            assert_eq!(page_note(lang, &d, Some("own".into())).as_deref(), Some("own"));
+        }
+        assert_eq!(page_note(Lang::En, &Done::new(CollectionAction::Market), None), None);
     }
 
     /// #375: a refused word says its note in the footer (LIST is pressed on the collection page, which has no market
