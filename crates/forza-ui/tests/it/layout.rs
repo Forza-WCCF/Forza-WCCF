@@ -2367,7 +2367,8 @@ fn craft_opens_unfiltered_on_its_own_rarities() {
     assert!(h.query_by_label(&t("cat.all")).is_some(), "ALL");
 }
 
-/// #375: the detail counts the earned copies in hand, a listed one on the market only, and leaves Imported out at 0;
+/// #375: the detail counts the earned copies in hand, a listed one on the market only, and leaves Imported out at 0
+/// (and counts it in each language when there are some);
 /// LIST's price starts at the floor of each card opened, not at the last card's price.
 #[test]
 fn the_detail_counts_copies_in_hand_and_lists_from_the_floor() {
@@ -2415,6 +2416,41 @@ fn the_detail_counts_copies_in_hand_and_lists_from_the_floor() {
         h.run_steps(4);
         let list = t("collection.market_list", &[("n", &floor(card))]);
         assert!(h.query_by_label(&list).is_some(), "{}: {list:?}", card.name);
+    }
+    // imported copies get their own count, in each language
+    for lang in Lang::ALL {
+        let mut view = CollectionView::sample(Scenario::Page);
+        view.cards[15].1 = Copies {
+            earned: 3,
+            starter: 1,
+            imported: 7,
+            listed: 1,
+        };
+        view.open = Some(view.cards[15].0.number);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let line = forza_ui::text(
+            lang,
+            "collection.copies_imported",
+            &[
+                ("earned", "2"),
+                ("starter", "1"),
+                ("imported", "7"),
+                ("listed", "1"),
+            ],
+        );
+        assert!(
+            line.contains('7') && !line.contains("%{"),
+            "{lang:?}: {line}"
+        );
+        assert!(h.query_by_label(&line).is_some(), "{lang:?}: {line:?}");
     }
 }
 
