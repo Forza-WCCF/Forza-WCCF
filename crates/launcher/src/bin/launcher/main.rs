@@ -1510,6 +1510,8 @@ impl App {
             // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
             // match (run::rules::stop_server_too, and host_arcade's stop once the seat's run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
+            // #434: the club question before the lobby claims a seat or a room's countdown; JOIN again after it
+            Action::Lobby(a) if claims_a_start(&a) && self.club_question() => {}
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),
             Action::Report => self.open_report(&kit, false),
@@ -1699,6 +1701,14 @@ fn asks_first(offer: bool, asked: &mut bool) -> bool {
     let ask = offer && !*asked;
     *asked |= ask;
     ask
+}
+
+/// A lobby choice that claims a seat or a room (whose countdown starts the run): asked about the club first (#434).
+fn claims_a_start(a: &LobbyAction) -> bool {
+    matches!(
+        a,
+        LobbyAction::Join(_) | LobbyAction::JoinCode(_) | LobbyAction::QuickMatch | LobbyAction::HostVs
+    )
 }
 
 fn date_time(unix: i64) -> String {
@@ -2317,6 +2327,35 @@ mod tests {
             code[play..].find("if self.club_question()").unwrap() < code[play..].find("take_ticket").unwrap(),
             "asked before the ticket is taken"
         );
+    }
+
+    /// #434: a coded JOIN (or any lobby choice that claims a seat or a room) asks before the lobby sees it, so nothing
+    /// is claimed while the question is open and `held.played` is never set for a start the question stops.
+    #[test]
+    fn a_lobby_start_asks_before_it_claims() {
+        for a in [
+            LobbyAction::JoinCode("ABCDEF".into()),
+            LobbyAction::Join("r1".into()),
+            LobbyAction::QuickMatch,
+            LobbyAction::HostVs,
+        ] {
+            assert!(claims_a_start(&a), "{a:?}");
+        }
+        for a in [
+            LobbyAction::Ready,
+            LobbyAction::Leave,
+            LobbyAction::Refresh,
+            LobbyAction::Connect,
+        ] {
+            assert!(!claims_a_start(&a), "{a:?}");
+        }
+        let code = include_str!("main.rs").split("#[cfg(test)]").next().unwrap_or_default();
+        let act = code.find("fn act(&mut self").unwrap();
+        let gate = code[act..]
+            .find("claims_a_start(&a) && self.club_question()")
+            .expect("the gate");
+        let lobby = code[act..].find("self.online.act(a,").unwrap();
+        assert!(gate < lobby, "asked before the lobby claims");
     }
 
     #[test]
