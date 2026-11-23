@@ -1135,6 +1135,8 @@ fn an_arcade_copy_that_never_came_home_can_be_taken() {
     );
     assert!(o.pulled > 0);
     let saved = take(&dir).unwrap();
+    assert_eq!(saved.after, None);
+    let saved = saved.backup;
     let store = Store::open(&dir.join("gamesvr.db")).unwrap();
     let want = host.remap(&Swap::out(&visit_link(), 1, 50).inverse());
     assert_eq!(store.club(1).unwrap(), want, "the copy is home, home ids");
@@ -1149,6 +1151,31 @@ fn an_arcade_copy_that_never_came_home_can_be_taken() {
         "the copy kept as at a start"
     );
     assert_eq!(left(&dir), Ok(None), "offered once");
+}
+
+/// A step after the copy went home fails (here the undo file cannot be written): the take still counts, with the
+/// home club's backup to tell, and the rest (marker, copy) still goes.
+#[test]
+fn a_take_that_fails_after_the_write_still_says_taken() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home, host) = left_out(&dir);
+    // a folder where the undo file goes: its write cannot land
+    std::fs::create_dir(undo_file(&dir)).unwrap();
+    let t = take(&dir).expect("taken: the copy is home");
+    assert!(
+        t.after
+            .as_deref()
+            .is_some_and(|e| e.contains("club_undo.json")),
+        "{:?}",
+        t.after
+    );
+    let old: Club = serde_json::from_slice(&std::fs::read(&t.backup).unwrap()).unwrap();
+    assert_eq!(old, home, "the home club from before is backed up");
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    let want = host.remap(&Swap::out(&visit_link(), 1, 50).inverse());
+    assert_eq!(store.club(1).unwrap(), want, "the copy is home");
+    assert!(!out_file(&dir).exists(), "settled all the same");
 }
 
 /// Declining (a start without the offer taken): the home club stays and the copy goes to `backups`, as before #434.

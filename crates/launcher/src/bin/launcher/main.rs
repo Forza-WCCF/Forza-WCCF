@@ -969,21 +969,31 @@ impl App {
         }
         let dir = kit.save().join("gamesvr");
         let done = if take {
-            club::take(&dir).map(|b| {
+            club::take(&dir).map(|tk| {
                 log(&format!(
                     "arcade copy put home; the home club from before is {}",
-                    b.display()
+                    tk.backup.display()
                 ));
-                t("launcher.msg_club_arcade_used")
+                match tk.after {
+                    None => (Tone::Done, t("launcher.msg_club_arcade_used")),
+                    Some(e) => {
+                        log(&format!("arcade copy home, a later step failed: {e}"));
+                        let path = tk.backup.display().to_string();
+                        (
+                            Tone::Notice,
+                            tf("launcher.msg_club_arcade_used_partly", &[("path", &path)]),
+                        )
+                    }
+                }
             })
         } else {
             club::undo(&dir).map(|()| {
                 log("home club put back as it was before the arcade copy");
-                t("launcher.msg_club_home_back")
+                (Tone::Done, t("launcher.msg_club_home_back"))
             })
         };
         match done {
-            Ok(line) => say_tone(Tone::Done, line, 0),
+            Ok((tone, line)) => say_tone(tone, line, 0),
             Err(NotReplaced::Changed(p)) => {
                 log(&format!(
                     "club not replaced: it changed meanwhile; the copies are in {}",

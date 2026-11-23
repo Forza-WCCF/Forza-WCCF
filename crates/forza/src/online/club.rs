@@ -1269,10 +1269,19 @@ fn io_err(e: io::Error) -> NotReplaced {
     NotReplaced::Failed(e.to_string())
 }
 
+/// What [`take`] did once the copy was home.
+#[derive(Debug)]
+pub struct Taken {
+    /// The home club from before, in `backups`.
+    pub backup: PathBuf,
+    /// A step after the copy went home that failed (marker, undo file, settle): the copy is home all the same.
+    pub after: Option<String>,
+}
+
 /// USE THE ARCADE COPY: the copy [`left`] offers goes home after the home club is backed up; the marker and the copy
-/// then go as at a start ([`leftover`]), and [`undo`] can put the home club back until the next start. Returns the
-/// home club's backup.
-pub fn take(dir: &Path) -> Result<PathBuf, NotReplaced> {
+/// then go as at a start ([`leftover`]), and [`undo`] can put the home club back until the next start. `Err` only
+/// when nothing was replaced.
+pub fn take(dir: &Path) -> Result<Taken, NotReplaced> {
     let p = read_left(dir)?.ok_or_else(|| "no club is out".to_owned())?;
     let (host, _) = match (&p.copy, p.left(None)) {
         (Some(c), Left::Differs(_)) => c,
@@ -1290,16 +1299,19 @@ pub fn take(dir: &Path) -> Result<PathBuf, NotReplaced> {
         }
         return Err(NotReplaced::Changed(dir.join("backups")));
     };
+    // the copy is home: each later step is tried, a failure is told but replaces nothing back
+    let mut failed = Vec::new();
     // a stop right here must not offer the same copy again
     out.home_stamp.clone_from(&stamp);
     out.host_stamp = host.stamp();
     out.back_stamp.clone_from(&out.host_stamp);
     out.back = now();
-    write_atomic(
-        &out_file(dir),
-        &serde_json::to_vec_pretty(&out).map_err(|e| e.to_string())?,
-    )
-    .map_err(io_err)?;
+    if let Err(e) = serde_json::to_vec_pretty(&out)
+        .map_err(io::Error::other)
+        .and_then(|b| write_atomic(&out_file(dir), &b))
+    {
+        failed.push(format!("club_out.json: {e}"));
+    }
     let undo = Undo {
         home_aime: out.home_aime,
         backup: saved
@@ -1309,13 +1321,19 @@ pub fn take(dir: &Path) -> Result<PathBuf, NotReplaced> {
             .into_owned(),
         stamp,
     };
-    write_atomic(
-        &undo_file(dir),
-        &serde_json::to_vec_pretty(&undo).map_err(|e| e.to_string())?,
-    )
-    .map_err(io_err)?;
-    settle(dir).map_err(io_err)?;
-    Ok(saved)
+    if let Err(e) = serde_json::to_vec_pretty(&undo)
+        .map_err(io::Error::other)
+        .and_then(|b| write_atomic(&undo_file(dir), &b))
+    {
+        failed.push(format!("club_undo.json: {e}"));
+    }
+    if let Err(e) = settle(dir) {
+        failed.push(e.to_string());
+    }
+    Ok(Taken {
+        backup: saved,
+        after: (!failed.is_empty()).then(|| failed.join("; ")),
+    })
 }
 
 /// PUT THE HOME CLUB BACK: the home club from before [`take`], while the club is still the one it put home. The
