@@ -28,6 +28,7 @@
 //! room, so asking for copies keeps none of them: only players logged in there are never evicted.
 
 use super::gamesvr::{BLOCK, Store, TAIL, get_bits, next_id, now, put, put_bits, u32_at};
+use crate::kit::write_atomic;
 use crate::service::{Handle, Log};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -948,16 +949,6 @@ fn out_file(dir: &Path) -> PathBuf {
 
 fn last_file(dir: &Path) -> PathBuf {
     dir.join("club_last.json")
-}
-
-/// Writes `bytes` to `path` through a temporary file and a rename.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    let mut f = std::fs::File::create(&tmp)?;
-    f.write_all(bytes)?;
-    f.sync_all()?;
-    drop(f);
-    std::fs::rename(&tmp, path)
 }
 
 fn time_name() -> String {

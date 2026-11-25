@@ -4,6 +4,7 @@
 
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// Which game a kit runs.  The two kits are laid out differently: 2010-11 has `programs\`, 2017-18 has `bin\` (the
@@ -11,9 +12,12 @@ use std::path::{Path, PathBuf};
 /// [`Kit::edition`] tells them apart.
 pub use crate::Edition;
 
-/// The kit folder: the one this exe is in.
+pub use crate::profile::Profile;
+
+/// The kit folder: the one this exe is in, and the profile active when it was looked at (settings.json "profile").
 pub struct Kit {
     pub(crate) dir: PathBuf,
+    profile: Profile,
 }
 
 impl Kit {
@@ -40,7 +44,7 @@ impl Kit {
         let dir = exe
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        Self { dir }
+        Self::at(dir)
     }
 
     /// This program's own file name (Launcher.exe, or whatever the release calls it).
@@ -64,7 +68,14 @@ impl Kit {
 
     /// A kit in `dir` (tests, tools).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        let dir = dir.into();
+        let profile = profile_of(&dir.join("data"), Self::layout(&dir));
+        Self { dir, profile }
+    }
+
+    /// The active profile: free play or Create-a-Team.
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub fn dir(&self) -> &Path {
@@ -112,8 +123,9 @@ impl Kit {
         self.data().join("logs")
     }
 
+    /// The active profile's save: `data\save` for free play, `data\profiles\create-a-team\save` for Create-a-Team.
     pub fn save(&self) -> PathBuf {
-        self.data().join("save")
+        self.profile.save(&self.data())
     }
 
     pub fn settings_file(&self) -> PathBuf {
@@ -223,6 +235,38 @@ pub fn seat_dir(game: &Path) -> PathBuf {
 /// The FPR_Emu helper's folder beside the game folder.
 pub fn misc_dir(game: &Path) -> PathBuf {
     game.parent().unwrap_or(game).join("misc")
+}
+
+/// The active profile's save for a kit's `data` folder (callers that know only that folder: the panel, the card steps).
+pub fn save_in(data: &Path) -> PathBuf {
+    save_of(data, Kit::layout(data.parent().unwrap_or(data)))
+}
+
+/// The active profile's save for a `data` folder whose kit edition the caller knows (the panel's `WCCF_EDITION`):
+/// `data` may then be anywhere, not only in the kit.
+pub fn save_of(data: &Path, edition: Option<Edition>) -> PathBuf {
+    profile_of(data, edition).save(data)
+}
+
+/// settings.json "profile" in `data` on 2017-18 only: a settings file copied into a 2010-11 kit never moves its save
+/// into a profile folder.
+fn profile_of(data: &Path, edition: Option<Edition>) -> Profile {
+    if edition == Some(Edition::E1718) {
+        Profile::of(&read_settings(&data.join("settings.json")))
+    } else {
+        Profile::Free
+    }
+}
+
+/// Writes `bytes` to `path` through a temporary file beside it (`path` with the extension `tmp`) and one rename: a crash
+/// or a power cut never leaves half a file.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    let mut f = fs::File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    fs::rename(&tmp, path)
 }
 
 /// A settings.json file; an empty object when it is missing or not JSON.
@@ -376,5 +420,68 @@ mod tests {
             fs::remove_file(&bin).unwrap();
             assert_eq!(kit.game_language(), "", "{damaged:?}: original text");
         }
+    }
+
+    /// (a) Free play's save is data\save, as before profiles; Create-a-Team's is its own folder.
+    #[test]
+    fn the_save_follows_the_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(dir.path().join(Edition::E1718.layout().bin)).unwrap();
+        assert_eq!(Kit::at(dir.path()).profile(), Profile::Free);
+        assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("settings.json"), r#"{"profile": "free"}"#).unwrap();
+        assert_eq!(Kit::at(dir.path()).save(), data.join("save"));
+        assert_eq!(save_in(&data), data.join("save"));
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.profile(), Profile::CreateATeam);
+        assert_eq!(kit.save(), data.join(r"profiles\create-a-team\save"));
+        assert_eq!(save_in(&data), kit.save());
+    }
+
+    /// 2010-11 reads no profile: a settings file copied from 2017-18 leaves its save in data\save.
+    #[test]
+    fn a_2010_11_kit_keeps_its_save_whatever_the_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(dir.path().join(Edition::E1011.layout().bin)).unwrap();
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let kit = Kit::at(dir.path());
+        assert_eq!(kit.edition(), Edition::E1011);
+        assert_eq!(kit.profile(), Profile::Free);
+        assert_eq!(kit.save(), data.join("save"));
+        assert_eq!(save_in(&data), data.join("save"));
+    }
+
+    /// #234 review: a `data` folder outside any kit (the panel's `WCCF_DATA`) follows the edition the caller names.
+    #[test]
+    fn a_data_folder_outside_the_kit_follows_the_named_edition() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(
+            data.join("settings.json"),
+            r#"{"profile": "create-a-team"}"#,
+        )
+        .unwrap();
+        let cat = data.join(r"profiles\create-a-team\save");
+        assert_eq!(
+            save_in(&data),
+            data.join("save"),
+            "no kit layout: 2010-11's rule"
+        );
+        assert_eq!(save_of(&data, Some(Edition::E1718)), cat);
+        assert_eq!(save_of(&data, Some(Edition::E1011)), data.join("save"));
     }
 }
