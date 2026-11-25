@@ -382,6 +382,7 @@ fn no_two_clickables_overlap_on_the_popout_board() {
         st.file.board_buttons = true;
         // a table kept: RESET LINEUP is lit, so the whole foot row is in the check (a disabled button takes no click)
         st.before_match = Some(forza::cards::table_after(&[], &st.board));
+        st.reset_ready = true;
         let name = format!("popout board 900x901 {}", lang.code());
         over.extend(overlaps(&name, size, Edition::E1718, |ui| {
             panel::show(ui, &mut st)

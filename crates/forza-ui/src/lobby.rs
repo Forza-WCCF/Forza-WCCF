@@ -1347,7 +1347,7 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 return;
             }
             if vis.is_empty() {
-                hint(ui, &tr!(lang, "lobby.empty"));
+                hint(ui, &empty_line(v, lang));
                 return;
             }
             let rw = ui.available_width();
@@ -1465,12 +1465,29 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 .inner
                 .clicked()
         };
-        if on(
-            ui,
-            live && !v.view_only_now(),
-            tr!(lang, "lobby.quick"),
-            Cab::Plain,
-        ) {
+        // ARCADES: QUICK MATCH joins the open arcade with the lowest ping (launcher::lobby::quick_arcade), so with none
+        // it is grey and says why, as JOIN does
+        let quick = live && !v.view_only_now();
+        let none_open =
+            v.kind == Kind::Arcades && !v.arcades.iter().any(|r| r.state == RowState::Open);
+        let clicked = ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let clicked = on(
+                ui,
+                quick && !none_open,
+                tr!(lang, "lobby.quick"),
+                Cab::Plain,
+            );
+            if quick && none_open {
+                ui.label(
+                    egui::RichText::new(tr!(lang, "lobby.quick_none"))
+                        .font(theme::body(12.0))
+                        .color(theme::TEXT_DIM),
+                );
+            }
+            clicked
+        });
+        if clicked.inner {
             *act = Some(LobbyAction::QuickMatch);
         }
         let join = ui.vertical(|ui| {
@@ -1819,6 +1836,16 @@ fn hint(ui: &mut Ui, text: &str) {
         .galley(r.center() - g.size() / 2.0, g, theme::TEXT_DIM);
 }
 
+/// The empty list's line, per tab: one list is the arcades, the other the VS rooms.
+fn empty_line(v: &LobbyView, lang: Lang) -> String {
+    let key = if v.kind == Kind::Vs {
+        "lobby.empty_vs"
+    } else {
+        "lobby.empty"
+    };
+    tr!(lang, key)
+}
+
 /// The one status line the state calls for, if any.
 fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
     if v.offline {
@@ -1857,7 +1884,7 @@ fn status(v: &LobbyView, lang: Lang) -> Option<(Tone, String)> {
         return Some((Tone::Notice, tr!(lang, "lobby.arcade_rooms_off")));
     }
     if v.grey_now().is_none() && v.rows().is_empty() {
-        return Some((Tone::Notice, tr!(lang, "lobby.empty")));
+        return Some((Tone::Notice, empty_line(v, lang)));
     }
     if let Some(r) = v.joinable()
         && r.state == RowState::InMatch
@@ -2233,6 +2260,32 @@ mod tests {
         v.kind = Kind::Vs;
         v.open_only = true;
         assert_eq!(names(&v), ["K7QM", "TQ4D"]);
+    }
+
+    /// The empty list names what its tab lists: arcades on ARCADES, VS rooms on VS ROOMS (UX review 2026-11-22).
+    #[test]
+    fn the_empty_list_names_the_tab() {
+        let mut v = LobbyView::sample(Scenario::Empty);
+        v.vs.clear();
+        v.arcades.clear();
+        for (kind, want) in [
+            (
+                Kind::Arcades,
+                "No arcades yet. Host one or type a server address.",
+            ),
+            (
+                Kind::Vs,
+                "No VS rooms yet. Host one or type a server address.",
+            ),
+        ] {
+            v.kind = kind;
+            assert_eq!(empty_line(&v, Lang::En), want, "{kind:?} list");
+            assert_eq!(
+                status(&v, Lang::En).map(|(_, line)| line).as_deref(),
+                Some(want),
+                "{kind:?} status line"
+            );
+        }
     }
 
     /// JOIN's grey says why, in a few words, in the order `joinable` checks: offline, old list, the row.

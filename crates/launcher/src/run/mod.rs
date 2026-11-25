@@ -590,7 +590,13 @@ fn outside(kit: &Kit, p: &Params, ui: &dyn Ui) -> i32 {
         .map(|q| format!("{} {}", q.name, q.pid))
         .collect::<Vec<_>>()
         .join(", ");
-    tell(ui, "", &Text::key("launcher.run_strays").arg("list", list));
+    // 2017-18's SETUP tab has CLEAN UP, which ends those without a window
+    let key = if kit.edition() == Edition::E1718 {
+        "launcher.run_strays_1718"
+    } else {
+        "launcher.run_strays"
+    };
+    tell(ui, "", &Text::key(key).arg("list", list));
     FAILED
 }
 

@@ -322,28 +322,114 @@ fn vs_lobby_and_pause_button_hidden_1718() {
     }
 }
 
-/// RESET LINEUP is offered outside a match with a table kept, also while the board holds that table (the club office
-/// between matches), and greyed out in a match or before any table was kept.
+/// RESET LINEUP is offered outside a match with a kept table the board does not already hold, and greyed out in a
+/// match, before any table was kept, or while the board holds the kept table (a click there changed nothing). Only
+/// the last case shows its reason under the board in the hint's place: the other two keep the drag hint, with the
+/// reason on hover (UX review 2026-11-22).
 #[test]
 fn board_reset_lineup_offered_outside_a_match() {
-    for (in_match, kept, disabled) in [
-        (false, true, false),
-        (true, true, true),
-        (false, false, true),
+    for (in_match, kept, ready, why, same) in [
+        (false, true, true, None, false),
+        (true, true, true, Some("board.reset_match"), false),
+        (false, false, false, Some("board.reset_none"), false),
+        (false, true, false, Some("board.reset_same"), true),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
         st.in_match = in_match;
         if kept {
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
         }
-        assert!(!st.reset_ready, "the table is the one the match began with");
+        st.reset_ready = ready;
         let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
             panel::show(ui, &mut st)
         });
         h.run_steps(4);
         let button = h.get_by_label("RESET LINEUP");
-        assert_eq!(button.accesskit_node().is_disabled(), disabled);
+        assert_eq!(
+            button.accesskit_node().is_disabled(),
+            why.is_some(),
+            "{why:?}"
+        );
+        let key = if same { why.unwrap() } else { "board.hint" };
+        let line = forza_ui::text(Lang::En, key, &[("at", "")]);
+        assert!(h.query_by_label(&line).is_some(), "{key} under the board");
+        // the drag hint's place: the greyed button's reason stays on its hover
+        if let Some(k) = why.filter(|_| !same) {
+            h.get_by_label("RESET LINEUP").hover();
+            h.run_steps(12);
+            let reason = forza_ui::text(Lang::En, k, &[("at", "")]);
+            assert!(h.query_by_label(&reason).is_some(), "{k} on hover");
+        }
     }
+}
+
+/// RESET LINEUP's reason, while the table already holds the kept lineup, keeps clear of the board's buttons: under
+/// them on the game window's board at 1440x900, at their left on the pop-out board, in English, Italian and Japanese.
+/// A just-taken-off card's UNDO line still takes its place. Laid out only: no GPU.
+#[test]
+fn board_reset_reason_clear_of_the_buttons() {
+    for (w, h, desk, buttons) in [
+        (1440.0, 900.0, false, false),
+        (900.0, 901.0, true, true),
+        (960.0, 1232.0, true, false),
+    ] {
+        let size = Vec2::new(w, h);
+        for lang in Lang::ALL {
+            {
+                let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+                st.desk = desk;
+                st.file.board_window = desk;
+                st.file.board_buttons = buttons;
+                st.before_match = Some(forza::cards::table_after(&[], &st.board));
+                st.before_match_at = Some("21:40".into());
+                let mut hs = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+                hs.run_steps(8);
+                let at = |key: &str| hs.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+                let first = if desk { "board.dock" } else { "board.pop_out" };
+                let r = [first, "board.reset", "form.open"].map(at);
+                let key = "board.reset_same";
+                let line = hs
+                    .get_by_label(&forza_ui::text(lang, key, &[("at", "21:40")]))
+                    .rect();
+                let case = format!("{w}x{h} {} {key}: line {line:?} buttons {r:?}", lang.code());
+                for b in r {
+                    assert!(!line.intersects(b.shrink(0.5)), "{case}: on a button");
+                }
+                if desk {
+                    assert!(
+                        line.right() <= r[2].left() + 0.5,
+                        "{case}: past the buttons' left"
+                    );
+                } else {
+                    let bottom = r.iter().map(|b| b.bottom()).fold(f32::MIN, f32::max);
+                    assert!(line.top() >= bottom - 0.5, "{case}: up in the buttons' row");
+                }
+            }
+        }
+    }
+    // a card just taken off: its UNDO line, not the reason
+    let mut st = panel::PanelState::sample(Edition::E1718, Lang::En, panel::Page::Game);
+    st.before_match = Some(forza::cards::table_after(&[], &st.board));
+    st.before_match_at = Some("21:40".into());
+    st.undo = Some((
+        forza_ui::board::Removed {
+            card: st.cards[0].clone(),
+            slot: 0,
+            spot: egui::Pos2::ZERO,
+            at: egui::Pos2::ZERO,
+            size: Vec2::ZERO,
+        },
+        0.0,
+    ));
+    let mut hs = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+        panel::show(ui, &mut st)
+    });
+    hs.run_steps(2);
+    let reason = forza_ui::text(Lang::En, "board.reset_same", &[("at", "21:40")]);
+    assert!(
+        hs.query_by_label(&reason).is_none(),
+        "the UNDO line in its place"
+    );
 }
 
 /// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
@@ -368,6 +454,7 @@ fn board_hint_clear_of_the_buttons() {
         for lang in Lang::ALL {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
+            st.reset_ready = true; // RESET LINEUP lit: the hint, not its reason, under the buttons
             let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
             h.run_steps(8);
             let at = |key: &str| h.get_by_label(&forza_ui::text(lang, key, &[])).rect();
@@ -1136,6 +1223,54 @@ fn settings_last_toggles_take_the_click_1718() {
                 value(&s),
                 before,
                 "{} {key}: the click at {r:?} did not turn it",
+                lang.code()
+            );
+        }
+    }
+}
+
+/// QUICK MATCH on ARCADES with no open arcade is grey and says why under it, as JOIN does (owner, 2026-11-22: it
+/// did nothing on a click); with an open arcade it is lit and has no such line.
+#[test]
+fn quick_match_grey_with_no_open_arcade() {
+    for (open, lang) in [
+        (true, Lang::En),
+        (false, Lang::En),
+        (false, Lang::It),
+        (false, Lang::Ja),
+    ] {
+        let mut v = lobby::LobbyView::sample(lobby::Scenario::List);
+        v.kind = lobby::Kind::Arcades;
+        if !open {
+            v.arcades.retain(|r| r.state != lobby::RowState::Open);
+        }
+        assert_eq!(
+            v.arcades.iter().any(|r| r.state == lobby::RowState::Open),
+            open
+        );
+        let mut h = harness(lobby::SIZE, 1.0, Edition::E1718, |ui| {
+            lobby::show(ui, &mut v, lang);
+        });
+        h.run_steps(4);
+        let (quick_t, none_t) = (
+            forza_ui::text(lang, "lobby.quick", &[]),
+            forza_ui::text(lang, "lobby.quick_none", &[]),
+        );
+        let quick = h.get_by_label(&quick_t);
+        assert_eq!(
+            quick.accesskit_node().is_disabled(),
+            !open,
+            "{}",
+            lang.code()
+        );
+        let rect = quick.rect();
+        let why = h.query_by_label(&none_t);
+        assert_eq!(why.is_some(), !open, "{}", lang.code());
+        if let Some(why) = why {
+            let r = why.rect();
+            assert!(
+                r.top() >= rect.bottom() - 0.5 && r.width() <= rect.width() + 0.5,
+                "{} {r:?} {rect:?}",
                 lang.code()
             );
         }

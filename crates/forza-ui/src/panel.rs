@@ -723,6 +723,8 @@ pub struct PanelState {
     pub club_armed: Option<(ClubPick, f64)>,
     /// A choice asked for by its second click: data\panel.txt's card= or card_fix=, then RESTART NOW.
     pub club_request: Option<ClubPick>,
+    /// KEYS' Reset keys armed by a first click until this time (egui's clock): the second click resets.
+    pub keys_reset_armed: f64,
     /// The window's close was refused during a card session: the warning shows (the panel DLL sets it while it holds).
     pub close_warn: bool,
     /// The close dialog's answers this frame: QUIT clicked (the panel DLL lets the window close), KEEP PLAYING / Esc /
@@ -881,6 +883,7 @@ impl PanelState {
             club: ClubView::default(),
             club_armed: None,
             club_request: None,
+            keys_reset_armed: 0.0,
             close_warn: false,
             close_quit: false,
             close_keep: false,
@@ -991,6 +994,7 @@ impl PanelState {
             club,
             club_armed,
             club_request,
+            keys_reset_armed,
             close_warn,
             close_quit,
             close_keep,
@@ -1062,7 +1066,7 @@ impl PanelState {
         } = catalogue;
         let mut h = H(std::hash::DefaultHasher::new());
         results.hash(&mut h.0); // up to the whole catalogue: hashed, not formatted
-        let parts: [&dyn std::fmt::Debug; 96] = [
+        let parts: [&dyn std::fmt::Debug; 97] = [
             edition,
             lang,
             page,
@@ -1102,6 +1106,7 @@ impl PanelState {
             club,
             club_armed,
             club_request,
+            keys_reset_armed,
             close_warn,
             close_quit,
             close_keep,
@@ -1572,6 +1577,17 @@ pub fn keep_saved(st: &mut PanelState, table: Vec<Placed>, at: std::time::System
     let t = time::UtcOffset::current_local_offset().map_or(t, |o| t.to_offset(o));
     st.before_match = Some(table);
     st.before_match_at = Some(format!("{:02}:{:02}", t.hour(), t.minute()));
+}
+
+/// RESET LINEUP takes a click: outside a match, with a kept lineup the table does not already hold.
+fn reset_lit(st: &PanelState) -> bool {
+    !st.in_match && st.before_match.is_some() && st.reset_ready
+}
+
+/// RESET LINEUP is greyed for a table that already holds the lineup kept at the last match's start: the click that
+/// changed nothing.
+fn reset_same(st: &PanelState) -> bool {
+    !st.in_match && st.before_match.is_some() && !st.reset_ready
 }
 
 /// RESET LINEUP's hover text: where it goes back to, or why it is greyed out.
@@ -3766,7 +3782,7 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
     if st.edition == Edition::E1718 {
         let mut c = b.new_child(egui::UiBuilder::new().max_rect(at[1]));
         let hint = reset_hint(st, lang);
-        let r = c.add_enabled(!st.in_match && st.before_match.is_some(), button(&texts[1]));
+        let r = c.add_enabled(reset_lit(st), button(&texts[1]));
         buttons_bottom = buttons_bottom.max(r.rect.bottom());
         if r.clicked() {
             if st.file.reset_ask_off {
@@ -3820,6 +3836,17 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             egui::RichText::new(tr!(lang, "board.kept"))
                 .font(theme::body(HINT))
                 .color(theme::TEXT),
+        );
+    } else if st.edition == Edition::E1718 && reset_same(st) {
+        // a greyed button takes no hover on a touch screen: the reason the click changed nothing stays in view, in
+        // the hint's place; before the first match and in a match the drag hint keeps it, with the reason on hover
+        b.add(
+            egui::Label::new(
+                egui::RichText::new(reset_hint(st, lang))
+                    .font(theme::body(HINT))
+                    .color(theme::TEXT_DIM),
+            )
+            .truncate(),
         );
     } else if !st.desk {
         b.label(
@@ -4228,8 +4255,11 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
     let mut add = None;
     let mut open = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
     ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
-    // Enter puts the first card listed on the table; typed letters always go to the search line
-    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+    // Enter puts the first card listed on the table, only for words typed: with an empty search line the first card
+    // is the catalogue's own first; typed letters always go to the search line
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        && !c.filter.search.trim().is_empty()
+    {
         add = c.results.first().map(|&i| cards[i].number);
     }
     let (mut import, mut form) = (false, false);
@@ -7032,7 +7062,10 @@ mod tests {
         let at = |slot, no, x, y| Placed { slot, no, x, y };
         let start = vec![at(1, 10, 0.25, 0.9), at(2, 101, -0.5, 0.4)];
         let subbed = vec![at(1, 10, 0.25, 0.9), at(2, 210, -0.5, 0.4)];
-        assert_eq!(reset_hint(&st, Lang::En), "No match played yet");
+        assert_eq!(
+            reset_hint(&st, Lang::En),
+            "RESET LINEUP works after your first match."
+        );
         lineup_tick(&mut st, None, Some((true, true)), &start);
         assert!(st.before_match_at.is_some());
         lineup_tick(&mut st, None, Some((false, false)), &subbed);
@@ -7045,7 +7078,7 @@ mod tests {
             assert!(reset_hint(&st, lang).contains("21:40"));
         }
         lineup_tick(&mut st, None, None, &start);
-        assert!(reset_hint(&st, Lang::En).starts_with("Already the lineup"));
+        assert!(reset_hint(&st, Lang::En).starts_with("The table already holds the lineup"));
         st.in_match = true;
         assert_eq!(
             reset_hint(&st, Lang::En),
