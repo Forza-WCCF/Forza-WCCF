@@ -8,7 +8,7 @@ use forza_ui::Lang;
 use forza_ui::theme::Edition;
 use forza_ui::{launcher, panel, sizing};
 
-use super::common::harness;
+use super::common::{harness, steps_loaded};
 
 /// A 1280x720 screen (work area about 700 tall): PLAY and the status line stay in the window.
 #[test]
@@ -138,10 +138,7 @@ fn catalogue_1080() {
             panel::show(ui, &mut st)
         });
         // the file loads on a thread: step until it shows
-        for _ in 0..40 {
-            h.run_steps(1);
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        steps_loaded(&mut h, 40);
         let seen = panel::catalogue_detail_rect(&h.ctx).expect("the detail pane drawn");
         let add = match lang {
             Lang::En => "+ ADD",

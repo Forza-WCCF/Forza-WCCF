@@ -1,8 +1,10 @@
 //! What `behaviour`, `fit`, `layout` and `snapshots` share: the harness the screens are driven in, and the sample
 //! states more than one of them starts from.
 
+use eframe::egui_wgpu;
 use egui::{Ui, Vec2};
-use egui_kittest::Harness;
+use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state, default_wgpu_setup};
+use egui_kittest::{Harness, LazyRenderer};
 use forza_ui::Lang;
 use forza_ui::panel;
 use forza_ui::theme::{self, Edition};
@@ -18,6 +20,7 @@ pub(super) fn harness<'a>(
     Harness::builder()
         .with_size(size)
         .with_pixels_per_point(pixels_per_point)
+        .renderer(LazyRenderer::new(renderer))
         .build_ui(move |ui| {
             if fresh {
                 // our fonts take effect from the next frame: draw nothing on this one
@@ -31,6 +34,39 @@ pub(super) fn harness<'a>(
             root.set_clip_rect(full);
             show(&mut root);
         })
+}
+
+/// kittest's own renderer on one wgpu device for the whole test process: a new device per rendered harness (kittest's
+/// default) was most of a snapshot's time on WARP. The egui renderer, whose textures belong to one context, stays new.
+fn renderer() -> WgpuTestRenderer {
+    static DEVICE: std::sync::OnceLock<egui_wgpu::RenderState> = std::sync::OnceLock::new();
+    let options = egui_wgpu::RendererOptions::PREDICTABLE;
+    let mut state = DEVICE
+        .get_or_init(|| create_render_state(default_wgpu_setup(), options))
+        .clone();
+    let fresh = egui_wgpu::Renderer::new(&state.device, state.target_format, options);
+    state.renderer = std::sync::Arc::new(egui::mutex::RwLock::new(fresh));
+    WgpuTestRenderer::from_render_state(state)
+}
+
+/// Steps `frames` frames, waiting on a picture that loads on a thread only while one is loading (a fixed 25 ms a
+/// frame cost the catalogue tests 9 s), then on until none is, at most 10 s.
+pub(super) fn steps_loaded(h: &mut Harness<'_>, frames: usize) {
+    let start = std::time::Instant::now();
+    for frame in 0.. {
+        let pending = h.ctx.has_pending_images();
+        if frame >= frames && !pending {
+            return;
+        }
+        if pending {
+            assert!(
+                start.elapsed().as_secs() < 10,
+                "pictures still loading after 10 s"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(1);
+    }
 }
 
 /// IMPORT LINEUP's question over the catalogue: the cards that come in and those skipped, CONFIRM and CANCEL.
