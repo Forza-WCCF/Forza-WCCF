@@ -29,6 +29,7 @@ fn screens(mut check: impl FnMut(&str, Vec2, Edition, &mut dyn FnMut(&mut Ui))) 
         use launcher::Scenario::*;
         for s in [
             Ready, Running, StopArmed, NotSetUp, Update, Busy, Report, CleanedUp, Online,
+            ClubOffer, ClubUndo,
         ] {
             for ed in [Edition::E1011, Edition::E1718] {
                 let mut st = launcher::LauncherState::sample(ed, lang, s);

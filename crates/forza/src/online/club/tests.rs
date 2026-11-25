@@ -869,7 +869,15 @@ fn a_host_crash_keeps_the_home_copy() {
         has_rows(&Store::open(&host_db).unwrap().0, 50).unwrap(),
         "the host still holds it (purged at its start)"
     );
-    let kept = leftover(&dir).unwrap().expect("told");
+    // the last copy is home already (the desk's stamp is the parsed copy's): nothing to offer, a start says so
+    assert!(
+        matches!(left(&dir), Ok(Some(Left::Same { .. }))),
+        "{:?}",
+        left(&dir)
+    );
+    assert!(take(&dir).is_err(), "nothing to take");
+    let (kept, home_at) = leftover(&dir).unwrap().expect("told");
+    assert!(home_at.is_some_and(|t| t > 0), "the copy was home");
     assert!(
         kept.starts_with(dir.join("backups")) && kept.is_file(),
         "{kept:?}"
@@ -989,18 +997,18 @@ fn a_bad_copy_back_is_never_written_home() {
         cards: vec![(1, 71)],
     };
     let there = club(50, &[(70, 71)]);
-    assert!(g.sound(&link, &there).is_ok());
+    assert!(sound(g.arcade_aime, &link, &there).is_ok());
     assert!(
-        g.sound(&link, &club(51, &[(70, 71)])).is_err(),
+        sound(g.arcade_aime, &link, &club(51, &[(70, 71)])).is_err(),
         "another Aime id"
     );
     assert!(
-        g.sound(&link, &club(50, &[(72, 71)])).is_err(),
+        sound(g.arcade_aime, &link, &club(50, &[(72, 71)])).is_err(),
         "a club lost"
     );
     let mut bad = there.clone();
     bad.coaches[0].save.as_mut().unwrap().block.pop();
-    assert!(g.sound(&link, &bad).is_err(), "a short block");
+    assert!(sound(g.arcade_aime, &link, &bad).is_err(), "a short block");
     // the host's copy loses the club (an empty answer from a broken or modified host)
     delete(&Store::open(&host_db).unwrap().0, 50).unwrap();
     wait("the copy refused", || {
@@ -1057,4 +1065,221 @@ fn token_hides_the_code() {
     assert_eq!(token(code).len(), 64);
     assert!(!token(code).contains(code));
     assert_ne!(token(code), token("50123456789012345679"));
+}
+
+/// The link of [`left_out`]'s visit: home coach and card 1 are 70 and 71 in the arcade.
+fn visit_link() -> Link {
+    Link {
+        coaches: vec![(1, 70)],
+        cards: vec![(1, 71)],
+    }
+}
+
+/// A visit that ended before the last copy came home (the home write failed, so the marker's stamps never moved):
+/// the home club in the store, the marker and a sound `club_last.json` holding a match more. -> (home, the copy).
+fn left_out(dir: &Path) -> (Club, Club) {
+    std::fs::create_dir_all(dir).unwrap();
+    let home = club(1, &[(1, 1)]);
+    drop(store_with(&dir.join("gamesvr.db"), &home));
+    let link = visit_link();
+    let mut host = home.remap(&Swap::out(&link, 1, 50));
+    host.coaches[0].play_count += 1;
+    host.coaches[0].save.as_mut().unwrap().block[2000] ^= 1;
+    let out = Out {
+        arcade: "test arcade".into(),
+        since: 1000,
+        seat: 2,
+        home_aime: 1,
+        arcade_aime: 50,
+        link: link.clone(),
+        home_stamp: home.stamp(),
+        host_stamp: String::new(),
+        back_stamp: String::new(),
+        back: 0,
+    };
+    std::fs::write(out_file(dir), serde_json::to_vec(&out).unwrap()).unwrap();
+    std::fs::write(last_file(dir), serde_json::to_vec(&(&link, &host)).unwrap()).unwrap();
+    (home, host)
+}
+
+fn backups(dir: &Path, kind: &str) -> Vec<PathBuf> {
+    std::fs::read_dir(dir.join("backups"))
+        .map(|r| {
+            r.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .strip_prefix(kind)
+                        .is_some_and(|r| r.starts_with('-'))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// #434: the arcade's last copy never came home; USE THE ARCADE COPY puts it home with the home ids, the home club
+/// from before in `backups`, the marker gone and the undo kept.
+#[test]
+fn an_arcade_copy_that_never_came_home_can_be_taken() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home, host) = left_out(&dir);
+    let Ok(Some(Left::Differs(o))) = left(&dir) else {
+        panic!("{:?}", left(&dir))
+    };
+    assert_eq!(
+        (o.arcade.as_str(), o.home_at, o.plays),
+        ("test arcade", 1000, Some((7, 8)))
+    );
+    assert!(o.pulled > 0);
+    let saved = take(&dir).unwrap();
+    assert_eq!(saved.after, None);
+    let saved = saved.backup;
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    let want = host.remap(&Swap::out(&visit_link(), 1, 50).inverse());
+    assert_eq!(store.club(1).unwrap(), want, "the copy is home, home ids");
+    assert_eq!(backups(&dir, "club-1"), std::slice::from_ref(&saved));
+    let old: Club = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    assert_eq!(old, home, "the home club from before is backed up");
+    assert!(!out_file(&dir).exists() && !last_file(&dir).exists());
+    assert!(can_undo(&dir));
+    assert_eq!(
+        backups(&dir, "club-shop").len(),
+        1,
+        "the copy kept as at a start"
+    );
+    assert_eq!(left(&dir), Ok(None), "offered once");
+}
+
+/// A step after the copy went home fails (here the undo file cannot be written): the take still counts, with the
+/// home club's backup to tell, and the rest (marker, copy) still goes.
+#[test]
+fn a_take_that_fails_after_the_write_still_says_taken() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home, host) = left_out(&dir);
+    // a folder where the undo file goes: its write cannot land
+    std::fs::create_dir(undo_file(&dir)).unwrap();
+    let t = take(&dir).expect("taken: the copy is home");
+    assert!(
+        t.after
+            .as_deref()
+            .is_some_and(|e| e.contains("club_undo.json")),
+        "{:?}",
+        t.after
+    );
+    let old: Club = serde_json::from_slice(&std::fs::read(&t.backup).unwrap()).unwrap();
+    assert_eq!(old, home, "the home club from before is backed up");
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    let want = host.remap(&Swap::out(&visit_link(), 1, 50).inverse());
+    assert_eq!(store.club(1).unwrap(), want, "the copy is home");
+    assert!(!out_file(&dir).exists(), "settled all the same");
+}
+
+/// Declining (a start without the offer taken): the home club stays and the copy goes to `backups`, as before #434.
+#[test]
+fn a_declined_copy_leaves_the_home_club() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home, _) = left_out(&dir);
+    let (kept, home_at) = leftover(&dir).unwrap().expect("told");
+    assert_eq!(home_at, None, "the copy differed");
+    assert_eq!(backups(&dir, "club-shop"), [kept]);
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    assert_eq!(store.club(1).unwrap(), home);
+    assert!(!out_file(&dir).exists() && !last_file(&dir).exists());
+}
+
+/// A copy a copy-back would refuse is never offered nor taken, and nothing at home moves.
+#[test]
+fn a_bad_arcade_copy_is_never_offered() {
+    type Bad = fn(&mut Club) -> Option<Vec<u8>>;
+    let cases: [(&str, Bad); 7] = [
+        ("Aime id 0", |c| {
+            c.aime = 0;
+            None
+        }),
+        ("a save of the wrong size", |c| {
+            c.coaches[0].save.as_mut().unwrap().block.truncate(10);
+            None
+        }),
+        ("another Aime id", |c| {
+            *c = c.remap(&Swap {
+                aimes: HashMap::from([(50, 51)]),
+                ..Swap::default()
+            });
+            None
+        }),
+        ("a brought club missing", |c| {
+            c.coaches.clear();
+            None
+        }),
+        ("not JSON", |_| Some(b"{not json".to_vec())),
+        ("over the size cap", |c| {
+            let mut b = serde_json::to_vec(&(visit_link(), &*c)).unwrap();
+            b.resize(MAX_BYTES + (64 << 10) + 1, b' ');
+            Some(b)
+        }),
+        ("a marker that does not parse", |_| None),
+    ];
+    for (what, bad) in cases {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("gamesvr");
+        let (home, mut host) = left_out(&dir);
+        let bytes =
+            bad(&mut host).unwrap_or_else(|| serde_json::to_vec(&(visit_link(), &host)).unwrap());
+        std::fs::write(last_file(&dir), bytes).unwrap();
+        if what.starts_with("a marker") {
+            std::fs::write(out_file(&dir), b"{").unwrap();
+        }
+        assert!(left(&dir).is_err(), "{what}: {:?}", left(&dir));
+        assert!(matches!(take(&dir), Err(NotReplaced::Failed(_))), "{what}");
+        let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+        assert_eq!(store.club(1).unwrap(), home, "{what}");
+        assert!(!dir.join("backups").exists(), "{what}: no backups");
+    }
+}
+
+/// PUT THE HOME CLUB BACK restores the club from before the take; a club changed since stays; a start ends the undo.
+#[test]
+fn a_taken_copy_can_be_undone_until_the_next_start() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home, _) = left_out(&dir);
+    take(&dir).unwrap();
+    undo(&dir).unwrap();
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    assert_eq!(store.club(1).unwrap(), home, "the home club is back");
+    assert!(!can_undo(&dir));
+    assert!(undo(&dir).is_err(), "once");
+
+    // the home club changes after the take: the undo refuses and goes, the club stays
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    left_out(&dir);
+    take(&dir).unwrap();
+    let mut store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    let mut changed = store.club(1).unwrap();
+    changed.coaches[0].play_count += 1;
+    let now = changed.stamp();
+    assert!(
+        store
+            .put_home(&changed, &store.club(1).unwrap().stamp())
+            .unwrap()
+    );
+    assert_eq!(store.club(1).unwrap().stamp(), now);
+    assert_eq!(undo(&dir), Err(NotReplaced::Changed(dir.join("backups"))));
+    assert_eq!(store.club(1).unwrap(), changed);
+    assert!(!can_undo(&dir));
+
+    // a start (leftover) ends the undo
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    left_out(&dir);
+    take(&dir).unwrap();
+    assert!(can_undo(&dir));
+    assert_eq!(leftover(&dir).unwrap(), None, "nothing more to tell");
+    assert!(!can_undo(&dir));
 }

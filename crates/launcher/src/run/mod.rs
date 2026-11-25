@@ -164,6 +164,16 @@ fn gamesvr_bind_error(port: u16, e: &io::Error) -> Text {
     }
 }
 
+/// What a start says of a club left out ([`club::leftover`]): `home` = when the arcade's last copy came home, which
+/// it did (#434: "the arcade's last copy is in ..." read as a loss for a copy that held nothing new); else where the
+/// differing copy went.
+fn leftover_text(kept: &Path, home: Option<i64>) -> Text {
+    match home {
+        Some(t) => Text::key("launcher.club_up_to_date").arg("time", crate::logs::date_time(t)),
+        None => Text::key("launcher.club_kept").arg("path", kept.display()),
+    }
+}
+
 /// `text` to `ui` after `lead` (an indent, a step "1/6" the window's bar reads): shown in the player's language, the
 /// English for the logs.
 pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
@@ -2548,9 +2558,7 @@ impl Run<'_> {
     /// last copy goes to backups, and the player is told once.
     fn club_leftover(&self, dir: &Path) {
         match club::leftover(dir) {
-            Ok(Some(kept)) => {
-                self.tell("  ", &Text::key("launcher.club_kept").arg("path", kept.display()));
-            }
+            Ok(Some((kept, home))) => self.tell("  ", &leftover_text(&kept, home)),
             Ok(None) => {}
             Err(e) => self.tell("  ", &Text::key("launcher.run_marker_unread").arg("error", e)),
         }
@@ -3493,6 +3501,25 @@ mod tests {
     fn the_desk_notice_file_follows_the_lan_only_choice() {
         let code = include_str!("mod.rs").split("#[cfg(test)]").next().unwrap_or_default();
         assert!(code.contains("let file = desk_notice_file(&self.kit.data(), lan_only);"));
+    }
+
+    /// A start after a visit whose last copy was home says the club is as the arcade sent it; a differing copy keeps
+    /// the old line with its backup (#434).
+    #[test]
+    fn a_leftover_copy_already_home_says_the_club_is_up_to_date() {
+        let kept = Path::new(r"gamesvr\backups\club-shop-1.json");
+        let home = super::leftover_text(kept, Some(1_700_000_000));
+        assert!(
+            matches!(home, super::Text::Key("launcher.club_up_to_date", _)),
+            "{home:?}"
+        );
+        assert!(home.en().contains("as the arcade last sent it"), "{}", home.en());
+        let differs = super::leftover_text(kept, None);
+        assert!(
+            matches!(differs, super::Text::Key("launcher.club_kept", _)),
+            "{differs:?}"
+        );
+        assert!(differs.en().contains("club-shop-1.json"), "{}", differs.en());
     }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).

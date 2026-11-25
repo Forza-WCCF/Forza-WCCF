@@ -32,6 +32,19 @@ pub fn clock(t: OffsetDateTime) -> String {
     )
 }
 
+/// A unix time on this PC's clock as the player reads it: `YYYY-MM-DD hh:mm`.
+pub fn date_time(unix: i64) -> String {
+    let t = local(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(unix.max(0) as u64));
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}",
+        t.year(),
+        u8::from(t.month()),
+        t.day(),
+        t.hour(),
+        t.minute()
+    )
+}
+
 /// One "hh:mm:ss  line" added to `file`, its folder made first. A write that fails is skipped: logs never stop a step.
 pub fn append(file: &Path, line: &str) {
     if let Some(dir) = file.parent() {

@@ -90,6 +90,10 @@ pub enum Action {
     Rejoin,
     /// CLEAN UP (2017-18): the leftovers of a crash and a dropped arcade visit go, after a backup.
     CleanUp,
+    /// USE THE ARCADE COPY (2017-18, #434): the arcade's last copy of the club goes home, the home club backed up.
+    ClubUseArcade,
+    /// PUT THE HOME CLUB BACK: undoes [`Action::ClubUseArcade`] until the next PLAY.
+    ClubUndo,
     /// REPORT A PROBLEM: open the report dialog (`report`).
     Report,
     /// SAVE LOGS in the report dialog: its words and the logs in one ZIP on this PC.
@@ -111,6 +115,15 @@ pub struct ReportForm {
     pub sent: bool,
     /// Once saved: GitHub's new-issue page filled in (`launcher::report::issue_url`).
     pub issue_url: Option<String>,
+}
+
+/// The arcade copy row on SETUP (2017-18, #434), under CLEAN UP.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClubRow {
+    /// USE THE ARCADE COPY with its hint, the dates filled in.
+    Offer(String),
+    /// PUT THE HOME CLUB BACK, after the arcade copy was put home.
+    Undo,
 }
 
 /// A question in a modal: a title, an optional body, the button that says yes and what yes does.
@@ -184,6 +197,8 @@ pub struct LauncherState {
     /// CLEAN UP is offered (2017–18 only) and its last result line.
     pub clean_up: bool,
     pub clean_status: Option<(Tone, String)>,
+    /// The arcade copy row, while an offer or its undo is pending.
+    pub club_row: Option<ClubRow>,
     /// The UPDATE section (2010–11 only: the releases are 2010–11 versions).
     pub updates: bool,
     /// The version in this folder.
@@ -233,6 +248,10 @@ pub enum Scenario {
     Report,
     /// SETUP on 2017-18 after CLEAN UP cleaned something.
     CleanedUp,
+    /// SETUP on 2017-18 with the arcade's last copy of the club on offer (#434).
+    ClubOffer,
+    /// SETUP on 2017-18 after the arcade copy was put home: its undo.
+    ClubUndo,
 }
 
 /// An empty lobby for the edition, open on ARCADES: the kind with nothing behind it greyed (2010–11 VS); 2017–18 arcades are
@@ -288,6 +307,7 @@ impl LauncherState {
             vs_link: None,
             clean_up: false,
             clean_status: None,
+            club_row: None,
             updates: edition == Edition::E1011,
             version: "7.0.0".into(),
             update_available: None,
@@ -402,6 +422,21 @@ impl LauncherState {
                     .into(),
                     ..ReportForm::default()
                 });
+            }
+            Scenario::ClubOffer => {
+                st.tab = Tab::Setup;
+                st.status = Some((Tone::Notice, tr!(lang, "launcher.msg_club_offer")));
+                st.club_row = Some(ClubRow::Offer(tr!(
+                    lang,
+                    "launcher.club_offer_hint",
+                    arcade = "2026-11-22 21:40",
+                    home = "2026-11-22 21:12"
+                )));
+            }
+            Scenario::ClubUndo => {
+                st.tab = Tab::Setup;
+                st.status = Some((Tone::Done, tr!(lang, "launcher.msg_club_arcade_used")));
+                st.club_row = Some(ClubRow::Undo);
             }
             Scenario::CleanedUp => {
                 st.tab = Tab::Setup;
@@ -840,6 +875,44 @@ fn setup(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Actio
                     );
                 }
             });
+        }
+        if let Some(row) = &st.club_row {
+            let (button, hint, then) = match row {
+                ClubRow::Offer(hint) => (
+                    "launcher.club_use_arcade",
+                    hint.clone(),
+                    Action::ClubUseArcade,
+                ),
+                ClubRow::Undo => (
+                    "launcher.club_undo",
+                    tr!(lang, "launcher.club_undo_hint"),
+                    Action::ClubUndo,
+                ),
+            };
+            let r = ui.horizontal(|ui| {
+                ui.add_enabled_ui(!st.running, |ui| {
+                    if action(ui, &tr!(lang, button)).clicked() {
+                        *act = Some(then);
+                    }
+                });
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(hint)
+                            .font(theme::body(13.0))
+                            .color(theme::TEXT_DIM),
+                    )
+                    .wrap(),
+                );
+            });
+            // the status line sends the player here, the row sits under the fold: scroll it into view once (not on
+            // the window's first passes, whose footer has no height yet, so nothing is under the fold)
+            let shown = egui::Id::unique("launcher-club-row-shown");
+            if ui.ctx().cumulative_pass_nr() >= 2
+                && ui.data(|d| d.get_temp::<&str>(shown)) != Some(button)
+            {
+                ui.data_mut(|d| d.insert_temp(shown, button));
+                r.response.scroll_to_me(None);
+            }
         }
     });
 }
