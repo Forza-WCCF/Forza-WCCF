@@ -9,6 +9,7 @@ use super::widgets::{
     status_line, stepper, text_w, toggle_row,
 };
 use egui::{Key, Modifiers, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+pub use forza::online::lobby::Mode;
 
 /// A window this view fits.
 pub const SIZE: egui::Vec2 = egui::vec2(600.0, 700.0);
@@ -63,6 +64,8 @@ pub struct Row {
     pub next_entry: Option<u32>,
     /// An arcade room a host listed (2017-18): joined from its row even where ARCADES are view-only.
     pub room: bool,
+    /// A VS room: its players' FREE or CREATE-A-TEAM marks, in seat order.
+    pub modes: Vec<Mode>,
 }
 
 impl Row {
@@ -101,6 +104,8 @@ pub enum Notice {
 pub struct Occupant {
     pub club: String,
     pub ready: bool,
+    /// FREE or CREATE-A-TEAM (VS rooms show it).
+    pub mode: Mode,
 }
 
 /// The room a JOIN or HOST opened, before the start.
@@ -148,6 +153,23 @@ impl Room {
         self.mine
             .and_then(|i| self.seats.get(i)?.as_ref())
             .is_some_and(|o| o.ready)
+    }
+
+    /// A VS room with an opponent seated: this PC's mark and the opponent's, as the run's `WCCF_VS_MARKS` says them
+    /// ("cat,free"); none in an arcade or alone.
+    pub fn marks(&self) -> Option<String> {
+        if self.kind != Kind::Vs {
+            return None;
+        }
+        let i = self.mine?;
+        let mine = self.seats.get(i)?.as_ref()?.mode;
+        let theirs = self
+            .seats
+            .iter()
+            .enumerate()
+            .find_map(|(n, s)| s.as_ref().filter(|_| n != i))?
+            .mode;
+        Some(format!("{},{}", mine.word(), theirs.word()))
     }
 }
 
@@ -561,6 +583,7 @@ fn row(
         state,
         next_entry: next,
         room: false,
+        modes: vec![],
     }
 }
 
@@ -649,6 +672,13 @@ impl LobbyView {
             row("r2b9", "TQ4D", 1, 2, Some(112), Some(En), Open, None),
             row("r5h3", "WZ8P", 2, 2, Some(61), Some(Ja), Full, None),
         ];
+        for (r, modes) in v.vs.iter_mut().zip([
+            vec![Mode::Cat],
+            vec![Mode::Free],
+            vec![Mode::Cat, Mode::Free],
+        ]) {
+            r.modes = modes;
+        }
         match s {
             Scenario::List => {}
             Scenario::Empty => {
@@ -704,18 +734,19 @@ impl LobbyView {
                 }
             }
             Scenario::RoomWait | Scenario::Host | Scenario::RoomReady | Scenario::Cpu => {
-                let club = |c: &str, ready| {
+                let club = |c: &str, ready, mode| {
                     Some(Occupant {
                         club: c.into(),
                         ready,
+                        mode,
                     })
                 };
                 v.kind = Kind::Vs;
                 let mut r = Room::new("K7QM", Kind::Vs, 2);
                 r.mine = Some(0);
-                r.seats[0] = club("A7K2", s != Scenario::Host);
+                r.seats[0] = club("A7K2", s != Scenario::Host, Mode::Cat);
                 if s == Scenario::RoomReady {
-                    r.seats[1] = club("Q3ZD", true);
+                    r.seats[1] = club("Q3ZD", true, Mode::Free);
                     r.countdown = Some(3);
                 }
                 if s == Scenario::Cpu {
@@ -1208,13 +1239,70 @@ fn columns(w: f32) -> [(f32, f32); 5] {
     ]
 }
 
-fn cell(ui: &Ui, rect: Rect, col: (f32, f32), text: &str, font: egui::FontId, c: egui::Color32) {
+/// Paints `text` in column `col` of `rect`; the rect the text took.
+fn cell(
+    ui: &Ui,
+    rect: Rect,
+    col: (f32, f32),
+    text: &str,
+    font: egui::FontId,
+    c: egui::Color32,
+) -> Rect {
     let g = fit(ui.painter(), text, font, c, col.1);
-    ui.painter().galley(
-        pos2(rect.left() + col.0, rect.center().y - g.size().y / 2.0),
-        g,
-        c,
-    );
+    let at = pos2(rect.left() + col.0, rect.center().y - g.size().y / 2.0);
+    let took = Rect::from_min_size(at, g.size());
+    ui.painter().galley(at, g, c);
+    took
+}
+
+/// A FREE or CREATE-A-TEAM mark: the profile's own name.
+pub fn mark_word(lang: Lang, m: Mode) -> String {
+    tr!(
+        lang,
+        match m {
+            Mode::Free => "launcher.profile_free",
+            Mode::Cat => "launcher.profile_cat",
+        }
+    )
+}
+
+/// Paints the marks of `modes` (each mode once, in seat order) as outlined tags that end at `right`, start no further
+/// left than `left` and are centred on `y`; the tags' rects.
+fn marks(ui: &Ui, lang: Lang, modes: &[Mode], left: f32, right: f32, y: f32) -> Vec<Rect> {
+    let mut once: Vec<Mode> = vec![];
+    for m in modes {
+        if !once.contains(m) {
+            once.push(*m);
+        }
+    }
+    let (gap, pad, h) = (6.0, 5.0, 18.0);
+    let n = once.len() as f32;
+    let each = (right - left - gap * (n - 1.0)) / n;
+    let mut x = right;
+    let mut took = vec![];
+    for &m in once.iter().rev() {
+        let (ink, edge) = match m {
+            Mode::Cat => (theme::TEXT, theme::BLUE),
+            Mode::Free => (theme::TEXT_DIM, theme::TEXT_FAINT),
+        };
+        let p = ui.painter();
+        let g = fit(
+            p,
+            &mark_word(lang, m),
+            theme::bold(11.0),
+            ink,
+            (each - 2.0 * pad).max(0.0),
+        );
+        let r = Rect::from_min_max(
+            pos2(x - g.size().x - 2.0 * pad, y - h / 2.0),
+            pos2(x, y + h / 2.0),
+        );
+        p.rect_stroke(r, theme::RADIUS, Stroke::new(1.0, edge), StrokeKind::Inside);
+        p.galley(pos2(r.left() + pad, y - g.size().y / 2.0), g, ink);
+        took.push(r);
+        x = r.left() - gap;
+    }
+    took
 }
 
 fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyAction>) {
@@ -1397,7 +1485,11 @@ fn list_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 } else {
                     theme::bold(14.0)
                 };
-                cell(ui, rect, cols[0], &r.name, font, ink);
+                let name = cell(ui, rect, cols[0], &r.name, font, ink);
+                if v.kind == Kind::Vs && !r.modes.is_empty() {
+                    let end = rect.left() + cols[0].0 + cols[0].1;
+                    marks(ui, lang, &r.modes, name.right() + 8.0, end, rect.center().y);
+                }
                 let seats = if v.offline {
                     "-".into()
                 } else {
@@ -1905,8 +1997,17 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
             theme::TEXT_DIM,
         );
         let c = pos2(rect.left() + 48.0, rect.center().y);
+        let mut text_w = w - 80.0;
         let (text, ink) = match seat {
             Some(o) => {
+                if room.kind == Kind::Vs {
+                    let left = rect.left() + 64.0 + text_w / 2.0;
+                    if let Some(tag) =
+                        marks(ui, lang, &[o.mode], left, rect.right() - 10.0, c.y).first()
+                    {
+                        text_w = tag.left() - 8.0 - (rect.left() + 64.0);
+                    }
+                }
                 let col = if o.ready { theme::GREEN } else { theme::AMBER };
                 ui.painter().circle_filled(c, 6.0, col);
                 // no club id yet (this PC's seat before the next LOBBY, an arcade seat): nothing
@@ -1928,7 +2029,7 @@ fn room_view(ui: &mut Ui, v: &mut LobbyView, lang: Lang, act: &mut Option<LobbyA
                 (tr!(lang, "lobby.waiting"), theme::TEXT_DIM)
             }
         };
-        cell(ui, rect, (64.0, w - 80.0), &text, theme::body(14.0), ink);
+        cell(ui, rect, (64.0, text_w), &text, theme::body(14.0), ink);
         ui.add_space(4.0);
     }
     ui.add_space(6.0);
@@ -2201,6 +2302,25 @@ mod tests {
         }
         v.host_code = None; // the room not made yet
         assert_eq!(v.host_players_line(Lang::En), None);
+    }
+
+    /// The run gets a VS room's two marks, this PC's first, only once an opponent is seated.
+    #[test]
+    fn a_vs_rooms_marks_need_both_seats() {
+        let mut v = LobbyView::sample(Scenario::RoomReady);
+        let room = v.room.as_mut().unwrap();
+        assert_eq!(room.marks().as_deref(), Some("cat,free"));
+        room.mine = Some(1);
+        assert_eq!(room.marks().as_deref(), Some("free,cat"));
+        room.seats[0] = None;
+        assert_eq!(room.marks(), None, "alone");
+        let wait = LobbyView::sample(Scenario::RoomWait).room.unwrap();
+        assert_eq!(wait.marks(), None);
+        let mut arcade = Room::new("K7QM2XPD", Kind::Arcades, 8);
+        arcade.mine = Some(0);
+        arcade.seats[0] = room.seats[1].clone();
+        arcade.seats[1] = room.seats[1].clone();
+        assert_eq!(arcade.marks(), None, "an arcade");
     }
 
     /// Each filter on its own lets through the rows it did before, and off again shows them all.

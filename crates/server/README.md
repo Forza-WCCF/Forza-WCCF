@@ -57,6 +57,7 @@ The desk's words (`forza::online::lobby` has the client side; one line each way,
 | `CREATE vs open` (QUICK MATCH) | `ROOM id code t 2` on seat 2 of the oldest open room still waiting, else a new open room (`… t 1`) |
 | `RESERVE room-id [2]` | `TICKET t 2`, `FULL` (two players), `TAKEN` (the seat asked for), `CLOSED` (no such room) |
 | `READY id t` | `OK` or `GONE` |
+| `MODE id t free\|cat` | `OK` or `GONE`: the ticket's seat plays free or Create-a-Team; listed as `"mode":"cat"`, free left out. Desks before it answer `ERR`, which the Launcher ignores |
 | `CLOSE id t` | `OK` or `GONE`; the host's ticket closes the room and drops the guest's, a guest's leaves its seat |
 | `HEARTBEAT t`, `RELEASE t` | as for arcade seats; the host's `RELEASE` closes the room |
 
@@ -72,7 +73,7 @@ token the control then sends as the seat's address in MATCHING_ENTRY 243 (+8 add
 pairs an entry only within its pool: no ticket = M3's open pool (round, rematch history and the rest as before); a
 room's ticket = the other PC of that room, across rounds and history; a ticket the desk no longer holds (room
 closed, lease ended) = nobody, never the open pool. Rooms need `all` (desk and game server in one process, VS on);
-a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY` and `CLOSE`
+a desk without the matcher (2010-11, `desk` alone, `--no-gmsvr`) holds no rooms: `CREATE`, `READY`, `MODE` and `CLOSE`
 answer `ERR` as unknown words, `RESERVE room-id` answers `CLOSED`.
 
 ## Market (2017-18, Create-a-Team)

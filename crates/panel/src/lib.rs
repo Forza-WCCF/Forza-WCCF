@@ -1768,6 +1768,10 @@ struct Render {
     notice_pending: Option<(String, String)>,
     /// The id of the notice on the banner, for the log line when it goes off early ([`banner_off`]).
     notice_shown: Option<String>,
+    /// The lobby VS banner ([`vs_banner`]) was looked for: it shows at most once a run.
+    vs_marks_done: bool,
+    /// The lobby VS banner's text, waiting for a free banner ([`vs_show`]).
+    vs_pending: Option<String>,
     painter: painter::Painter,
     start: Instant,
     sc: Option<(IDirect3DSwapChain9, u32, u32, HWND)>,
@@ -1936,6 +1940,8 @@ impl Render {
             notice: None,
             notice_pending: None,
             notice_shown: None,
+            vs_marks_done: false,
+            vs_pending: None,
             deal_at: Instant::now(),
             match_end: grant::MatchEnd::default(),
             granter: match collection {
@@ -2506,7 +2512,14 @@ impl Render {
         self.table_in();
         self.links_in();
         self.settings_in();
+        self.vs_marks_in();
         self.notice_in();
+        // after the notice: nothing later in the pass takes the banner off, so what goes up here is painted
+        if let Some(l) = vs_show(&mut self.vs_pending, &mut self.st.banner, || {
+            notice_waits(match_check())
+        }) {
+            log(l);
+        }
         self.club_in();
         self.deal_in();
         self.keys_in();
@@ -3314,6 +3327,21 @@ impl Render {
         self.notice_pending = Some((n.id, text));
     }
 
+    /// A lobby VS room of FREE against CREATE-A-TEAM: the banner says so once, at the start.
+    fn vs_marks_in(&mut self) {
+        if self.vs_marks_done {
+            return;
+        }
+        let marks = std::env::var("WCCF_VS_MARKS").ok();
+        if let Some(text) = vs_banner(&mut self.vs_marks_done, marks.as_deref(), self.st.lang) {
+            log(&format!(
+                "VS marks {}: banner waits for a free banner",
+                marks.unwrap_or_default()
+            ));
+            self.vs_pending = Some(text);
+        }
+    }
+
     /// CLUB CARD: data\club_view.txt read on opening and again each second while open when it changed (the run's helper
     /// rewrites it whole whenever the card changes); the slot's session read with it, for the refusal.
     fn club_in(&mut self) {
@@ -3935,6 +3963,43 @@ fn banner_off(banner: &mut Option<panel::Note>, id: Option<&str>, why: &str) -> 
     banner
         .take()
         .map(|_| format!("notice: {} {why}", id.unwrap_or("?")))
+}
+
+/// The banner's text for the run's `WCCF_VS_MARKS` ("cat,free": this PC's mark, then the opponent's) when the two
+/// differ; none without the variable, for two equal or unknown marks, and after the first call (`done`).
+fn vs_banner(done: &mut bool, marks: Option<&str>, lang: forza_ui::Lang) -> Option<String> {
+    use forza::online::lobby::Mode;
+    if std::mem::replace(done, true) {
+        return None;
+    }
+    let (mine, theirs) = marks?.split_once(',')?;
+    let (mine, theirs) = (Mode::parse(mine.trim())?, Mode::parse(theirs.trim())?);
+    let word = |m| forza_ui::lobby::mark_word(lang, m);
+    (mine != theirs).then(|| {
+        forza_ui::text(
+            lang,
+            "panel.vs_mixed",
+            &[("mine", &word(mine)), ("theirs", &word(theirs))],
+        )
+    })
+}
+
+/// The lobby VS banner waiting in `pending` goes up once the banner is free (a server notice on it shows first), and is
+/// dropped when the seat is in a match by then (`playing`, asked only then). The log line when it goes up or is dropped.
+fn vs_show(
+    pending: &mut Option<String>,
+    banner: &mut Option<panel::Note>,
+    playing: impl FnOnce() -> bool,
+) -> Option<&'static str> {
+    if pending.is_none() || banner.is_some() {
+        return None;
+    }
+    let text = pending.take()?;
+    if playing() {
+        return Some("VS marks: banner not shown, the seat is in a match");
+    }
+    *banner = Some(panel::Note::banner(text));
+    Some("VS marks: banner shown")
 }
 
 /// A notice file larger than this is not a notice: never read whole (the panel is 32-bit, so a huge file would
@@ -4771,7 +4836,8 @@ mod tests {
         BOARD_ANIMATION, BOARD_EVENTS, Duration, Event, HELD, Instant, LPARAM, Modifiers,
         NOTICE_MAX, PointerButton, RECT, Relaxed, WPARAM, banner_off, board_unchanged, board_wake,
         cards, fit_place, fit_workspace, game_press, handle_press, input, of, proj_close_note,
-        read_notice, saved_place_fitted, side_button, table_count, take_off_lines,
+        read_notice, saved_place_fitted, side_button, table_count, take_off_lines, vs_banner,
+        vs_show,
     };
     use std::sync::atomic::AtomicU32;
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -5130,6 +5196,80 @@ mod tests {
             None,
             "nothing on the banner: no line"
         );
+    }
+
+    /// (c) The lobby VS banner shows once when the run's variable says FREE against CREATE-A-TEAM, and never without it,
+    /// for equal marks or for a value that is no pair of marks.
+    #[test]
+    fn the_vs_banner_shows_once_for_mixed_marks() {
+        use forza_ui::Lang;
+        let mut done = false;
+        let text = vs_banner(&mut done, Some("cat,free"), Lang::En);
+        assert_eq!(
+            text.as_deref(),
+            Some("This VS match: you play in CREATE-A-TEAM mode, your opponent in FREE mode.")
+        );
+        assert_eq!(
+            vs_banner(&mut done, Some("cat,free"), Lang::En),
+            None,
+            "once"
+        );
+        for lang in Lang::ALL {
+            let t = vs_banner(&mut false, Some("free,cat"), lang).expect("mixed");
+            assert!(!t.contains('%'), "{lang:?}: {t}");
+        }
+        for none in [
+            None,
+            Some(""),
+            Some("cat,cat"),
+            Some("free,free"),
+            Some("cat"),
+            Some("cat,pro"),
+            Some("cat,free,free"),
+        ] {
+            assert_eq!(vs_banner(&mut false, none, Lang::En), None, "{none:?}");
+        }
+    }
+
+    /// The VS banner and an unseen notice in the same pass: the notice keeps the banner, the VS banner waits and goes up
+    /// once the notice is off, once.
+    #[test]
+    fn the_vs_banner_waits_for_a_notice() {
+        let notice = || {
+            Some(forza_ui::panel::Note::banner(
+                "Server update at 23:00".into(),
+            ))
+        };
+        let mut pending = Some("mixed".to_owned());
+        let mut banner = notice();
+        assert_eq!(vs_show(&mut pending, &mut banner, || false), None);
+        assert_eq!(
+            banner.as_ref().map(|b| b.text.as_str()),
+            Some("Server update at 23:00")
+        );
+        banner = None;
+        assert_eq!(
+            vs_show(&mut pending, &mut banner, || false),
+            Some("VS marks: banner shown")
+        );
+        assert_eq!(banner.as_ref().map(|b| b.text.as_str()), Some("mixed"));
+        banner = None;
+        assert_eq!(vs_show(&mut pending, &mut banner, || false), None, "once");
+        assert!(banner.is_none());
+    }
+
+    /// The seat already in match loading: no VS banner, and the log says it was not shown.
+    #[test]
+    fn the_vs_banner_skips_a_match() {
+        let mut pending = Some("mixed".to_owned());
+        let mut banner = None;
+        assert_eq!(
+            vs_show(&mut pending, &mut banner, || true),
+            Some("VS marks: banner not shown, the seat is in a match")
+        );
+        assert!(banner.is_none() && pending.is_none());
+        assert_eq!(vs_show(&mut pending, &mut banner, || false), None);
+        assert!(banner.is_none());
     }
 
     /// A botched copy in data\notice.json must not be read whole into the 32-bit panel: the cap holds, and the file

@@ -1254,6 +1254,7 @@ fn lobby_keys() {
     room.seats[0] = Some(lobby::Occupant {
         club: "A7K2".into(),
         ready: false,
+        mode: lobby::Mode::Free,
     });
     v.borrow_mut().room = Some(room);
     h.run_steps(2);
