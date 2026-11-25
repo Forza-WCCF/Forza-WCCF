@@ -109,3 +109,32 @@ fn language_codes() {
     assert_eq!(Lang::from_code("Ja"), Some(Lang::Ja));
     assert_eq!(Lang::from_code("xx"), None);
 }
+
+/// #375 text pass: the Italian slips fixed, the market's key and fork refusals name the file to put back (and the key's
+/// 7 days), START's hint names DEAL as the step that locks, and IMPORT LINEUP's count blames no game.
+#[test]
+fn create_a_team_lines_name_what_the_player_needs() {
+    use forza_ui::{Lang, text};
+    let t = |lang, k| text(lang, k, &[("n", "3")]);
+    assert!(t(Lang::It, "collection.buy_pool").contains("troppo pochi"));
+    assert_eq!(t(Lang::It, "collection.back"), "‹ PARTITA");
+    for lang in Lang::ALL {
+        let key = t(lang, "collection.market_why_another_key");
+        assert!(
+            key.contains(r"data\market.key") && key.contains('7'),
+            "{lang:?}: {key}"
+        );
+        let fork = t(lang, "collection.market_why_fork");
+        assert!(
+            fork.contains(r"collection\grants.jsonl"),
+            "{lang:?}: {fork}"
+        );
+        let deal = t(lang, "collection.deal");
+        assert!(
+            t(lang, "collection.choose_hint").contains(&deal),
+            "{lang:?}"
+        );
+        assert!(!t(lang, "cat.ask_skipped").is_empty());
+    }
+    assert!(!t(Lang::En, "cat.ask_skipped").contains("game"));
+}

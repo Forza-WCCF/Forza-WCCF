@@ -9,7 +9,7 @@ use std::time::Instant;
 use forza::board::Card;
 use forza::cards::collection_cards;
 use forza::collection::{self as c, LEAGUES, Log, NATIONS, Rarity};
-use forza_ui::collection::{Choice, CollectionView, Filter, Offer, PackChoice, StartRow, Step};
+use forza_ui::collection::{Choice, CollectionView, Filter, Mine, Offer, Offered, PackChoice, StartRow, Step};
 use launcher::Kit;
 use launcher::run;
 
@@ -66,17 +66,25 @@ pub fn view(catalogue: &[Card], dir: &Path, old: Option<CollectionView>) -> io::
     Ok(view_of(catalogue, dir, c::fold(&Log::new(dir).lines()?), old))
 }
 
+/// Whether the log in `dir` holds the starter cards (an unreadable one does not): a start from the command line waits
+/// for them as PLAY does (#375).
+pub fn started(dir: &Path) -> bool {
+    Log::new(dir)
+        .lines()
+        .is_ok_and(|t| c::fold(&t).state.cards.values().any(|k| k.starter > 0))
+}
+
 /// [`view`] of a log already read and folded (the Launcher logs the fold's warnings from the same read).
 pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<CollectionView>) -> CollectionView {
     let s = folded.state;
     let pool = collection_cards(catalogue);
     let started = s.cards.values().any(|k| k.starter > 0);
-    let (filter, open, step) = match old {
-        Some(o) => (o.filter, o.open, o.step),
-        None => (Filter::default(), None, Step::Page),
+    let (filter, open, step, market) = match old {
+        Some(o) => (o.filter, o.open, o.step, o.market),
+        None => (Filter::default(), None, Step::Page, Default::default()),
     };
     let step = match step {
-        kept @ (Step::Store { .. } | Step::Open { .. } | Step::Craft { .. }) if started => kept,
+        kept @ (Step::Store { .. } | Step::Open { .. } | Step::Craft { .. } | Step::Market) if started => kept,
         _ if started => Step::Page,
         _ if let Some((choice, dealt, rares)) = pending(catalogue, dir) => Step::Pick {
             choice,
@@ -119,7 +127,67 @@ pub fn view_of(catalogue: &[Card], dir: &Path, folded: c::Folded, old: Option<Co
             })
             .map(|(k, _)| k.clone())
             .collect(),
+        market,
+        test_build: test_build(),
     }
+}
+
+/// This Launcher is a test build (`forza::release::is_test_build` of its own version): the tab says its numbers may
+/// change (#375).
+pub fn test_build() -> bool {
+    forza::release::is_test_build(env!("FORZA_VERSION"))
+}
+
+/// The market's part of the view (step 4.1) from the log's `text` and the installation's `data`: in the market or not,
+/// this installation's listings, and a request still in flight counted as answered (a LIST's copy as listed, a BUY's
+/// price as spent), so the page cannot spend them twice meanwhile; so are the purchases OWED named that the log could
+/// not pay yet (`Saved::withheld`).
+pub fn market_of(v: &mut CollectionView, catalogue: &[Card], text: &str, data: &Path) {
+    let saved = forza::market::Client::saved(data);
+    let m = &mut v.market;
+    m.joined = saved.joined;
+    m.holds_log = saved.joined || saved.outbox.is_some();
+    if !m.joined {
+        m.stock.clear();
+        m.sale.clear();
+        m.picked = None;
+    }
+    let now = time::OffsetDateTime::now_utc();
+    m.mine = forza::market::listed(text)
+        .into_iter()
+        .filter_map(|l| {
+            Some(Mine {
+                id: l.id,
+                card: catalogue.iter().find(|k| k.number == l.card)?.clone(),
+                price: l.price,
+                days_left: 7 - (now - l.at).whole_days(),
+            })
+        })
+        .collect();
+    match saved.outbox.as_ref().map(|o| (o.verb.as_str(), o.args.as_slice())) {
+        Some(("LIST", &[card, _])) => {
+            if let Some((_, c)) = v.cards.iter_mut().find(|(k, _)| u64::from(k.number) == card) {
+                c.listed += 1;
+            }
+        }
+        Some(("BUY" | "STOCKBUY", &[.., price])) => v.tokens -= price as i64,
+        _ => {}
+    }
+    v.tokens -= saved.withheld;
+}
+
+/// The server's rows as the page's offers: the catalogue's cards (a number it lacks is left out).
+pub fn offered(catalogue: &[Card], rows: &[forza::market::Row]) -> Vec<Offered> {
+    rows.iter()
+        .filter_map(|r| {
+            Some(Offered {
+                id: r.id,
+                card: catalogue.iter().find(|k| k.number == r.card)?.clone(),
+                price: r.price,
+                sold: r.sold,
+            })
+        })
+        .collect()
 }
 
 /// The store's packs of the catalogue.
@@ -276,6 +344,13 @@ pub fn reset_kit(kit: &Kit) -> Result<PathBuf, ResetRefused> {
     reset(&kit.data(), &seat).map_err(ResetRefused::Failed)
 }
 
+/// START OVER already done: no Create-a-Team profile folder, and an archive beside it (a fresh install has neither).
+/// A START OVER then has nothing to archive, only the market's RESET to send (#375).
+pub fn profile_gone(data: &Path) -> bool {
+    let profiles = data.join("profiles");
+    !profiles.join(forza::profile::Profile::CreateATeam.code()).is_dir() && profiles.join("archive").is_dir()
+}
+
 /// START OVER (`PLAN.md` 1.5): the profile's folder into its archive (`forza::profile::reset`) under this PC's time.
 pub fn reset(data: &Path, seat: &Path) -> io::Result<PathBuf> {
     let t = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
@@ -352,6 +427,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (coll, data) = profile(dir.path());
         let v = view(&cat, &coll, None).unwrap();
+        // #375: the view carries this build's own test-build decision
+        assert_eq!(v.test_build, forza::release::is_test_build(env!("FORZA_VERSION")));
         let Step::Choose { starts, .. } = &v.step else {
             panic!("a new profile opens on the picker")
         };
@@ -372,7 +449,9 @@ mod tests {
             rares,
             picked: Some(2),
         };
+        assert!(!started(&coll), "a deal is no start");
         let lines = take(&coll, &data, &step).unwrap();
+        assert!(started(&coll), "TAKE THIS TEAM starts");
         assert_eq!(lines.iter().filter(|e| e.kind == c::Kind::Starter).count(), 12);
         assert!(
             lines
@@ -549,6 +628,33 @@ mod tests {
         reset(&data, &dir.path().join("seat1")).unwrap();
         let v = view(&cat, &coll, Some(old)).unwrap();
         assert!(matches!(v.step, Step::Choose { .. }), "{:?}", v.step);
+    }
+
+    /// #375: the profile counts as gone only after a START OVER: not on a fresh install, nor after a deal or a take.
+    #[test]
+    fn the_profile_is_gone_only_after_start_over() {
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        assert!(!profile_gone(&data), "fresh");
+        deal(&cat, &coll, Choice::League(0)).unwrap();
+        assert!(!profile_gone(&data), "after DEAL");
+        let Step::Pick {
+            choice, dealt, rares, ..
+        } = view(&cat, &coll, None).unwrap().step
+        else {
+            panic!("DEAL leaves the deal on the screen")
+        };
+        let step = Step::Pick {
+            choice,
+            dealt,
+            rares,
+            picked: Some(0),
+        };
+        take(&coll, &data, &step).unwrap();
+        assert!(!profile_gone(&data), "after TAKE");
+        reset(&data, &dir.path().join("seat1")).unwrap();
+        assert!(profile_gone(&data), "after START OVER");
     }
 
     /// 1.5 review M1: START OVER is refused while a start holds the kit's admission (between its checks and its game,
@@ -903,5 +1009,92 @@ mod tests {
             tiers.iter().all(|t| v["spares"][t].as_i64() == Some(0)),
             "no spare copy yet"
         );
+    }
+    /// 4.1 (d): with no market server (a port nobody answers on), a LIST goes unanswered and waits in the outbox, the
+    /// view counts its copy as listed, and packs, crafting, conversion and a match's card (the panel's line) still go
+    /// into the log, which folds whole.
+    #[test]
+    fn with_no_server_packs_crafting_conversion_and_play_still_work() {
+        use forza::market::{Client, Fail, Saved, Verb};
+        let cat = catalogue();
+        let dir = tempfile::tempdir().unwrap();
+        let (coll, data) = profile(dir.path());
+        deal(&cat, &coll, Choice::AllSeasons).unwrap();
+        let mut step = view(&cat, &coll, None).unwrap().step;
+        if let Step::Pick { picked, .. } = &mut step {
+            *picked = Some(0);
+        }
+        take(&coll, &data, &step).unwrap();
+        let held: Vec<u32> = view(&cat, &coll, None)
+            .unwrap()
+            .cards
+            .iter()
+            .map(|(k, _)| k.number)
+            .collect();
+        let free: Vec<u32> = cat
+            .iter()
+            .filter(|k| k.rarity == R::Regular && !held.contains(&k.number))
+            .map(|k| k.number)
+            .collect();
+        let log = Log::new(&coll);
+        for no in [free[0], free[2], free[2]] {
+            log.append(c::Kind::Match, Some(no), 50, "match").unwrap();
+        }
+        let joined = Saved {
+            joined: true,
+            ..Saved::default()
+        };
+        std::fs::write(
+            data.join(forza::market::STATE_FILE),
+            serde_json::to_string(&joined).unwrap(),
+        )
+        .unwrap();
+        // a closed port: the listener is gone, so the connection is refused at once
+        let desk = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .unwrap();
+        let client = Client::open(desk, &data, &coll).unwrap();
+        let said = client.ask(Verb::List, &[free[0].into(), 40]);
+        assert!(matches!(said, Err(Fail::Unanswered(_))), "{said:?}");
+        assert!(Client::saved(&data).outbox.is_some(), "the LIST waits");
+        let mut v = view(&cat, &coll, None).unwrap();
+        market_of(&mut v, &cat, &log.lines().unwrap(), &data);
+        assert!(v.market.joined);
+        // #375: a purchase OWED named over the balance is spent on the page until its line comes
+        let tokens = v.tokens;
+        let owing = Saved {
+            withheld: 30,
+            ..Client::saved(&data)
+        };
+        std::fs::write(
+            data.join(forza::market::STATE_FILE),
+            serde_json::to_string(&owing).unwrap(),
+        )
+        .unwrap();
+        market_of(&mut v, &cat, &log.lines().unwrap(), &data);
+        assert_eq!(v.tokens, tokens - 30);
+        std::fs::write(
+            data.join(forza::market::STATE_FILE),
+            serde_json::to_string(&Saved { withheld: 0, ..owing }).unwrap(),
+        )
+        .unwrap();
+        let mut v = view(&cat, &coll, None).unwrap();
+        market_of(&mut v, &cat, &log.lines().unwrap(), &data);
+        let copies = |v: &CollectionView, no| v.cards.iter().find(|(k, _)| k.number == no).unwrap().1;
+        assert_eq!(
+            copies(&v, free[0]).listed,
+            1,
+            "the waiting LIST's copy counts as listed"
+        );
+        craft(&cat, &coll, free[1]).unwrap();
+        convert(&cat, &coll, free[2]).unwrap();
+        let drawn = buy(&cat, &coll, PackChoice::Standard).unwrap();
+        assert_eq!(drawn.len(), 3);
+        // the pack draws at random from every card: the match takes a free card it did not draw
+        let fresh = *free[3..].iter().find(|n| !drawn.contains(n)).unwrap();
+        log.append(c::Kind::Match, Some(fresh), 50, "match").unwrap();
+        let f = c::fold(&log.lines().unwrap());
+        assert!(f.warnings.is_empty() && !f.unreadable, "{:?}", f.warnings);
+        assert_eq!(f.state.copies(fresh).earned, 1);
     }
 }

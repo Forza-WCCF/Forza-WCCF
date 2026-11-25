@@ -300,7 +300,9 @@ const PACK_PRICES: [i64; 3] = [
     collection::NATION_PACK,
 ];
 
-/// The week's match-token cap of a line written under `rules`; `None` for a table this server does not know.
+/// The week's match-token cap of a line written under `rules`; `None` for a table this server does not know. A log
+/// keeps the lines of every earlier table, so a new `RULES` adds its arm and keeps the old ones (the test week's 2,
+/// #375): dropping one refuses every log that holds such a line.
 fn match_cap(rules: u32) -> Option<i64> {
     match rules {
         2 => Some(collection::WEEK_CAP),
@@ -3814,6 +3816,16 @@ mod tests {
                 .unwrap(),
             "13 lines"
         );
+    }
+
+    /// #375 T.1: a log holds lines of every table it lived through, so each rules number from the test week's 2 up to
+    /// this server's keeps its cap, and a later one has none.
+    #[test]
+    fn every_rules_since_the_test_week_keeps_its_cap() {
+        for r in 2..=RULES {
+            assert!(match_cap(r).is_some(), "rules {r}");
+        }
+        assert_eq!(match_cap(RULES + 1), None);
     }
 
     #[test]

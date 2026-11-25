@@ -31,3 +31,28 @@ pub fn parse(tag: &str) -> Option<Version> {
 pub fn is_test(tag: &str) -> bool {
     parse(tag).is_some_and(|v| !v.pre.is_empty())
 }
+
+/// This program is a test build: its own version (`FORZA_VERSION`) has a pre-release part other than a dev build's
+/// (0.9.0-cat.1, not 0.8.1-dev+abc1234 or 0.9.0-cat.1-dev+abc1234: those are builds of a commit, never handed out).
+pub fn is_test_build(own: &str) -> bool {
+    is_test(own) && !own.contains("-dev")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_test_build_is_a_tagged_pre_release_only() {
+        for (v, test) in [
+            ("0.9.0-cat.1", true),
+            ("0.4.0-rc.1", true),
+            ("0.8.0", false),
+            ("0.8.1-dev+abc1234", false),
+            ("0.9.0-cat.1-dev+abc1234", false),
+            ("0.0.0-dev", false),
+        ] {
+            assert_eq!(is_test_build(v), test, "{v}");
+        }
+    }
+}

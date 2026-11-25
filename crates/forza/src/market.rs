@@ -43,6 +43,9 @@
 //!   price must be the slot's today, so a list from before 04:00 UTC buys nothing else.
 //!
 //! The key is made on first use and lives outside the profile folder, so a profile reset keeps it (PLAN.md 3.6).
+//!
+//! The Launcher sends through [`Client`] (step 4.1): one request in flight per installation, kept with its bytes in
+//! [`STATE_FILE`] and sent again before anything else until it is answered, and each answer's log lines written once.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use std::io::{self, Read, Write};
@@ -62,6 +65,10 @@ pub const NOT_SET_UP: &str = "the market is not set up on this server";
 /// How a refusal of a request not later than the key's last one starts; the server adds `, the last at <ms>`. The
 /// key's last request itself, a ledger word sent again, answers as the first time instead.
 pub const OLD: &str = "an old request (sent twice?)";
+/// The desk's refusal of a word from a key not in the market (the server's words): a LEAVE whose answer was lost.
+pub const NOT_IN: &str = "this installation is not in the market";
+/// The desk's refusal of a verb it does not know: a desk older than the verb (OWED).
+pub const UNKNOWN_WORD: &str = "an unknown market word";
 /// Listings in one `BROWSE` answer at most: about 900 bytes, under [`send`]'s 1 KiB read.
 pub const BROWSE_PAGE: usize = 40;
 /// Rows in one `COLLECT` answer at most, as [`BROWSE_PAGE`].
@@ -232,7 +239,7 @@ impl Request {
         let [verb, size, sig] = words else {
             return Err("say MARKET JOIN|LEAVE|RESET size signature".into());
         };
-        let verb = Verb::parse(verb).ok_or("an unknown market word")?;
+        let verb = Verb::parse(verb).ok_or(UNKNOWN_WORD)?;
         let size = size
             .parse::<usize>()
             .ok()
@@ -327,6 +334,13 @@ pub fn load_key(path: &Path) -> io::Result<SigningKey> {
 /// Sends `request` ([`Request::signed`]) to the desk at `desk`: `Ok` with the words after `OK`, `Err` with the reason
 /// after `NO` (or what went wrong on the way).
 pub fn send(desk: SocketAddr, request: &[u8]) -> Result<String, String> {
+    exchange(desk, request).and_then(|said| said)
+}
+
+/// [`send`], telling an answer from none: the outer `Err` is no answer (no server, a reset connection, a timeout, a line
+/// that is neither `OK` nor `NO`), so the request may or may not have reached the server; the inner one is `NO`'s
+/// reason.
+pub fn exchange(desk: SocketAddr, request: &[u8]) -> Result<Result<String, String>, String> {
     let mut c =
         TcpStream::connect_timeout(&desk, Duration::from_secs(6)).map_err(|e| e.to_string())?;
     c.set_read_timeout(Some(Duration::from_secs(30)))
@@ -339,9 +353,9 @@ pub fn send(desk: SocketAddr, request: &[u8]) -> Result<String, String> {
     let got = String::from_utf8_lossy(&got);
     let line = got.lines().next().unwrap_or_default();
     match line.split_once(' ') {
-        Some(("OK", rest)) => Ok(rest.to_owned()),
-        Some(("NO", why)) => Err(why.to_owned()),
-        _ if line == "OK" => Ok(String::new()),
+        Some(("OK", rest)) => Ok(Ok(rest.to_owned())),
+        Some(("NO", why)) => Ok(Err(why.to_owned())),
+        _ if line == "OK" => Ok(Ok(String::new())),
         _ => Err(format!("the desk answered {line:?}")),
     }
 }
@@ -352,13 +366,15 @@ pub fn last_at(why: &str) -> Option<u64> {
     why.strip_prefix(OLD)?.rsplit(' ').next()?.parse().ok()
 }
 
-/// Signs `verb`, a word without numbers (JOIN and STOCK with `log`, LEAVE, RESET, COLLECT), at `at` (Unix ms, the PC's clock) and sends it to the desk at `desk`, as
-/// [`send`]. Refused as [`OLD`] because the key's last request is not before `at` (the PC's clock went back after it,
-/// or two requests in one millisecond), it signs again once just after that time.
+/// Signs `verb` with its numbers `args` ([`Verb::args`]) and `log` ([`Verb::logged`]'s words) at `at` (Unix ms, the
+/// PC's clock) and sends it to the desk at `desk`, as [`send`]. Refused as [`OLD`] because the key's last request is not
+/// before `at` (the PC's clock went back after it, or two requests in one millisecond), it signs again once just after
+/// that time. No outbox: the Launcher's ledger words go through [`Client`].
 pub fn ask(
     desk: SocketAddr,
     key: &SigningKey,
     verb: Verb,
+    args: &[u64],
     log: &str,
     at: u64,
 ) -> Result<String, String> {
@@ -368,7 +384,7 @@ pub fn ask(
             key: *key.verifying_key().as_bytes(),
             at,
             rules: crate::collection::RULES,
-            args: Vec::new(),
+            args: args.to_vec(),
             log: log.to_owned(),
         }
         .signed(key)
@@ -380,6 +396,709 @@ pub fn ask(
         },
         answer => answer,
     }
+}
+
+// ---- the Launcher's side: the opt-in, the outbox and the log lines (step 4.1) ----
+
+/// The installation's market state, beside [`KEY_FILE`]: in the market or not, the last request's time and the one
+/// request in flight. Outside the profile, so a profile reset keeps it (PLAN.md 3.6).
+pub const STATE_FILE: &str = "market.json";
+/// COLLECT pages one visit takes at most (each [`COLLECT_PAGE`] rows); the rest comes at the next visit.
+const COLLECT_PAGES: usize = 20;
+
+/// Words whose answer moves the server's ledger or the log: kept in the outbox until an answer comes, and sent again
+/// byte for byte before any other request. RESET waits there too: offline, it goes before the next market request.
+fn outboxed(verb: Verb) -> bool {
+    matches!(
+        verb,
+        Verb::List | Verb::Cancel | Verb::Buy | Verb::Collect | Verb::StockBuy | Verb::Reset
+    )
+}
+
+/// [`STATE_FILE`]'s contents.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Saved {
+    /// JOIN answered OK and no LEAVE since.
+    pub joined: bool,
+    /// The newest `at` this installation signed: each new request goes strictly above it.
+    pub last_at: u64,
+    /// Sales LEAVE said wait for COLLECT.
+    #[serde(default)]
+    pub waiting: u32,
+    /// Prices of purchases the server made that the log could not pay yet (OWED named them over the balance, after
+    /// offline spends): the page counts them as spent, as an outbox BUY's, until a later OWED writes their lines.
+    #[serde(default)]
+    pub withheld: i64,
+    /// The request sent and not answered yet.
+    pub outbox: Option<Outbox>,
+}
+
+/// A request in flight: its verb and numbers (the answer's lines need them), its time and its bytes as sent.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Outbox {
+    pub verb: String,
+    pub args: Vec<u64>,
+    pub at: u64,
+    pub bytes: String,
+}
+
+/// Why a market request did not go through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fail {
+    /// No answer: an outbox request stays there and goes again first next time.
+    Unanswered(String),
+    /// The server's `NO` reason, or a refusal before sending.
+    Refused(String),
+    /// This PC's files (the key, [`STATE_FILE`], the log) could not be read or written.
+    Disk(String),
+    /// The server's name did not resolve (no internet, a mistyped name): nothing went out.
+    Unresolved(String),
+}
+
+/// How a [`Client`] reaches the desk: [`exchange`]; a test swaps in one that loses the answer.
+pub type Transport = fn(SocketAddr, &[u8]) -> Result<Result<String, String>, String>;
+
+/// One row of the own stock list or of BROWSE: `id` is the slot or the listing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub id: u64,
+    pub card: u32,
+    pub price: u32,
+    /// A stock slot bought today.
+    pub sold: bool,
+}
+
+/// What one visit of the market page brings back ([`Client::visit`]): the lists, in the market.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Visit {
+    pub stock: Option<StockList>,
+    /// Other installations' listings.
+    pub sale: Option<Vec<Row>>,
+    /// The server holds more listings past `sale`.
+    pub more: bool,
+}
+
+/// The own stock list of the day: purchases left under a daily limit, and the rows.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StockList {
+    pub left: Option<u32>,
+    pub rows: Vec<Row>,
+}
+
+/// One of this installation's listings still on the market, from the log: its `list` line without an `unlist` or
+/// `market_sell` line of the same id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub id: u64,
+    pub card: u32,
+    pub price: u32,
+    pub at: time::OffsetDateTime,
+}
+
+/// The `why` of the lines an answer writes: the ledger's id (or the request's time and the slot), so a line is
+/// written once however often its answer comes.
+fn why(kind: &str, id: u64) -> String {
+    format!("market {kind} {id}")
+}
+
+/// `a:b:c` as numbers.
+fn nums(s: &str) -> Option<Vec<u64>> {
+    s.split(':').map(|n| n.parse().ok()).collect()
+}
+
+/// The installation's listings still on the market, from the log's text ([`Listed`]).
+#[must_use]
+pub fn listed(log: &str) -> Vec<Listed> {
+    let entries: Vec<crate::collection::Entry> = log
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let closed: std::collections::HashSet<&str> = entries
+        .iter()
+        .filter_map(|e| {
+            e.why
+                .strip_prefix("market unlist ")
+                .or_else(|| e.why.strip_prefix("market sell "))
+        })
+        .collect();
+    entries
+        .iter()
+        .filter(|e| e.kind == crate::collection::Kind::List)
+        .filter_map(|e| {
+            let n = nums(e.why.strip_prefix("market list ")?)?;
+            let [id, card, price] = n[..] else {
+                return None;
+            };
+            if closed.contains(id.to_string().as_str()) {
+                return None;
+            }
+            Some(Listed {
+                id,
+                card: u32::try_from(card).ok()?,
+                price: u32::try_from(price).ok()?,
+                at: e.at,
+            })
+        })
+        .collect()
+}
+
+/// The log lines an OK answer to `verb` (signed at `at`) asks for, less those `log` already holds: `list` for LIST,
+/// `unlist` for CANCEL, a COLLECT's returns and LEAVE's, `market_buy` for BUY, `market_sell` for a COLLECT's sales,
+/// `stock_buy` for STOCKBUY.
+#[must_use]
+pub fn lines_for(verb: Verb, at: u64, answer: &str, log: &str) -> Vec<crate::collection::Line> {
+    use crate::collection::{Kind, Line};
+    let line = |kind, card: u64, tokens: i64, why| Line {
+        kind,
+        card: u32::try_from(card).ok(),
+        tokens,
+        why,
+    };
+    let mut words = answer.split(' ');
+    let mut out = vec![];
+    match (verb, words.next()) {
+        (Verb::List, Some("listed")) => {
+            if let Some(&[id, card, price]) = words.next().and_then(nums).as_deref() {
+                let w = format!("market list {id}:{card}:{price}");
+                out.push(line(Kind::List, card, 0, w));
+            }
+        }
+        (Verb::Cancel, Some("cancelled")) => {
+            if let Some(&[id, card]) = words.next().and_then(nums).as_deref() {
+                out.push(line(Kind::Unlist, card, 0, why("unlist", id)));
+            }
+        }
+        (Verb::Buy, Some("bought")) => {
+            if let Some(&[id, card, price]) = words.next().and_then(nums).as_deref() {
+                out.push(line(Kind::MarketBuy, card, -(price as i64), why("buy", id)));
+            }
+        }
+        (Verb::StockBuy, Some("stockbought")) => {
+            if let Some(&[slot, card, price]) = words.next().and_then(nums).as_deref() {
+                let w = format!("stock buy {at} slot {slot}");
+                out.push(line(Kind::StockBuy, card, -(price as i64), w));
+            }
+        }
+        (Verb::Collect, Some("collected")) => {
+            let mut sold = true;
+            for w in words {
+                match (w, nums(w).as_deref()) {
+                    ("sold", _) => sold = true,
+                    ("returned", _) => sold = false,
+                    (_, Some(&[id, card, price])) if sold => {
+                        out.push(line(Kind::MarketSell, card, price as i64, why("sell", id)));
+                    }
+                    (_, Some(&[id, card])) if !sold => {
+                        out.push(line(Kind::Unlist, card, 0, why("unlist", id)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (Verb::Owed, Some("owed")) => {
+            // the ledger's ids: `market buy` and `market sell` as BUY and COLLECT write them, so their own answer sent
+            // again later writes nothing more; a stock row has its ledger id, not its request's time
+            let mut kind = "";
+            for w in words {
+                match (w, nums(w).as_deref()) {
+                    ("bought" | "stock" | "sold", _) => kind = w,
+                    (_, Some(&[id, card, price])) => out.push(match kind {
+                        "bought" => line(Kind::MarketBuy, card, -(price as i64), why("buy", id)),
+                        "stock" => line(Kind::StockBuy, card, -(price as i64), why("stock", id)),
+                        "sold" => line(Kind::MarketSell, card, price as i64, why("sell", id)),
+                        _ => continue,
+                    }),
+                    _ => {}
+                }
+            }
+        }
+        (Verb::Leave, Some("left")) => {
+            // LEAVE names the returned cards, not their ids: each takes the oldest listing of its card
+            let mut open = listed(log);
+            let mut returned = false;
+            for w in words {
+                match (w, w.parse::<u32>()) {
+                    ("returned", _) => returned = true,
+                    ("waiting", _) => returned = false,
+                    (_, Ok(card)) if returned => {
+                        if let Some(i) = open.iter().position(|l| l.card == card) {
+                            let l = open.remove(i);
+                            out.push(line(Kind::Unlist, card.into(), 0, why("unlist", l.id)));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    let had: std::collections::HashSet<String> = log
+        .lines()
+        .filter_map(|l| serde_json::from_str::<crate::collection::Entry>(l).ok())
+        .map(|e| e.why)
+        .collect();
+    out.retain(|l| !had.contains(&l.why));
+    out
+}
+
+/// `lines` in the order the server's check reads them on a balance of `tokens`: the credits first, then each debit the
+/// balance still pays. A debit past it (a purchase OWED names after offline spends) would take the balance below zero,
+/// and the server's check then refuses every later log: it is left out, with its price in the sum returned, and OWED
+/// names it again until the balance pays it.
+fn affordable(
+    mut tokens: i64,
+    lines: Vec<crate::collection::Line>,
+) -> (Vec<crate::collection::Line>, i64) {
+    let (mut out, debits): (Vec<_>, Vec<_>) = lines.into_iter().partition(|l| l.tokens >= 0);
+    tokens += out.iter().map(|l| l.tokens).sum::<i64>();
+    let mut short = 0;
+    for l in debits {
+        if tokens + l.tokens >= 0 {
+            tokens += l.tokens;
+            out.push(l);
+        } else {
+            short -= l.tokens;
+        }
+    }
+    (out, short)
+}
+
+/// The parts of a STOCK answer (`stock [left n] slot:card:price[:sold] ...`) or a BROWSE one (`listings id:card:price
+/// ...`) after their first word.
+fn rows(words: std::str::SplitWhitespace<'_>) -> Vec<Row> {
+    words
+        .filter_map(|w| {
+            let (head, sold) = w.strip_suffix(":sold").map_or((w, false), |h| (h, true));
+            let n = nums(head)?;
+            let [id, card, price] = n[..] else {
+                return None;
+            };
+            Some(Row {
+                id,
+                card: u32::try_from(card).ok()?,
+                price: u32::try_from(price).ok()?,
+                sold,
+            })
+        })
+        .collect()
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// The Launcher's market client for one installation and its profile's log (PLAN.md 3.5, the 3.2 and 3.3 gates):
+/// one request in flight, kept in [`STATE_FILE`] with its bytes before it goes out, sent again byte for byte before any
+/// other request (JOIN too, also after a restart) until an answer comes; each new request's `at` strictly above the
+/// last; an answer's lines written once ([`lines_for`] skips the ones the log holds), and the outbox cleared only
+/// after they are written.
+pub struct Client {
+    pub desk: SocketAddr,
+    data: std::path::PathBuf,
+    log: crate::collection::Log,
+    key: SigningKey,
+    pub transport: Transport,
+    /// A request sent again from the outbox and refused, as `VERB: why`: the player's money action did not happen.
+    resent_refused: std::cell::Cell<Option<String>>,
+    /// [`KEY_FILE`] was there before [`Self::open`]: the key may have signed even when [`STATE_FILE`] lost its time.
+    had_key: bool,
+}
+
+impl Client {
+    /// The client of the installation whose `data` folder holds [`KEY_FILE`] (made on first use) and [`STATE_FILE`],
+    /// for the profile's collection folder `collection`.
+    pub fn open(desk: SocketAddr, data: &Path, collection: &Path) -> Result<Self, Fail> {
+        Ok(Self {
+            desk,
+            had_key: data.join(KEY_FILE).is_file(),
+            key: load_key(&data.join(KEY_FILE)).map_err(disk)?,
+            data: data.to_owned(),
+            log: crate::collection::Log::new(collection),
+            transport: exchange,
+            resent_refused: std::cell::Cell::new(None),
+        })
+    }
+
+    /// The outbox request sent again and refused since the last call, as `VERB: why`.
+    pub fn resent_refused(&self) -> Option<String> {
+        self.resent_refused.take()
+    }
+
+    /// [`STATE_FILE`] as saved, for the page; none, or one that cannot be read, is a key never in the market
+    /// ([`Self::load`] reports the unreadable one).
+    #[must_use]
+    pub fn saved(data: &Path) -> Saved {
+        std::fs::read(data.join(STATE_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_slice(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// [`STATE_FILE`] before a request: none is a key never in the market; one that does not parse is moved aside to
+    /// `market.json.bad-<ms>` and reported once, never taken silently as new. Its outbox is lost and never sent; its
+    /// `joined` is unknown, so the new state says in the market: the next [`Self::visit`] asks the server with BROWSE
+    /// (no log), and OWED then writes a purchase whose answer the lost outbox waited for.
+    pub fn load(data: &Path) -> Result<Saved, Fail> {
+        let path = data.join(STATE_FILE);
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Saved::default()),
+            Err(e) => return Err(disk(format!("{}: {e}", path.display()))),
+        };
+        serde_json::from_slice(&bytes).or_else(|e| {
+            let bad = path.with_extension(format!("json.bad-{}", now_ms()));
+            std::fs::rename(&path, &bad).map_err(disk)?;
+            let unknown = Saved {
+                joined: true,
+                ..Saved::default()
+            };
+            write(data, &unknown)?;
+            Err(disk(format!(
+                "{} could not be read ({e}), it is kept as {}; the market server is asked again at the next visit",
+                path.display(),
+                bad.display()
+            )))
+        })
+    }
+
+    /// Writes `s` as [`STATE_FILE`]: a temporary file flushed to the disk, then renamed over it.
+    pub fn save(&self, s: &Saved) -> Result<(), Fail> {
+        write(&self.data, s)
+    }
+
+    /// Signs `verb` at `at` with the log as it is now, saves it as the newest time and, for an [`outboxed`] word, in
+    /// the outbox: on disk before it goes out.
+    fn sign(&self, s: &mut Saved, verb: Verb, args: &[u64], at: u64) -> Result<Vec<u8>, Fail> {
+        let log = if verb.logged() {
+            self.log.lines().map_err(disk)?
+        } else {
+            String::new()
+        };
+        let bytes = Request {
+            verb,
+            key: *self.key.verifying_key().as_bytes(),
+            at,
+            rules: crate::collection::RULES,
+            args: args.to_vec(),
+            log,
+        }
+        .signed(&self.key)
+        .map_err(Fail::Refused)?;
+        s.last_at = s.last_at.max(at);
+        if outboxed(verb) {
+            s.outbox = Some(Outbox {
+                verb: verb.word().to_owned(),
+                args: args.to_vec(),
+                at,
+                bytes: String::from_utf8_lossy(&bytes).into_owned(),
+            });
+        }
+        self.save(s)?;
+        Ok(bytes)
+    }
+
+    /// Sends signed bytes and settles the answer. An [`OLD`] refusal past `at` (this PC's clock behind the key's last
+    /// request) means the server took nothing: signed again once just after it. A RESET sent again whose own time is
+    /// the key's last was taken (its answer was lost).
+    fn deliver(
+        &self,
+        s: &mut Saved,
+        verb: Verb,
+        args: &[u64],
+        mut at: u64,
+        mut bytes: Vec<u8>,
+    ) -> Result<String, Fail> {
+        let mut again = true;
+        loop {
+            let said = (self.transport)(self.desk, &bytes).map_err(Fail::Unanswered)?;
+            let last = said.as_ref().err().and_then(|why| last_at(why));
+            match last {
+                Some(last) if last > at && again => {
+                    again = false;
+                    at = last + 1;
+                    bytes = self.sign(s, verb, args, at)?;
+                }
+                Some(last) if last == at && verb == Verb::Reset => {
+                    return self.settle(s, verb, at, Ok("reset".into()));
+                }
+                _ => return self.settle(s, verb, at, said),
+            }
+        }
+    }
+
+    /// An answer: its lines written (a disk error keeps the outbox, so the request goes again and its lines then),
+    /// the state moved, the outbox cleared.
+    fn settle(
+        &self,
+        s: &mut Saved,
+        verb: Verb,
+        at: u64,
+        said: Result<String, String>,
+    ) -> Result<String, Fail> {
+        if let Ok(answer) = &said {
+            let lines = lines_for(verb, at, answer, &self.log.lines().map_err(disk)?);
+            let mut short = 0;
+            if !lines.is_empty() {
+                self.log
+                    .append_lines_at(crate::collection::now(), |state| {
+                        let (fit, over) = affordable(state.tokens, lines);
+                        short = over;
+                        Ok(fit)
+                    })
+                    .map_err(disk)?;
+            }
+            // OWED names every unpaid purchase each time; another answer's can only add one
+            s.withheld = if verb == Verb::Owed {
+                short
+            } else {
+                s.withheld + short
+            };
+            match verb {
+                Verb::Join => s.joined = true,
+                Verb::Leave => {
+                    s.joined = false;
+                    s.waiting = answer
+                        .rsplit_once("waiting ")
+                        .and_then(|(_, n)| n.parse().ok())
+                        .unwrap_or(0);
+                }
+                Verb::Collect if answer == "collected" => s.waiting = 0,
+                _ => {}
+            }
+        } else if said.as_ref().is_err_and(|why| why == NOT_IN) {
+            // the server holds no LEAVE we know of (its answer was lost): out, so the page offers JOIN again
+            s.joined = false;
+        }
+        if outboxed(verb) {
+            s.outbox = None;
+        }
+        self.save(s)?;
+        said.map_err(Fail::Refused)
+    }
+
+    /// The request in flight, sent again as it was. Its refusal clears it and is not this call's (it changed nothing on
+    /// the server); no answer keeps it.
+    /// [`Self::resent_refused`] tells the player.
+    pub fn flush(&self) -> Result<(), Fail> {
+        let mut s = Self::load(&self.data)?;
+        let Some(o) = s.outbox.clone() else {
+            return Ok(());
+        };
+        let Some(verb) = Verb::parse(&o.verb) else {
+            s.outbox = None;
+            return self.save(&s);
+        };
+        let (at, bytes) = if verb == Verb::Reset {
+            // RESET carries no log: signed afresh, so one kept past the server's clock slack still goes
+            let at = now_ms().max(s.last_at + 1);
+            (at, self.sign(&mut s, verb, &[], at)?)
+        } else {
+            (o.at, o.bytes.into_bytes())
+        };
+        match self.deliver(&mut s, verb, &o.args, at, bytes) {
+            Ok(_) => Ok(()),
+            // a key the server holds nothing for: nothing to reset
+            Err(Fail::Refused(why)) if verb == Verb::Reset && why == NOT_IN => Ok(()),
+            Err(Fail::Refused(why)) => {
+                self.resent_refused.set(Some(format!("{}: {why}", o.verb)));
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `verb` with its numbers, after the request in flight: the answer's words after `OK`.
+    pub fn ask(&self, verb: Verb, args: &[u64]) -> Result<String, Fail> {
+        self.flush()?;
+        let mut s = Self::load(&self.data)?;
+        let at = now_ms().max(s.last_at + 1);
+        let bytes = self.sign(&mut s, verb, args, at)?;
+        self.deliver(&mut s, verb, args, at, bytes)
+    }
+
+    /// START OVER in the market (PLAN.md 3.6): a RESET into the outbox, in place of a request in flight (the RESET
+    /// undoes whatever that did on the server). Sent by the next [`Self::flush`] or request, also outside the market as
+    /// this PC sees it (a JOIN whose answer was lost); nothing for a key made by this open. A sale waiting since LEAVE is
+    /// dropped with the old log. Gives the state before, for [`Self::save`] to put back when the profile reset fails,
+    /// and the [`Fail::Disk`] naming a state that could not be read and was moved aside, for the caller to log.
+    pub fn queue_reset(&self) -> Result<(Saved, Option<Fail>), Fail> {
+        // an unreadable state is moved aside by the first load, so the second reads the one it left in its place (none,
+        // so not joined, when that write failed too)
+        let (before, lost) = match Self::load(&self.data) {
+            Ok(s) => (s, None),
+            Err(e) => (Self::load(&self.data)?, Some(e)),
+        };
+        // a lost or unreadable state has no time: a key from before may still be in the market. A key made by an
+        // earlier open that never signed queues one too; the server answers a RESET it holds nothing for with
+        // `NOT_IN`, which `flush` takes silently (accepted: one round trip)
+        if before.last_at == 0 && !self.had_key {
+            return Ok((before, lost));
+        }
+        let mut s = Saved {
+            outbox: None,
+            waiting: 0,
+            withheld: 0,
+            ..before.clone()
+        };
+        let at = now_ms().max(s.last_at + 1);
+        self.sign(&mut s, Verb::Reset, &[], at)?;
+        Ok((before, lost))
+    }
+
+    /// COLLECT until it answers `collected` alone: the sales paid and the listings past 7 days back, in the log.
+    /// `true` once it answered `collected` alone (the rest of a longer wait comes at the next visit).
+    pub fn collect(&self) -> Result<bool, Fail> {
+        for _ in 0..COLLECT_PAGES {
+            if self.ask(Verb::Collect, &[])? == "collected" {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// OWED until it names nothing more: the purchases and paid sales the server holds that the log lacks (an answer
+    /// lost with its outbox: an unreadable [`STATE_FILE`], a crash before the save), written as their lines. An answer
+    /// the same as the one before (rows the log now holds and the server still names) ends it.
+    pub fn owed(&self) -> Result<(), Fail> {
+        let mut before = String::new();
+        for _ in 0..COLLECT_PAGES {
+            let said = self.ask(Verb::Owed, &[])?;
+            if said == "owed" || said == before {
+                break;
+            }
+            before = said;
+        }
+        Ok(())
+    }
+
+    /// [`Self::owed`]; a desk older than OWED answers [`UNKNOWN_WORD`]: it names nothing, and the visit goes on.
+    fn owed_if_known(&self) -> Result<(), Fail> {
+        match self.owed() {
+            Err(Fail::Refused(why)) if why == UNKNOWN_WORD => Ok(()),
+            said => said,
+        }
+    }
+
+    /// LEAVE after OWED: LEAVE drops the paid sales' rows, so a sale whose `market_sell` line was lost is written first.
+    pub fn leave(&self) -> Result<String, Fail> {
+        if Self::load(&self.data)?.joined {
+            self.owed_if_known()?;
+        }
+        self.ask(Verb::Leave, &[])
+    }
+
+    /// Outside the market with nothing left to COLLECT: every listing the log still holds open came back with LEAVE
+    /// (the server returns each open listing, and LEAVE's answer naming them was lost), so each gets its `unlist` line.
+    fn returned(&self) -> Result<(), Fail> {
+        use crate::collection::{Kind, Line};
+        let lines: Vec<Line> = listed(&self.log.lines().map_err(disk)?)
+            .into_iter()
+            .map(|l| Line {
+                kind: Kind::Unlist,
+                card: Some(l.card),
+                tokens: 0,
+                why: why("unlist", l.id),
+            })
+            .collect();
+        if !lines.is_empty() {
+            self.log
+                .append_lines_at(crate::collection::now(), |_| Ok(lines))
+                .map_err(disk)?;
+        }
+        Ok(())
+    }
+
+    /// The market page's requests after the player's word (`PLAN.md` 3.5), each after the outbox:
+    /// - in the market as this PC sees it, BROWSE first: it carries no log, so a key the server holds outside the market
+    ///   (a LEAVE whose answer was lost, an unreadable [`STATE_FILE`]) learns it from `NOT_IN` before any log goes;
+    /// - COLLECT while in the market, while a sale waits, or while the log holds open listings;
+    /// - outside the market once COLLECT has nothing more, [`Self::returned`];
+    /// - in the market, [`Self::owed`] (a desk older than OWED skips it) and then the stock list.
+    pub fn visit(&self, browse_pages: usize) -> Result<Visit, Fail> {
+        let mut v = Visit::default();
+        if Self::load(&self.data)?.joined {
+            match self.browse_pages(0, browse_pages) {
+                Ok((sale, more)) => (v.sale, v.more) = (Some(sale), more),
+                Err(Fail::Refused(why)) if why == NOT_IN => {}
+                Err(e) => return Err(e),
+            }
+        }
+        let s = Self::load(&self.data)?;
+        let open = !listed(&self.log.lines().map_err(disk)?).is_empty();
+        if s.joined || s.waiting > 0 || open {
+            let done = match self.collect() {
+                // the server dropped the key: no sale waits for it
+                Err(Fail::Refused(why)) if why == NOT_IN && !s.joined => true,
+                said => said?,
+            };
+            if done && !s.joined && open {
+                self.returned()?;
+            }
+        }
+        if s.joined {
+            self.owed_if_known()?;
+            v.stock = Some(self.stock()?);
+        }
+        Ok(v)
+    }
+
+    /// Up to `pages` BROWSE pages after the id `after`, and whether the server holds more past them.
+    pub fn browse_pages(&self, after: u64, pages: usize) -> Result<(Vec<Row>, bool), Fail> {
+        let mut sale: Vec<Row> = Vec::new();
+        for _ in 0..pages {
+            let page = self.browse(sale.last().map_or(after, |r| r.id))?;
+            let end = page.len() < BROWSE_PAGE;
+            sale.extend(page);
+            if end {
+                return Ok((sale, false));
+            }
+        }
+        Ok((sale, true))
+    }
+
+    /// The own stock list of the day.
+    pub fn stock(&self) -> Result<StockList, Fail> {
+        let said = self.ask(Verb::Stock, &[])?;
+        let mut words = said.split_whitespace();
+        words.next(); // "stock"
+        let mut left = None;
+        let mut rest = words.clone();
+        if rest.next() == Some("left") {
+            left = rest.next().and_then(|n| n.parse().ok());
+            words = rest;
+        }
+        Ok(StockList {
+            left,
+            rows: rows(words),
+        })
+    }
+
+    /// One BROWSE page of other installations' listings after the id `after`.
+    pub fn browse(&self, after: u64) -> Result<Vec<Row>, Fail> {
+        let said = self.ask(Verb::Browse, &[after])?;
+        let mut words = said.split_whitespace();
+        words.next(); // "listings"
+        Ok(rows(words))
+    }
+}
+
+/// [`Client::save`] for the installation's `data` folder.
+fn write(data: &Path, s: &Saved) -> Result<(), Fail> {
+    let path = data.join(STATE_FILE);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::create_dir_all(data).map_err(disk)?;
+    let mut f = std::fs::File::create(&tmp).map_err(disk)?;
+    f.write_all(serde_json::to_string(s).map_err(disk)?.as_bytes())
+        .and_then(|()| f.sync_all())
+        .map_err(disk)?;
+    drop(f);
+    std::fs::rename(&tmp, &path).map_err(disk)
+}
+
+fn disk(e: impl std::fmt::Display) -> Fail {
+    Fail::Disk(e.to_string())
 }
 
 #[cfg(test)]
@@ -599,5 +1318,548 @@ mod tests {
         assert_eq!(a.to_bytes(), b.to_bytes());
         std::fs::write(&path, b"short").unwrap();
         assert!(load_key(&path).is_err());
+    }
+    /// What a [`Transport`] gives back.
+    type Answer = Result<Result<String, String>, String>;
+
+    thread_local! {
+        /// The answers [`scripted`] gives, in order, and the verbs it was sent.
+        static SCRIPT: std::cell::RefCell<(std::collections::VecDeque<Answer>, Vec<String>)> =
+            std::cell::RefCell::default();
+    }
+
+    /// A desk that answers from [`SCRIPT`]; `Err` is an answer lost on the way.
+    fn scripted(_: SocketAddr, bytes: &[u8]) -> Answer {
+        SCRIPT.with(|s| {
+            let mut s = s.borrow_mut();
+            s.1.push(String::from_utf8_lossy(bytes).into_owned());
+            s.0.pop_front().expect("an answer scripted")
+        })
+    }
+
+    fn script(answers: impl IntoIterator<Item = Answer>) {
+        SCRIPT.with(|s| *s.borrow_mut() = (answers.into_iter().collect(), Vec::new()));
+    }
+
+    /// The verbs sent, in order.
+    fn sent() -> Vec<String> {
+        SCRIPT.with(|s| {
+            s.borrow()
+                .1
+                .iter()
+                .map(|r| split(r.as_bytes()).0[0].clone())
+                .collect()
+        })
+    }
+
+    fn scripted_client(dir: &Path) -> Client {
+        let mut c = Client::open(
+            ([127, 0, 0, 1], 9).into(),
+            &dir.join("data"),
+            &dir.join("coll"),
+        )
+        .unwrap();
+        c.transport = scripted;
+        c
+    }
+
+    /// M1: LEAVE's answer is lost, so the client still thinks it is in the market; the next word's `NOT_IN` takes it
+    /// out, and JOIN works again.
+    #[test]
+    fn a_lost_leave_answer_is_recovered_from_not_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        script([
+            Ok(Ok("0 lines".into())),
+            Err("connection reset".into()),
+            Ok(Err(NOT_IN.into())),
+            Ok(Ok("0 lines".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        assert!(matches!(c.ask(Verb::Leave, &[]), Err(Fail::Unanswered(_))));
+        assert!(Client::saved(&data).joined, "no answer, no change");
+        assert_eq!(c.stock().unwrap_err(), Fail::Refused(NOT_IN.into()));
+        assert!(!Client::saved(&data).joined, "NOT_IN: out of the market");
+        c.ask(Verb::Join, &[]).unwrap();
+        assert!(Client::saved(&data).joined);
+        assert_eq!(sent(), ["JOIN", "LEAVE", "STOCK", "JOIN"]);
+    }
+
+    /// M3: a `market.json` that does not parse is kept aside and reported, not taken as a new installation; the next
+    /// request starts from nothing.
+    #[test]
+    fn an_unreadable_state_file_is_kept_aside_and_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        std::fs::write(data.join(STATE_FILE), b"{\"joined\":tr").unwrap();
+        script([]);
+        assert!(matches!(c.flush(), Err(Fail::Disk(e)) if e.contains("bad-")));
+        let bad: Vec<_> = std::fs::read_dir(&data)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.starts_with("market.json.bad-"))
+            .collect();
+        assert_eq!(bad.len(), 1, "{bad:?}");
+        assert_eq!(
+            std::fs::read(data.join(&bad[0])).unwrap(),
+            b"{\"joined\":tr"
+        );
+        assert!(
+            sent().is_empty(),
+            "nothing sent from a state it could not read"
+        );
+        // #375: in the market or not is unknown, so the next visit asks with BROWSE (no log) before anything else
+        let unknown = Saved {
+            joined: true,
+            ..Saved::default()
+        };
+        assert_eq!(Client::load(&data).unwrap(), unknown);
+        script([Ok(Err(NOT_IN.into()))]);
+        assert_eq!(c.visit(3).unwrap(), Visit::default());
+        assert_eq!(sent(), ["BROWSE"]);
+        assert!(!Client::saved(&data).joined);
+    }
+
+    /// #375: a BUY applied on the server with its answer and its outbox lost: the next visit's OWED writes the
+    /// purchase's line and a stock purchase's (the cards arrive, their prices are spent); OWED's rows are written once,
+    /// and an answer naming the same rows again ends the asking.
+    #[test]
+    fn owed_writes_a_purchase_whose_outbox_was_lost() {
+        use crate::collection::{Kind, fold};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        c.log.append(Kind::Welcome, None, 400, "welcome").unwrap();
+        script([Ok(Ok("0 lines".into())), Err("connection reset".into())]);
+        c.ask(Verb::Join, &[]).unwrap();
+        assert!(matches!(
+            c.ask(Verb::Buy, &[3, 12, 90]),
+            Err(Fail::Unanswered(_))
+        ));
+        // the outbox lost (a crash before its save, a state file kept aside): the purchase is on the server only
+        let mut s = Client::saved(&data);
+        s.outbox = None;
+        c.save(&s).unwrap();
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:90 stock 8:41:216".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("stock 1:41:216:sold".into())),
+        ]);
+        let v = c.visit(3).unwrap();
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "OWED", "OWED", "STOCK"]);
+        assert_eq!(v.sale, Some(vec![]));
+        assert!(v.stock.is_some() && !v.more);
+        let state = fold(&c.log.lines().unwrap()).state;
+        assert_eq!(state.copies(12).earned, 1, "the card arrived");
+        assert_eq!(state.copies(41).earned, 1, "the stock card arrived");
+        assert_eq!(state.tokens, 400 - 90 - 216);
+        assert_eq!(Client::saved(&data).withheld, 0);
+        // the server still names the rows (a mismatch): no line twice, one OWED more and no loop
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:90".into())),
+            Ok(Ok("owed bought 3:12:90".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "OWED", "OWED", "STOCK"]);
+        let text = c.log.lines().unwrap();
+        let buys = text
+            .lines()
+            .filter(|l| {
+                serde_json::from_str::<crate::collection::Entry>(l)
+                    .unwrap()
+                    .kind
+                    == Kind::MarketBuy
+            })
+            .count();
+        assert_eq!(buys, 1);
+    }
+
+    /// #375 blocker: a purchase OWED names after the log spent its tokens offline (its outbox lost) is not written
+    /// past the balance: a log below zero is one the server's check refuses for good. The sale OWED names is written
+    /// first, the purchase it pays goes in, the one it does not stays withheld, and goes in once a match pays it.
+    #[test]
+    fn owed_never_takes_the_balance_below_zero() {
+        use crate::collection::{Kind, fold};
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        c.log.append(Kind::Match, Some(57), 50, "match").unwrap();
+        script([Ok(Ok("0 lines".into())), Ok(Ok("listed 7:57:40".into()))]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 40]).unwrap();
+        // the balance 50; OWED names two purchases (100 and 30) and the listing's sale (40)
+        let owed = "owed bought 3:12:100 4:13:30 sold 7:57:40";
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok(owed.into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        let f = fold(&c.log.lines().unwrap());
+        assert!(f.warnings.is_empty(), "{:?}", f.warnings);
+        assert_eq!(f.state.tokens, 50 + 40 - 30, "never below zero");
+        assert_eq!(
+            f.state.copies(13).earned,
+            1,
+            "the purchase the balance pays arrived"
+        );
+        assert_eq!(f.state.copies(12).earned, 0, "the other waits");
+        assert_eq!(
+            Client::saved(&data).withheld,
+            100,
+            "the page spends it meanwhile"
+        );
+        // a match pays it: the next visit writes it
+        c.log.append(Kind::Match, Some(58), 50, "match").unwrap();
+        script([
+            Ok(Ok("listings".into())),
+            Ok(Ok("collected".into())),
+            Ok(Ok("owed bought 3:12:100".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("stock".into())),
+        ]);
+        c.visit(3).unwrap();
+        let f = fold(&c.log.lines().unwrap());
+        assert_eq!((f.state.tokens, f.state.copies(12).earned), (10, 1));
+        assert_eq!(Client::saved(&data).withheld, 0);
+    }
+
+    /// #375: a desk older than OWED refuses it as an unknown word; the visit goes on, its listings and stock list
+    /// kept, with no refusal to show.
+    #[test]
+    fn a_desk_without_owed_keeps_the_visit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listings 5:13:38".into())),
+            Ok(Ok("collected".into())),
+            Ok(Err(UNKNOWN_WORD.into())),
+            Ok(Ok("stock 1:41:216".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        let v = c.visit(3).unwrap();
+        assert_eq!(sent(), ["JOIN", "BROWSE", "COLLECT", "OWED", "STOCK"]);
+        assert_eq!(v.sale.map(|s| s.len()), Some(1));
+        assert_eq!(v.stock.map(|s| s.rows.len()), Some(1));
+        // LEAVE goes too
+        script([Ok(Err(UNKNOWN_WORD.into())), Ok(Ok("left".into()))]);
+        c.leave().unwrap();
+        assert_eq!(sent(), ["OWED", "LEAVE"]);
+    }
+
+    /// #375 (A1 F6): LEAVE drops the server's paid-sale rows, so OWED goes first and a sale whose line was lost is
+    /// written before them.
+    #[test]
+    fn leave_asks_owed_first() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        c.log
+            .append(crate::collection::Kind::Match, Some(57), 50, "match")
+            .unwrap();
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listed 7:57:40".into())),
+            Ok(Ok("owed sold 7:57:40".into())),
+            Ok(Ok("owed".into())),
+            Ok(Ok("left".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 40]).unwrap();
+        c.leave().unwrap();
+        assert_eq!(sent(), ["JOIN", "LIST", "OWED", "OWED", "LEAVE"]);
+        let text = c.log.lines().unwrap();
+        assert!(listed(&text).is_empty(), "the sale is written");
+        assert_eq!(crate::collection::fold(&text).state.tokens, 90);
+        assert!(!Client::saved(&data).joined);
+        // outside the market LEAVE asks nothing more first
+        script([Ok(Err(NOT_IN.into()))]);
+        assert!(c.leave().is_err());
+        assert_eq!(sent(), ["LEAVE"]);
+    }
+
+    /// #375: LEAVE's answer is lost with 2 listings open, one of them sold meanwhile. The next visit learns from
+    /// BROWSE's `NOT_IN` that the key is out, sends no log, COLLECT pays the sale, and the other listing, which LEAVE
+    /// returned, gets its `unlist` line.
+    #[test]
+    fn a_lost_leave_answer_brings_the_listings_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        std::fs::create_dir(dir.path().join("coll")).unwrap();
+        let coll = crate::collection::Log::new(dir.path().join("coll"));
+        for card in [57, 58] {
+            coll.append(crate::collection::Kind::Match, Some(card), 50, "match")
+                .unwrap();
+        }
+        script([
+            Ok(Ok("0 lines".into())),
+            Ok(Ok("listed 7:57:228".into())),
+            Ok(Ok("listed 8:58:100".into())),
+            Err("connection reset".into()),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        c.ask(Verb::List, &[57, 228]).unwrap();
+        c.ask(Verb::List, &[58, 100]).unwrap();
+        assert!(matches!(c.ask(Verb::Leave, &[]), Err(Fail::Unanswered(_))));
+        assert_eq!(listed(&coll.lines().unwrap()).len(), 2);
+        script([
+            Ok(Err(NOT_IN.into())),
+            Ok(Ok("collected sold 8:58:100".into())),
+            Ok(Ok("collected".into())),
+        ]);
+        assert_eq!(c.visit(3).unwrap(), Visit::default());
+        assert_eq!(sent(), ["BROWSE", "COLLECT", "COLLECT"]);
+        assert!(!Client::saved(&data).joined);
+        let text = coll.lines().unwrap();
+        assert!(listed(&text).is_empty(), "both listings closed");
+        let f = crate::collection::fold(&text);
+        assert!(f.warnings.is_empty(), "{:?}", f.warnings);
+        assert_eq!(f.state.copies(57).earned, 1, "the returned card is back");
+        assert_eq!(
+            (f.state.copies(58).earned, f.state.copies(58).listed),
+            (0, 0),
+            "the sold one is gone"
+        );
+        // the next visit outside the market with nothing open sends nothing
+        script([]);
+        c.visit(3).unwrap();
+        assert!(sent().is_empty());
+    }
+
+    /// #375: three full BROWSE pages say the server holds more; MORE goes on from the last id.
+    #[test]
+    fn browse_pages_tells_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let page = |from: u64, n: u64| {
+            Ok(Ok((from..from + n).fold("listings".to_owned(), |s, id| {
+                format!("{s} {id}:12:90")
+            })))
+        };
+        let full = BROWSE_PAGE as u64;
+        script([page(1, full), page(1 + full, full)]);
+        let (rows, more) = c.browse_pages(0, 2).unwrap();
+        assert_eq!((rows.len(), more), (2 * BROWSE_PAGE, true));
+        script([page(1 + 2 * full, 3)]);
+        let (rows, more) = c.browse_pages(rows.last().unwrap().id, 2).unwrap();
+        assert_eq!((rows.len(), more), (3, false));
+        let after: Vec<u64> = SCRIPT.with(|s| {
+            s.borrow()
+                .1
+                .iter()
+                .map(|r| {
+                    let body = String::from_utf8(split(r.as_bytes()).1).unwrap();
+                    body.lines()
+                        .next()
+                        .unwrap()
+                        .split(' ')
+                        .nth(4)
+                        .unwrap()
+                        .parse()
+                        .unwrap()
+                })
+                .collect()
+        });
+        assert_eq!(after, [2 * full]);
+    }
+
+    /// F3, F2, F4: START OVER queues RESET for a key that ever signed, even one this PC thinks is out (its JOIN's
+    /// answer lost); the kept RESET is signed afresh when it goes; a `NOT_IN` refusal of it clears it silently; a sale
+    /// waiting since LEAVE goes with the old log. A key made by this open (so never signed) queues nothing.
+    #[test]
+    fn start_over_resets_a_key_that_ever_signed() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        let data = dir.path().join("data");
+        assert_eq!(c.queue_reset().unwrap().0.last_at, 0);
+        assert!(
+            Client::saved(&data).outbox.is_none(),
+            "never signed: nothing to reset"
+        );
+        script([Err("connection reset".into()), Ok(Ok("reset".into()))]);
+        assert!(matches!(c.ask(Verb::Join, &[]), Err(Fail::Unanswered(_))));
+        let mut s = Client::saved(&data);
+        assert!(!s.joined && s.last_at > 0);
+        s.waiting = 2;
+        c.save(&s).unwrap();
+        c.queue_reset().unwrap();
+        let mut s = Client::saved(&data);
+        assert_eq!(s.waiting, 0);
+        let o = s.outbox.as_mut().expect("RESET queued");
+        assert_eq!(o.verb, "RESET");
+        // kept a long time: its own time is old
+        o.at = 5;
+        c.save(&s).unwrap();
+        c.flush().unwrap();
+        let (_, body) = SCRIPT.with(|s| split(s.borrow().1[1].as_bytes()));
+        let head = String::from_utf8(body).unwrap();
+        let at: u64 = head.split(' ').nth(2).unwrap().trim().parse().unwrap();
+        assert!(head.starts_with("RESET ") && at > s.last_at, "{head}");
+        assert!(Client::saved(&data).outbox.is_none());
+        // the same once the server holds nothing for the key: no note
+        script([Ok(Err(NOT_IN.into()))]);
+        c.queue_reset().unwrap();
+        c.flush().unwrap();
+        assert_eq!(c.resent_refused(), None);
+        assert!(Client::saved(&data).outbox.is_none());
+        assert_eq!(sent(), ["RESET"]);
+    }
+
+    /// B1: START OVER queues RESET for a key that signed before even when [`STATE_FILE`] is gone or unreadable (its
+    /// last time lost): otherwise the server refuses the new log as a fork.
+    #[test]
+    fn start_over_resets_a_key_whose_state_was_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        script([Ok(Ok("0 lines".into()))]);
+        scripted_client(dir.path()).ask(Verb::Join, &[]).unwrap();
+        for lost in [None, Some("not json")] {
+            match lost {
+                None => std::fs::remove_file(data.join(STATE_FILE)).unwrap(),
+                Some(t) => std::fs::write(data.join(STATE_FILE), t).unwrap(),
+            }
+            let (_, moved) = scripted_client(dir.path()).queue_reset().unwrap();
+            assert_eq!(
+                moved.is_some(),
+                lost.is_some(),
+                "the move aside is reported"
+            );
+            let s = Client::saved(&data);
+            assert_eq!(
+                s.outbox.map(|o| o.verb).as_deref(),
+                Some("RESET"),
+                "{lost:?}"
+            );
+            // the unreadable state is kept aside once, its bytes untouched
+            let bad: Vec<_> = std::fs::read_dir(&data)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.to_string_lossy().contains("market.json.bad-"))
+                .collect();
+            assert_eq!(bad.len(), usize::from(lost.is_some()), "{bad:?}");
+            if let Some(t) = lost {
+                assert_eq!(std::fs::read(&bad[0]).unwrap(), t.as_bytes());
+            }
+        }
+    }
+
+    /// B1 review m4: a key made by an earlier open that never signed queues a RESET (its state cannot tell it from
+    /// a key whose state was lost); the server's `NOT_IN` clears it with no note.
+    #[test]
+    fn start_over_resets_a_key_from_an_earlier_open_that_never_signed() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        drop(scripted_client(dir.path()));
+        assert!(data.join(KEY_FILE).is_file());
+        let c = scripted_client(dir.path());
+        let (before, _) = c.queue_reset().unwrap();
+        assert_eq!(before.last_at, 0);
+        let o = Client::saved(&data).outbox.expect("RESET queued");
+        assert_eq!(o.verb, "RESET");
+        script([Ok(Err(NOT_IN.into()))]);
+        c.flush().unwrap();
+        assert_eq!(c.resent_refused(), None);
+        assert!(Client::saved(&data).outbox.is_none());
+        assert_eq!(sent(), ["RESET"]);
+    }
+
+    /// m1: a request from the outbox refused when sent again is reported once, and the new request still goes.
+    #[test]
+    fn a_resent_request_refused_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = scripted_client(dir.path());
+        script([
+            Ok(Ok("0 lines".into())),
+            Err("connection reset".into()),
+            Ok(Err("the listing is gone".into())),
+            Ok(Ok("listings".into())),
+        ]);
+        c.ask(Verb::Join, &[]).unwrap();
+        assert!(matches!(
+            c.ask(Verb::Buy, &[3, 12, 90]),
+            Err(Fail::Unanswered(_))
+        ));
+        assert_eq!(c.resent_refused(), None);
+        assert!(c.browse(0).unwrap().is_empty());
+        assert_eq!(
+            c.resent_refused().as_deref(),
+            Some("BUY: the listing is gone")
+        );
+        assert_eq!(c.resent_refused(), None);
+        assert!(Client::saved(&dir.path().join("data")).outbox.is_none());
+    }
+
+    /// Step 4.1: each answer writes its lines, and the same answer again writes none; open listings come from the log.
+    #[test]
+    fn an_answer_writes_its_lines_once() {
+        use crate::collection::{Kind, Line, Log};
+        let dir = tempfile::tempdir().unwrap();
+        let log = Log::new(dir.path());
+        let write = |verb, at, answer: &str| {
+            let lines: Vec<Line> = lines_for(verb, at, answer, &log.lines().unwrap());
+            let n = lines.len();
+            if n > 0 {
+                log.append_lines_at(crate::collection::now(), |_| Ok(lines))
+                    .unwrap();
+            }
+            n
+        };
+        for (verb, answer, n) in [
+            (Verb::List, "listed 7:57:228", 1),
+            (Verb::List, "listed 7:57:228", 0),
+            (Verb::List, "listed 8:58:100", 1),
+            (Verb::List, "listed 9:58:100", 1),
+            (Verb::Buy, "bought 3:12:90", 1),
+            (Verb::Buy, "bought 3:12:90", 0),
+            (Verb::StockBuy, "stockbought 2:41:216", 1),
+            (Verb::StockBuy, "stockbought 2:41:216", 0),
+            (Verb::Cancel, "cancelled 8:58", 1),
+            (Verb::Collect, "collected sold 7:57:228 returned 8:58", 1),
+            (Verb::Collect, "collected", 0),
+        ] {
+            assert_eq!(write(verb, 5, answer), n, "{verb:?} {answer}");
+        }
+        // a STOCKBUY of another request (another day's slot 2) is a new line
+        assert_eq!(write(Verb::StockBuy, 6, "stockbought 2:41:216"), 1);
+        let text = log.lines().unwrap();
+        let open = listed(&text);
+        assert_eq!(
+            open.iter()
+                .map(|l| (l.id, l.card, l.price))
+                .collect::<Vec<_>>(),
+            [(9, 58, 100)]
+        );
+        // LEAVE names cards: the oldest open listing of each is the one returned
+        assert_eq!(write(Verb::Leave, 7, "left returned 58 waiting 1"), 1);
+        assert!(listed(&log.lines().unwrap()).is_empty());
+        let s = crate::collection::fold(&log.lines().unwrap()).state;
+        assert_eq!(s.tokens, 228 - 90 - 216 - 216);
+        assert_eq!(s.copies(57).listed, 0);
+        assert_eq!(s.copies(58).listed, 0);
+        let kinds: Vec<Kind> = text
+            .lines()
+            .map(|l| {
+                serde_json::from_str::<crate::collection::Entry>(l)
+                    .unwrap()
+                    .kind
+            })
+            .collect();
+        assert_eq!(kinds.iter().filter(|k| **k == Kind::StockBuy).count(), 2);
     }
 }
