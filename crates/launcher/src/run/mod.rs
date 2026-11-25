@@ -636,14 +636,12 @@ fn stop_command(kit: &Kit, p: &Params, force: bool, check: bool, ui: &dyn Ui) ->
         let Some((mut code, said)) = request(kit, kind, word) else {
             continue;
         };
-        for line in said.lines() {
+        let (shown, question) = rules::stop_question(&said, kit.edition());
+        for line in shown {
             ui.say(line);
         }
         // never a dead end: the person at the stop decides, knowing the cost
-        if code == REFUSED
-            && !check
-            && ui.ask("Stop anyway? Type Y and press Enter (Enter alone keeps the game running): ")
-        {
+        if code == REFUSED && !check && ui.ask(&question.get(ui.lang())) {
             tell(ui, "", &Text::key("launcher.run_stopping"));
             let (c, said) = request(kit, kind, "force").unwrap_or((OK, String::new()));
             for line in said.lines() {
@@ -3354,7 +3352,13 @@ impl Run<'_> {
                     let not = Text::key("launcher.run_not_stopped");
                     self.tell("", &why);
                     self.tell("", &not);
-                    put(REFUSED, &format!("{}\n{}", why.get(lang), not.get(lang)));
+                    let mut said = format!("{}\n{}", why.get(lang), not.get(lang));
+                    // the asker's "Stop anyway?" names them (rules::stop_question)
+                    let guests = self.arcade_guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
+                    if self.mode.is_server() && guests > 0 && !is_on(self.kit, Kind::Run) {
+                        said.push_str(&format!("\n{}{guests}", rules::GUESTS_LINE));
+                    }
+                    put(REFUSED, &said);
                     return None;
                 }
                 self.tell("", &Text::key("launcher.run_stopping"));

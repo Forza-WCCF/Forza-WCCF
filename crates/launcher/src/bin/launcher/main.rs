@@ -586,16 +586,9 @@ impl run::Ui for WindowUi {
         log_pair(shown, en);
     }
 
-    fn ask(&self, _question: &str) -> bool {
+    fn ask(&self, question: &str) -> bool {
         // no owner (any thread may ask), kept in front of the game
-        message(
-            &t(if Kit::here().edition() == Edition::E1718 {
-                "launcher.msg_stop_anyway_1718"
-            } else {
-                "launcher.msg_stop_anyway"
-            }),
-            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
-        ) == IDYES
+        message(question, MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) == IDYES
     }
 
     fn report(&self) {
@@ -2051,7 +2044,7 @@ impl run::Ui for ConsoleUi {
         } {
             return false;
         }
-        print!("{question}");
+        print!("{question} Type Y and press Enter (Enter alone keeps the game running): ");
         let _ = std::io::Write::flush(&mut std::io::stdout());
         let mut answer = String::new();
         std::io::stdin().read_line(&mut answer).is_ok() && matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
