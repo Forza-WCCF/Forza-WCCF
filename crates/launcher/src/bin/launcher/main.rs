@@ -705,8 +705,8 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-/// STOP THE GAME (clicked twice), or this window closed while the game runs: the running game is asked to stop by the
-/// card rule, on a thread of its own - the run itself may be this process's job.
+/// STOP THE GAME (clicked twice), or this window closed twice while the game runs: the running game is asked to stop by
+/// the card rule, on a thread of its own - the run itself may be this process's job.
 fn stop_game() {
     say(t("launcher.msg_stopping"), 0);
     thread::spawn(|| {
@@ -1226,12 +1226,15 @@ impl App {
                 shared().updated = true; // another job holds the worker: try again at the next look
             }
         }
-        // closing Launcher while the game runs is a quit: asked of the run, by the card rule; and never a kit left
-        // half copied, nor a start half done: the window stays while a job runs
+        // closing Launcher while the game runs is STOP THE GAME (armed by the first close, as by a first click), asked
+        // of the run by the card rule; and never a kit left half copied, nor a start half done: the window stays while
+        // a job runs
         if ctx.input(|i| i.viewport().close_requested()) {
             if UP.load(Ordering::Relaxed) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-                stop_game();
+                if self.st.stop_click(ctx.input(|i| i.time)) {
+                    stop_game();
+                }
             } else if shared().busy {
                 // the live flag: a job started in this look() is not in the sampled copy
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
@@ -1505,8 +1508,9 @@ impl App {
                     refuse(t("launcher.msg_bad_address"));
                 }
             }
-            // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
-            // match (run::rules::stop_server_too, and host_arcade's stop once the seat's run has ended)
+            // LEAVE while hosting (clicked twice, as STOP THE GAME): the seat stops by the card rule; the server (and the
+            // room) after it, never under its match (run::rules::stop_server_too, and host_arcade's stop once the seat's
+            // run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
             // #434: the club question before the lobby claims a seat or a room's countdown; JOIN again after it
             Action::Lobby(a) if claims_a_start(&a) && self.club_question() => {}
