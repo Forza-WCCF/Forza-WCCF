@@ -10,6 +10,23 @@ use forza_ui::{installer, launcher, lobby, panel, widgets};
 
 use super::snapshots::{formations_state, harness, import_asked};
 
+/// Every text shape drawn in the last frame, nested ones included: painted text (the STARTER and IMPORT marks) is
+/// not on the accessibility tree, so it is checked where it lands.
+fn drawn_texts(h: &egui_kittest::Harness<'_>) -> Vec<egui::epaint::TextShape> {
+    fn walk(s: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+        match s {
+            egui::Shape::Text(t) => out.push(t.clone()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = vec![];
+    for s in &h.output().shapes {
+        walk(&s.shape, &mut out);
+    }
+    out
+}
+
 /// 2010-11 keeps its pack choice (From the game | High-quality pack, Choose pack…); 2017-18 has the one download button.
 #[test]
 fn the_card_pictures_row_is_the_pack_choice_in_2010_11_and_the_download_in_2017_18() {
@@ -2029,4 +2046,337 @@ fn card_badges_keep_off_the_club_name() {
         out.textures_delta.clear();
     }
     assert!(big >= 3 * 40 * 11 * 5, "{big} big faces checked");
+}
+/// COLLECTION's page at the Launcher's smallest window (600 x 700), in every language (plan step 1.4, (d)): every card
+/// lies inside the page, and its STARTER or IMPORT mark inside its card. (e): a starter card's detail offers no
+/// CONVERT and no SELL.
+#[test]
+fn collection_cards_and_marks_fit_the_page() {
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let mut st =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        st.profile = Some(forza::profile::Profile::CreateATeam);
+        let view = CollectionView::sample(Scenario::Page);
+        let cards = view.cards.clone();
+        st.collection = Some(view);
+        st.tab = launcher::Tab::Collection;
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            launcher::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        // the marks are painted, so they are checked where they land, not on the accessibility tree
+        let drawn = drawn_texts(&h);
+        let mut seen = 0;
+        for (card, copies) in &cards {
+            let Some(node) = h
+                .query_all_by_role_and_label(egui::accesskit::Role::Button, &card.name)
+                .next()
+            else {
+                continue; // scrolled below the window
+            };
+            let r = node.rect();
+            seen += 1;
+            let tag = format!("{lang:?} {}: {r:?}", card.name);
+            assert!(
+                r.left() >= 16.0 && r.right() <= size.x - 16.0,
+                "{tag}: inside the page"
+            );
+            assert!(r.width() >= 80.0, "{tag}: a card, not a chip");
+            let mark = if copies.starter > 0 {
+                Some("cat.mark_starter")
+            } else if copies.imported > 0 {
+                Some("cat.mark_import")
+            } else {
+                None
+            };
+            if let Some(k) = mark {
+                let text = t(k);
+                assert!(
+                    drawn.iter().any(|s| s.galley.text() == text
+                        && r.contains_rect(egui::Rect::from_min_size(s.pos, s.galley.size()))),
+                    "{tag}: the mark {text:?} is drawn whole inside the card"
+                );
+            }
+        }
+        assert!(seen >= 12, "{lang:?}: {seen} cards in view");
+    }
+    // (e) the detail of a starter card: it says why the card neither sells nor converts, and the gate CONVERT asks
+    // later (step 2.3) refuses a starter-only card while an earned copy in the same collection passes it
+    let view = CollectionView::sample(Scenario::Detail);
+    let cards = view.cards.clone();
+    let mut st =
+        launcher::LauncherState::sample(Edition::E1718, Lang::En, launcher::Scenario::Ready);
+    st.profile = Some(forza::profile::Profile::CreateATeam);
+    st.collection = Some(view);
+    st.tab = launcher::Tab::Collection;
+    let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+        launcher::show(ui, &mut st);
+    });
+    h.run_steps(4);
+    assert!(h.query_by_label("CLOSE").is_some(), "the detail is open");
+    let t = |k: &str| forza_ui::text(Lang::En, k, &[]);
+    assert!(
+        h.query_by_label(&t("collection.no_sell")).is_some(),
+        "the starter detail says the card cannot be sold or converted"
+    );
+    let (starter, earned) = (cards[0].clone(), cards[15].clone());
+    assert_eq!(starter.1.earned, 0);
+    let starter_row = forza::cards::collection_cards(std::slice::from_ref(&starter.0));
+    assert_eq!(
+        forza::collection::convert(&starter.1, &starter_row[0]),
+        Err(forza::collection::NoConvert::NoEarned)
+    );
+    let earned_row = forza::cards::collection_cards(std::slice::from_ref(&earned.0));
+    assert!(
+        forza::collection::convert(&earned.1, &earned_row[0]).is_ok(),
+        "a spare earned copy does convert"
+    );
+}
+
+/// #374: the deal window holds its collection lines inside it and above its foot line, for every grant state and
+/// language (the damaged note is the longest).
+#[test]
+fn the_deal_window_holds_its_collection_lines() {
+    for lang in Lang::ALL {
+        let t = |k: &str, n: &str| forza_ui::text(lang, k, &[("n", n)]);
+        for (grant, key, n) in [
+            (panel::Grant::Saving, "deal.saving", ""),
+            (panel::Grant::Retrying, "deal.not_saved", ""),
+            (panel::Grant::Damaged, "deal.damaged", ""),
+            (
+                panel::Grant::Saved {
+                    tokens: 15,
+                    copies: 2,
+                    convert: Some(30),
+                    floor: 120,
+                },
+                "deal.sell_from",
+                "120",
+            ),
+        ] {
+            let mut st = panel::PanelState::new(
+                Edition::E1718,
+                lang,
+                forza_ui::sample::board(),
+                forza_ui::sample::cards().into(),
+            );
+            let mut deal = panel::Deal::new(3);
+            deal.grant = Some(grant);
+            st.deal = Some(deal);
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+                panel::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let (plain, rare) = (t("deal.title", ""), t("deal.title_rare", ""));
+            let win = h
+                .query_by_label(&plain)
+                .or_else(|| h.query_by_label(&rare))
+                .expect("the deal window")
+                .rect();
+            let drawn = drawn_texts(&h);
+            let rect = |text: &str| {
+                drawn
+                    .iter()
+                    .find(|s| s.galley.text() == text)
+                    .map(|s| egui::Rect::from_min_size(s.pos, s.galley.size()))
+                    .unwrap_or_else(|| panic!("{lang:?}: {text:?} not drawn"))
+            };
+            let line = rect(&t(key, n));
+            let foot = rect(&t("deal.foot", ""));
+            let tag = format!("{lang:?} {key}: line {line:?}, foot {foot:?}, window {win:?}");
+            assert!(win.contains_rect(line), "{tag}: the line inside the window");
+            assert!(
+                line.bottom() <= foot.top(),
+                "{tag}: the line above the foot"
+            );
+        }
+    }
+}
+
+/// 1.5: START OVER on a damaged collection sits under its line (the page's foot has none then) and asks first; the
+/// question fits the Launcher's smallest window in every language: title, body and both buttons inside the dialog,
+/// the buttons apart, and START OVER there confirms.
+#[test]
+fn start_over_asks_first_and_its_question_fits() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionAction, CollectionView, Scenario};
+    use std::cell::RefCell;
+    let size = launcher::window_size(Some(700.0));
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    for lang in Lang::ALL {
+        let t = |k: &str| forza_ui::text(lang, k, &[]);
+        let tag = format!("{lang:?}");
+        let mut start =
+            launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+        start.profile = Some(forza::profile::Profile::CreateATeam);
+        let mut view = CollectionView::sample(Scenario::Page);
+        view.damaged = true;
+        start.collection = Some(view);
+        start.tab = launcher::Tab::Collection;
+        let st = RefCell::new(start);
+        let got = RefCell::new(None);
+        let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+            if let Some(a) = launcher::show(ui, &mut st.borrow_mut()) {
+                *got.borrow_mut() = Some(a);
+            }
+        });
+        h.run_steps(4);
+        let yes = t("collection.reset");
+        let button = h.get_by_label(&yes);
+        let r = button.rect();
+        assert!(
+            window.contains_rect(r) && r.bottom() < size.y / 2.0,
+            "{tag}: {r:?} under the damaged line"
+        );
+        button.click();
+        h.run_steps(2);
+        let reset = |a| launcher::Action::Collection(a);
+        assert_eq!(got.take(), Some(reset(CollectionAction::ResetAsk)), "{tag}");
+        // the Launcher's answer (main.rs `ask`)
+        st.borrow_mut().confirm = Some(launcher::Confirm::new(
+            &t("collection.reset_ask"),
+            yes.clone(),
+            reset(CollectionAction::Reset),
+        ));
+        h.run_steps(4);
+        // the modal's frame (egui gives it `Role::Dialog`, fit.rs) has no box of its own: its content's
+        let dialog = h
+            .root()
+            .children_recursive()
+            .filter(|n| n.accesskit_node().role() == Role::Dialog)
+            .find(|n| {
+                n.children_recursive()
+                    .any(|c| c.accesskit_node().role() == Role::Button)
+            })
+            .expect("the question");
+        let d = dialog
+            .children_recursive()
+            .filter_map(|n| n.accesskit_node().bounding_box())
+            .map(|b| {
+                egui::Rect::from_min_max(
+                    egui::pos2(b.x0 as f32, b.y0 as f32),
+                    egui::pos2(b.x1 as f32, b.y1 as f32),
+                )
+            })
+            .reduce(|a, b| a.union(b))
+            .expect("the dialog's content");
+        assert!(
+            window.contains_rect(d),
+            "{tag}: the dialog {d:?} inside the window"
+        );
+        let button = |label: &str| {
+            let found: Vec<egui::Rect> = dialog
+                .children_recursive()
+                .filter(|n| {
+                    n.accesskit_node().role() == Role::Button
+                        && n.accesskit_node().label().as_deref() == Some(label)
+                })
+                .map(|n| n.rect())
+                .collect();
+            assert_eq!(found.len(), 1, "{tag}: {label:?} in the dialog");
+            found[0]
+        };
+        let (y, n) = (button(&yes), button(&t("common.cancel")));
+        assert!(
+            d.contains_rect(y) && d.contains_rect(n),
+            "{tag}: {y:?} {n:?} inside {d:?}"
+        );
+        assert!(!y.shrink(0.5).intersects(n), "{tag}: the buttons overlap");
+        let ask = t("collection.reset_ask");
+        let (title, body) = ask.split_once("\n\n").unwrap();
+        let drawn = drawn_texts(&h);
+        for line in [title, body] {
+            let at = drawn
+                .iter()
+                .find(|s| s.galley.text() == line)
+                .map(|s| egui::Rect::from_min_size(s.pos, s.galley.size()))
+                .unwrap_or_else(|| panic!("{tag}: {line:?} drawn"));
+            assert!(d.contains_rect(at), "{tag}: {line:?} {at:?} inside {d:?}");
+            assert!(at.bottom() <= y.top(), "{tag}: {line:?} above the buttons");
+        }
+        h.get_all_by_label(&yes)
+            .find(|n| n.rect() == y)
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        assert_eq!(got.take(), Some(reset(CollectionAction::Reset)), "{tag}");
+        assert!(st.borrow().confirm.is_none(), "{tag}: the question closes");
+    }
+}
+
+/// #374: the start picker and the deal at the Launcher's smallest window, in every language: the start tiles in view
+/// lie inside the page and apart; the 11 dealt cards and the 3 RARE cards too.
+#[test]
+fn the_start_picker_and_the_deal_fit_the_page() {
+    use egui::accesskit::Role;
+    use forza_ui::collection::{CollectionView, Scenario};
+    let size = launcher::window_size(Some(700.0));
+    let apart = |rects: &[egui::Rect], tag: &str| {
+        for (i, a) in rects.iter().enumerate() {
+            assert!(
+                a.left() >= 16.0 && a.right() <= size.x - 16.0,
+                "{tag}: {a:?} inside the page"
+            );
+            for b in &rects[i + 1..] {
+                assert!(!a.shrink(0.5).intersects(*b), "{tag}: {a:?} overlaps {b:?}");
+            }
+        }
+    };
+    for lang in Lang::ALL {
+        for s in [Scenario::Choose, Scenario::Pick] {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::Ready);
+            st.profile = Some(forza::profile::Profile::CreateATeam);
+            let view = CollectionView::sample(s);
+            let names: std::collections::BTreeSet<String> = match &view.step {
+                forza_ui::collection::Step::Pick { dealt, .. } => {
+                    dealt.iter().map(|c| c.name.clone()).collect()
+                }
+                _ => Default::default(),
+            };
+            st.collection = Some(view);
+            st.tab = launcher::Tab::Collection;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            // the step's own tiles: the radio buttons under its title (the Launcher's own sit above it)
+            let head = if s == Scenario::Choose {
+                "collection.choose_title"
+            } else {
+                "collection.pick_title"
+            };
+            let head = forza_ui::text(lang, head, &[]);
+            let top = drawn_texts(&h)
+                .iter()
+                .find(|t| t.galley.text() == head)
+                .map(|t| t.pos.y)
+                .expect("the step's title");
+            let tag = format!("{lang:?} {s:?}");
+            let tiles: Vec<egui::Rect> = h
+                .query_all_by_role(Role::RadioButton)
+                .map(|n| n.rect())
+                .filter(|r| r.top() > top && r.bottom() <= size.y)
+                .collect();
+            match s {
+                Scenario::Choose => {
+                    assert!(tiles.len() >= 4, "{tag}: {} starts in view", tiles.len())
+                }
+                _ => {
+                    assert_eq!(tiles.len(), 3, "{tag}: the RARE cards");
+                    let dealt: Vec<egui::Rect> = names
+                        .iter()
+                        .flat_map(|n| h.query_all_by_role_and_label(Role::Image, n))
+                        .map(|n| n.rect())
+                        .collect();
+                    assert!(dealt.len() >= 11, "{tag}: {} dealt cards", dealt.len());
+                    apart(&dealt, &tag);
+                }
+            }
+            apart(&tiles, &tag);
+        }
+    }
 }
