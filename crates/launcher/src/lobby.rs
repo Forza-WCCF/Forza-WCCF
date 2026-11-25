@@ -799,6 +799,7 @@ impl Book {
         let offline = self.offline();
         if offline && !v.offline {
             v.direct_open = true; // the way out is the address below
+            v.lan_open |= v.arcade_rooms; // or an arcade on this network: its search starts with the fold open
         }
         v.offline = offline;
         let vis = v.visible();

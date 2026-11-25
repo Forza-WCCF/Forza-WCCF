@@ -134,6 +134,7 @@ fn silent_servers_show_no_answer_and_the_list_goes_offline() {
     };
     let mut book = Book::new(std::slice::from_ref(&server));
     let mut view = LobbyView::new();
+    view.arcade_rooms = true; // 2017-18: the LAN fold is there
     let now = Instant::now();
     book.apply(&poll(Ok(l)), now);
     book.fill(&mut view, now);
@@ -143,7 +144,7 @@ fn silent_servers_show_no_answer_and_the_list_goes_offline() {
         book.apply(&poll(Err("down".into())), now);
         book.fill(&mut view, now + Duration::from_secs(20));
     }
-    assert!(view.offline && view.direct_open);
+    assert!(view.offline && view.direct_open && view.lan_open);
     assert_eq!(view.arcades[0].state, RowState::NoAnswer);
     assert_eq!(view.updated_s, Some(20));
 }
