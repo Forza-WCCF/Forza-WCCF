@@ -213,7 +213,7 @@ jobs:
           ls "$VS/VC/Tools/MSVC"
           ls "/c/Program Files (x86)/Windows Kits/10/Include"
       # `cargo xtask check` runs the tests with cargo-nextest when it is installed; the action checks the download's hash
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-nextest@0.9.148
       # rust-cache saves nothing over an exact key match, and its key changed only with Cargo.lock or a manifest: the
@@ -425,14 +425,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2.1.2
         with:
           command: check licenses bans sources
       # New advisories arrive with the database, not with a branch: the weekly scheduled run checks them, so one never
       # turns an unrelated pull request red (deny.toml's [advisories])
       - name: advisories (weekly run only)
         if: github.event_name == 'schedule'
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@70f81531115945ba6eb6b941ec9d39d063438eb9 # v2.1.2
         with:
           command: check advisories
 
