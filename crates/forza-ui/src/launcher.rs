@@ -699,8 +699,9 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                 .cup
                 .plan(st.lobby.clock.unwrap_or_else(lobby::local_clock))
                 .is_err();
+        // before SET UP there is nothing to play: grey, its reason on the status line under it
         let resp = ui
-            .add_enabled_ui(st.running || (!st.busy && !refused), |ui| {
+            .add_enabled_ui(st.running || (!st.busy && !refused && st.set_up), |ui| {
                 cabinet(ui, size, &label, kind, st.set_up || st.running)
             })
             .inner;
@@ -730,6 +731,8 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
     } else if let Some((tone, text)) = &st.status {
         status_line(ui, *tone, text);
+    } else if !st.set_up && !st.running {
+        status_line(ui, Tone::Notice, &tr!(lang, "launcher.status_not_set_up"));
     }
     if let Some(text) = &st.server_notice {
         status_line(ui, Tone::Notice, text);

@@ -129,6 +129,44 @@ fn launcher_online_starts_from_the_lobby() {
     assert_eq!(st.borrow().tab, launcher::Tab::Online);
 }
 
+/// Before SET UP, PLAY is grey and its reason sits whole under it, inside the window, in every language (at the
+/// Launcher's fixed 600 width and smallest height, 700), on PLAY and on SETUP.
+#[test]
+fn play_is_grey_before_setup_with_its_reason_under_it() {
+    let size = launcher::window_size(Some(700.0));
+    for lang in Lang::ALL {
+        for tab in [launcher::Tab::Play, launcher::Tab::Setup] {
+            let mut st =
+                launcher::LauncherState::sample(Edition::E1718, lang, launcher::Scenario::NotSetUp);
+            st.tab = tab;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| {
+                launcher::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let tag = format!("{lang:?} {tab:?}");
+            let label = forza_ui::text(lang, "launcher.play", &[]);
+            // the footer's PLAY, under the tab of that name
+            let play = h
+                .query_all_by_label(&label)
+                .max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom()))
+                .expect("PLAY");
+            assert!(play.accesskit_node().is_disabled(), "{tag}: PLAY is live");
+            let play = play.rect();
+            let why = h
+                .get_by_label(&forza_ui::text(lang, "launcher.status_not_set_up", &[]))
+                .rect();
+            assert!(
+                why.top() >= play.bottom(),
+                "{tag}: {why:?} overlaps PLAY {play:?}"
+            );
+            assert!(
+                why.left() >= 0.0 && why.right() <= size.x && why.bottom() <= size.y,
+                "{tag}: {why:?} outside the {size:?} window"
+            );
+        }
+    }
+}
+
 /// The cup rows fit the Launcher (its width is fixed; 700 tall is its smallest) in every language, on the PLAY tab and
 /// in the host dialog: the four segments and the stepper inside the window, each segment's label no wider than its
 /// segment at the 70 % `fit` floor.
