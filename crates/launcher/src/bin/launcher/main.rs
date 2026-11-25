@@ -1051,7 +1051,7 @@ impl App {
                 test: r.test,
                 date: r.date.clone(),
                 this: parse(&r.tag).is_some() && parse(&r.tag) == parse(&installed),
-                newer: !r.test && is_newer(&r.tag, &installed),
+                newer: is_newer(&r.tag, &installed),
             })
             .collect();
     }
@@ -1209,7 +1209,14 @@ impl App {
             });
         }
         if let Some(list) = list {
-            self.st.selected = Some(list.iter().position(|r| !r.test).unwrap_or(0));
+            // the announced one (a tester's next cut), else the newest release
+            let newer = update::newest(&list, &this_kit(&kit)).map(|n| n.tag.clone());
+            self.st.selected = Some(
+                list.iter()
+                    .position(|r| Some(&r.tag) == newer.as_ref())
+                    .or_else(|| list.iter().position(|r| !r.test))
+                    .unwrap_or(0),
+            );
             self.releases = list;
             self.list(&kit);
         }

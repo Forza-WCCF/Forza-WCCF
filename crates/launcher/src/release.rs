@@ -1,5 +1,5 @@
 //! The kit's releases at UPDATE_URL (2026-10-09): Launcher.exe's UPDATE lists them and says when a newer release is out.
-//! Test builds (pre-releases) are never "newer": only a release is offered that way.
+//! A test build (pre-release) is "newer" only to a kit on a test build of the same series (`cat` in `v0.9.0-cat.2`).
 
 use std::env;
 use std::fs;
@@ -35,11 +35,16 @@ pub use forza::curl::{curl, system32};
 /// The tag rules the installer shares (`forza::release`).
 pub use forza::release::{is_test, parse};
 
-/// The release `tag` is newer than the version that is here.  A test build, or a version of unknown shape, is never
-/// newer.
+/// The release `tag` is newer than the version that is here.  A test build is newer only to a test build of its own
+/// series (`v0.9.0-cat.10` to `kit-0.9.0-cat.2`, never to `kit-0.7.4` or `kit-0.9.0-rc.1`); a version of unknown shape
+/// is never newer.
 pub fn is_newer(tag: &str, installed: &str) -> bool {
     match (parse(tag), parse(installed)) {
-        (Some(new), Some(old)) => new.pre.is_empty() && new > old,
+        (Some(new), Some(old)) => {
+            let series = |v: &str| v.split('.').next().unwrap_or_default().to_owned();
+            (new.pre.is_empty() || (!old.pre.is_empty() && series(new.pre.as_str()) == series(old.pre.as_str())))
+                && new > old
+        }
         _ => false,
     }
 }
@@ -155,6 +160,26 @@ mod tests {
         assert!(!is_newer("v0.4.0", "kit-1208d80")); // a commit's build: unknown
         assert!(!is_newer("nonsense", "kit-0.3.0"));
         assert!(is_test("v0.4.0-rc.1") && !is_test("v0.4.0") && !is_test("nonsense"));
+    }
+
+    #[test]
+    fn a_test_build_sees_newer_test_builds_of_its_series() {
+        // a release kit never sees a test build as newer (#281)
+        assert!(!is_newer("v0.9.0-cat.1", "kit-0.7.4"));
+        assert!(!is_newer("v0.9.0-cat.10", "kit-0.9.0"));
+        // on a test build: the next cuts of its series and the releases after it
+        assert!(is_newer("v0.9.0-cat.2", "kit-0.9.0-cat.1"));
+        assert!(is_newer("v0.9.0-cat.10", "kit-0.9.0-cat.2")); // numbers, not text
+        assert!(is_newer("v0.9.0", "kit-0.9.0-cat.2")); // the release after its test build
+        assert!(is_newer("v0.10.0-cat.1", "kit-0.9.0-cat.3"));
+        assert!(!is_newer("v0.9.0-cat.1", "kit-0.9.0-cat.1")); // equal
+        assert!(!is_newer("v0.9.0-cat.0", "kit-0.9.0-cat.1")); // older
+        assert!(!is_newer("v0.9.0-cat.2", "kit-0.9.0-cat.10"));
+        assert!(!is_newer("v0.8.0", "kit-0.9.0-cat.1")); // an older release
+        // another series is not this one
+        assert!(!is_newer("v0.9.0-rc.2", "kit-0.9.0-cat.1"));
+        assert!(!is_newer("v0.9.0-cat.2", "kit-0.9.0-rc.1"));
+        assert!(!is_newer("v0.9.0-catx.2", "kit-0.9.0-cat.1"));
     }
 
     #[test]

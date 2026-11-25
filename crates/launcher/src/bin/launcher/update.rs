@@ -107,10 +107,10 @@ pub(crate) fn verify(file: &Path, expected: &str) -> Result<(), String> {
     }
 }
 
-/// The release to announce: the first listed that is not a test build and is newer than `installed`.
+/// The release to announce: the first listed that is newer than `installed` (a test build only to a test build of its
+/// series: `launcher::release::is_newer`), the same rule as UPDATE's "(newer)".
 pub fn newest<'a>(list: &'a [Release], installed: &str) -> Option<&'a Release> {
-    list.iter()
-        .find(|r| !r.test && launcher::release::is_newer(&r.tag, installed))
+    list.iter().find(|r| launcher::release::is_newer(&r.tag, installed))
 }
 
 pub fn fetch(edition: &str) -> Result<Vec<Release>, String> {
@@ -585,6 +585,28 @@ mod tests {
         assert!(newest(&list, "kit-0.5.0").is_none()); // up to date: no notice
         assert!(newest(&list[1..], "kit-0.3.0").is_none()); // only a test build is newer
         assert!(newest(&[], "kit-0.3.0").is_none());
+    }
+
+    #[test]
+    fn a_test_build_is_told_of_the_next_cut_of_its_series() {
+        let r = |tag: &str| {
+            let json = format!(
+                r#"[{{"tag_name": "{tag}", "assets": [{{"name": "Forza-WCCF-2017-18-{}.zip", "browser_download_url": "https://a/z"}}]}}]"#,
+                &tag[1..]
+            );
+            releases(&json, "2017-18").unwrap().remove(0)
+        };
+        let list = [r("v0.9.0-cat.10"), r("v0.9.0-cat.2"), r("v0.9.0-rc.5"), r("v0.7.4")];
+        let tag = |installed| newest(&list, installed).map(|r| r.tag.as_str());
+        assert_eq!(tag("kit-0.7.4"), None); // a release kit: never a test build
+        assert_eq!(tag("kit-0.7.3"), Some("v0.7.4"));
+        assert_eq!(tag("kit-0.9.0-cat.1"), Some("v0.9.0-cat.10"));
+        assert_eq!(tag("kit-0.9.0-cat.10"), None); // up to date
+        assert_eq!(tag("kit-0.9.0-rc.6"), None); // another series
+        assert_eq!(
+            newest(&[r("v0.9.0"), r("v0.9.0-cat.3")], "kit-0.9.0-cat.2").map(|r| r.tag.as_str()),
+            Some("v0.9.0")
+        );
     }
 
     #[test]
