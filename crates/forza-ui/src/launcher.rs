@@ -667,12 +667,17 @@ fn lobby_act(st: &mut LauncherState, a: LobbyAction, now: f64) -> Option<Action>
     })
 }
 
+/// STOP THE GAME is armed and its line shown at `now`: while a game runs, or on ONLINE by a host's LEAVE before this
+/// PC's seat runs (never under another tab's PLAY).
+fn stop_armed_shown(st: &LauncherState, now: f64) -> bool {
+    st.stop_armed > now && (st.running || (st.lobby.hosting && st.tab == Tab::Online))
+}
+
 /// PLAY / STOP THE GAME, the start's bar and the status line: the window's footer. ONLINE has no PLAY (its lobby
 /// buttons and CONNECT start the game), only STOP THE GAME while a game runs.
 fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let now = ui.input(|i| i.time);
-    // a host's LEAVE arms it too, before this PC's seat runs
-    let armed = (st.running || st.lobby.hosting) && st.stop_armed > now;
+    let armed = stop_armed_shown(st, now);
     if armed && st.stop_armed.is_finite() {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
@@ -1277,6 +1282,11 @@ mod tests {
         st.lobby.hosting = true;
         assert_eq!(lobby_act(&mut st, LobbyAction::Leave, 10.0), None);
         assert!(st.stop_armed > 10.0);
+        // armed before the seat runs: its line on ONLINE, never under another tab's PLAY
+        assert!(stop_armed_shown(&st, 11.0));
+        st.tab = Tab::Play;
+        assert!(!stop_armed_shown(&st, 11.0));
+        st.tab = Tab::Online;
         assert_eq!(
             lobby_act(&mut st, LobbyAction::Leave, 12.0),
             Some(Action::Lobby(LobbyAction::Leave))
