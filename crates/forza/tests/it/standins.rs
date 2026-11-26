@@ -839,11 +839,21 @@ fn gamesvr_tail_survives_play_and_restart() {
         for (to, from, len) in spans {
             assert_eq!(a[to..to + len], r[from..from + len], "span {to}");
         }
+        for at in gamesvr::NET_KICKERS_276 {
+            assert_eq!(
+                a[at..at + 2],
+                gamesvr::NET_KICKER_KEEP.to_le_bytes(),
+                "kicker id {at}"
+            );
+        }
         // everything else in the summary area stays 0
         for (i, b) in a.iter().enumerate().take(6176).skip(3096) {
             if !spans
                 .iter()
                 .any(|&(to, _, len)| (to..to + len).contains(&i))
+                && !gamesvr::NET_KICKERS_276
+                    .iter()
+                    .any(|&at| (at..at + 2).contains(&i))
             {
                 assert_eq!(*b, 0, "byte {i} outside the spans");
             }
