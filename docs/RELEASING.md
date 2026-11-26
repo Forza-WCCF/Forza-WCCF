@@ -206,6 +206,6 @@ The Launcher's UPDATE (both editions) reads this repository's releases from the 
 - The release list brings each release's notes. The notes of the installed version and of the newest release are kept
   once per version in `data\release-notes\<version>.md`; UPDATE shows the kept copy when GitHub does not answer.
 - The Launcher checks at most once a day at start (`data\update-check.txt`) and every time the UPDATE page opens.
-- A newer release that is not a test build shows a notice: a line at the top of the main page and the tag on the UPDATE
-  entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the
+- A newer release shows a notice (a test build only to a kit on a test build of the same series): a line at the top of
+  the main page and the tag on the UPDATE entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the
   player opens UPDATE or updates. Nothing installs by itself.

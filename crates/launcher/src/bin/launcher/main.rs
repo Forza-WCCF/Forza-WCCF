@@ -1209,14 +1209,12 @@ impl App {
             });
         }
         if let Some(list) = list {
-            // the announced one (a tester's next cut), else the newest release
-            let newer = update::newest(&list, &this_kit(&kit)).map(|n| n.tag.clone());
-            self.st.selected = Some(
-                list.iter()
-                    .position(|r| Some(&r.tag) == newer.as_ref())
-                    .or_else(|| list.iter().position(|r| !r.test))
-                    .unwrap_or(0),
-            );
+            self.st.selected = Some(update::reselect(
+                &self.releases,
+                self.st.selected,
+                &list,
+                &this_kit(&kit),
+            ));
             self.releases = list;
             self.list(&kit);
         }
@@ -1439,11 +1437,12 @@ impl App {
                         "launcher.msg_confirm_release"
                     };
                     let question = tf(key, &[("tag", &r.tag)]);
-                    self.ask(&question, "launcher.update_button", Action::UpdateNow(i));
+                    self.ask(&question, "launcher.update_button", Action::UpdateNow(r.tag.clone()));
                 }
             }
-            Action::UpdateNow(i) => {
-                if let Some(r) = self.releases.get(i) {
+            Action::UpdateNow(tag) => {
+                // by tag: a list refreshed while the question was open may have moved the rows
+                if let Some(r) = self.releases.iter().find(|r| r.tag == tag) {
                     start(vec![Step::Update(r.clone())]);
                 }
             }
