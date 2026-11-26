@@ -585,6 +585,12 @@ pub const TAIL_SPANS: [(usize, usize, usize); 9] = [
     (6152, 8544, 24),
 ];
 
+/// SAVE_DATA 276 +6,088/+6,090/+6,092: the "net setting" FK, CK and PK card ids (u16). At card-in the client sets
+/// PLAYER_FK/CK/PK = (card no == id) for every player unless the id is 16,383 (sub_816510), so 0 cleared the kickers.
+pub const NET_KICKERS_276: [usize; 3] = [6088, 6090, 6092];
+/// The client's "no setting" id: it keeps the kickers the save block holds.
+pub const NET_KICKER_KEEP: u16 = 16_383;
+
 /// Applies [`TAIL_SPANS`] from a stored 277 to a SAVE_DATA answer. No stored 277 (none since the club's last
 /// version) is skipped.
 fn restore_tail(body: &mut [u8], req: &[u8]) {
@@ -1507,6 +1513,9 @@ fn club(
                     None => {}
                 }
                 fill_gt_result(body, promoted.map(|(class, rank, ..)| (class, rank)));
+            }
+            for at in NET_KICKERS_276 {
+                body[at..at + 2].copy_from_slice(&NET_KICKER_KEEP.to_le_bytes());
             }
             fill_save_data(body, &block, version, size);
         }

@@ -1349,6 +1349,34 @@ fn the_save_answer_clears_the_championship_entry() {
     assert_eq!(u32_at(&a, 3088), sum32(&z), "C2");
 }
 
+/// #445: a 276 sent 0 as the net FK/CK/PK ids and the client cleared every club's kickers at card-in; it now sends
+/// the client's "no setting" id, and the save block that holds the kickers goes out unchanged.
+#[test]
+fn the_save_answer_keeps_the_kickers() {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let [aime, club, card] = new_club(&store);
+    let mut save = fixture(277, [aime, club, card]);
+    save[28..28 + BLOCK].fill(0x5A);
+    // the 276 clears this date, so leave it 0 to compare the block whole
+    put_bits(&mut save[28..], UC_ENTRY_DATE_BIT, 25, 0);
+    let sum = sum32(&save[28..28 + BLOCK]);
+    put(&mut save, 5236, sum);
+    assert_eq!(u32_at(&ask_store(&store, 277, &save).0, 4), 0);
+    let a = ask_store(&store, 275, &req(275, [aime, club, card])).0;
+    for at in NET_KICKERS_276 {
+        assert_eq!(u16::from_le_bytes([a[at], a[at + 1]]), 16_383, "id at {at}");
+    }
+    assert_eq!(
+        &a[6086..6088],
+        &[0, 0],
+        "captain id stays 0: the client skips it"
+    );
+    assert_eq!(&a[8..8 + BLOCK], &save[28..28 + BLOCK], "block");
+    let mut z = a.clone();
+    put(&mut z, 3088, 0);
+    assert_eq!(u32_at(&a, 3088), sum32(&z), "C2 covers the ids");
+}
+
 /// The team ranking answer 234 is the control's own "no ranking" block (control constructor 0x440844): "NO
 /// ENTRY" in the champion's three names and both names of the 8 rows, every other byte 0, the request not echoed.
 #[test]
