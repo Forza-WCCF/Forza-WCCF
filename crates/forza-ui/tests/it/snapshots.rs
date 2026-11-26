@@ -9,6 +9,7 @@ use forza_ui::theme::Edition;
 use forza_ui::{installer, launcher, lobby, panel};
 
 // the harness and the shared sample states, which the other modules still import from here
+use super::common::steps_loaded;
 pub(super) use super::common::{formations_state, harness, import_asked};
 
 /// One test on the GPU at a time: wgpu devices made in parallel crashed the test process now and then (exit 116,
@@ -690,19 +691,13 @@ fn catalogue_1080() {
     )
     .expect("a picture written");
     let mut all = SnapshotResults::new();
-    let (wide, small) = (Vec2::new(1920.0, 1080.0), panel::SIZE);
+    let wide = Vec2::new(1920.0, 1080.0);
     // (window in points, scale, language, snapshot): at 1920x1080 the pane shows the picture at the album art's own
-    // points and ADD without scrolling; at 1440x900 it shows ADD
+    // points and ADD without scrolling (the other sizes and languages are `behaviour::catalogue_1080`'s)
     for (size, ppp, lang, name) in [
-        (wide, 1.0, Lang::En, Some("panel_catalogue_1080_en")),
-        (wide, 1.25, Lang::En, Some("panel_catalogue_1080_125_en")),
-        (wide, 1.25, Lang::Ja, Some("panel_catalogue_1080_125_ja")),
-        (wide, 1.0, Lang::It, None),
-        (wide, 1.0, Lang::Ja, None),
-        (wide, 1.25, Lang::It, None),
-        (small, 1.0, Lang::En, None),
-        (small, 1.0, Lang::It, None),
-        (small, 1.0, Lang::Ja, None),
+        (wide, 1.0, Lang::En, "panel_catalogue_1080_en"),
+        (wide, 1.25, Lang::En, "panel_catalogue_1080_125_en"),
+        (wide, 1.25, Lang::Ja, "panel_catalogue_1080_125_ja"),
     ] {
         let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
         st.links = forza_ui::sample::links();
@@ -718,14 +713,9 @@ fn catalogue_1080() {
             panel::show(ui, &mut st)
         });
         // the file loads on a thread: step until it shows
-        for _ in 0..40 {
-            h.run_steps(1);
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
-        if let Some(name) = name {
-            h.snapshot(name);
-            all.extend_harness(&mut h);
-        }
+        steps_loaded(&mut h, 40);
+        h.snapshot(name);
+        all.extend_harness(&mut h);
     }
     all.unwrap();
 }
@@ -1282,25 +1272,33 @@ fn launcher_host_arcade() {
     all.unwrap();
 }
 
-/// The online lobby on sample data: every scenario in the three languages, at 1 and 2 pixels per point.
+/// The online lobby on sample data: every scenario in the three languages, at 1 pixel per point.
 #[test]
 fn lobby_screens() {
+    lobby_screens_at(1.0, "");
+}
+
+/// [`lobby_screens`] at 2 pixels per point: a test of its own, as one test for both took up to 149 s of nextest's 180.
+#[test]
+fn lobby_screens_2x() {
+    lobby_screens_at(2.0, "_2x");
+}
+
+fn lobby_screens_at(ppp: f32, suffix: &str) {
     let _gpu = gpu();
     let mut all = SnapshotResults::new();
-    for (ppp, suffix) in [(1.0, ""), (2.0, "_2x")] {
-        for s in lobby::Scenario::ALL {
-            for lang in Lang::ALL {
-                let mut v = lobby::LobbyView::sample(s);
-                // the LAN fold opens under the list: in the Launcher it is scrolled to
-                let lan = matches!(s, lobby::Scenario::LanList | lobby::Scenario::LanNone);
-                let size = lobby::SIZE + egui::vec2(0.0, if lan { 280.0 } else { 0.0 });
-                let mut h = harness(size, ppp, Edition::E1718, |ui| {
-                    lobby::show(ui, &mut v, lang);
-                });
-                h.run_steps(8);
-                h.snapshot(format!("lobby_{}_{}{suffix}", s.tag(), lang.code()));
-                all.extend_harness(&mut h);
-            }
+    for s in lobby::Scenario::ALL {
+        for lang in Lang::ALL {
+            let mut v = lobby::LobbyView::sample(s);
+            // the LAN fold opens under the list: in the Launcher it is scrolled to
+            let lan = matches!(s, lobby::Scenario::LanList | lobby::Scenario::LanNone);
+            let size = lobby::SIZE + egui::vec2(0.0, if lan { 280.0 } else { 0.0 });
+            let mut h = harness(size, ppp, Edition::E1718, |ui| {
+                lobby::show(ui, &mut v, lang);
+            });
+            h.run_steps(8);
+            h.snapshot(format!("lobby_{}_{}{suffix}", s.tag(), lang.code()));
+            all.extend_harness(&mut h);
         }
     }
     all.unwrap();

@@ -128,11 +128,23 @@ const BARLOW: &str = "BarlowCondensed-Bold.ttf";
 const HACK: &str = "Hack-Regular.ttf";
 
 /// One file read stays in memory for the program's life, shared by every weight that uses it (Noto Sans JP is ~4.5 MB).
+/// Read once per path: the tests install the fonts on hundreds of contexts, and each read leaked another 4.9 MB.
 fn read_static(dir: &Path, name: &str) -> std::io::Result<&'static [u8]> {
+    static READ: std::sync::Mutex<Vec<(PathBuf, &'static [u8])>> =
+        std::sync::Mutex::new(Vec::new());
+    let path = dir.join(name);
+    let mut read = READ
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, bytes)) = read.iter().find(|(p, _)| *p == path) {
+        return Ok(bytes);
+    }
     // the error names the file, for the Launcher's missing-files message
-    let bytes = std::fs::read(dir.join(name))
-        .map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?;
-    Ok(Vec::leak(bytes))
+    let bytes: &'static [u8] = Vec::leak(
+        std::fs::read(&path).map_err(|e| std::io::Error::new(e.kind(), format!("{name}: {e}")))?,
+    );
+    read.push((path, bytes));
+    Ok(bytes)
 }
 
 /// Our three families, registered explicitly (eframe's `default_fonts` stays off).
@@ -403,5 +415,22 @@ pub fn style(edition: Edition) -> Style {
             duration: Rangef::new(0.08, 0.2),
         },
         compact_menu_style: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fonts_are_read_once() {
+        let dir = super::font_dir();
+        let a = super::read_static(&dir, super::NOTO).expect("the fonts in assets/fonts");
+        super::fonts(&dir).expect("the fonts in assets/fonts");
+        let b = super::read_static(&dir, super::NOTO).expect("the fonts in assets/fonts");
+        assert_eq!(
+            a.as_ptr(),
+            b.as_ptr(),
+            "the second read reuses the first one's bytes"
+        );
+        assert_eq!(a.len(), 4_503_348);
     }
 }

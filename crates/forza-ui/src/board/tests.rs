@@ -1193,14 +1193,15 @@ fn the_packs_real_stats_replace_the_catalogues() {
     ));
 }
 
-/// The downloaded 664x911 pictures, browsed one a pass past 300 cards as in the panel: each texture shrunk to fit
+/// The downloaded 664x911 pictures, browsed one a pass past 100 cards as in the panel (about 47 textures fill the bound,
+/// so half are evicted): each texture shrunk to fit
 /// [`HQ_MAX`], and the textures kept stay within [`PICTURE_BYTES`] plus the cards on screen. Prints the peak.
 #[test]
 fn downloaded_pictures_stay_within_the_byte_bound() {
     let dir = tempfile::tempdir().unwrap();
     let big = image::RgbImage::from_fn(664, 911, |x, y| image::Rgb([x as u8, y as u8, 7]));
     big.save(dir.path().join("0_hq.jpg")).unwrap();
-    let n = 300u32;
+    let n = 100u32;
     for i in 1..=n {
         std::fs::copy(
             dir.path().join("0_hq.jpg"),
