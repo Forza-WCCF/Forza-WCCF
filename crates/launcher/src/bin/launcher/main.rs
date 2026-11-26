@@ -508,7 +508,8 @@ fn host_arcade(kit: &Kit, lan: bool) -> Result<i32, String> {
             if let Some((code, why)) = run::request(kit, run::Kind::Server, "stop")
                 && code != run::OK
             {
-                log(&why);
+                // its guests= line is for the asker, never shown
+                log(&run::rules::stop_question(&why, kit.edition()).0.join("\n"));
                 say(t("launcher.msg_arcade_stays"), 0);
             }
             let connected = || guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
@@ -586,16 +587,9 @@ impl run::Ui for WindowUi {
         log_pair(shown, en);
     }
 
-    fn ask(&self, _question: &str) -> bool {
+    fn ask(&self, question: &str) -> bool {
         // no owner (any thread may ask), kept in front of the game
-        message(
-            &t(if Kit::here().edition() == Edition::E1718 {
-                "launcher.msg_stop_anyway_1718"
-            } else {
-                "launcher.msg_stop_anyway"
-            }),
-            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
-        ) == IDYES
+        message(question, MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) == IDYES
     }
 
     fn report(&self) {
@@ -712,8 +706,8 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-/// STOP THE GAME (clicked twice), or this window closed while the game runs: the running game is asked to stop by the
-/// card rule, on a thread of its own - the run itself may be this process's job.
+/// STOP THE GAME (clicked twice), or this window closed twice while the game runs: the running game is asked to stop by
+/// the card rule, on a thread of its own - the run itself may be this process's job.
 fn stop_game() {
     say(t("launcher.msg_stopping"), 0);
     thread::spawn(|| {
@@ -1238,12 +1232,20 @@ impl App {
                 shared().updated = true; // another job holds the worker: try again at the next look
             }
         }
-        // closing Launcher while the game runs is a quit: asked of the run, by the card rule; and never a kit left
-        // half copied, nor a start half done: the window stays while a job runs
+        // closing Launcher while the game runs is STOP THE GAME (armed by the first close, as by a first click), asked
+        // of the run by the card rule; and never a kit left half copied, nor a start half done: the window stays while
+        // a job runs
         if ctx.input(|i| i.viewport().close_requested()) {
-            if UP.load(Ordering::Relaxed) {
+            // a hosted arcade kept open for its guests is this window's run too, with no seat up (host_arcade)
+            if UP.load(Ordering::Relaxed) || (self.st.lobby.hosting && RUNNING.load(Ordering::Relaxed)) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-                stop_game();
+                if self.st.stop_click(ctx.input(|i| i.time)) {
+                    stop_game();
+                } else {
+                    // closed from the taskbar while minimized: CLICK AGAIN is shown, not armed unseen
+                    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
+                }
             } else if shared().busy {
                 // the live flag: a job started in this look() is not in the sampled copy
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
@@ -1518,8 +1520,9 @@ impl App {
                     refuse(t("launcher.msg_bad_address"));
                 }
             }
-            // LEAVE while hosting: the seat stops by the card rule; the server (and the room) after it, never under its
-            // match (run::rules::stop_server_too, and host_arcade's stop once the seat's run has ended)
+            // LEAVE while hosting (clicked twice, as STOP THE GAME): the seat stops by the card rule; the server (and the
+            // room) after it, never under its match (run::rules::stop_server_too, and host_arcade's stop once the seat's
+            // run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
             // #434: the club question before the lobby claims a seat or a room's countdown; JOIN again after it
             Action::Lobby(a) if claims_a_start(&a) && self.club_question() => {}
@@ -2057,7 +2060,7 @@ impl run::Ui for ConsoleUi {
         } {
             return false;
         }
-        print!("{question}");
+        print!("{question} Type Y and press Enter (Enter alone keeps the game running): ");
         let _ = std::io::Write::flush(&mut std::io::stdout());
         let mut answer = String::new();
         std::io::stdin().read_line(&mut answer).is_ok() && matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")

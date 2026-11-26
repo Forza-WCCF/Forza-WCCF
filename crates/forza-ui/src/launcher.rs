@@ -272,6 +272,14 @@ pub fn lobby_for(edition: Edition) -> LobbyView {
 }
 
 impl LauncherState {
+    /// A request to stop the running game at `now` (egui seconds): STOP THE GAME, the window's close box, a host's
+    /// LEAVE. The first arms STOP THE GAME; true when this one, within [`STOP_ARM`] of it, is to stop the game.
+    pub fn stop_click(&mut self, now: f64) -> bool {
+        let (armed, stop) = stop_click(self.stop_armed, now);
+        self.stop_armed = armed;
+        stop
+    }
+
     pub fn sample(edition: Edition, lang: Lang, s: Scenario) -> Self {
         let release = |tag: &str, test, date: &str, this, newer| Release {
             tag: tag.into(),
@@ -636,33 +644,47 @@ fn online(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
             vs_link = club_rows(ui, club_server, link, lang);
         });
         if let Some(a) = chose {
-            if !matches!(a, LobbyAction::Refresh | LobbyAction::DirectAddress(_)) {
-                st.online = true;
-            }
-            // CONNECT starts online play at the Direct address, as PLAY did before ONLINE lost it
-            *act = Some(if a == LobbyAction::Connect {
-                Action::Play
-            } else {
-                Action::Lobby(a)
-            });
+            *act = lobby_act(st, a, ui.input(|i| i.time));
         } else if vs_link {
             *act = Some(Action::VsLink);
         }
     });
 }
 
+/// What a lobby action does here at `now`. A host's LEAVE stops this PC's game, so it arms STOP THE GAME first.
+fn lobby_act(st: &mut LauncherState, a: LobbyAction, now: f64) -> Option<Action> {
+    if a == LobbyAction::Leave && st.lobby.hosting && !st.stop_click(now) {
+        return None;
+    }
+    if !matches!(a, LobbyAction::Refresh | LobbyAction::DirectAddress(_)) {
+        st.online = true;
+    }
+    // CONNECT starts online play at the Direct address, as PLAY did before ONLINE lost it
+    Some(if a == LobbyAction::Connect {
+        Action::Play
+    } else {
+        Action::Lobby(a)
+    })
+}
+
+/// STOP THE GAME is armed and its line shown at `now`: while a game runs, or on ONLINE by a host's LEAVE before this
+/// PC's seat runs (never under another tab's PLAY).
+fn stop_armed_shown(st: &LauncherState, now: f64) -> bool {
+    st.stop_armed > now && (st.running || (st.lobby.hosting && st.tab == Tab::Online))
+}
+
 /// PLAY / STOP THE GAME, the start's bar and the status line: the window's footer. ONLINE has no PLAY (its lobby
 /// buttons and CONNECT start the game), only STOP THE GAME while a game runs.
 fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Action>) {
     let now = ui.input(|i| i.time);
-    let armed = st.running && st.stop_armed > now;
+    let armed = stop_armed_shown(st, now);
     if armed && st.stop_armed.is_finite() {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
     }
     if st.running || st.tab != Tab::Online {
         let size = vec2(ui.available_width(), 64.0);
-        let (label, kind) = if armed {
+        let (label, kind) = if armed && st.running {
             let left = (st.stop_armed - now).ceil().min(STOP_ARM) as u32;
             (tr!(lang, "launcher.stop_again", s = left), Cab::Stop)
         } else if st.running {
@@ -682,16 +704,15 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
                 .cup
                 .plan(st.lobby.clock.unwrap_or_else(lobby::local_clock))
                 .is_err();
+        // before SET UP there is nothing to play: grey, its reason on the status line under it
         let resp = ui
-            .add_enabled_ui(st.running || (!st.busy && !refused), |ui| {
+            .add_enabled_ui(st.running || (!st.busy && !refused && st.set_up), |ui| {
                 cabinet(ui, size, &label, kind, st.set_up || st.running)
             })
             .inner;
         if resp.clicked() {
             if st.running {
-                let (a, stop) = stop_click(st.stop_armed, now);
-                st.stop_armed = a;
-                if stop {
+                if st.stop_click(now) {
                     *act = Some(Action::Stop);
                 }
             } else if st.online {
@@ -715,6 +736,8 @@ fn footer(ui: &mut Ui, st: &mut LauncherState, lang: Lang, act: &mut Option<Acti
         status_line(ui, Tone::Notice, &tr!(lang, "launcher.msg_stop_armed"));
     } else if let Some((tone, text)) = &st.status {
         status_line(ui, *tone, text);
+    } else if !st.set_up && !st.running {
+        status_line(ui, Tone::Notice, &tr!(lang, "launcher.status_not_set_up"));
     }
     if let Some(text) = &st.server_notice {
         status_line(ui, Tone::Notice, text);
@@ -1241,6 +1264,39 @@ mod tests {
         assert_eq!(stop_click(armed, 12.0), (0.0, true));
         // lapsed: the click arms again
         assert_eq!(stop_click(armed, 18.5), (18.5 + STOP_ARM, false));
+    }
+
+    #[test]
+    fn a_close_request_arms_stop_first() {
+        // the window's close box goes through the same arming as STOP THE GAME
+        let mut st = LauncherState::sample(Edition::E1718, Lang::En, Scenario::Running);
+        assert!(!st.stop_click(10.0) && st.stop_armed == 10.0 + STOP_ARM);
+        assert!(st.stop_click(17.0));
+        // lapsed: a close arms again
+        assert!(!st.stop_click(30.0) && !st.stop_click(38.5));
+    }
+
+    #[test]
+    fn a_host_leave_arms_stop_first() {
+        let mut st = LauncherState::sample(Edition::E1718, Lang::En, Scenario::Online);
+        st.lobby.hosting = true;
+        assert_eq!(lobby_act(&mut st, LobbyAction::Leave, 10.0), None);
+        assert!(st.stop_armed > 10.0);
+        // armed before the seat runs: its line on ONLINE, never under another tab's PLAY
+        assert!(stop_armed_shown(&st, 11.0));
+        st.tab = Tab::Play;
+        assert!(!stop_armed_shown(&st, 11.0));
+        st.tab = Tab::Online;
+        assert_eq!(
+            lobby_act(&mut st, LobbyAction::Leave, 12.0),
+            Some(Action::Lobby(LobbyAction::Leave))
+        );
+        // a guest's LEAVE leaves at once
+        st.lobby.hosting = false;
+        assert_eq!(
+            lobby_act(&mut st, LobbyAction::Leave, 13.0),
+            Some(Action::Lobby(LobbyAction::Leave))
+        );
     }
 
     #[test]

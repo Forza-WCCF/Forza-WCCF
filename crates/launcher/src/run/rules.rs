@@ -297,6 +297,32 @@ pub fn arcade_rule(force: bool, seat_on: bool, guests: usize) -> Option<Text> {
     })
 }
 
+/// The line an arcade server's stop refusal ends with for the asker, never shown: how many guests are connected.
+pub const GUESTS_LINE: &str = "guests=";
+
+/// A refused stop's answer for the person at the stop: the lines to show, and the "Stop anyway?" question - the arcade's
+/// connected guests when its answer counts them ([`GUESTS_LINE`]), else the match's.
+pub fn stop_question(said: &str, edition: crate::Edition) -> (Vec<&str>, Text) {
+    let mut guests = 0;
+    let shown = said
+        .lines()
+        .filter(|l| match l.strip_prefix(GUESTS_LINE).and_then(|n| n.parse().ok()) {
+            Some(n) => {
+                guests = n;
+                false
+            }
+            None => true,
+        })
+        .collect();
+    let question = match guests {
+        0 if edition == crate::Edition::E1718 => Text::key("launcher.msg_stop_anyway_1718"),
+        0 => Text::key("launcher.msg_stop_anyway"),
+        1 => Text::key("launcher.msg_stop_guest"),
+        n => Text::key("launcher.msg_stop_guests").arg("n", n),
+    };
+    (shown, question)
+}
+
 /// A restart.request from the panel's crash screen (its line `force=crashed`): the control is gone, so the match and
 /// the card session are lost already and the card rule must not keep the dead game running.
 pub fn restart_forced(request: &str) -> bool {
@@ -624,6 +650,37 @@ mod tests {
         assert!(arcade_rule(false, false, 1).is_some_and(|w| w.en().starts_with("1 guest ")));
         assert_eq!(arcade_rule(false, false, 0), None);
         assert_eq!(arcade_rule(true, true, 3), None);
+    }
+
+    #[test]
+    fn a_stop_refused_for_guests_asks_about_them() {
+        use crate::Edition::{E1011, E1718};
+        let said = format!("2 guests are connected.\nNot stopped.\n{GUESTS_LINE}2");
+        let (shown, q) = stop_question(&said, E1718);
+        assert_eq!(shown, ["2 guests are connected.", "Not stopped."]);
+        // what host_arcade logs of it
+        assert!(!shown.join("\n").contains(GUESTS_LINE));
+        for lang in forza_ui::Lang::ALL {
+            let q = q.get(lang);
+            assert!(q.contains('2') && !q.contains("Launcher.exe"), "{lang:?}: {q}");
+        }
+        assert!(q.en().contains("2 guests") && q.en().ends_with("Stop anyway?"));
+        let (_, one) = stop_question(&format!("x\n{GUESTS_LINE}1"), E1718);
+        assert!(one.en().starts_with("1 guest connected"));
+        // a match keeps its own question
+        let (shown, q) = stop_question("A card session is open.\nNot stopped.", E1718);
+        assert_eq!(
+            (shown.len(), q.en()),
+            (
+                2,
+                forza_ui::text(forza_ui::Lang::En, "launcher.msg_stop_anyway_1718", &[])
+            )
+        );
+        let (_, q) = stop_question("Not stopped.", E1011);
+        assert_eq!(
+            q.en(),
+            forza_ui::text(forza_ui::Lang::En, "launcher.msg_stop_anyway", &[])
+        );
     }
 
     #[test]
