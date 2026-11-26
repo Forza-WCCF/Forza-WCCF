@@ -3010,7 +3010,7 @@
     },
     {
       "package_name": "regex",
-      "package_version": "1.13.1",
+      "package_version": "1.13.2",
       "repository": "",
       "license": "MIT OR Apache-2.0",
       "licenses": [
@@ -3026,7 +3026,7 @@
     },
     {
       "package_name": "regex-automata",
-      "package_version": "0.4.18",
+      "package_version": "0.4.19",
       "repository": "https://github.com/rust-lang/regex",
       "license": "MIT OR Apache-2.0",
       "licenses": [
@@ -3042,7 +3042,7 @@
     },
     {
       "package_name": "regex-syntax",
-      "package_version": "0.8.11",
+      "package_version": "0.8.12",
       "repository": "https://github.com/rust-lang/regex",
       "license": "MIT OR Apache-2.0",
       "licenses": [
@@ -3593,7 +3593,7 @@
     },
     {
       "package_name": "syn",
-      "package_version": "3.0.9",
+      "package_version": "3.0.10",
       "repository": "https://github.com/dtolnay/syn",
       "license": "MIT OR Apache-2.0",
       "licenses": [
@@ -4174,7 +4174,7 @@
     },
     {
       "package_name": "wgpu",
-      "package_version": "30.0.1",
+      "package_version": "30.0.2",
       "repository": "https://github.com/gfx-rs/wgpu",
       "license": "MIT OR Apache-2.0",
       "licenses": [
@@ -4747,7 +4747,7 @@
     },
     {
       "package_name": "zip",
-      "package_version": "9.5.1",
+      "package_version": "9.8.2",
       "repository": "https://github.com/zip-rs/zip2",
       "license": "MIT",
       "licenses": [
