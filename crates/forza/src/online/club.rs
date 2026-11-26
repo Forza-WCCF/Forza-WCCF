@@ -22,7 +22,8 @@
 //! start means the session did not end cleanly: the home copy stays, the last pulled copy goes to `backups`, and the
 //! player is told ([`leftover`]). Before that start the Launcher window reads what was left ([`left`]): when the
 //! last copy never came home, the player may put it home ([`take`], the home club backed up first and `club_undo.json`
-//! kept for [`undo`] until the next start).
+//! kept for [`undo`] until the next start). A guest who re-joins the same arcade first takes its newer copy home
+//! ([`Guest::rejoin`]), so the desk sets aside no match saved there.
 //!
 //! Online on a server's own arcade (`forza-server all`, its game server beside the desk) the trip is the same, to
 //! that server's store; there no seat is needed and the brought club replaces what the server kept for the card
@@ -1483,6 +1484,58 @@ impl Guest {
             _handle: Handle::new(stop, thread),
             progress,
         })
+    }
+
+    /// Re-join (#437), before [`leftover`] and [`Guest::bring`]: a club still marked out in this same arcade, its last
+    /// copy home, takes the arcade's newer copy first (the home club backed up), so the bring carries every match
+    /// saved there and the desk sets none aside. True when a newer copy came home (the marker and the last copy then
+    /// go as at a start); false leaves all to [`leftover`]: another arcade, a differing copy the player is asked about
+    /// ([`left`]), a copy the desk no longer holds or that fails the checks.
+    pub fn rejoin(&self, log: &Log) -> bool {
+        let p = match read_left(&self.dir) {
+            Ok(Some(p)) => p,
+            Ok(None) => return false,
+            Err(e) => {
+                log(&format!("re-join: the arcade's copy not asked for ({e})"));
+                return false;
+            }
+        };
+        let mut out = p.out.clone();
+        if (out.arcade.as_str(), out.arcade_aime, out.home_aime)
+            != (self.arcade.as_str(), self.arcade_aime, self.home_aime)
+            || matches!(p.left(None), Left::Differs(_))
+        {
+            return false;
+        }
+        let saved = Store::open(&self.dir.join("gamesvr.db"))
+            .and_then(|s| Ok((s.club(self.home_aime)?, s)))
+            .map_err(db_err)
+            .and_then(|(home, s)| {
+                let json = serde_json::to_vec(&home).map_err(|e| e.to_string())?;
+                backup(&self.dir, &format!("club-{}", self.home_aime), &json)
+                    .map(|path| (path, s))
+                    .map_err(|e| e.to_string())
+            });
+        let mut store = match saved {
+            Ok((path, s)) => {
+                log(&format!("re-join: home club backed up: {}", path.display()));
+                s
+            }
+            Err(e) => {
+                log(&format!("re-join: the arcade's copy not asked for ({e})"));
+                return false;
+            }
+        };
+        let before = out.back_stamp.clone();
+        let progress = Mutex::new(Progress::default());
+        if !self.pull(&mut out, &mut store, true, log, &progress) || out.back_stamp == before {
+            return false;
+        }
+        log("re-join: the arcade's newer copy of the club is home");
+        if let Err(e) = settle(&self.dir) {
+            log(&format!("re-join: the marker stays ({e})"));
+        }
+        true
     }
 
     fn mark(&self, out: &Out) -> io::Result<()> {

@@ -1283,3 +1283,92 @@ fn a_taken_copy_can_be_undone_until_the_next_start() {
     assert_eq!(leftover(&dir).unwrap(), None, "nothing more to tell");
     assert!(!can_undo(&dir));
 }
+
+/// #437: a guest whose visit ended before the last match came home re-joins the same arcade: the arcade's newer copy
+/// comes home first (the home club backed up), so the bring carries that match and the desk sets none aside. Another
+/// arcade, or a copy the player was asked about ([`left`]), takes nothing.
+#[test]
+fn a_rejoin_takes_the_arcades_newer_copy_first() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    std::fs::create_dir_all(&dir).unwrap();
+    let sent = club(1, &[(1, 1)]);
+    drop(store_with(&dir.join("gamesvr.db"), &sent));
+    let host_db = d.path().join("host.db");
+    let (at, down, _) = desk(host_db.clone());
+    let log: Log = Arc::new(|_: &str| {});
+    let trip = guest(at, &dir, 2).bring(log.clone()).unwrap();
+    let progress = trip.progress();
+    wait("a good copy-back", || {
+        progress.lock().unwrap().last_ok.is_some()
+    });
+    // the Launcher killed: no last copy-back, the marker stays
+    down.store(true, Ordering::Relaxed);
+    drop(trip);
+    assert!(out_file(&dir).exists());
+    // a match saved at the arcade after the last copy-back
+    let host = Mutex::new(Store::open(&host_db).unwrap());
+    let there = host.lock().unwrap().guest_club(50, &token(CODE)).unwrap();
+    let mut block = there.coaches[0].save.as_ref().unwrap().block.clone();
+    block[2000] ^= 1;
+    let (k, c) = (there.coaches[0].coach, there.coaches[0].card);
+    assert_eq!(
+        super::super::gamesvr::ask_for_test(&host, 277, &save_277(50, k, c, &block), &log).1,
+        None
+    );
+    down.store(false, Ordering::Relaxed);
+    let home = Store::open(&dir.join("gamesvr.db")).unwrap();
+    assert_eq!(home.club(1).unwrap(), sent, "the match is not home yet");
+
+    let mut elsewhere = guest(at, &dir, 2);
+    elsewhere.arcade = "another arcade".into();
+    assert!(!elsewhere.rejoin(&log), "another arcade takes nothing");
+    assert!(out_file(&dir).exists());
+
+    assert!(guest(at, &dir, 2).rejoin(&log), "the newer copy came home");
+    let got = home.club(1).unwrap();
+    assert_eq!(got.coaches[0].play_count, 8, "with the match");
+    assert_eq!(
+        got.coaches[0].save.as_ref().unwrap().block[2000],
+        sent.coaches[0].save.as_ref().unwrap().block[2000] ^ 1
+    );
+    let saved = backups(&dir, "club-1");
+    assert!(
+        saved
+            .iter()
+            .any(|p| serde_json::from_slice::<Club>(&std::fs::read(p).unwrap()).unwrap() == sent),
+        "the home club from before is backed up"
+    );
+    assert!(
+        !out_file(&dir).exists() && !last_file(&dir).exists(),
+        "settled"
+    );
+    assert_eq!(leftover(&dir).unwrap(), None, "nothing left to tell");
+
+    // the bring that follows: what the desk sets aside holds no match the guest does not have
+    let trip = guest(at, &dir, 2).bring(log.clone()).unwrap();
+    let aside = backups(d.path(), "rejoined-50");
+    assert_eq!(aside.len(), 1);
+    let aside: Club = serde_json::from_slice(&std::fs::read(&aside[0]).unwrap()).unwrap();
+    assert_eq!(aside.coaches[0].play_count, 8);
+    assert_eq!(
+        host.lock()
+            .unwrap()
+            .guest_club(50, &token(CODE))
+            .unwrap()
+            .coaches[0]
+            .play_count,
+        8,
+        "the arcade plays on from the match"
+    );
+    drop(trip);
+
+    // a differing copy the player is asked about stays the player's choice
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    let (home_club, _) = left_out(&dir);
+    assert!(!guest(at, &dir, 2).rejoin(&log));
+    assert!(out_file(&dir).exists());
+    let store = Store::open(&dir.join("gamesvr.db")).unwrap();
+    assert_eq!(store.club(1).unwrap(), home_club);
+}

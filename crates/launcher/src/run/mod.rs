@@ -2433,7 +2433,9 @@ impl Run<'_> {
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
         // a new run: nothing of the last one until this one picks its cup
         remember_cup(None);
-        if !matches!(self.mode, Mode::Remote(..)) {
+        // a guest's run (Remote) and an online one that brings the club (Vs) settle a club left out at the bring, after a
+        // re-join takes the arcade's newer copy (#437)
+        if !matches!(self.mode, Mode::Remote(..) | Mode::Vs(_)) {
             self.club_leftover(&self.kit.save().join("gamesvr"));
         }
         if matches!(self.mode, Mode::Remote(..)) {
@@ -2507,6 +2509,8 @@ impl Run<'_> {
                 self.visit.club = None;
                 self.bring_club(choices::resolve(&server, self.p.seat_port), 1, &server)
                     .map_err(|why| Failed(Text::key("launcher.run_vs_club_refused").part("why", why)))?;
+            } else {
+                self.club_leftover(&self.kit.save().join("gamesvr"));
             }
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.tell(
@@ -2568,7 +2572,6 @@ impl Run<'_> {
     fn bring_club(&mut self, desk: Option<SocketAddr>, seat: u8, arcade: &str) -> Result<(), Text> {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
-        self.club_leftover(&dir);
         // a first run: the card the reader will read, made now so its club (none yet) comes along too
         aime::ensure_card(&save.join("seat1_aime.txt"));
         let code = fs::read_to_string(save.join("seat1_aime.txt"))
@@ -2578,20 +2581,29 @@ impl Run<'_> {
         let home = code
             .as_ref()
             .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
-        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, desk) else {
+        let guest = match (code, home, desk) {
+            (Some(code), Some(Ok(home)), Some(desk)) => Some(club::Guest {
+                desk,
+                seat,
+                arcade_aime: aimedb::hash_id(&code) as u32,
+                code,
+                home_aime: home as u32,
+                dir: dir.clone(),
+                arcade: arcade.to_owned(),
+                poll: club::POLL,
+            }),
+            _ => None,
+        };
+        let log = file_log(self.logs().join("club_trip.txt"));
+        // #437: a re-join of the arcade the club is still out in takes its newer copy home before the bring
+        if guest.as_ref().is_some_and(|g| g.rejoin(&log)) {
+            self.tell("  ", &Text::key("launcher.club_rejoin"));
+        }
+        self.club_leftover(&dir);
+        let Some(guest) = guest else {
             return Err(Text::key("launcher.run_no_card"));
         };
-        let guest = club::Guest {
-            desk,
-            seat,
-            arcade_aime: aimedb::hash_id(&code) as u32,
-            code,
-            home_aime: home as u32,
-            dir,
-            arcade: arcade.to_owned(),
-            poll: club::POLL,
-        };
-        match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
+        match guest.bring(log) {
             Ok(trip) => {
                 self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
