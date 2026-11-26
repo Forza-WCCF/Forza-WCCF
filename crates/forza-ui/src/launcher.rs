@@ -76,8 +76,8 @@ pub enum Action {
     VsLink,
     /// UPDATE to the release at this place in the list: Launcher.exe asks to confirm.
     Update(usize),
-    /// UPDATE, confirmed.
-    UpdateNow(usize),
+    /// UPDATE, confirmed: the release with this tag (rows can move when the list is fetched again).
+    UpdateNow(String),
     /// VIEW ON GITHUB: the release page of the release at this place in the list; none chosen, every release.
     WhatsNew(Option<usize>),
     /// The window's language changed (`lang`).

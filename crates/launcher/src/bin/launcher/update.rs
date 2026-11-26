@@ -107,10 +107,36 @@ pub(crate) fn verify(file: &Path, expected: &str) -> Result<(), String> {
     }
 }
 
-/// The release to announce: the first listed that is not a test build and is newer than `installed`.
+/// The release to announce: the highest version newer than `installed` (a test build only to a test build of its
+/// series: `launcher::release::is_newer`), the same rule as UPDATE's "(newer)"; the list's order does not count.
 pub fn newest<'a>(list: &'a [Release], installed: &str) -> Option<&'a Release> {
     list.iter()
-        .find(|r| !r.test && launcher::release::is_newer(&r.tag, installed))
+        .filter(|r| launcher::release::is_newer(&r.tag, installed))
+        .max_by_key(|r| launcher::release::parse(&r.tag))
+}
+
+/// The row UPDATE chooses first: the announced one (a tester's next cut), else the installed build, else the first
+/// release that is not a test build, else 0.
+pub fn preselect(list: &[Release], installed: &str) -> usize {
+    let at = |r: Option<&Release>| r.and_then(|r| list.iter().position(|x| x.tag == r.tag));
+    let here = launcher::release::parse(installed);
+    at(newest(list, installed))
+        .or_else(|| {
+            list.iter()
+                .position(|r| here.is_some() && launcher::release::parse(&r.tag) == here)
+        })
+        .or_else(|| list.iter().position(|r| !r.test))
+        .unwrap_or(0)
+}
+
+/// The row to choose in a fresh `list`: the release the player picked in the `old` one (`selected`, a row other than
+/// its [`preselect`]) when it is still listed, else [`preselect`].
+pub fn reselect(old: &[Release], selected: Option<usize>, list: &[Release], installed: &str) -> usize {
+    selected
+        .filter(|&i| i != preselect(old, installed))
+        .and_then(|i| old.get(i))
+        .and_then(|picked| list.iter().position(|r| r.tag == picked.tag))
+        .unwrap_or_else(|| preselect(list, installed))
 }
 
 pub fn fetch(edition: &str) -> Result<Vec<Release>, String> {
@@ -585,6 +611,67 @@ mod tests {
         assert!(newest(&list, "kit-0.5.0").is_none()); // up to date: no notice
         assert!(newest(&list[1..], "kit-0.3.0").is_none()); // only a test build is newer
         assert!(newest(&[], "kit-0.3.0").is_none());
+    }
+
+    #[test]
+    fn a_test_build_is_told_of_the_next_cut_of_its_series() {
+        let r = tagged;
+        let list = [r("v0.9.0-cat.10"), r("v0.9.0-cat.2"), r("v0.9.0-rc.5"), r("v0.7.4")];
+        let tag = |installed| newest(&list, installed).map(|r| r.tag.as_str());
+        assert_eq!(tag("kit-0.7.4"), None); // a release kit: never a test build
+        assert_eq!(tag("kit-0.7.3"), Some("v0.7.4"));
+        assert_eq!(tag("kit-0.9.0-cat.1"), Some("v0.9.0-cat.10"));
+        assert_eq!(tag("kit-0.9.0-cat.10"), None); // up to date
+        assert_eq!(tag("kit-0.9.0-rc.6"), None); // another series
+        assert_eq!(
+            newest(&[r("v0.9.0"), r("v0.9.0-cat.3")], "kit-0.9.0-cat.2").map(|r| r.tag.as_str()),
+            Some("v0.9.0")
+        );
+    }
+
+    fn tagged(tag: &str) -> Release {
+        let json = format!(
+            r#"[{{"tag_name": "{tag}", "assets": [{{"name": "Forza-WCCF-2017-18-{}.zip", "browser_download_url": "https://a/z"}}]}}]"#,
+            &tag[1..]
+        );
+        releases(&json, "2017-18").unwrap().remove(0)
+    }
+
+    #[test]
+    fn newest_is_the_highest_version_whatever_the_order() {
+        let tag = |list: &[Release], installed| newest(list, installed).map(|r| r.tag.clone());
+        let out_of_order = [tagged("v0.9.0-cat.2"), tagged("v0.9.0-cat.10")];
+        assert_eq!(tag(&out_of_order, "kit-0.9.0-cat.1").as_deref(), Some("v0.9.0-cat.10"));
+        let release_last = [tagged("v0.9.0-cat.3"), tagged("v0.9.0")];
+        assert_eq!(tag(&release_last, "kit-0.9.0-cat.2").as_deref(), Some("v0.9.0"));
+    }
+
+    #[test]
+    fn update_chooses_the_next_cut_the_installed_build_or_the_newest_release() {
+        let list = [tagged("v0.9.0-cat.3"), tagged("v0.9.0-cat.2"), tagged("v0.7.4")];
+        assert_eq!(preselect(&list, "kit-0.9.0-cat.1"), 0); // cat.3
+        assert_eq!(preselect(&list, "kit-0.9.0-cat.3"), 0); // itself, not a downgrade to v0.7.4
+        assert_eq!(preselect(&list, "kit-0.7.3"), 2); // v0.7.4
+        assert_eq!(preselect(&list, "unknown"), 2);
+        assert_eq!(preselect(&[], "kit-0.7.3"), 0);
+    }
+
+    #[test]
+    fn a_refreshed_list_keeps_the_release_the_player_picked() {
+        // a release kit picked v0.7.3 (row 1) and confirmed v0.7.4 (row 0); then a test build is published on top
+        let old = [tagged("v0.7.4"), tagged("v0.7.3")];
+        let new = [tagged("v0.9.0-cat.1"), tagged("v0.7.4"), tagged("v0.7.3")];
+        assert_eq!(reselect(&old, Some(1), &new, "kit-0.7.2"), 2); // still v0.7.3, not row 1 (v0.7.4)
+        assert_eq!(reselect(&old, Some(0), &new, "kit-0.7.2"), 1); // the preselection moves with the list
+        assert_eq!(reselect(&old, None, &new, "kit-0.7.2"), 1);
+        assert_eq!(reselect(&old, Some(1), &new[..2], "kit-0.7.2"), 1); // the pick is gone: preselect
+        // the confirm names a tag: "Install v0.7.4?" finds v0.7.4 in the new list, where row 0 is the test build
+        let confirmed = &old[0].tag;
+        assert_eq!(
+            new.iter().find(|r| &r.tag == confirmed).map(|r| r.tag.as_str()),
+            Some("v0.7.4")
+        );
+        assert!(new[0].test);
     }
 
     #[test]

@@ -63,7 +63,8 @@ A feature held off `main` (a stack of PRs labelled `hold`) can go to testers as 
   re-cut. Dispatch `gh workflow run release.yml --ref cat/test -f version=0.9.0-cat.1`, run the per-file antivirus
   check, then sign the tag `v0.9.0-cat.1` on that sha and publish it as a GitHub pre-release.
 - The tag check in `release.yml` accepts a pre-release part. The Launcher's UPDATE lists a test tag, marked as a test
-  build, but never offers it as newer; testers pick it there. The installer skips test tags.
+  build; a kit on a release never sees it as newer, a kit on a test build of the same series (`cat`) is told of the
+  next cut and of the release. Testers pick the first cut there. The installer skips test tags.
 - Flow: cut -> testers pick the test version in UPDATE -> a fix lands on its stack branch, the stack is rebased and cut
   again (`cat.N+1`; never commit onto the test branch) -> a server fix goes through a tester branch on the server ->
   after the test week: tuning, then the stack merges to `main` in stack order once its `hold` comes off; the test branch
@@ -196,7 +197,8 @@ The Launcher's UPDATE (both editions) reads this repository's releases from the 
 - A release is offered to an edition only with an asset named `Forza-WCCF-<edition>-<version>.zip`, `<version>` being
   the tag without its `v` (`v0.4.0` -> `Forza-WCCF-2017-18-0.4.0.zip`). The installer's ZIP is never taken.
 - Versions compare as semver against `version.txt` (`kit-0.3.0`). A tag with a pre-release part (`v0.4.0-rc.1`) is a
-  test build: listed, never announced. GitHub's pre-release flag does not count, so alpha releases are offered.
+  test build: listed, announced and marked newer only to a kit on a test build of the same series (`rc`). GitHub's
+  pre-release flag does not count, so alpha releases are offered.
 - The ZIP must match its `<zip>.sha256` asset (`cargo xtask package` writes it), else GitHub's `digest` of the asset;
   with neither, or a mismatch, UPDATE changes nothing.
 - A release whose game files need the installer again: put `<!-- needs-installer -->` in the release notes. UPDATE then
@@ -204,6 +206,6 @@ The Launcher's UPDATE (both editions) reads this repository's releases from the 
 - The release list brings each release's notes. The notes of the installed version and of the newest release are kept
   once per version in `data\release-notes\<version>.md`; UPDATE shows the kept copy when GitHub does not answer.
 - The Launcher checks at most once a day at start (`data\update-check.txt`) and every time the UPDATE page opens.
-- A newer release that is not a test build shows a notice: a line at the top of the main page and the tag on the UPDATE
-  entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the
+- A newer release shows a notice (a test build only to a kit on a test build of the same series): a line at the top of
+  the main page and the tag on the UPDATE entry. It stays (`data\update-available.txt`, kept across restarts while the release is still newer) until the
   player opens UPDATE or updates. Nothing installs by itself.
