@@ -508,7 +508,8 @@ fn host_arcade(kit: &Kit, lan: bool) -> Result<i32, String> {
             if let Some((code, why)) = run::request(kit, run::Kind::Server, "stop")
                 && code != run::OK
             {
-                log(&why);
+                // its guests= line is for the asker, never shown
+                log(&run::rules::stop_question(&why, kit.edition()).0.join("\n"));
                 say(t("launcher.msg_arcade_stays"), 0);
             }
             let connected = || guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
@@ -1230,10 +1231,15 @@ impl App {
         // of the run by the card rule; and never a kit left half copied, nor a start half done: the window stays while
         // a job runs
         if ctx.input(|i| i.viewport().close_requested()) {
-            if UP.load(Ordering::Relaxed) {
+            // a hosted arcade kept open for its guests is this window's run too, with no seat up (host_arcade)
+            if UP.load(Ordering::Relaxed) || (self.st.lobby.hosting && RUNNING.load(Ordering::Relaxed)) {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 if self.st.stop_click(ctx.input(|i| i.time)) {
                     stop_game();
+                } else {
+                    // closed from the taskbar while minimized: CLICK AGAIN is shown, not armed unseen
+                    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
                 }
             } else if shared().busy {
                 // the live flag: a job started in this look() is not in the sampled copy

@@ -658,6 +658,8 @@ mod tests {
         let said = format!("2 guests are connected.\nNot stopped.\n{GUESTS_LINE}2");
         let (shown, q) = stop_question(&said, E1718);
         assert_eq!(shown, ["2 guests are connected.", "Not stopped."]);
+        // what host_arcade logs of it
+        assert!(!shown.join("\n").contains(GUESTS_LINE));
         for lang in forza_ui::Lang::ALL {
             let q = q.get(lang);
             assert!(q.contains('2') && !q.contains("Launcher.exe"), "{lang:?}: {q}");

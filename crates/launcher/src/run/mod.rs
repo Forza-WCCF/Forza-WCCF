@@ -3065,18 +3065,20 @@ impl Run<'_> {
     }
 
     /// The card rule now: the refusal's words, or None to go on.
-    fn refusal(&self, force: bool) -> Option<Text> {
+    /// Why a stop waits, and the guests it waits for (0 unless they alone hold it), from one look at them.
+    fn refusal(&self, force: bool) -> Option<(Text, usize)> {
         // a server has no seat of its own, so the card rule never holds it: an arcade server's matches are its tunnel's
         // guests' (still connected even when the lobby lost the room) and this PC's seat beside it
         if self.mode.is_server()
             && let Some(g) = &self.arcade_guests
         {
-            return rules::arcade_rule(force, is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
+            let (seat_on, guests) = (is_on(self.kit, Kind::Run), g.load(Ordering::Relaxed));
+            return rules::arcade_rule(force, seat_on, guests).map(|t| (t, if seat_on { 0 } else { guests }));
         }
         let (slot, new) = self.card_files();
         let (session, _) = card::club_session(&slot, &new, self.run_started());
         let card_in = self.cabinet.board.is_some() && self.p.shared.card_in();
-        rules::card_rule(self.alive(Role::Seat), force, Some(card_in), session)
+        rules::card_rule(self.alive(Role::Seat), force, Some(card_in), session).map(|t| (t, 0))
     }
 
     fn ended(&mut self, id: u32) -> Option<End> {
@@ -3124,7 +3126,7 @@ impl Run<'_> {
                         "launcher.run_no_window_left"
                     }),
                 );
-                if let Some(why) = self.refusal(false) {
+                if let Some((why, _)) = self.refusal(false) {
                     // the projector closed during a match: seat 1 plays on, watched
                     self.tell("", &why);
                     self.tell("", &Text::key("launcher.run_not_stopped"));
@@ -3253,7 +3255,7 @@ impl Run<'_> {
                 self.kit.game_language(),
                 (&club, self.vs_target.as_ref()),
             );
-        if let Some(why) = self.refusal(force) {
+        if let Some((why, _)) = self.refusal(force) {
             self.tell("", &why);
             self.tell("", &Text::key("launcher.run_not_restarted"));
             return None;
@@ -3348,14 +3350,13 @@ impl Run<'_> {
                 // the answer in the player's language: the asking window or console shows it (run_launcher.txt here
                 // keeps the English)
                 let lang = self.ui.lang();
-                if let Some(why) = self.refusal(word == "force") {
+                if let Some((why, guests)) = self.refusal(word == "force") {
                     let not = Text::key("launcher.run_not_stopped");
                     self.tell("", &why);
                     self.tell("", &not);
                     let mut said = format!("{}\n{}", why.get(lang), not.get(lang));
                     // the asker's "Stop anyway?" names them (rules::stop_question)
-                    let guests = self.arcade_guests.as_ref().map_or(0, |g| g.load(Ordering::Relaxed));
-                    if self.mode.is_server() && guests > 0 && !is_on(self.kit, Kind::Run) {
+                    if guests > 0 {
                         said.push_str(&format!("\n{}{guests}", rules::GUESTS_LINE));
                     }
                     put(REFUSED, &said);
