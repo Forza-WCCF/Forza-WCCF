@@ -385,8 +385,17 @@ fn replace_until(me: &Path, new: &Path, want: Option<&str>, go: &mut dyn FnMut()
     let (Some(dir), Some(stem)) = (me.parent(), me.file_stem().and_then(OsStr::to_str)) else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, me.display().to_string()));
     };
-    let name = |end: &str| dir.join(format!(".{stem}.{}.{end}", std::process::id()));
-    let (temp, away) = (name("__temp__.exe"), name("__relocated__.exe"));
+    let pid = std::process::id();
+    let temp = dir.join(format!(".{stem}.{pid}.__temp__.exe"));
+    // the first name free: an earlier swap in this process may have left its old Launcher running from one
+    let at = |n: u32| match n {
+        0 => dir.join(format!(".{stem}.{pid}.__relocated__.exe")),
+        n => dir.join(format!(".{stem}.{pid}.{n}.__relocated__.exe")),
+    };
+    let away = (0..16)
+        .map(at)
+        .find(|p| fs::remove_file(p).is_ok() || !p.exists())
+        .unwrap_or_else(|| at(16));
     let mut killed = false;
     let mut step = || {
         killed = !go();
@@ -412,7 +421,6 @@ fn replace_until(me: &Path, new: &Path, want: Option<&str>, go: &mut dyn FnMut()
         })
         .and_then(|()| step())
         .and_then(|()| {
-            let _ = fs::remove_file(&away);
             // shortcut: a folder with no hard links (FAT32, exFAT) keeps the two renames and their gap; the spare
             // Launcher.exe.old and the troubleshooting line cover it
             linked = fs::hard_link(me, &away).is_ok();
@@ -1438,6 +1446,22 @@ mod tests {
         assert_eq!(held, b"the running launcher");
         tidy_beside(&me);
         assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+    }
+
+    /// The old Launcher a swap left running keeps its second name; a second swap in the same session (an update after
+    /// the start finished one) takes another name and goes through (#361).
+    #[test]
+    fn a_second_swap_while_the_first_old_launcher_runs_takes_another_name() {
+        let t = crate::scratch();
+        let (me, new) = (t.path().join("Launcher.exe"), t.path().join("unzipped.exe"));
+        fs::copy(env::current_exe().unwrap(), &me).unwrap();
+        fs::write(&new, b"the new launcher").unwrap();
+        let running = as_running(&me);
+        replace_running(&me, &new).unwrap();
+        fs::write(&new, b"a newer launcher").unwrap();
+        replace_running(&me, &new).unwrap();
+        assert_eq!(fs::read(&me).unwrap(), b"a newer launcher");
+        drop(running);
     }
 
     /// A copy that is not the listed Launcher.exe (changed after its check) does not go in, and no temp copy is left.
