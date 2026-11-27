@@ -320,6 +320,151 @@ fn installer_files_rows_fit() {
     );
 }
 
+/// The Welcome page says, in every language, that step 3 can use game files already in the folder (#438).
+#[test]
+fn installer_welcome_names_the_reuse_of_game_files() {
+    for lang in Lang::ALL {
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Welcome);
+        let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let line = forza_ui::text(lang, "installer.welcome_reuse", &[]);
+        let r = h.get_by_label(&line).rect();
+        assert!(
+            r.bottom() <= installer::SIZE.y - installer::FOOTER_H,
+            "{lang:?}: the line at {r:?} is under the footer"
+        );
+    }
+}
+
+/// The Files page warns before INSTALL when the disc image's edition is already in the folder, and only then (#438).
+#[test]
+fn installer_files_warns_of_an_edition_already_installed() {
+    use forza_ui::theme::Edition::{E1011, E1718};
+    for lang in Lang::ALL {
+        // (disc, installed, reuse, warned)
+        for (disc, installed, reuse, warned) in [
+            (E1718, vec![E1718], false, true),
+            (E1011, vec![E1011, E1718], false, true),
+            (E1718, vec![E1011], false, false),
+            (E1718, vec![E1718], true, false),
+        ] {
+            let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+            st.detected = Some(disc);
+            st.edition = installed[0];
+            st.installed = installed.clone();
+            st.reuse = reuse;
+            let line = forza_ui::text(lang, "installer.already_here", &[("edition", disc.label())]);
+            let mut h = harness(installer::SIZE, 1.0, disc, |ui| {
+                installer::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            assert_eq!(
+                h.query_by_label(&line).is_some(),
+                warned,
+                "{lang:?} disc {disc:?} installed {installed:?} reuse {reuse}"
+            );
+        }
+    }
+}
+
+/// A game folder of the disc's edition that is not a whole install (files missing, quarantined) also stops INSTALL:
+/// the Files page says so, without the already-installed line that offers to use its files (#438).
+#[test]
+fn installer_files_warns_of_an_incomplete_game_folder() {
+    use forza_ui::theme::Edition::{E1011, E1718};
+    for lang in Lang::ALL {
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+        (st.detected, st.installed, st.occupied) = (Some(E1718), vec![E1011], vec![E1011, E1718]);
+        let partial = forza_ui::text(
+            lang,
+            "installer.partial_here",
+            &[("edition", E1718.label())],
+        );
+        let whole = forza_ui::text(
+            lang,
+            "installer.already_here",
+            &[("edition", E1718.label())],
+        );
+        let mut h = harness(installer::SIZE, 1.0, E1718, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        assert!(h.query_by_label(&partial).is_some(), "{lang:?}: no notice");
+        assert!(
+            h.query_by_label(&whole).is_none(),
+            "{lang:?}: offers its files"
+        );
+    }
+}
+
+/// The installer's language switch sits left of minimize and close, clear of the page title, on every page, in every
+/// language and at the window's default and smallest size (main.rs `with_min_inner_size`), and a click on a language
+/// turns all the window's text to it on that frame (#438).
+#[test]
+fn installer_language_switch_fits_and_switches() {
+    use egui::accesskit::Role;
+    for size in [installer::SIZE, egui::vec2(680.0, 520.0)] {
+        for lang in Lang::ALL {
+            for page in installer::Page::ALL {
+                let mut st = installer::InstallerState::sample(lang, page);
+                let mut h = harness(size, 1.0, Edition::E1011, |ui| {
+                    installer::show(ui, &mut st);
+                });
+                h.run_steps(4);
+                let seg: Vec<_> = Lang::ALL
+                    .map(|l| {
+                        h.get_by_role_and_label(Role::RadioButton, l.native())
+                            .rect()
+                    })
+                    .into();
+                let (left, right) = (seg[0].left(), seg[2].right());
+                let title = forza_ui::text(lang, &format!("installer.{}", page_key(page)), &[]);
+                let title = h.get_by_label(&title).rect();
+                assert!(
+                    left > title.right() + 8.0 || seg[0].bottom() + 8.0 <= title.top(),
+                    "{size:?} {lang:?} {page:?}: the switch at {:?} touches the title at {title:?}",
+                    seg[0].union(seg[2])
+                );
+                // the window buttons take the 82 points 4 from the right edge
+                assert!(
+                    right <= size.x - 4.0 - 82.0 && seg[0].top() >= 0.0,
+                    "{size:?} {lang:?} {page:?}: the switch ends at {right}, over the window buttons"
+                );
+            }
+        }
+    }
+    let st = std::cell::RefCell::new(installer::InstallerState::sample(
+        Lang::En,
+        installer::Page::Welcome,
+    ));
+    let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+        installer::show(ui, &mut st.borrow_mut());
+    });
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::RadioButton, "Italiano")
+        .click();
+    // one frame: the rail, the footer and the page all follow the click, and the program gets its next frame
+    h.step();
+    assert_eq!(st.borrow().lang, Lang::It);
+    for key in ["installer.welcome_body", "installer.next"] {
+        let line = forza_ui::text(Lang::It, key, &[]);
+        assert!(h.query_by_label(&line).is_some(), "{key} is in Italian");
+    }
+    assert!(h.ctx.has_requested_repaint(), "no repaint after the switch");
+}
+
+fn page_key(page: installer::Page) -> &'static str {
+    match page {
+        installer::Page::Welcome => "welcome",
+        installer::Page::Where => "where",
+        installer::Page::Files => "files",
+        installer::Page::Installing => "installing",
+        installer::Page::Done => "done",
+    }
+}
+
 /// On hold since 2026-10-31: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
 /// keeps its own. The arcade side (ARCADES tab, HOST ARCADE) stays.
 #[test]
