@@ -1239,7 +1239,12 @@ fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
             r[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
         }
         279 => r[12] = 1,
-        309 => r[8..3080].fill(0x5A),
+        309 => {
+            r[8..3080].fill(0x5A);
+            for bit in BLOCK_VERSIONS {
+                put_bits(&mut r[8..8 + BLOCK], bit, 32, 12);
+            }
+        }
         289 => put(&mut r, 16, 1),
         _ => {}
     }
@@ -1980,13 +1985,62 @@ fn buy_is_bounded_and_copy_back_still_checks() {
 /// A 311 request: slot 1 and an area id of 0.
 const SLOT: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
-/// A synthetic 309: every byte a function of its offset, shop id 7.
+/// A synthetic 309: every byte a function of its offset, shop id 7, the block's version fields 12 and a NUL ending
+/// the shop name.
 fn upload_309(seed: usize) -> Vec<u8> {
     let mut p: Vec<u8> = (0..3368)
         .map(|i| ((i * 13 + seed) % 251) as u8 + 1)
         .collect();
     put(&mut p, 4, 7);
+    for bit in BLOCK_VERSIONS {
+        put_bits(&mut p[8..8 + BLOCK], bit, 32, 12);
+    }
+    p[3221] = 0;
     p
+}
+
+/// Uploads from any number of shops keep one row, cut to 3,368 bytes; a 309 whose block is not a current save or
+/// whose shop name has no NUL is refused and keeps the last good one; a server with VS answers the CPU team.
+#[test]
+fn best_eleven_keeps_one_checked_row() {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let rows = || -> (u32, i64) {
+        let st = store.lock().unwrap();
+        st.0.query_row(
+            "SELECT count(*), coalesce(max(length(payload)), 0) FROM requests WHERE cmd = 309",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    };
+    for shop in 1..50 {
+        let mut p = upload_309(shop as usize);
+        put(&mut p, 4, shop);
+        p.resize(8000, 0xAA);
+        assert_eq!(ask_store(&store, 309, &p).1, None);
+    }
+    assert_eq!(rows(), (1, 3368), "one row, trimmed");
+    let good = ask_store(&store, 311, &SLOT).0;
+    assert_eq!(u32_at(&good, 4), 0);
+    let mut old = upload_309(60);
+    put_bits(&mut old[8..8 + BLOCK], BLOCK_VERSIONS[1], 32, 10);
+    let mut unnamed = upload_309(61);
+    unnamed[3194..3222].fill(b'A');
+    for bad in [old, unnamed] {
+        let (b, why) = ask_store(&store, 309, &bad);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
+    }
+    assert_eq!(
+        ask_store(&store, 311, &SLOT).0,
+        good,
+        "the last good one stays"
+    );
+    // with VS (`gt`): errCode 1, the CPU team
+    let log: Log = Arc::new(|_: &str| {});
+    let mut body = vec![0u8; 3352];
+    put(&mut body, 4, 1);
+    club(311, &SLOT, &mut body, &store, None, &[], true, &log).unwrap();
+    assert_eq!((u32_at(&body, 4), &body[152..160]), (1, &[0u8; 8][..]));
 }
 
 #[test]

@@ -658,6 +658,32 @@ fn best_eleven_answer(body: &mut [u8], req: &[u8]) {
     body[3224..3352].copy_from_slice(&req[3232..3360]);
 }
 
+/// A BEST_ELEVEN 309 upload: +4 shop id, +8 the team's save block, +3,194 its shop name.
+const BEST_ELEVEN_LEN: usize = 3368;
+/// The block's three version fields (bits; the skip club writes the same), each 12 in a current save.
+const BLOCK_VERSIONS: [usize; 3] = [0, 20736, 21538];
+
+/// Whether a 309 (at least [`BEST_ELEVEN_LEN`] bytes) looks like a current save the client can load: the block's
+/// version fields and a NUL-ended shop name. Err names the first field wrong.
+fn best_eleven_ok(req: &[u8]) -> Result<(), String> {
+    let Some(block) = req.get(8..8 + BLOCK) else {
+        return Err(format!("{} bytes, want {BEST_ELEVEN_LEN}", req.len()));
+    };
+    if let Some(bit) = BLOCK_VERSIONS
+        .into_iter()
+        .find(|&b| get_bits(block, b, 32) != 12)
+    {
+        return Err(format!(
+            "block version at bit {bit}: {}",
+            get_bits(block, bit, 32)
+        ));
+    }
+    if !req[3194..3222].contains(&0) {
+        return Err("shop name without a NUL".into());
+    }
+    Ok(())
+}
+
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
 /// +3,082 size, +3,084 C1 = sum of the block, +3,088 C2 = sum of the whole answer with +3,088 taken as 0.
 fn fill_save_data(body: &mut [u8], block: &[u8], version: u16, size: u16) {
@@ -1223,25 +1249,30 @@ impl Store {
         Ok((n == 1).then_some((class, i as u32 + 1, record, None)))
     }
 
-    /// Keeps the latest whole 309 under (0, shop id).
-    fn keep_best_eleven(&self, shop: u32, req: &[u8]) -> rusqlite::Result<()> {
-        self.0.execute(
-            "INSERT OR REPLACE INTO requests VALUES (0, ?1, 309, ?2, ?3)",
-            params![shop, req, now()],
+    /// Keeps the latest 309 ([`BEST_ELEVEN_LEN`] bytes) as the one row (0, 0); the rows older servers kept per shop
+    /// id go.
+    fn keep_best_eleven(&mut self, req: &[u8]) -> rusqlite::Result<()> {
+        let tx = self.0.transaction()?;
+        tx.execute("DELETE FROM requests WHERE aime_id = 0 AND cmd = 309", [])?;
+        tx.execute(
+            "INSERT INTO requests VALUES (0, 0, 309, ?1, ?2)",
+            params![&req[..BEST_ELEVEN_LEN], now()],
         )?;
-        Ok(())
+        tx.commit()
     }
 
-    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (project
-    /// decision D3, default) is the newest one; on a server with several shops a rule per area replaces this.
+    /// The newest stored 309 that passes [`best_eleven_ok`]. This stand-in serves one shop, so "the same shop's last
+    /// 309" (project decision D3, default) is the newest one.
     fn last_best_eleven(&self) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.0
+        Ok(self
+            .0
             .query_row(
                 "SELECT payload FROM requests WHERE cmd = 309 AND aime_id = 0 ORDER BY updated DESC, coach_id DESC LIMIT 1",
                 [],
-                |r| r.get(0),
+                |r| r.get::<_, Vec<u8>>(0),
             )
-            .optional()
+            .optional()?
+            .filter(|p| best_eleven_ok(p).is_ok()))
     }
 
     /// Keeps a BUY_SHOP_ITEM request whole as the newest row of its (category, item): a repeat replaces the earlier
@@ -1331,7 +1362,7 @@ fn club(
         // BUY_SHOP_ITEM: ids, category and item; the replay records are 20 bytes, so no revision check
         315 => (16, None),
         // BEST_ELEVEN upload (the control's, no revision) and download (areaId at +4, not read)
-        309 => (3368, None),
+        309 => (BEST_ELEVEN_LEN, None),
         311 => (0, None),
         _ => return Ok(()),
     };
@@ -1399,12 +1430,14 @@ fn club(
         return Ok(());
     }
     match cmd {
-        // +4 is the shop id here, not an Aime id
         309 => {
-            st.keep_best_eleven(aime, req).map_err(db)?;
+            best_eleven_ok(req)?;
+            st.keep_best_eleven(req).map_err(db)?;
             return Ok(());
         }
-        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team)
+        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team). A
+        // server with VS serves arcades across the internet: one arcade's upload never goes to another's clients
+        311 if gt => return Ok(()),
         311 => {
             if let Some(p) = st.last_best_eleven().map_err(db)? {
                 put(body, 4, 0);
