@@ -613,7 +613,10 @@ fn sweep_replaced(dir: &Path, me: &Path) -> bool {
             && !entry
                 .metadata()
                 .and_then(|m| m.modified())
-                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age >= Duration::from_secs(60)));
+                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age >= Duration::from_secs(60)))
+            // a second name of Launcher.exe itself: a swap is between its link and its rename (hard links share the
+            // file's times, so no age tells a live one)
+            || name.ends_with(".__relocated__.exe") && same_file::is_same_file(entry.path(), me).unwrap_or(false);
         if name.starts_with(&prefix) && left && !live && entry.path() != me {
             stayed |= fs::remove_file(entry.path()).is_err();
         }
@@ -1231,6 +1234,23 @@ mod tests {
         age(&temp);
         sweep_replaced(t.path(), &me);
         assert!(!temp.exists() && me.exists());
+    }
+
+    /// The start's sweep leaves a second name of Launcher.exe itself (another Launcher's swap is between its link and its
+    /// rename) and removes it once it is another file than Launcher.exe (#361).
+    #[test]
+    fn the_sweep_leaves_a_live_swaps_second_name() {
+        let t = crate::scratch();
+        let me = t.path().join("Launcher.exe");
+        let away = t.path().join(".Launcher.7.__relocated__.exe");
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::hard_link(&me, &away).unwrap();
+        sweep_replaced(t.path(), &me);
+        assert!(away.exists(), "a live swap's second name stays");
+        fs::remove_file(&me).unwrap();
+        fs::write(&me, b"the new launcher").unwrap(); // the swap's rename
+        sweep_replaced(t.path(), &me);
+        assert!(!away.exists());
     }
 
     /// A Launcher.exe that cannot be replaced (held with no delete sharing) stays as it was, with no temp copy and no
