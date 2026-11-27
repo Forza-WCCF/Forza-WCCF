@@ -30,18 +30,21 @@ pub struct Plan {
     pub latest: bool, // no kit zip given: download the newest package (2017-18 only) and use it as if chosen
 }
 
+/// A line for the player, written in whichever language the window shows when it is drawn: a language switch after
+/// it was sent writes it again.
+pub type Said = std::sync::Arc<dyn Fn(forza_ui::Lang) -> String + Send + Sync>;
+
 pub enum Event {
     Stage(Step),
     Progress(u64, u64), // done, total (0 total = unknown)
     /// A line of the log, which is English (support reads it). A line the player must act on is `ui.yml` text in the
     /// run's language instead, as the error messages are.
     Log(String),
-    /// A step that failed without stopping the install (the card pictures), in the run's language: the Done page
-    /// shows it under its rows, the log too.
-    Missed(String),
-    /// The desktop shortcut was not made, in the run's language: as [`Event::Missed`], and the Done page's shortcut
-    /// row reads not made.
-    NoShortcut(String),
+    /// A step that failed without stopping the install (the card pictures): the Done page shows it under its rows,
+    /// the log too.
+    Missed(Said),
+    /// The desktop shortcut was not made: as [`Event::Missed`], and the Done page's shortcut row reads not made.
+    NoShortcut(Said),
 }
 
 fn game_id_in(game: &Path) -> Option<&'static str> {
@@ -361,9 +364,9 @@ fn apply(
                 }
             })?;
         }
-        pictures(&dest, edition, &folder, lang, emit);
+        pictures(&dest, edition, &folder, emit);
         if plan.shortcuts {
-            shortcuts(&dest, edition, lang, emit);
+            shortcuts(&dest, edition, emit);
         }
     } else {
         emit(Event::Log(forza_ui::text(
@@ -694,17 +697,12 @@ fn kit_step(emit: &dyn Fn(Event), step: impl FnOnce(forza::Say) -> i32) -> Resul
 }
 
 /// The board's card pictures, as Launcher's Setup makes them. A failure is logged; the install stands.
-fn pictures(
-    dest: &Path,
-    edition: Edition,
-    folder: &str,
-    lang: forza_ui::Lang,
-    emit: &dyn Fn(Event),
-) {
+fn pictures(dest: &Path, edition: Edition, folder: &str, emit: &dyn Fn(Event)) {
     let say = |l: &str| emit(Event::Log(l.to_owned()));
     let Some(game) = forza::setup::find_edition_game(edition, folder) else {
-        let line = forza_ui::text(lang, "installer.log_pictures_no_game", &[]);
-        return emit(Event::Missed(line));
+        return emit(Event::Missed(std::sync::Arc::new(|l| {
+            forza_ui::text(l, "installer.log_pictures_no_game", &[])
+        })));
     };
     let ed = edition.code();
     let cards = dest.join(edition.layout().cache).join("cards");
@@ -713,12 +711,13 @@ fn pictures(
     };
     if let Err(e) = forza::cards::pictures::ensure(&game, ed, &cards, None, &lines) {
         let e = e.to_string();
-        let line = forza_ui::text(lang, "launcher.run_pictures_failed", &[("error", &e)]);
-        emit(Event::Missed(line));
+        emit(Event::Missed(std::sync::Arc::new(move |l| {
+            forza_ui::text(l, "launcher.run_pictures_failed", &[("error", &e)])
+        })));
     }
 }
 
-fn shortcuts(dest: &Path, edition: Edition, lang: forza_ui::Lang, emit: &dyn Fn(Event)) {
+fn shortcuts(dest: &Path, edition: Edition, emit: &dyn Fn(Event)) {
     #[cfg(windows)]
     {
         let made = lnk::desktop().and_then(|d| {
@@ -727,11 +726,13 @@ fn shortcuts(dest: &Path, edition: Edition, lang: forza_ui::Lang, emit: &dyn Fn(
         });
         emit(match made {
             Ok(()) => Event::Log("Desktop shortcut created.".into()),
-            Err(_) => Event::NoShortcut(forza_ui::text(lang, "installer.log_shortcut_failed", &[])),
+            Err(_) => Event::NoShortcut(std::sync::Arc::new(|l| {
+                forza_ui::text(l, "installer.log_shortcut_failed", &[])
+            })),
         });
     }
     #[cfg(not(windows))]
-    let _ = (dest, edition, lang, emit);
+    let _ = (dest, edition, emit);
 }
 
 /// The desktop shortcut made with the shell's IShellLinkW (2026-10-29: a PowerShell child made by an unsigned installer

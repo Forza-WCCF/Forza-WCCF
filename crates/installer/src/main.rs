@@ -26,7 +26,7 @@ use forza_ui::installer::{
 };
 use forza_ui::theme::{self, Edition};
 use forza_ui::{Lang, text};
-use install::{Event, Plan};
+use install::{Event, Plan, Said};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -56,6 +56,20 @@ struct App {
     /// row must not run the other's check again.
     key_checked: Option<String>,
     package_checked: Option<String>,
+    /// The refusal and the missed steps on screen, kept unwritten: `st.error` and `st.missed` are them in `st.lang`,
+    /// written again each frame so a language switch reaches them.
+    error: Option<Said>,
+    missed: Vec<Said>,
+}
+
+/// A line of `ui.yml` with no arguments, in whatever language it is shown.
+fn said(key: &'static str) -> Said {
+    Arc::new(move |l| text(l, key, &[]))
+}
+
+/// An error of the pipeline, in whatever language it is shown.
+fn said_err(e: anyhow::Error) -> Said {
+    Arc::new(move |l| err::localize(&e, l))
 }
 
 fn default_dest() -> String {
@@ -100,7 +114,22 @@ impl App {
             refreshed: None,
             key_checked: None,
             package_checked: None,
+            error: None,
+            missed: vec![],
         }
+    }
+
+    /// Show `e` as the page's refusal (`None` clears it).
+    fn refuse(&mut self, e: Option<Said>) {
+        self.st.error = e.as_ref().map(|f| f(self.st.lang));
+        self.error = e;
+    }
+
+    /// `st.error` and `st.missed` in the window's language, after a language switch too.
+    fn relang(&mut self) {
+        let lang = self.st.lang;
+        self.st.error = self.error.as_ref().map(|f| f(lang));
+        self.st.missed = self.missed.iter().map(|f| f(lang)).collect();
     }
 
     /// Everything [`App::refresh`] reads: the text boxes, the newest package and what was found, the edition, the
@@ -244,29 +273,26 @@ impl App {
     }
 
     /// Validate the selected disc/key and, only when used, the optional kit before copying.
-    fn check_files(&self) -> Result<(), String> {
+    fn check_files(&self) -> Result<(), Said> {
         if !self.st.reuse {
             let (iso, key) = (clean(&self.st.iso), clean(&self.st.key));
             if !iso.is_file() {
-                return Err(self.t("installer.err_iso"));
+                return Err(said("installer.err_iso"));
             }
             if !key.is_file() {
-                return Err(self.t("installer.err_key"));
+                return Err(said("installer.err_key"));
             }
-            let key = std::fs::read(&key).map_err(|e| {
-                text(
-                    self.st.lang,
-                    "installer.err_key_read",
-                    &[("e", &e.to_string())],
-                )
+            let key = std::fs::read(&key).map_err(|e| -> Said {
+                let e = e.to_string();
+                Arc::new(move |l| text(l, "installer.err_key_read", &[("e", &e)]))
             })?;
-            disc::open(&iso, &key).map_err(|e| err::localize(&e, self.st.lang))?;
+            disc::open(&iso, &key).map_err(said_err)?;
         }
         if let (true, Some(kit)) = (self.setup_enabled(), self.kit()) {
             // as headless (install::run): a kit zip, of the game's edition
             install::check_kit_zip(&kit)
                 .and_then(|kit| install::check_setup(self.st.target().map(Edition::game_id), kit))
-                .map_err(|e| err::localize(&e, self.st.lang))?;
+                .map_err(said_err)?;
         }
         Ok(())
     }
@@ -326,14 +352,17 @@ impl App {
         let st = &mut self.st;
         st.steps = steps;
         (st.stage, st.fraction, st.bytes, st.running) = (0, 0.0, None, true);
-        (st.log, st.error, st.did, st.done_path) = (vec![], None, did, done_path);
-        st.missed.clear();
+        (st.log, st.did, st.done_path) = (vec![], did, done_path);
         st.page = Page::Installing;
+        self.missed.clear();
+        self.refuse(None);
     }
 
     fn poll(&mut self) {
+        self.relang();
         let Some(run) = &self.run else { return };
         let (lang, st) = (self.st.lang, &mut self.st);
+        let mut error = None;
         while let Ok(m) = run.rx.try_recv() {
             match m {
                 Msg::Ev(Event::Stage(s)) => {
@@ -347,32 +376,38 @@ impl App {
                 }
                 Msg::Ev(Event::Log(l)) => st.log.push(l),
                 Msg::Ev(Event::Missed(l)) => {
-                    st.log.push(l.clone());
-                    st.missed.push(l);
+                    st.log.push(l(lang));
+                    self.missed.push(l);
                 }
                 Msg::Ev(Event::NoShortcut(l)) => {
                     st.did[3] = false; // the Done page does not claim a shortcut that was not made
-                    st.log.push(l.clone());
-                    st.missed.push(l);
+                    st.log.push(l(lang));
+                    self.missed.push(l);
                 }
                 Msg::Done(r) => {
                     st.running = false;
                     match r {
                         Ok(()) => st.page = Page::Done,
                         Err(e) if err::is_cancelled(&e) => {
-                            st.error = Some(text(lang, "installer.cancelled", &[]))
+                            error = Some(said("installer.cancelled"))
                         }
                         Err(e) => {
-                            st.error = Some(format!(
-                                "{} {}",
-                                text(lang, "installer.stopped", &[]),
-                                err::localize(&e, lang)
-                            ))
+                            error = Some(Arc::new(move |l| {
+                                format!(
+                                    "{} {}",
+                                    text(l, "installer.stopped", &[]),
+                                    err::localize(&e, l)
+                                )
+                            }) as Said)
                         }
                     }
                 }
             }
         }
+        if error.is_some() {
+            self.refuse(error);
+        }
+        self.relang();
     }
 
     fn browse(&mut self, field: Field) {
@@ -436,7 +471,7 @@ impl App {
     /// `confirmed`: the person already answered the "no package" question with CONTINUE.
     fn next(&mut self, ctx: &egui::Context, confirmed: bool) {
         let page = self.st.page;
-        self.st.error = None;
+        self.refuse(None);
         if page == Page::Files
             && self.st.latest == Latest::Checking
             && self.st.target() == Some(Edition::E1718)
@@ -444,12 +479,12 @@ impl App {
             return; // the footer greys INSTALL meanwhile; this is for the Enter key and the like
         }
         let step = match page {
-            Page::Where if self.st.folder.trim().is_empty() => Err(self.t("installer.err_folder")),
+            Page::Where if self.st.folder.trim().is_empty() => Err(said("installer.err_folder")),
             Page::Files => self.check_files(),
             _ => Ok(()),
         };
         match step {
-            Err(e) => self.st.error = Some(e),
+            Err(e) => self.refuse(Some(e)),
             Ok(()) if page == Page::Files && !confirmed && !self.st.setup_possible => {
                 self.st.confirm = true;
             }
@@ -472,7 +507,7 @@ impl App {
     }
 
     fn back(&mut self) {
-        self.st.error = None;
+        self.refuse(None);
         self.st.page = match self.st.page {
             Page::Where => Page::Welcome,
             Page::Files => Page::Where,
@@ -592,14 +627,17 @@ impl eframe::App for App {
                 match start_launcher(dir) {
                     Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                     Err(e) => {
-                        self.st.error = Some(text(
-                            self.st.lang,
-                            "installer.err_launcher",
-                            &[
-                                ("path", &dir.join("Launcher.exe").display().to_string()),
-                                ("detail", &e.to_string()),
-                            ],
-                        ));
+                        let (path, e) = (
+                            dir.join("Launcher.exe").display().to_string(),
+                            e.to_string(),
+                        );
+                        self.refuse(Some(Arc::new(move |l| {
+                            text(
+                                l,
+                                "installer.err_launcher",
+                                &[("path", &path), ("detail", &e)],
+                            )
+                        })));
                     }
                 }
             }
@@ -716,7 +754,8 @@ fn headless(args: &[String]) -> anyhow::Result<bool> {
         let mut out = std::io::stdout();
         let _ = match e {
             Event::Stage(s) => writeln!(out, "== {}", s.title(Lang::En)),
-            Event::Log(l) | Event::Missed(l) | Event::NoShortcut(l) => writeln!(out, "{l}"),
+            Event::Log(l) => writeln!(out, "{l}"),
+            Event::Missed(l) | Event::NoShortcut(l) => writeln!(out, "{}", l(Lang::En)),
             Event::Progress(d, t) if t > 0 && d / (256 << 20) != last.replace(d / (256 << 20)) => {
                 writeln!(out, "   {} / {}", gb(d), gb(t))
             }
@@ -953,7 +992,7 @@ mod tests {
         app.st.package = zip("k1718.zip", "bin/x.dll");
         app.refresh();
         assert!(app.setup_enabled(), "setup offered for 2017-18");
-        assert_eq!(app.check_files(), Ok(()));
+        assert!(app.check_files().is_ok());
         app.st.package = zip("k1011.zip", "programs/x.dll");
         app.refresh();
         assert!(
@@ -1023,20 +1062,45 @@ mod tests {
         });
         app.st.did = [true; 4];
         for m in [
-            Msg::Ev(Event::Missed("no pictures".into())),
-            Msg::Ev(Event::NoShortcut("no shortcut".into())),
+            Msg::Ev(Event::Missed(Arc::new(|l| format!("no pictures {l:?}")))),
+            Msg::Ev(Event::NoShortcut(Arc::new(|l| {
+                format!("no shortcut {l:?}")
+            }))),
             Msg::Done(Ok(())),
         ] {
             tx.send(m).unwrap();
         }
+        app.st.lang = Lang::En;
         app.poll();
         assert_eq!(app.st.page, Page::Done);
         assert_eq!(app.st.did, [true, true, true, false]);
-        assert_eq!(app.st.missed, ["no pictures", "no shortcut"]);
+        assert_eq!(app.st.missed, ["no pictures En", "no shortcut En"]);
         assert!(
             app.st
                 .log
-                .ends_with(&["no pictures".into(), "no shortcut".into()])
+                .ends_with(&["no pictures En".into(), "no shortcut En".into()])
+        );
+        // the lines follow a language switch on the Done page
+        app.st.lang = Lang::It;
+        app.poll();
+        assert_eq!(app.st.missed, ["no pictures It", "no shortcut It"]);
+    }
+
+    /// A refusal on screen follows a language switch: it is written again in the new language.
+    #[test]
+    fn a_refusal_follows_a_language_switch() {
+        let mut app = App::new();
+        (app.st.lang, app.st.page, app.st.folder) = (Lang::En, Page::Where, String::new());
+        app.next(&egui::Context::default(), false);
+        assert_eq!(
+            app.st.error,
+            Some(text(Lang::En, "installer.err_folder", &[]))
+        );
+        app.st.lang = Lang::Ja;
+        app.poll();
+        assert_eq!(
+            app.st.error,
+            Some(text(Lang::Ja, "installer.err_folder", &[]))
         );
     }
 

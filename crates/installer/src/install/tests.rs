@@ -136,17 +136,11 @@ fn pictures_step_runs_ensure_and_survives_failure() {
     let lines = std::cell::RefCell::new(Vec::new());
     let emit = |e: Event| {
         if let Event::Missed(l) = e {
-            lines.borrow_mut().push(l);
+            lines.borrow_mut().push(l(forza_ui::Lang::En));
         }
     };
     // no game files: the step reports and returns instead of failing the install
-    pictures(
-        &dir,
-        Edition::E1718,
-        &game.to_string_lossy(),
-        forza_ui::Lang::En,
-        &emit,
-    );
+    pictures(&dir, Edition::E1718, &game.to_string_lossy(), &emit);
     assert!(
         lines
             .borrow()
@@ -190,17 +184,11 @@ fn the_lines_a_player_must_act_on_are_in_three_languages() {
         .unwrap();
         extract_only.push(last.into_inner());
         let missed = std::cell::RefCell::new(String::new());
-        pictures(
-            &root,
-            Edition::E1718,
-            &empty.to_string_lossy(),
-            lang,
-            &|e| {
-                if let Event::Missed(l) = e {
-                    *missed.borrow_mut() = l;
-                }
-            },
-        );
+        pictures(&root, Edition::E1718, &empty.to_string_lossy(), &|e| {
+            if let Event::Missed(l) = e {
+                *missed.borrow_mut() = l(lang);
+            }
+        });
         no_pictures.push(missed.into_inner());
     }
     let three = |key: &str, args: &[(&str, &str)]| -> Vec<String> {
