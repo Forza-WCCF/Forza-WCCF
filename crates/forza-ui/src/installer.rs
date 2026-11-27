@@ -987,6 +987,14 @@ fn files_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option
             widgets::badge(ui, e);
         }
     });
+    // INSTALL from a disc stops on an edition already in the folder: say so before it is pressed
+    if let Some(e) = st.detected.filter(|e| !st.reuse && st.installed.contains(e)) {
+        status_line(
+            ui,
+            Tone::Notice,
+            &tr!(lang, "installer.already_here", edition = e.label()),
+        );
+    }
     if st.reuse {
         status_line(
             ui,

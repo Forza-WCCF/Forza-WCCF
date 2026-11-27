@@ -320,6 +320,37 @@ fn installer_files_rows_fit() {
     );
 }
 
+/// The Files page warns before INSTALL when the disc image's edition is already in the folder, and only then (#438).
+#[test]
+fn installer_files_warns_of_an_edition_already_installed() {
+    use forza_ui::theme::Edition::{E1011, E1718};
+    for lang in Lang::ALL {
+        // (disc, installed, reuse, warned)
+        for (disc, installed, reuse, warned) in [
+            (E1718, vec![E1718], false, true),
+            (E1011, vec![E1011, E1718], false, true),
+            (E1718, vec![E1011], false, false),
+            (E1718, vec![E1718], true, false),
+        ] {
+            let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+            st.detected = Some(disc);
+            st.edition = installed[0];
+            st.installed = installed.clone();
+            st.reuse = reuse;
+            let line = forza_ui::text(lang, "installer.already_here", &[("edition", disc.label())]);
+            let mut h = harness(installer::SIZE, 1.0, disc, |ui| {
+                installer::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            assert_eq!(
+                h.query_by_label(&line).is_some(),
+                warned,
+                "{lang:?} disc {disc:?} installed {installed:?} reuse {reuse}"
+            );
+        }
+    }
+}
+
 /// On hold since 2026-10-31: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
 /// keeps its own. The arcade side (ARCADES tab, HOST ARCADE) stays.
 #[test]

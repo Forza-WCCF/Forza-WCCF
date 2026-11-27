@@ -217,6 +217,7 @@ installer.smartscreen: {en: "Windows may warn about an unknown app. Press More i
 installer.start_launcher: {en: "START LAUNCHER", it: "AVVIA LAUNCHER", ja: "Launcher を起動"}
 installer.open_folder: {en: "Open the folder", it: "Apri la cartella", ja: "フォルダーを開く"}
 installer.welcome_note: {en: "Without the package, only the original files are extracted.", it: "Senza il pacchetto vengono estratti solo i file originali.", ja: "パッケージがない場合は、元のファイルを展開するだけです。"}
+installer.already_here: {en: "This folder already has the %{edition} edition, so INSTALL stops. Use the game files already here, or go Back and choose another folder.", it: "Questa cartella contiene già l'edizione %{edition}, quindi INSTALLA si ferma. Usa i file del gioco già presenti, oppure torna Indietro e scegli un'altra cartella.", ja: "このフォルダーには %{edition} エディションが既にあるため、インストールは中止されます。「ここにあるゲームファイルを使う」を選ぶか、「戻る」で別のフォルダーを選んでください。"}
 installer.installed_here: {en: "← already installed", it: "← già installata", ja: "← インストール済み"}
 installer.space_low: {en: "Only %{free} GB free: the install needs about 6 GB.", it: "Solo %{free} GB liberi: servono circa 6 GB.", ja: "空きは %{free} GB のみです（約6 GB必要）。"}
 installer.space_unknown: {en: "The install needs about 6 GB.", it: "Servono circa 6 GB.", ja: "約6 GBの空き容量が必要です。"}
