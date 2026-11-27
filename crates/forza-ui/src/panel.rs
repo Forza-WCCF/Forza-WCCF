@@ -4452,6 +4452,14 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                // 2017-18: what the sliders do, in view without hover (a touch screen has none)
+                if e1718 {
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "cat.ranges_help"))
+                            .font(theme::body(HINT))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
                 let w = (ui.available_width() - 24.0) / 2.0;
                 egui::Grid::new("ranges")
                     .num_columns(2)

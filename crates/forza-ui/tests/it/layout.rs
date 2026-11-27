@@ -698,6 +698,35 @@ fn the_deck_names_the_right_click_hold() {
     }
 }
 
+/// FILTER BY STATS opened on 2017-18 says what its sliders do, in view without hover: the line sits under the
+/// filters and inside the CARDS page, left of the board, at the panel's size and a 1280x800 window, in English, Italian and
+/// Japanese. Laid out only: no GPU.
+#[test]
+fn the_stat_ranges_explain_themselves_without_hover() {
+    for size in [panel::SIZE, Vec2::new(1280.0, 800.0)] {
+        let board = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+            st.catalogue.ranges_open = true;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(6);
+            let case = format!("{size:?} {}", lang.code());
+            let at = |key: &str| h.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let help = at("cat.ranges_help");
+            let search = h.get_by_role(egui::accesskit::Role::TextInput).rect();
+            assert!(
+                help.top() >= search.bottom(),
+                "{case}: {help:?} not under the filters"
+            );
+            assert!(
+                help.left() >= search.left() - 0.5 && help.right() <= board.left() - 16.0,
+                "{case}: {help:?} leaves the page (search {search:?}, board {board:?})"
+            );
+            assert!(help.bottom() <= size.y, "{case}: {help:?} below the window");
+        }
+    }
+}
+
 /// The board's row of buttons (POP OUT, RESET LINEUP, FORMATIONS) on the docked board at the divider's least width:
 /// no two buttons overlap or crowd each other and all stay inside the board's 16-point margin, in English, Italian
 /// and Japanese (the Italian labels are the longest). The divider's ◀▶ handle sits on that row, on the board's edge,
