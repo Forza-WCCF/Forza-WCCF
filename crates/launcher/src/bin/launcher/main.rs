@@ -54,15 +54,19 @@ use launcher::{Edition, Kit, choices};
 use text::{t, tf};
 use update::Release;
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, FILE_TYPE_PIPE, GetFileType};
 use windows_sys::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, GetConsoleMode,
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler, SetStdHandle,
 };
-use windows_sys::Win32::System::Threading::{ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass};
+use windows_sys::Win32::System::Threading::{
+    ABOVE_NORMAL_PRIORITY_CLASS, GetCurrentProcess, GetCurrentThreadId, SetPriorityClass,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, IDYES, IsIconic, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
-    MessageBoxW, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    CallNextHookEx, FindWindowW, HCBT_ACTIVATE, IDNO, IDYES, IsIconic, MB_ICONERROR, MB_ICONQUESTION, MB_OK,
+    MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW, SW_RESTORE, SetDlgItemTextW, SetForegroundWindow,
+    SetWindowsHookExW, ShowWindow, UnhookWindowsHookEx, WH_CBT,
 };
 use windows_sys::core::BOOL;
 
@@ -610,8 +614,7 @@ impl run::Ui for WindowUi {
     }
 
     fn ask(&self, question: &str) -> bool {
-        // no owner (any thread may ask), kept in front of the game
-        message(question, MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) == IDYES
+        ask_box(question, TITLE, self.lang())
     }
 
     fn cause(&self, why: &str) {
@@ -723,9 +726,56 @@ fn closes_with_run(from_command: &mut bool, game: Option<u8>, failed: bool, was_
 
 /// A Windows message box with no owner; its answer.
 fn message(text: &str, style: u32) -> i32 {
-    let (text, title) = (wide(text), wide(TITLE));
+    message_titled(text, TITLE, style)
+}
+
+fn message_titled(text: &str, title: &str, style: u32) -> i32 {
+    let (text, title) = (wide(text), wide(title));
     // SAFETY: NUL-terminated strings that live across the call; no owner window.
     unsafe { MessageBoxW(ptr::null_mut(), text.as_ptr(), title.as_ptr(), style) }
+}
+
+thread_local! {
+    /// The Yes and No labels [`ask_box`] puts on its box while it is up on this thread.
+    static BUTTONS: std::cell::RefCell<Option<[Vec<u16>; 2]>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A yes/no question in front of the game (no owner: any thread may ask); true on yes. MessageBoxW labels its buttons
+/// in the Windows language, so a CBT hook on this thread relabels them in the Launcher's (`lang`) as the box opens.
+fn ask_box(question: &str, title: &str, lang: Lang) -> bool {
+    BUTTONS.set(Some(
+        ["launcher.ask_yes", "launcher.ask_no"].map(|k| wide(&ui_text(lang, k, &[]))),
+    ));
+    // SAFETY: a hook of this thread only, removed below; `relabel` reads this thread's BUTTONS.
+    let hook = unsafe { SetWindowsHookExW(WH_CBT, Some(relabel), ptr::null_mut(), GetCurrentThreadId()) };
+    let yes = message_titled(
+        question,
+        title,
+        MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND,
+    ) == IDYES;
+    if !hook.is_null() {
+        // SAFETY: the hook set above, on this thread.
+        unsafe { UnhookWindowsHookEx(hook) };
+    }
+    BUTTONS.set(None);
+    yes
+}
+
+/// [`ask_box`]'s hook: the box about to be shown (`w`) gets this thread's labels on its Yes and No buttons.
+unsafe extern "system" fn relabel(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if u32::try_from(code) == Ok(HCBT_ACTIVATE) {
+        BUTTONS.with_borrow(|b| {
+            if let Some([yes, no]) = b {
+                // SAFETY: `w` is the window being activated; NUL-terminated labels that outlive the calls.
+                unsafe {
+                    SetDlgItemTextW(w as _, IDYES, yes.as_ptr());
+                    SetDlgItemTextW(w as _, IDNO, no.as_ptr());
+                }
+            }
+        });
+    }
+    // SAFETY: the next hook gets the call as it came.
+    unsafe { CallNextHookEx(ptr::null_mut(), code, w, l) }
 }
 
 fn wide(s: &str) -> Vec<u16> {
@@ -2450,6 +2500,45 @@ mod tests {
             t(plain),
             "an empty cause says nothing"
         );
+    }
+
+    /// "Stop anyway?" reads Yes and No in the Launcher's language (#438), not in the Windows one.
+    #[test]
+    fn the_stop_question_answers_in_the_launchers_language() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetDlgItemTextW, PostMessageW, WM_COMMAND};
+        let title = format!("wccf-ask-test-{}", std::process::id());
+        let asked = {
+            let title = title.clone();
+            thread::spawn(move || ask_box("Stop anyway?", &title, Lang::It))
+        };
+        let (class, name) = (wide("#32770"), wide(&title));
+        let want = ui_text(Lang::It, "launcher.ask_yes", &[]);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let label = |dlg, id| {
+            let mut buf = [0u16; 64];
+            // SAFETY: a buffer of its stated length; the box is up until the answer below.
+            let n = unsafe { GetDlgItemTextW(dlg, id, buf.as_mut_ptr(), 64) };
+            String::from_utf16_lossy(&buf[..n as usize])
+        };
+        let (yes, no) = loop {
+            // SAFETY: NUL-terminated strings.
+            let dlg = unsafe { FindWindowW(class.as_ptr(), name.as_ptr()) };
+            if !dlg.is_null() {
+                // the hook relabels at activation: wait for it
+                let yes = label(dlg, IDYES);
+                if yes == want || Instant::now() > deadline {
+                    let no = label(dlg, IDNO);
+                    // SAFETY: a plain message to the box; IDNO answers it.
+                    unsafe { PostMessageW(dlg, WM_COMMAND, IDNO as usize, 0) };
+                    break (yes, no);
+                }
+            }
+            assert!(Instant::now() < deadline, "the question's box never opened");
+            thread::sleep(Duration::from_millis(20));
+        };
+        assert!(!asked.join().unwrap(), "No is no");
+        assert_eq!(yes, want);
+        assert_eq!(no, ui_text(Lang::It, "launcher.ask_no", &[]));
     }
 
     #[test]

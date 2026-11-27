@@ -735,6 +735,8 @@ pause.msg_too_soon: {en: "Next pause in %{s} s.", it: "Prossima pausa tra %{s} s
 
 # ---- language, logs, edition-aware warnings ----
 launcher.msg_stop_anyway_1718: {en: "A match is on. Stop anyway?", it: "Partita in corso. Fermare comunque?", ja: "試合中です。終了しますか？"}
+launcher.ask_yes: {en: "&Yes", it: "&Sì", ja: "はい(&Y)"}
+launcher.ask_no: {en: "&No", it: "&No", ja: "いいえ(&N)"}
 launcher.msg_stop_guest: {en: "1 guest connected to this arcade may be in a match here. Stop anyway?", it: "1 ospite connesso a questa sala potrebbe essere in una partita qui. Fermare comunque?", ja: "このゲームセンターに接続中のゲスト 1 人がここで試合中の可能性があります。終了しますか？"}
 launcher.msg_stop_guests: {en: "%{n} guests connected to this arcade may be in a match here. Stop anyway?", it: "%{n} ospiti connessi a questa sala potrebbero essere in una partita qui. Fermare comunque?", ja: "このゲームセンターに接続中のゲスト %{n} 人がここで試合中の可能性があります。終了しますか？"}
 close.body_1718: {en: "Closing now ends the match.", it: "Chiudere ora termina la partita.", ja: "今閉じると試合が終了します。"}
