@@ -977,6 +977,12 @@ fn leftover_note(dir: &Path) -> Option<Text> {
     }
 }
 
+/// Whether CLEAR BAD ENDINGS settles a club still marked out first (no trip on: the marker is a crash's, the club is
+/// home). Not on a VS start: its bring re-joins with that marker first (#437); the bad endings then stay this once.
+fn settles_at_card_steps(mode: &Mode, club_on: bool) -> bool {
+    !club_on && !matches!(mode, Mode::Vs(_))
+}
+
 /// #437, before a bring: a re-join of the arcade the club is still out in takes its newer copy home, then a club left
 /// out is settled. -> the guest to bring and what to tell. `Err` (no card, a re-join that could not ask): the marker
 /// stays for the next start, as a bring would send the older home club over the arcade's copy.
@@ -1464,8 +1470,8 @@ impl Run<'_> {
                 let done = if matches!(self.mode, Mode::Remote(..)) {
                     "the club is on another PC's server - clear its bad endings there".to_owned()
                 } else if steps["card_fix"].eq_ignore_ascii_case("bad_endings") {
-                    if self.club.is_none() {
-                        self.club_leftover(&dir); // no trip on: an out marker is a crash's, the club is home
+                    if settles_at_card_steps(&self.mode, self.club.is_some()) {
+                        self.club_leftover(&dir);
                     }
                     club::clear_bad_endings(&dir).unwrap_or_else(|e| format!("bad endings not cleared ({e})"))
                 } else {
@@ -3555,6 +3561,16 @@ mod tests {
             "{differs:?}"
         );
         assert!(differs.en().contains("club-shop-1.json"), "{}", differs.en());
+    }
+
+    /// A 2017-18 card step (CLEAR BAD ENDINGS) never settles a club marked out on a start that brings the club: an
+    /// online (VS) start re-joins with that marker first (#437); a local one settles it, a guest's skips the step.
+    #[test]
+    fn clear_bad_endings_leaves_a_vs_starts_marker_to_the_rejoin() {
+        use super::{Mode, settles_at_card_steps};
+        assert!(settles_at_card_steps(&Mode::Local, false));
+        assert!(!settles_at_card_steps(&Mode::Local, true), "a trip on");
+        assert!(!settles_at_card_steps(&Mode::Vs(String::new()), false));
     }
 
     /// #437: no card, or an arcade that does not answer the re-join, leaves the marker for the next try; a bring then
