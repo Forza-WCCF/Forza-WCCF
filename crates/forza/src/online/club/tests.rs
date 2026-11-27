@@ -1284,6 +1284,24 @@ fn a_taken_copy_can_be_undone_until_the_next_start() {
     assert!(!can_undo(&dir));
 }
 
+/// #437: a marker that cannot be read (not one that fails the checks) keeps it and stops the bring, so no older home
+/// club goes over the arcade's copy; a garbled one is left to [`leftover`].
+#[test]
+fn a_rejoin_fails_on_a_marker_it_cannot_read() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("gamesvr");
+    std::fs::create_dir_all(out_file(&dir)).unwrap();
+    let log: Log = Arc::new(|_: &str| {});
+    let nowhere: SocketAddr = "127.0.0.1:9".parse().unwrap();
+    assert!(matches!(
+        guest(nowhere, &dir, 2).rejoin(&log),
+        Rejoin::Failed(_)
+    ));
+    std::fs::remove_dir(out_file(&dir)).unwrap();
+    std::fs::write(out_file(&dir), b"not json").unwrap();
+    assert_eq!(guest(nowhere, &dir, 2).rejoin(&log), Rejoin::Skip);
+}
+
 /// #437: a guest whose visit ended before the last match came home re-joins the same arcade: the arcade's newer copy
 /// comes home first (the home club backed up), so the bring carries that match and the desk sets none aside. Another
 /// arcade, or a copy the player was asked about ([`left`]), takes nothing.

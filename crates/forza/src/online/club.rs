@@ -1184,10 +1184,10 @@ fn read_capped(path: &Path, cap: usize) -> io::Result<Vec<u8>> {
         .take(cap as u64 + 1)
         .read_to_end(&mut b)?;
     if b.len() > cap {
-        return Err(io::Error::other(format!(
-            "{} is over {cap} bytes",
-            path.display()
-        )));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} is over {cap} bytes", path.display()),
+        ));
     }
     Ok(b)
 }
@@ -1222,18 +1222,22 @@ impl Pending {
     }
 }
 
-fn read_left(dir: &Path) -> Result<Option<Pending>, String> {
+/// `Err` of kind `InvalidData`: a marker or copy that fails the checks; any other kind: it could not be read.
+fn read_left(dir: &Path) -> io::Result<Option<Pending>> {
+    let bad = |what: &str, e: &dyn std::fmt::Display| {
+        io::Error::new(io::ErrorKind::InvalidData, format!("{what}: {e}"))
+    };
     let out = match read_capped(&out_file(dir), 64 << 10) {
-        Ok(b) => serde_json::from_slice::<Out>(&b).map_err(|e| format!("club_out.json: {e}"))?,
+        Ok(b) => serde_json::from_slice::<Out>(&b).map_err(|e| bad("club_out.json", &e))?,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("club_out.json: {e}")),
+        Err(e) => return Err(io::Error::new(e.kind(), format!("club_out.json: {e}"))),
     };
     let last = last_file(dir);
     let copy = match read_capped(&last, MAX_BYTES + (64 << 10)) {
         Ok(b) => {
             let (_, host): (Link, Club) =
-                serde_json::from_slice(&b).map_err(|e| format!("club_last.json: {e}"))?;
-            sound(out.arcade_aime, &out.link, &host).map_err(|e| format!("club_last.json: {e}"))?;
+                serde_json::from_slice(&b).map_err(|e| bad("club_last.json", &e))?;
+            sound(out.arcade_aime, &out.link, &host).map_err(|e| bad("club_last.json", &e))?;
             let pulled = std::fs::metadata(&last)
                 .and_then(|m| m.modified())
                 .ok()
@@ -1242,7 +1246,7 @@ fn read_left(dir: &Path) -> Result<Option<Pending>, String> {
             Some((host, pulled))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("club_last.json: {e}")),
+        Err(e) => return Err(io::Error::new(e.kind(), format!("club_last.json: {e}"))),
     };
     Ok(Some(Pending { out, copy }))
 }
@@ -1258,7 +1262,7 @@ fn plays(c: &Club) -> Option<u32> {
 /// marker; `Err`: a marker or copy that cannot be read or fails the checks, which is never offered (the next start
 /// handles it as [`leftover`] always did). Not while a run is on: a trip in progress keeps a marker too.
 pub fn left(dir: &Path) -> Result<Option<Left>, String> {
-    let Some(p) = read_left(dir)? else {
+    let Some(p) = read_left(dir).map_err(|e| e.to_string())? else {
         return Ok(None);
     };
     let mut left = p.left(None);
@@ -1306,7 +1310,9 @@ pub struct Taken {
 /// then go as at a start ([`leftover`]), and [`undo`] can put the home club back until the next start. `Err` only
 /// when nothing was replaced.
 pub fn take(dir: &Path) -> Result<Taken, NotReplaced> {
-    let p = read_left(dir)?.ok_or_else(|| "no club is out".to_owned())?;
+    let p = read_left(dir)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no club is out".to_owned())?;
     let (host, _) = match (&p.copy, p.left(None)) {
         (Some(c), Left::Differs(_)) => c,
         _ => return Err("the arcade's last copy is already home".to_owned().into()),
@@ -1518,9 +1524,14 @@ impl Guest {
         let p = match read_left(&self.dir) {
             Ok(Some(p)) => p,
             Ok(None) => return Rejoin::Skip,
-            Err(e) => {
+            // a marker that fails the checks is leftover's; one that cannot be read keeps it, and no bring follows
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
                 log(&format!("re-join: the arcade's copy not asked for ({e})"));
                 return Rejoin::Skip;
+            }
+            Err(e) => {
+                log(&format!("re-join: the marker could not be read ({e})"));
+                return Rejoin::Failed(format!("re-join: {e}"));
             }
         };
         let mut out = p.out.clone();
