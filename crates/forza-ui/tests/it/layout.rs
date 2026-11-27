@@ -620,8 +620,8 @@ fn board_reset_reason_clear_of_the_buttons() {
 }
 
 /// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
-/// the windows the panel's layout test covers and the game window players run (1972x1080), in English, Italian and
-/// Japanese. Laid out only: no GPU.
+/// the windows the panel's layout test covers and the game window players run (1972x1080), with the bench at the
+/// pitch's right and under it, in English, Italian and Japanese. Laid out only: no GPU.
 #[test]
 fn board_hint_clear_of_the_buttons() {
     const GAP: f32 = 8.0;
@@ -638,8 +638,12 @@ fn board_hint_clear_of_the_buttons() {
     ] {
         // the sheet such a window shows, in points
         let size = Vec2::new(w, h) / panel::scale(w, h, 96.0);
-        for lang in Lang::ALL {
+        for (lang, bench) in Lang::ALL
+            .into_iter()
+            .flat_map(|l| [(l, None), (l, Some(false))])
+        {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.file.bench = bench; // SETTINGS' BENCH POSITION: RIGHT (the default) and BELOW
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
             st.reset_ready = true; // RESET LINEUP lit: the hint, not its reason, under the buttons
             let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
@@ -653,7 +657,7 @@ fn board_hint_clear_of_the_buttons() {
             // the board strip keeps a 16-point margin inside the board's column
             let board =
                 panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
-            let case = format!("{size:?} {}", lang.code());
+            let case = format!("{size:?} {} bench {bench:?}", lang.code());
             assert!(
                 hint.top() >= buttons + GAP - 0.5,
                 "{case}: the hint at {} sits {} under the buttons",

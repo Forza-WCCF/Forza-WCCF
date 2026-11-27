@@ -56,6 +56,9 @@ const BOARD_EXTRA: f32 = 101.0;
 /// 22-point rects), [`FOOT_GAP`] 8 and the hint's line. Its 24 points take 116, 4 past this; 112 holds a 20-point
 /// line, the drawn hint (17) inside the board's 16-point margin at 1440x900.
 const BOARD_EXTRA_1718: f32 = 112.0;
+/// The 2017-18 docked board with its bench under the pitch fills the strip's height, and its hint wraps to three lines
+/// (English, Italian; Japanese two): this holds the two lines past [`BOARD_EXTRA_1718`]'s one.
+const HINT_WRAP_1718: f32 = 40.0;
 /// The 2010-11 pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its
 /// room is at least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
@@ -241,7 +244,7 @@ pub fn docked_mats(board: Rect) -> [board::Mat; 2] {
     let room = board.height() - BOARD_EXTRA_1718;
     let top = |w: f32| pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD);
     let w = r.width().min(room / board::COLUMN_ASPECT);
-    let below = r.width().min(room / BOARD_PER_W);
+    let below = r.width().min((room - HINT_WRAP_1718) / BOARD_PER_W);
     let pitch = board::pitch_rect(top(below), below);
     [
         board::Mat::column(top(w), w),
