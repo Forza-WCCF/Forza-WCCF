@@ -2218,7 +2218,7 @@ dependencies = [
 
 [[package]]
 name = "forza-panel"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "egui",
  "forza",
@@ -3520,7 +3520,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "csv",
  "eframe",
@@ -7423,7 +7423,7 @@ dependencies = [
 
 [[package]]
 name = "wccf-installer"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aes 0.9.4",
  "anyhow",
