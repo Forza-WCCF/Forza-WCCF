@@ -3849,8 +3849,14 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             .truncate(),
         );
     } else if !st.desk {
+        // 2017-18 also boxes and moves groups of pitch cards ([`board::group_moves`])
+        let key = if st.edition == Edition::E1718 {
+            "board.hint_1718"
+        } else {
+            "board.hint"
+        };
         b.label(
-            egui::RichText::new(tr!(lang, "board.hint"))
+            egui::RichText::new(tr!(lang, key))
                 .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
         );

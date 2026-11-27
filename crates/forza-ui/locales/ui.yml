@@ -320,6 +320,7 @@ panel.msg_session_open: {en: "Match in progress.", it: "Partita in corso.", ja: 
 
 # ---- formation board ----
 board.hint: {en: "Drag cards onto the table. Drop one on a card to swap them; drag it off to remove it.", it: "Trascina le carte sul tavolo. Su una carta si scambiano; fuori dal tavolo si tolgono.", ja: "カードをテーブルへドラッグ。重ねると入れ替わり、外へドラッグすると外れます。"}
+board.hint_1718: {en: "Drag cards onto the table; drop one on a card to swap them, drag it off to remove it. Drag across open pitch to select several cards, then drag one of them to move them all.", it: "Trascina le carte sul tavolo; su una carta si scambiano, fuori dal tavolo si tolgono. Trascina sul campo libero per selezionare più carte, poi trascinane una per spostarle tutte.", ja: "カードをテーブルへドラッグ。重ねると入れ替わり、外へドラッグすると外れます。空いたピッチをドラッグして複数のカードを囲み、その1枚をドラッグするとまとめて動きます。"}
 board.kept: {en: "You cannot remove cards during a match.", it: "Durante una partita le carte non si possono togliere.", ja: "試合中はカードをテーブルから外せません。"}
 board.removed: {en: "Removed %{name}", it: "Rimosso %{name}", ja: "%{name}を外しました"}
 board.undo: {en: "UNDO", it: "ANNULLA", ja: "元に戻す"}

@@ -533,7 +533,7 @@ fn board_reset_lineup_offered_outside_a_match() {
             why.is_some(),
             "{why:?}"
         );
-        let key = if same { why.unwrap() } else { "board.hint" };
+        let key = if same { why.unwrap() } else { "board.hint_1718" };
         let line = forza_ui::text(Lang::En, key, &[("at", "")]);
         assert!(h.query_by_label(&line).is_some(), "{key} under the board");
         // the drag hint's place: the greyed button's reason stays on its hover
@@ -645,7 +645,7 @@ fn board_hint_clear_of_the_buttons() {
                 .map(|k| at(k).bottom())
                 .into_iter()
                 .fold(f32::MIN, f32::max);
-            let hint = at("board.hint");
+            let hint = at("board.hint_1718");
             // the board strip keeps a 16-point margin inside the board's column
             let board =
                 panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
