@@ -308,6 +308,11 @@ fn apply_to_save_data(body: &mut [u8], bought: &[(u32, u32)]) {
     }
 }
 
+/// Distinct (category, item) purchases kept per Aime id: what a club copy takes ([`super::club::Club::check`]).
+pub(super) const MAX_PURCHASES: usize = 1000;
+/// The longest BUY_SHOP_ITEM 315 kept (the client's is 24 bytes; a club copy takes 16..=64).
+pub(super) const MAX_PURCHASE_LEN: usize = 64;
+
 /// What the control shows when it has no team ranking: "NO ENTRY" in every name of answer 234, everything else 0.
 const NO_ENTRY: &[u8] = b"NO ENTRY\0";
 /// The name fields of the team ranking answer 234 (1,092 bytes; the control keeps it whole and feeds its ranking
@@ -1239,13 +1244,29 @@ impl Store {
             .optional()
     }
 
-    /// Keeps a BUY_SHOP_ITEM request whole; Ok only once the insert has committed.
-    fn buy(&self, aime: u32, req: &[u8]) -> rusqlite::Result<()> {
-        self.0.execute(
+    /// Keeps a BUY_SHOP_ITEM request whole as the newest row of its (category, item): a repeat replaces the earlier
+    /// row (a purchase only sets a flag or a category's choice, and the last of a category wins, [`apply_to_item_list`]),
+    /// so it adds none. Ok(false) when `aime` already holds [`MAX_PURCHASES`] other items; Ok only once committed.
+    fn buy(&mut self, aime: u32, req: &[u8]) -> rusqlite::Result<bool> {
+        let tx = self.0.transaction()?;
+        let repeat = tx.execute(
+            "DELETE FROM purchases WHERE aime_id = ?1 AND substr(payload, 9, 8) = substr(?2, 9, 8)",
+            params![aime, req],
+        )?;
+        let n: u32 = tx.query_row(
+            "SELECT count(*) FROM purchases WHERE aime_id = ?1",
+            [aime],
+            |r| r.get(0),
+        )?;
+        if repeat == 0 && n as usize >= MAX_PURCHASES {
+            return Ok(false);
+        }
+        tx.execute(
             "INSERT INTO purchases (aime_id, at, payload) VALUES (?1, ?2, ?3)",
             params![aime, now(), req],
         )?;
-        Ok(())
+        tx.commit()?;
+        Ok(true)
     }
 
     /// The (category, item) of every purchase of `aime` (request +8 and +12), oldest first.
@@ -1563,7 +1584,12 @@ fn club(
         315 => {
             // BUY_SHOP_ITEM: +8 category, +12 item; kept whole, errCode 0 only once committed (a store error is
             // errCode 1 and the client keeps the item queued and resends it)
-            st.buy(aime, req).map_err(db)?;
+            if req.len() > MAX_PURCHASE_LEN {
+                return Err(format!("{} bytes, at most {MAX_PURCHASE_LEN}", req.len()));
+            }
+            if !st.buy(aime, req).map_err(db)? {
+                return Err(format!("{MAX_PURCHASES} items bought already"));
+            }
         }
         287 => {
             let new = st

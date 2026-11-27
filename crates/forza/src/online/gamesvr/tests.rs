@@ -1222,6 +1222,7 @@ fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
         285 => (24, 20),
         287 | 289 => (28, 24),
         309 => (3368, 0),
+        315 => (24, 0),
         _ => (600, 0),
     };
     let mut r = vec![0u8; len];
@@ -1932,6 +1933,48 @@ fn purchases_are_stored_and_applied_to_286_and_276() {
         .unwrap();
     let (b, why) = buy(&store, 4, 1);
     assert!(why.is_some() && u32_at(&b, 4) == 1);
+}
+
+/// A 315 is at most 64 bytes, a repeat of an item adds no row (and moves it to the newest, so the last uniform bought
+/// still wins), and an Aime id holds at most 1,000 items: what a club copy takes, so its copy back still checks.
+#[test]
+fn buy_is_bounded_and_copy_back_still_checks() {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let buy = |cat: u32, item: u32, len: usize| {
+        let mut r = req(315, [5, cat, item]);
+        r.resize(len, 0);
+        let (b, why) = ask_store(&store, 315, &r);
+        (u32_at(&b, 4), why)
+    };
+    let rows = || -> u32 {
+        let st = store.lock().unwrap();
+        st.0.query_row("SELECT count(*) FROM purchases", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(buy(4, 7, 65).0, 1, "a 65-byte 315 is refused");
+    assert_eq!(rows(), 0);
+    assert_eq!(buy(4, 7, 24), (0, None));
+    assert_eq!(buy(4, 7, 64), (0, None), "a repeat answers OK");
+    assert_eq!(rows(), 1, "and adds no row");
+    let club = new_club(&store);
+    let uniform = || ask_store(&store, 285, &req(285, club)).0[700];
+    for item in [3, 4, 3] {
+        assert_eq!(buy(1, item, 24).0, 0);
+    }
+    assert_eq!((uniform(), rows()), (3, 3), "the repeat is the newest");
+    for item in 1000..1000 + MAX_PURCHASES as u32 - 3 {
+        assert_eq!(buy(5, item, 24).0, 0, "item {item}");
+    }
+    assert_eq!(rows(), MAX_PURCHASES as u32);
+    let (code, why) = buy(5, 9, 24);
+    assert!(code == 1 && why.is_some(), "the 1,001st item is refused");
+    assert_eq!(buy(4, 7, 24), (0, None), "a repeat still answers OK");
+    assert_eq!(rows(), MAX_PURCHASES as u32);
+    let st = store.lock().unwrap();
+    super::super::club::export(&st.0, 5)
+        .unwrap()
+        .check()
+        .unwrap();
 }
 
 /// A 311 request: slot 1 and an area id of 0.
