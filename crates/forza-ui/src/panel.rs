@@ -3031,6 +3031,31 @@ fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect, k: f32)
     )
 }
 
+/// 2017-18: PRESS's name printed in its square (the arrows round it leave no side free), above its keycap when one
+/// shows; the name and where it sits. `k`: the print's size ([`deck_label_parts`]).
+fn press_name(
+    p: &egui::Painter,
+    rect: Rect,
+    name: &str,
+    cap: bool,
+    k: f32,
+) -> (std::sync::Arc<egui::Galley>, Rect) {
+    let g = widgets::fit(
+        p,
+        name,
+        theme::display(11.0 * k),
+        theme::TEXT,
+        rect.width() - 4.0 * k,
+    );
+    let bottom = if cap {
+        rect.bottom() - 4.0 * k - KEYCAP_H * k
+    } else {
+        rect.bottom()
+    };
+    let at = Rect::from_center_size(pos2(rect.center().x, (rect.top() + bottom) / 2.0), g.size());
+    (g, at)
+}
+
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
 fn card_key(area: Rect, s: f32, stack: bool) -> Rect {
     Rect::from_center_size(
@@ -3257,6 +3282,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                     vec2(cap_w, KEYCAP_H * k),
                 );
                 paint_keycap(p, r, &cap, k);
+            }
+            if !both {
+                let (name, at) = press_name(p, it.rect, &tr!(lang, it.key), cap_w > 0.0, k);
+                // a dark shadow keeps the name readable on the red face, lit or not, and on the black rim
+                p.galley_with_override_text_color(
+                    at.min + vec2(1.0, 1.0),
+                    name.clone(),
+                    Color32::BLACK,
+                );
+                p.galley(at.min, name, theme::TEXT);
             }
         }
     }
@@ -5733,8 +5768,8 @@ mod tests {
         assert_eq!(latch_kept(on, false, false), None);
     }
 
-    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), the pad
-    /// is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
+    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), PRESS
+    /// in its square, the pad is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
     /// Alt) overlaps another or leaves its plate, in EN, IT and JA, in the row and stacked.
     #[test]
     fn the_pad_names_sit_beside_their_arrows() {
@@ -5754,6 +5789,19 @@ mod tests {
                     let items = deck_layout_for(area, false, 1.0, stack);
                     let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
                     assert!(at("PRESS").width() > 40.0, "the pad is drawn bigger");
+                    // PRESS prints its name in its square, above its keycap when one shows
+                    let press = at("PRESS");
+                    let (_, name) =
+                        press_name(&p, press, &tr!(lang, "cab.press"), !cap.is_empty(), 1.0);
+                    let why = format!("{lang:?} cap={cap:?} stack={stack} PRESS");
+                    assert!(
+                        press.shrink(1.5).contains_rect(name),
+                        "{why}: {name:?} leaves {press:?}"
+                    );
+                    if !cap.is_empty() {
+                        let cap_top = press.bottom() - 4.0 - KEYCAP_H;
+                        assert!(name.bottom() <= cap_top + 0.5, "{why}: over its keycap");
+                    }
                     // every button and every printed label, each with its plate
                     let mut boxes = Vec::new();
                     for it in &items {
