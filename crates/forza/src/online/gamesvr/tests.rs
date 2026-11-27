@@ -1393,6 +1393,9 @@ fn card_in_after(set: Option<&[(usize, &[u8])]>) -> Vec<u8> {
     }
     let (a, why) = ask_store(&store, 275, &req(275, [aime, club, card]));
     assert_eq!((a.len(), u32_at(&a, 4), why), (6176, 0, None));
+    let mut z = a.clone();
+    put(&mut z, 3088, 0);
+    assert_eq!(u32_at(&a, 3088), sum32(&z), "C2 covers the restored tail");
     a
 }
 
@@ -1407,9 +1410,14 @@ fn the_save_answer_keeps_title_wear_and_flag() {
 /// #449: the total rematch count (u16) is read at 276 +6,148, not +6,138 where the old span put it.
 #[test]
 fn the_save_answer_keeps_the_total_rematch_count() {
-    let a = card_in_after(Some(&[(8532, &[3, 4, 0x34, 0x12])]));
+    let a = card_in_after(Some(&[(8532, &[3, 4, 0x34, 0x12, 1, 0, 0, 0, 2, 0, 0, 0])]));
     assert_eq!(&a[6148..6150], &[0x34, 0x12]);
     assert_eq!(&a[6136..6140], &[3, 4, 0, 0], "serial count and incentive");
+    assert_eq!(
+        &a[6140..6148],
+        &[1, 0, 0, 0, 2, 0, 0, 0],
+        "both GT counters"
+    );
 }
 
 /// #449: MOM and worst player (276 +4,154/+4,155) are the 277's +6,556/+6,557, or 16 (no player) with no 277.
