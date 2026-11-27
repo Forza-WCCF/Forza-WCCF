@@ -1872,7 +1872,7 @@ impl Vs {
                 }
             }
             243 => {
-                self.matcher.enter(payload, t);
+                self.matcher.enter(payload, peer, t);
             }
             245 => {
                 if let Some(m) = self.matcher.poll(payload, t) {

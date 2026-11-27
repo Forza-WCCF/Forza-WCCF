@@ -277,7 +277,7 @@ fn pc(m: &Matcher, n: u8, ticket: Option<&str>) {
     e[8..12].copy_from_slice(&ip);
     e[12..14].copy_from_slice(&port.to_le_bytes());
     e[44..48].copy_from_slice(&(100 + u32::from(n)).to_le_bytes());
-    assert!(m.enter(&e, t));
+    assert!(m.enter(&e, IpAddr::from([10, 0, 0, n]), t));
 }
 
 fn partner(m: &Matcher, n: u8) -> Option<u32> {

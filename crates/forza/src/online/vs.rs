@@ -25,6 +25,9 @@ pub struct VsConfig {
 
 /// Entry window in seconds (answer 224 +8 and +12; the client needs >= 9).
 pub const WINDOW_SECS: u32 = 40;
+/// Waiting 243 entries in all, and from one address (an arcade's seats; a vslink PC has one).
+const MAX_ENTRIES: usize = 256;
+const MAX_ENTRIES_PER_PEER: usize = 8;
 /// An entry lives this long after its 243 or its last 245: the control polls every 10 s, [`POLLS`] times (there is no
 /// other cancel message).
 const ENTRY_TTL: Duration = Duration::from_secs(10 * POLLS as u64 + 20);
@@ -84,6 +87,8 @@ pub fn fill_round(body: &mut [u8], unix_secs: i64) {
 #[derive(Debug)]
 struct Entry {
     req: [u8; ENTRY_LEN],
+    /// The game server connection's address (the request's own +8 is whatever the sender wrote)
+    peer: IpAddr,
     at: Instant,
     /// The 246 for this seat once paired (slot not yet echoed)
     pair: Option<[u8; MATCH_LEN]>,
@@ -357,21 +362,26 @@ impl Matcher {
         Some((token, l.ids.get(&key).map_or([0; 32], |(id, _)| *id)))
     }
 
-    /// A 243. Port 0 is CANCEL: the seat's entry goes. Otherwise the whole request replaces the seat's entry.
+    /// A 243 from `peer`. Port 0 is CANCEL: the seat's entry goes. Otherwise the whole request replaces the seat's
+    /// entry, unless [`MAX_ENTRIES`] wait or `peer` has [`MAX_ENTRIES_PER_PEER`] (then the seat plays the CPU).
     /// Returns true when an entry is now waiting.
-    pub fn enter(&self, req: &[u8], now: Instant) -> bool {
+    pub fn enter(&self, req: &[u8], peer: IpAddr, now: Instant) -> bool {
         let Ok(req) = <[u8; ENTRY_LEN]>::try_from(req.get(..ENTRY_LEN).unwrap_or(&[])) else {
             return false;
         };
         let e = Entry {
             req,
+            peer,
             at: now,
             pair: None,
             polls: 0,
         };
         let mut v = self.lock();
         v.retain(|x| x.key() != e.key() && now.duration_since(x.at) < ENTRY_TTL);
-        if e.addr().1 == 0 {
+        if e.addr().1 == 0
+            || v.len() >= MAX_ENTRIES
+            || v.iter().filter(|x| x.peer == peer).count() >= MAX_ENTRIES_PER_PEER
+        {
             return false;
         }
         v.push(e);
@@ -523,6 +533,15 @@ pub fn spawn_reflect(sock: UdpSocket, log: Log) -> io::Result<Handle> {
 mod tests {
     use super::*;
 
+    /// A 243 from the address its own +8 names (each fake cabinet below is one game server peer).
+    fn enter(m: &Matcher, req: &[u8], t: Instant) -> bool {
+        m.enter(
+            req,
+            IpAddr::from(<[u8; 4]>::try_from(&req[8..12]).unwrap()),
+            t,
+        )
+    }
+
     // `shop`: the original packets' venue fields, not an arcade room
     fn entry(slot: u32, seq: u32, ip: [u8; 4], port: u16, card: u32, shop: u32) -> Vec<u8> {
         let mut r = vec![0u8; ENTRY_LEN];
@@ -545,6 +564,54 @@ mod tests {
         r[8..12].copy_from_slice(&card.to_le_bytes());
         r[12..16].copy_from_slice(&shop.to_le_bytes());
         r
+    }
+
+    /// One address holds 8 waiting entries (whatever +8 its requests name), and all addresses 256; a seat's own new
+    /// entry still replaces its old one, and a freed place takes the next.
+    #[test]
+    fn entries_are_capped_per_address_and_in_all() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        let one = IpAddr::from([203, 0, 113, 1]);
+        for slot in 0..MAX_ENTRIES_PER_PEER as u32 {
+            assert!(m.enter(
+                &entry(slot, 7, [9, 9, 9, slot as u8], 20001, 100 + slot, 5),
+                one,
+                t
+            ));
+        }
+        assert!(
+            !m.enter(&entry(99, 7, [8, 8, 8, 8], 20001, 999, 5), one, t),
+            "a 9th seat"
+        );
+        assert!(
+            m.enter(&entry(0, 7, [9, 9, 9, 0], 20001, 100, 5), one, t),
+            "a seat again"
+        );
+        assert_eq!(m.waiting(), MAX_ENTRIES_PER_PEER);
+        for n in 0..(MAX_ENTRIES - MAX_ENTRIES_PER_PEER) as u32 {
+            let peer = IpAddr::from([198, 51, (n / 256) as u8, n as u8]);
+            assert!(m.enter(
+                &entry(1000 + n, 7, [9, 9, 9, 1], 20001, 5000 + n, 5),
+                peer,
+                t
+            ));
+        }
+        assert_eq!(m.waiting(), MAX_ENTRIES);
+        let late = IpAddr::from([192, 0, 2, 1]);
+        assert!(
+            !m.enter(&entry(7777, 7, [9, 9, 9, 1], 20001, 7777, 5), late, t),
+            "full"
+        );
+        assert!(
+            !m.enter(&entry(0, 7, [9, 9, 9, 0], 0, 100, 5), one, t),
+            "a cancel"
+        );
+        assert!(
+            m.enter(&entry(7777, 7, [9, 9, 9, 1], 20001, 7777, 5), late, t),
+            "a freed place"
+        );
+        assert_eq!(m.waiting(), MAX_ENTRIES);
     }
 
     #[test]
@@ -575,7 +642,7 @@ mod tests {
         let mut a = entry(1, 7, [9, 9, 9, 1], 20001, 111, 5);
         let mut b = entry(2, 7, [9, 9, 9, 2], 20002, 222, 6);
         (a[16], b[16]) = (2, 3);
-        assert!(m.enter(&a, t) && m.enter(&b, t));
+        assert!(enter(&m, &a, t) && enter(&m, &b, t));
         assert_eq!(m.poll(&poll_req(1, 111, 5), t).map(|_| ()), Some(()));
         let pa = m.poll(&poll_req(1, 111, 5), t).unwrap();
         let pb = m.poll(&poll_req(2, 222, 6), t).unwrap();
@@ -600,23 +667,23 @@ mod tests {
     fn no_partner_waits_cancel_and_expiry() {
         let m = Matcher::default();
         let t = Instant::now();
-        assert!(m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t));
+        assert!(enter(&m, &entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t));
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
         // same cabinet, same card id elsewhere (both would be Home), a GT class (kbn 1) with no class (0) do not pair
-        m.enter(&entry(2, 7, [9, 9, 9, 1], 20002, 222, 5), t);
-        m.enter(&entry(3, 7, [9, 9, 9, 3], 20003, 111, 7), t);
+        enter(&m, &entry(2, 7, [9, 9, 9, 1], 20002, 222, 5), t);
+        enter(&m, &entry(3, 7, [9, 9, 9, 3], 20003, 111, 7), t);
         let mut k = entry(4, 7, [9, 9, 9, 4], 20004, 444, 8);
         k[16] = 1;
-        m.enter(&k, t);
+        enter(&m, &k, t);
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
         // history (+172..+196) blocks a rematch
         let mut h = entry(5, 7, [9, 9, 9, 5], 20005, 555, 9);
         h[192..196].copy_from_slice(&111u32.to_le_bytes());
-        m.enter(&h, t);
+        enter(&m, &h, t);
         assert!(m.poll(&poll_req(1, 111, 5), t).is_none());
         // cancel (port 0) removes; expiry drops
         assert_eq!(m.waiting(), 5);
-        assert!(!m.enter(&entry(5, 7, [9, 9, 9, 5], 0, 555, 9), t));
+        assert!(!enter(&m, &entry(5, 7, [9, 9, 9, 5], 0, 555, 9), t));
         assert_eq!(m.waiting(), 4);
         assert!(m.poll(&poll_req(1, 111, 5), t + ENTRY_TTL).is_none());
         assert_eq!(m.waiting(), 0);
@@ -641,7 +708,9 @@ mod tests {
         // a Local coach (kbn 0) waits first; Area B (1) and World A (4) pair with each other, never with it
         let m = Matcher::default();
         assert!(
-            m.enter(&gt(1, 111, 0), t) && m.enter(&gt(2, 222, 1), t) && m.enter(&gt(3, 333, 4), t)
+            enter(&m, &gt(1, 111, 0), t)
+                && enter(&m, &gt(2, 222, 1), t)
+                && enter(&m, &gt(3, 333, 4), t)
         );
         let p = m.poll(&poll_req(3, 333, 3), t).unwrap();
         assert_eq!(u32_at(&p, 12), 222, "World A takes the waiting Area B");
@@ -663,7 +732,7 @@ mod tests {
         );
         // a lone Area A entry answers no pair to each poll and drops out at the last: the CPU fallback
         let m = Matcher::default();
-        m.enter(&gt(2, 222, 2), t);
+        enter(&m, &gt(2, 222, 2), t);
         for i in 1..u32::from(POLLS) {
             assert!(m.poll(&poll_req(2, 222, 2), t + step * i).is_none());
             assert_eq!(m.waiting(), 1, "poll {i}");
@@ -676,11 +745,11 @@ mod tests {
         // one class pairs with itself, 3 takes a leftover 2, and a value above 4 pairs with nothing
         let m = Matcher::default();
         assert!(
-            m.enter(&gt(4, 444, 2), t)
-                && m.enter(&gt(5, 555, 2), t)
-                && m.enter(&gt(6, 666, 2), t)
-                && m.enter(&gt(7, 777, 3), t)
-                && m.enter(&gt(8, 888, 5), t)
+            enter(&m, &gt(4, 444, 2), t)
+                && enter(&m, &gt(5, 555, 2), t)
+                && enter(&m, &gt(6, 666, 2), t)
+                && enter(&m, &gt(7, 777, 3), t)
+                && enter(&m, &gt(8, 888, 5), t)
         );
         // 888 polls while all four valid entries still wait
         assert!(
@@ -690,7 +759,7 @@ mod tests {
         assert_eq!(u32_at(&m.poll(&poll_req(5, 555, 5), t).unwrap(), 12), 444);
         assert_eq!(u32_at(&m.poll(&poll_req(7, 777, 7), t).unwrap(), 12), 666);
         let m = Matcher::default();
-        assert!(m.enter(&gt(1, 111, 4), t) && m.enter(&gt(2, 222, 7), t));
+        assert!(enter(&m, &gt(1, 111, 4), t) && enter(&m, &gt(2, 222, 7), t));
         assert!(
             m.poll(&poll_req(2, 222, 2), t).is_none(),
             "kbn 7 never meets class 4"
@@ -706,16 +775,16 @@ mod tests {
         let t = Instant::now();
         // two homes in different 224 rounds pair; +196 is the country code, not a past opponent
         let m = Matcher::default();
-        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
+        enter(&m, &entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
         let mut b = entry(2, 9, [9, 9, 9, 2], 20002, 222, 6);
         b[196..200].copy_from_slice(&111u32.to_le_bytes());
-        m.enter(&b, t);
+        enter(&m, &b, t);
         let p = m.poll(&poll_req(1, 111, 5), t).unwrap();
         // a pair always says MatchingOK: +12 a real card and +122 = 1
         assert_eq!((u32_at(&p, 12), p[122]), (222, 1));
         // each poll keeps the entry past the TTL; the POLLS-th without a pair drops it
         let m = Matcher::default();
-        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
+        enter(&m, &entry(1, 7, [9, 9, 9, 1], 20001, 111, 5), t);
         let step = Duration::from_secs(10);
         for i in 1..u32::from(POLLS) {
             assert!(m.poll(&poll_req(1, 111, 5), t + step * i).is_none());
@@ -728,8 +797,8 @@ mod tests {
         assert_eq!(m.waiting(), 0, "the seat plays the CPU now");
         // a card id of -1 never pairs (its 246 would block the seat)
         let m = Matcher::default();
-        m.enter(&entry(1, 7, [9, 9, 9, 1], 20001, u32::MAX, 5), t);
-        m.enter(&entry(2, 7, [9, 9, 9, 2], 20002, 222, 6), t);
+        enter(&m, &entry(1, 7, [9, 9, 9, 1], 20001, u32::MAX, 5), t);
+        enter(&m, &entry(2, 7, [9, 9, 9, 2], 20002, 222, 6), t);
         assert!(m.poll(&poll_req(2, 222, 6), t).is_none());
     }
 
@@ -760,8 +829,8 @@ mod tests {
     }
 
     fn paired(m: &Matcher, t: Instant, a_ip: [u8; 4], b_ip: [u8; 4]) {
-        assert!(m.enter(&entry(1, 7, a_ip, 20001, 111, 5), t));
-        assert!(m.enter(&entry(2, 7, b_ip, 20002, 222, 6), t));
+        assert!(enter(m, &entry(1, 7, a_ip, 20001, 111, 5), t));
+        assert!(enter(m, &entry(2, 7, b_ip, 20002, 222, 6), t));
     }
 
     #[test]
@@ -790,9 +859,9 @@ mod tests {
         let (ta, tb) = ([127, 1, 1, 1], [127, 2, 2, 2]);
         let (ka, kb) = (u32::from_le_bytes(ta), u32::from_le_bytes(tb));
         assert!(m.register(ka, 20001, [0xAA; 32], t));
-        assert!(m.enter(&entry(1, 7, ta, 20001, 111, 5), t));
+        assert!(enter(&m, &entry(1, 7, ta, 20001, 111, 5), t));
         assert_eq!(m.lookup(ka, 20001, t), None, "unpaired");
-        assert!(m.enter(&entry(2, 7, tb, 20002, 222, 6), t));
+        assert!(enter(&m, &entry(2, 7, tb, 20002, 222, 6), t));
         assert_eq!(m.lookup(ka, 20001, t), None, "not polled yet");
         m.poll(&poll_req(1, 111, 5), t).unwrap();
         // b has not registered: zeros; a is known to b
@@ -832,7 +901,7 @@ mod tests {
         m.hello(IpAddr::from([10, 0, 0, n]), [n; 32], ticket, dmath, t);
         assert!(m.register(u32::from_le_bytes(ip), port, [n; 32], t));
         let e = entry(u32::from(n), round, ip, port, 100 + u32::from(n), 5);
-        assert!(m.enter(&e, t));
+        assert!(enter(m, &e, t));
         e
     }
 
@@ -881,7 +950,7 @@ mod tests {
         pc(&m, t, 1, Some("ta1"), 7);
         let mut e = pc(&m, t, 2, Some("ta2"), 7);
         e[16] = 3;
-        assert!(m.enter(&e, t));
+        assert!(enter(&m, &e, t));
         assert_eq!(partner(&m, t, 2), Some(101));
     }
 
@@ -967,8 +1036,8 @@ mod tests {
                 at,
             );
         }
-        assert!(m.enter(&entry(1, 8, [127, 1, 1, 1], 20001, 101, 5), at));
-        assert!(m.enter(&entry(2, 8, [127, 2, 2, 2], 20002, 102, 5), at));
+        assert!(enter(&m, &entry(1, 8, [127, 1, 1, 1], 20001, 101, 5), at));
+        assert!(enter(&m, &entry(2, 8, [127, 2, 2, 2], 20002, 102, 5), at));
         assert_eq!(partner(&m, at, 2), None);
     }
 
@@ -989,7 +1058,7 @@ mod tests {
             t
         ));
         assert!(m.register(u32::from_le_bytes([127, 2, 2, 2]), 20002, [2; 32], t));
-        assert!(m.enter(&entry(2, 7, [127, 2, 2, 2], 20002, 102, 5), t));
+        assert!(enter(&m, &entry(2, 7, [127, 2, 2, 2], 20002, 102, 5), t));
         assert_eq!((partner(&m, t, 2), partner(&m, t, 1)), (None, None));
     }
 
