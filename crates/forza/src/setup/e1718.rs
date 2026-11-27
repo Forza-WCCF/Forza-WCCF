@@ -21,9 +21,9 @@ use super::{
     Error, Hash, Patch, Report, Result, apply, copy_in, logowin_backup, make_dir, make_junction,
     merge_settings, original, put, read, rename_import, replace, sha,
 };
-use crate::Edition;
 #[cfg(feature = "full")]
 use crate::cards::catalogue::Output;
+use crate::{Edition, Line};
 
 /// The decrypted 2017-18 game's two programs and the SHA-256 each must have (every patch checks its own bytes as well).
 const PINNED: [(&str, &str); 2] = [
@@ -421,10 +421,9 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     // seat 1: junctions to game\'s folders, hard links to its files, its own exe and settings
     // a seat1\ that setup did not make holds someone else's files and saves: refuse it
     if seat.exists() && !seat.join(SEAT_MARK).is_file() && !rt.join("setup-hashes.json").is_file() {
-        return Err(Error(format!(
-            "{} exists and was not made by setup; move it away first",
-            seat.display()
-        )));
+        return Err(Error(
+            Line::key("setup.err_seat_not_ours").arg("path", seat.display()),
+        ));
     }
     make_dir(&seat.join("local"))?;
     fs::write(seat.join(SEAT_MARK), b"made by Forza-WCCF setup\n")?;
@@ -471,7 +470,9 @@ pub fn setup_game(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
     // the 2017-18 client starts the card-table helper from its own folder; with none there the game reads no cards
     let named = format!("./{FPR_EMU}");
     if !want.windows(named.len()).any(|w| w == named.as_bytes()) {
-        return Err(Error(format!("seat 1's client no longer names {FPR_EMU}")));
+        return Err(Error::raw(format!(
+            "seat 1's client no longer names {FPR_EMU}"
+        )));
     }
     let helper = seat.join(FPR_EMU);
     make_dir(helper.parent().unwrap_or(&helper))?;
@@ -499,14 +500,12 @@ pub fn run(kit: &Path, game: &Path, spec: &Spec) -> Result<Report> {
 pub fn setup_catalogue(kit: &Path, game: &Path, force: bool, say: crate::Say) -> Result<()> {
     let overlay = kit.join(Edition::E1718.layout().overlay);
     if overlay.join("catalogue.tsv").is_file() && !force {
-        say("  ok    ", &crate::Line::key("setup.catalogue_made"));
+        say("  ok    ", &Line::key("setup.catalogue_made"));
         return Ok(());
     }
     match crate::cards::catalogue::run(Edition::E1718, game, &overlay, Output::CatalogueOnly, say) {
         0 => Ok(()),
-        _ => Err(Error(
-            "the card catalogue could not be made from this game".into(),
-        )),
+        _ => Err(Error(Line::key("setup.err_catalogue"))),
     }
 }
 
@@ -519,11 +518,13 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
         let from = rt.join("original").join(exe);
         let data = read(&from)?;
         if sha(&data) != pinned {
-            return Err(Error(format!(
-                "{} is not the original {exe} (SHA-256 {}, expected {pinned}); undo changed nothing",
-                from.display(),
-                sha(&data)
-            )));
+            return Err(Error(
+                Line::key("setup.err_undo_not_original")
+                    .arg("path", from.display())
+                    .arg("exe", exe)
+                    .arg("got", sha(&data))
+                    .arg("pinned", pinned),
+            ));
         }
         backups.push((exe, data));
     }
@@ -533,11 +534,13 @@ pub fn undo(kit: &Path, game: &Path, spec: &Spec) -> Result<()> {
     if from.is_file() {
         let data = read(&from)?;
         if sha(&data) != pinned {
-            return Err(Error(format!(
-                "{} is not the original {engine} (SHA-256 {}, expected {pinned}); undo changed nothing",
-                from.display(),
-                sha(&data)
-            )));
+            return Err(Error(
+                Line::key("setup.err_undo_not_original")
+                    .arg("path", from.display())
+                    .arg("exe", engine)
+                    .arg("got", sha(&data))
+                    .arg("pinned", pinned),
+            ));
         }
         backups.push((engine, data));
     }
@@ -595,14 +598,14 @@ mod tests {
         assert!(
             rename_import(&pe(&["KERNEL32.dll"], b""), OLD, NEW)
                 .unwrap_err()
-                .0
+                .to_string()
                 .contains("0 IPHLPAPI.DLL")
         );
         let two = pe(&["IPHLPAPI.DLL", "iphlpapi.dll"], b"");
         assert!(
             rename_import(&two, OLD, NEW)
                 .unwrap_err()
-                .0
+                .to_string()
                 .contains("2 IPHLPAPI.DLL")
         );
         assert!(
@@ -623,7 +626,7 @@ mod tests {
         assert!(
             apply(&[1, 2, 3, 5, 5], &p)
                 .unwrap_err()
-                .0
+                .to_string()
                 .contains("0x000002")
         );
         assert!(apply(&[1, 2, 3], &p).is_err());
@@ -1039,7 +1042,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.0.contains("is not the original WCCF 2017-18 program"),
+            matches!(&err.0, Line::Key("setup.err_not_original", a) if a.contains(&("edition", Line::raw("2017-18")))),
             "{err}"
         );
         assert!(

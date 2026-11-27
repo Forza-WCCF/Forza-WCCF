@@ -350,7 +350,7 @@ fn names(dir: &Path) -> Result<Vec<String>> {
             r.map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
                 .collect::<io::Result<Vec<_>>>()
         })
-        .map_err(|e| Error(format!("{}: {e}", dir.display())))?;
+        .map_err(|e| Error::raw(format!("{}: {e}", dir.display())))?;
     v.sort();
     Ok(v)
 }
@@ -402,13 +402,13 @@ fn english_copy(kit: &Path, rel: &str) -> Option<String> {
 fn patched_client(kit: &Path, game: &Path) -> Result<Vec<u8>> {
     let data = normalized(read(&original_client(kit, game)?)?);
     let d = apply(&data, &PATCHES).map_err(|e| {
-        Error(format!(
+        Error::raw(format!(
             "client_Release.exe is not the original Rev D bytes: {e}"
         ))
     })?;
     if sha(&d) != PATCHED_CLIENT {
-        return Err(Error(
-            "the patched exe does not come out as the tested one - not written".into(),
+        return Err(Error::raw(
+            "the patched exe does not come out as the tested one - not written",
         ));
     }
     Ok(d)
@@ -421,7 +421,7 @@ fn rename_hook_import(path: &Path, what: &Line, say: &Say) -> Result<()> {
         return Ok(());
     }
     let g = rename_import(&data, SYS_DLL, HOOK_DLL).map_err(|e| {
-        Error(format!(
+        Error::raw(format!(
             "{}: could not point it at Forza-WCCF's hook ({e})",
             path.display()
         ))
@@ -439,7 +439,10 @@ fn copy_if_different(src: &Path, dst: &Path, what: &Line, say: &Say) -> Result<(
     }
     replace(dst, &data)?;
     if read(dst)? != data {
-        return Err(Error(format!("{}: the copy does not match", dst.display())));
+        return Err(Error::raw(format!(
+            "{}: the copy does not match",
+            dst.display()
+        )));
     }
     say.ok(Line::key("setup.put_in_place").part("what", what.clone()));
     Ok(())
@@ -464,7 +467,7 @@ fn write_text(path: &Path, text: &str, what: &Line, say: &Say) -> Result<()> {
                 path.file_name().unwrap_or_default().to_string_lossy()
             );
             fs::copy(path, path.with_file_name(&name))
-                .map_err(|e| Error(format!("{}: {e}", path.display())))?;
+                .map_err(|e| Error::raw(format!("{}: {e}", path.display())))?;
             say.note(
                 Line::key("setup.old_kept")
                     .part("what", what.clone())
@@ -496,7 +499,7 @@ fn junction(link: &Path, target: &Path) -> Result<()> {
     #[cfg(not(windows))]
     let made: io::Result<()> = Err(io::Error::other("folder links need Windows"));
     if made.is_err() || !links_to(link, target) {
-        return Err(Error(format!(
+        return Err(Error::raw(format!(
             "could not link {} to {} (is the drive NTFS?)",
             link.display(),
             target.display()
@@ -513,14 +516,13 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         say.ok(Line::key("setup.check_english_backup"));
     }
     if h == PATCHED_CLIENT {
-        return Err(Error(
+        return Err(Error::raw(
             "the game folder's client_Release.exe is already PATCHED - setup needs the unchanged exe there (only \
-             seat1\\ gets the patched copy). Put your own unchanged client_Release.exe back first."
-                .into(),
+             seat1\\ gets the patched copy). Put your own unchanged client_Release.exe back first.",
         ));
     }
     if h != ORIGINAL_CLIENT {
-        return Err(Error(format!(
+        return Err(Error::raw(format!(
             "the game folder's client_Release.exe is not Rev D (SHA-256 {}...) - Forza-WCCF 2010-11 is for Rev D only",
             h[..16].to_uppercase()
         )));
@@ -535,7 +537,7 @@ fn check_game(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join("SysWOW64");
     if !wow.join("winmm.dll").is_file() {
-        return Err(Error(format!(
+        return Err(Error::raw(format!(
             "no {} - this needs 64-bit Windows 10 or 11",
             wow.join("winmm.dll").display()
         )));
@@ -607,7 +609,7 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     let seat = rt(game).join("seat1");
     say.line(Line::key("setup.in_folder").arg("folder", seat.display()));
     if seat.is_dir() && !seat.join(MARKER).is_file() {
-        return Err(Error(format!(
+        return Err(Error::raw(format!(
             "there is already a folder {} that Forza-WCCF did not make - move it away first",
             seat.display()
         )));
@@ -625,7 +627,7 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
         }
         if exists(&link) {
             if junction_target(&link).is_none() {
-                return Err(Error(format!(
+                return Err(Error::raw(format!(
                     "{} is in the way (not a link)",
                     link.display()
                 )));
@@ -652,7 +654,7 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
             fs::remove_file(&dst)?;
         }
         fs::hard_link(&src, &dst).map_err(|e| {
-            Error(format!(
+            Error::raw(format!(
                 "could not link {n} ({e}) - the game must be on an NTFS drive"
             ))
         })?;
@@ -671,7 +673,7 @@ fn setup_seat(kit: &Path, game: &Path, say: &Say) -> Result<()> {
     } else {
         replace(&exe, &patched_client(kit, game)?)?;
         if sha(&read(&exe)?) != PATCHED_CLIENT {
-            return Err(Error("seat 1's exe did not write correctly".into()));
+            return Err(Error::raw("seat 1's exe did not write correctly"));
         }
         say.ok(Line::key("setup.seat_client_made"));
     }
@@ -798,8 +800,8 @@ fn setup_cards(kit: &Path, game: &Path, force: bool, say: &Say) -> Result<()> {
     }
     (say.0)("  ", &Line::key("setup.making_cards"));
     if catalogue::run(Edition::E1011, game, &cache, catalogue::Output::All, say.0) != 0 {
-        return Err(Error(
-            "the card catalogue could not be made (see above)".into(),
+        return Err(Error::raw(
+            "the card catalogue could not be made (see above)",
         ));
     }
     say.ok(Line::key("setup.cards_made"));
@@ -836,12 +838,14 @@ fn holds_link(dir: &Path) -> io::Result<bool> {
 pub fn undo(kit: &Path, game: &Path, say: crate::Say) -> Result<()> {
     let say = &Say(say);
     if english_backup(kit).join("manifest.json").is_file() {
-        return Err(Error("The game text is not the original. Press UNDO SETUP in Launcher.exe: it puts the original text back first".into()));
+        return Err(Error::raw(
+            "The game text is not the original. Press UNDO SETUP in Launcher.exe: it puts the original text back first",
+        ));
     }
     let seat = rt(game).join("seat1");
     if seat.is_dir() {
         if !seat.join(MARKER).is_file() {
-            return Err(Error(format!(
+            return Err(Error::raw(format!(
                 "{} was not made by Forza-WCCF - left alone",
                 seat.display()
             )));
@@ -865,7 +869,7 @@ pub fn undo(kit: &Path, game: &Path, say: crate::Say) -> Result<()> {
             let p = seat.join(&n);
             if p.is_dir() {
                 if holds_link(&p)? {
-                    return Err(Error(format!(
+                    return Err(Error::raw(format!(
                         "unexpected link inside {} - stopped",
                         p.display()
                     )));

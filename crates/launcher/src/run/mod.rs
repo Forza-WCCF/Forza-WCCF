@@ -163,6 +163,15 @@ impl From<String> for Text {
     }
 }
 
+impl From<forza::Line> for Text {
+    fn from(line: forza::Line) -> Self {
+        match line {
+            forza::Line::Raw(s) => Self::Raw(s),
+            forza::Line::Key(k, args) => Self::Key(k, args.into_iter().map(|(n, l)| (n, l.into())).collect()),
+        }
+    }
+}
+
 /// The game server's port could not be bound: taken, this PC is already hosting an arcade on it (its own earlier start, or a
 /// server beside it), which "os error 10048" did not say; any other error keeps its port and reason.
 fn gamesvr_bind_error(port: u16, e: &io::Error) -> Text {
@@ -297,7 +306,7 @@ pub struct Params {
     pub hook_imports: bool,
     /// 2017-18: setup run again by a start (`setup::setup_1718`) with the kit's and the game's folders.  Tests put a
     /// stand-in here: their runtimes hold no original game programs.
-    pub setup_1718: fn(&Path, &Path) -> Result<(), String>,
+    pub setup_1718: fn(&Path, &Path) -> Result<(), Text>,
     /// 2017-18: where a game folder whose path is not plain ASCII gets its ASCII junction (`alias`).
     pub run_links: PathBuf,
 }

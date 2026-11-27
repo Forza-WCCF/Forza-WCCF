@@ -15,13 +15,24 @@ use crate::Line;
 pub mod e1011;
 pub mod e1718;
 
-/// What went wrong, in words for the player.
+/// What went wrong, for the player: a `ui.yml` line (the window words it in the player's language, the log in
+/// English), or raw words for what only support reads (a program's bytes, the 2010-11 steps).
 #[derive(Debug)]
-pub struct Error(pub String);
+pub struct Error(pub Line);
 
+impl Error {
+    pub fn raw(words: impl fmt::Display) -> Self {
+        Self(Line::raw(words))
+    }
+}
+
+/// Raw words as they are; a keyed line by its key and arguments (forza has no words: show `.0` with `forza_ui::line`).
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        match &self.0 {
+            Line::Raw(s) => f.write_str(s),
+            line => write!(f, "{line:?}"),
+        }
     }
 }
 
@@ -29,7 +40,7 @@ impl std::error::Error for Error {}
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self(e.to_string())
+        Self(Line::key("setup.err_io").arg("error", e))
     }
 }
 
@@ -42,7 +53,13 @@ trait At<T> {
 
 impl<T> At<T> for io::Result<T> {
     fn at(self, path: &Path) -> Result<T> {
-        self.map_err(|e| Error(format!("{}: {e}", path.display())))
+        self.map_err(|e| {
+            Error(
+                Line::key("setup.err_file")
+                    .arg("path", path.display())
+                    .arg("error", e),
+            )
+        })
     }
 }
 
@@ -61,7 +78,9 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
 pub fn put(path: &Path, data: &[u8]) -> Result<()> {
     fs::write(path, data).at(path)?;
     if sha(&read(path)?) != sha(data) {
-        return Err(Error(format!("{} was not written whole", path.display())));
+        return Err(Error(
+            Line::key("setup.err_not_whole").arg("path", path.display()),
+        ));
     }
     Ok(())
 }
@@ -77,10 +96,11 @@ pub fn replace(path: &Path, data: &[u8]) -> Result<()> {
 /// Copies a file the kit or Windows provides; a missing one is named for the player.
 pub fn copy_in(src: &Path, dst: &Path, what: &str) -> Result<()> {
     if !src.is_file() {
-        return Err(Error(format!(
-            "Forza-WCCF is missing {} ({what})",
-            src.display()
-        )));
+        return Err(Error(
+            Line::key("setup.err_missing")
+                .arg("path", src.display())
+                .arg("what", what),
+        ));
     }
     fs::copy(src, dst).at(dst)?;
     Ok(())
@@ -103,11 +123,14 @@ pub fn original(
     let data = read(src)?;
     let got = sha(&data);
     if got != pinned {
-        return Err(Error(format!(
-            "{} is not the original WCCF {edition} program {exe} (SHA-256 {got}, expected {pinned}). Give setup the \
-             decrypted {edition} game folder.",
-            src.display()
-        )));
+        return Err(Error(
+            Line::key("setup.err_not_original")
+                .arg("path", src.display())
+                .arg("edition", edition)
+                .arg("exe", exe)
+                .arg("got", got)
+                .arg("pinned", pinned),
+        ));
     }
     if src == current {
         make_dir(backup.parent().unwrap_or(backup))?;
@@ -137,7 +160,7 @@ pub fn apply(data: &[u8], patches: &[Patch]) -> Result<Vec<u8>> {
     let mut d = data.to_vec();
     for p in patches {
         if p.new.len() != p.old.len() || d.get(p.at..p.at + p.old.len()) != Some(p.old) {
-            return Err(Error(format!(
+            return Err(Error::raw(format!(
                 "0x{:06X} is not the expected original bytes ({})",
                 p.at, p.what
             )));
@@ -150,14 +173,14 @@ pub fn apply(data: &[u8], patches: &[Patch]) -> Result<Vec<u8>> {
 fn u16_at(d: &[u8], at: usize) -> Result<usize> {
     let b = d
         .get(at..at + 2)
-        .ok_or_else(|| Error("the program is cut short".into()))?;
+        .ok_or_else(|| Error::raw("the program is cut short"))?;
     Ok(usize::from(u16::from_le_bytes([b[0], b[1]])))
 }
 
 fn u32_at(d: &[u8], at: usize) -> Result<usize> {
     let b = d
         .get(at..at + 4)
-        .ok_or_else(|| Error("the program is cut short".into()))?;
+        .ok_or_else(|| Error::raw("the program is cut short"))?;
     Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
 }
 
@@ -177,7 +200,7 @@ fn rva_off(d: &[u8], rva: usize) -> Result<usize> {
             return Ok(raw + rva - va);
         }
     }
-    Err(Error(format!("{rva:#x} is in no section")))
+    Err(Error::raw(format!("{rva:#x} is in no section")))
 }
 
 /// The file offsets of the 32-bit program's import names equal to `dll` (NUL-terminated), matched without regard to case.
@@ -210,7 +233,7 @@ pub fn rename_import(data: &[u8], old: &[u8], new: &[u8]) -> Result<Vec<u8>> {
     let hits = import_names(&d, old)?;
     let [at] = hits[..] else {
         let name = String::from_utf8_lossy(&old[..old.len() - 1]).into_owned();
-        return Err(Error(format!(
+        return Err(Error::raw(format!(
             "the program has {} {name} imports, expected 1",
             hits.len()
         )));
@@ -226,10 +249,9 @@ pub fn make_junction(link: &Path, target: &Path) -> Result<()> {
     }
     junction_to(target, link)?;
     if !link.is_dir() {
-        return Err(Error(format!(
-            "could not make the folder link {}",
-            link.display()
-        )));
+        return Err(Error(
+            Line::key("setup.err_link").arg("path", link.display()),
+        ));
     }
     Ok(())
 }
@@ -252,7 +274,7 @@ pub fn junction_target(_: &Path) -> Option<PathBuf> {
 
 #[cfg(not(windows))]
 fn junction_to(_: &Path, link: &Path) -> Result<()> {
-    Err(Error(format!(
+    Err(Error::raw(format!(
         "{}: folder links need Windows",
         link.display()
     )))
@@ -413,7 +435,7 @@ pub fn kit_setup(
             0
         }
         Err(e) => {
-            say("  FAIL  ", &Line::Raw(e.to_string()));
+            say("  FAIL  ", &e.0);
             1
         }
     }
