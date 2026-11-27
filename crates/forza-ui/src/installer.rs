@@ -312,8 +312,10 @@ fn gb(bytes: u64) -> String {
 
 /// The whole installer window. Returns the first action asked for this frame.
 pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
-    let lang = st.lang;
     let win = ui.max_rect();
+    // first, so a click on a language turns the whole frame to it; its own layer keeps it above the panels
+    language_picker(ui, win, &mut st.lang);
+    let lang = st.lang;
     let mut out = None;
     egui::Panel::left("installer-rail")
         .exact_size(RAIL_W)
@@ -340,7 +342,8 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
                 .inner_margin(egui::Margin {
                     left: 24,
                     right: 20,
-                    top: 20,
+                    // under the language switch (3 + SEGMENTED_H): a narrow window brings the two together
+                    top: 46,
                     bottom: 0,
                 }),
         )
@@ -351,7 +354,6 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
             );
             drag_area(ui, strip, "installer-drag-top", &mut out);
             window_corner(ui, win, &mut out);
-            language_picker(ui, win, &mut st.lang);
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.label(
                 egui::RichText::new(st.page.title(lang))
@@ -456,11 +458,14 @@ fn language_picker(ui: &mut Ui, win: Rect, lang: &mut Lang) {
         pos2(win.right() - 4.0 - 82.0 - 10.0 - LANG_W, win.top() + 3.0),
         vec2(LANG_W, widgets::SEGMENTED_H),
     );
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    let layer = egui::LayerId::new(egui::Order::Middle, Id::unique("installer-lang"));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r).layer_id(layer));
     let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
     // each language in its own words, whatever the window's language
     if widgets::segmented(&mut child, &mut i, &Lang::ALL.map(Lang::native), LANG_W) {
         *lang = Lang::ALL[i];
+        // the program writes its own lines (refusals, missed steps) again in the new language on the next frame
+        ui.ctx().request_repaint();
     }
 }
 
