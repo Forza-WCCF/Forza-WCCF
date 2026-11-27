@@ -421,6 +421,16 @@ fn replace_until(me: &Path, new: &Path, want: Option<&str>, go: &mut dyn FnMut()
         })
         .and_then(|()| step())
         .and_then(|()| {
+            // a read-only Launcher.exe cannot be renamed over; its second name shares the attribute
+            let mut rw = fs::metadata(me)?.permissions();
+            if rw.readonly() {
+                #[allow(
+                    clippy::permissions_set_readonly_false,
+                    reason = "Windows: clears FILE_ATTRIBUTE_READONLY"
+                )]
+                rw.set_readonly(false);
+                fs::set_permissions(me, rw)?;
+            }
             // shortcut: a folder with no hard links (FAT32, exFAT) keeps the two renames and their gap; the spare
             // Launcher.exe.old and the troubleshooting line cover it
             linked = fs::hard_link(me, &away).is_ok();
@@ -1462,6 +1472,22 @@ mod tests {
         replace_running(&me, &new).unwrap();
         assert_eq!(fs::read(&me).unwrap(), b"a newer launcher");
         drop(running);
+    }
+
+    /// A read-only Launcher.exe is replaced as a writable one is (#361).
+    #[test]
+    fn a_read_only_launcher_is_replaced() {
+        let t = crate::scratch();
+        let (me, new) = (t.path().join("Launcher.exe"), t.path().join("unzipped.exe"));
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&new, b"the new launcher").unwrap();
+        let mut ro = fs::metadata(&me).unwrap().permissions();
+        ro.set_readonly(true);
+        fs::set_permissions(&me, ro).unwrap();
+        replace_running(&me, &new).unwrap();
+        assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+        sweep_replaced(t.path(), &me);
+        assert!(!left_by_swap(t.path(), "__relocated__.exe").exists());
     }
 
     /// A copy that is not the listed Launcher.exe (changed after its check) does not go in, and no temp copy is left.
