@@ -93,7 +93,7 @@ const GAME_CTRL_DEFAULTS: &[(usize, usize, u32)] = &[
 /// end + 1]` (on the start day from 10:00, on the day after `end` until 02:59) and the item's master row flagged for
 /// sale. These are the flagged rows of the 2017–18 tables, item numbers only (= row numbers): ShopUni +12 = 1, GoalBgm
 /// +12 and +16 = 1, Banner +8 and +64 = 1, Jersey +8 and +116 = 1. Per category: (category, entries a day, items).
-/// SE (2, rows 0..13) stays out: its 286 +93 mapping is unverified ([`APPLY_SE`]).
+/// SE (2, items 0..13) is not in the list yet (#316); a bought one plays ([`apply_to_item_list`]).
 const SHOP_GOODS: [(u32, usize, &[u32]); 4] = [
     (
         1,
@@ -145,9 +145,10 @@ fn shop_sale(unix_secs: i64) -> impl Iterator<Item = [u32; 4]> {
             (0..per_day).map(move |j| [cat, items[(per_day * n + j) % items.len()], from, to])
         })
 }
-/// Whether a bought SE (category 2) is written to 286 +93. Unverified (the reader maps the value through another
-/// table than the shop's), so off; [`SHOP_GOODS`] has no SE entry either.
-const APPLY_SE: bool = false;
+/// The ShootSe row (286 +93, NO_SAVE_CULB_NET_SHOOT_SE) of shop SE set 0: set k is rows 161 + 3k..163 + 3k, its
+/// three shoot buttons (client sub_834760). Row 0 is the default "Normal"; a set's item number as a row is the wrong
+/// sound (castanets, triangle, ...).
+const SHOOT_SE_SET0: u8 = 161;
 
 /// Grand Trophy matches counted for the weekly record (the sum of the best N scores), per class: Local, Area B,
 /// Area A, World B, World A (GAME_CTRL 7,666..7,670, u8, max 10: the client keeps 10 best scores). Provisional until
@@ -278,14 +279,15 @@ fn fill_game_ctrl(body: &mut [u8], unix_secs: i64) {
 }
 
 /// What the stored purchases (category, item, oldest first) set in a 286 ITEM_LIST answer: Uniform -> +700 and +701
-/// (CLUB_SHOP_UNIFORM), BGM -> +42 (the goal jingle), SE -> +93 when [`APPLY_SE`]. The last purchase of a category
+/// (CLUB_SHOP_UNIFORM), BGM -> +42 (the goal jingle), SE set 0..13 -> +93 ([`SHOOT_SE_SET0`]). The last purchase of a category
 /// wins; nothing on the client ever sets these, so a purchase takes precedence over the block's value.
 fn apply_to_item_list(body: &mut [u8], bought: &[(u32, u32)]) {
     for &(cat, item) in bought {
         let Ok(v) = u8::try_from(item) else { continue };
         match cat {
             1 => (body[700], body[701]) = (v, v),
-            2 if APPLY_SE => body[93] = v,
+            // button 1 of the set; which of the three the original sent is not known
+            2 if v <= 13 => body[93] = SHOOT_SE_SET0 + 3 * v,
             3 => body[42] = v,
             _ => {}
         }
@@ -577,8 +579,10 @@ type Granted = (u8, u32, i32, Option<u16>);
 /// round, evaluation, region, MOM, worst: sub_81AC50 0x81BC1C..0x81BCE8, sub_817F10 0x81A1C7..0x81A330); 6,016 the
 /// chosen title (u16), training wear and flag (u16), which the client clears when sent 0 (sub_816510 0x8165B0); 6,136
 /// serial rematches and incentive, 6,140 the two Grand Trophy counters, 6,148 the total rematch count (6,138 is not
-/// read). Spans do not overlap and stay inside both messages.
-pub const TAIL_SPANS: [(usize, usize, usize); 16] = [
+/// read). 6,096 the club ranking points (STATIC, DYNAMIC: sub_84A8F0 from the 277's +8,512, sub_84AC10), 6,104 the
+/// four trophy counts and 6,126 the two favourite cards (ids, rates); its rank, results, prize-info and penalty flags
+/// stay 0. Spans do not overlap and stay inside both messages.
+pub const TAIL_SPANS: [(usize, usize, usize); 19] = [
     (3100, 5480, 456),
     (3556, 5944, 60),
     (3674, 6068, 480),
@@ -591,6 +595,11 @@ pub const TAIL_SPANS: [(usize, usize, usize); 16] = [
     (5956, 8358, 60),
     (6016, 8352, 6),
     (6094, 3262, 2),
+    // the club's own 277 off a player's PC, shown on its own screen only: a server-wide club ranking built from these
+    // points would need a cap, like GT_RECORD_MAX
+    (6096, 8512, 8),
+    (6104, 8520, 4),
+    (6126, 8524, 6),
     (6136, 8532, 2),
     (6140, 8536, 8),
     (6148, 8534, 2),
