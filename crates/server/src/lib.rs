@@ -27,7 +27,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use time::{OffsetDateTime, UtcOffset};
@@ -66,17 +66,33 @@ pub fn stamp(t: OffsetDateTime, file_name: bool) -> String {
     }
 }
 
+/// A log file that reaches this size moves to `<name>.1` (replacing the one before), so a log never holds more than
+/// about twice this on disk, whatever floods it (systemd's journal keeps its own cap for stdout).
+pub const LOG_CAP: u64 = 32 << 20;
+
 /// The server's log: each line stamped, printed, and appended to `file` (opened per line, failures ignored, as the
-/// Python's `log()` did).
+/// Python's `log()` did), which turns over at [`LOG_CAP`].
 pub fn file_log(file: Option<PathBuf>) -> Log {
+    capped_log(file, LOG_CAP)
+}
+
+fn capped_log(file: Option<PathBuf>, cap: u64) -> Log {
+    let one = Mutex::new(());
     Arc::new(move |msg| {
         let line = format!("{} {msg}", stamp(now(), false));
         let _ = writeln!(std::io::stdout(), "{line}");
-        if let Some(p) = &file
-            && let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p)
+        let Some(p) = &file else { return };
+        // one writer at a time: two threads must not both turn the file over
+        let _one = one.lock().unwrap_or_else(PoisonError::into_inner);
+        if std::fs::metadata(p).is_ok_and(|m| m.len() >= cap) {
+            let mut old = p.clone().into_os_string();
+            old.push(".1");
+            let _ = std::fs::rename(p, old);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
         {
             let _ = writeln!(f, "{line}");
         }
@@ -160,3 +176,26 @@ pub(crate) fn hang_up(conn: TcpStream) {
 
 /// How long [`hang_up`] waits in all for the PC to hang up.
 pub const HANG_UP: Duration = Duration::from_secs(3);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A flood of lines keeps the log and its one older file near the cap, the newest line in the log.
+    #[test]
+    fn a_log_turns_over_at_its_cap() {
+        let dir = std::env::temp_dir().join(format!("forza_log_cap_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("gmsvr.txt");
+        let log = capped_log(Some(p.clone()), 1000);
+        for i in 0..2000 {
+            log(&format!("<- cmd 18 seq {i} status 0 payload 4"));
+        }
+        let size = |n: &str| std::fs::metadata(dir.join(n)).unwrap().len();
+        assert!(size("gmsvr.txt") < 1100 && size("gmsvr.txt.1") < 1100);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        assert!(std::fs::read_to_string(&p).unwrap().contains("seq 1999 "));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

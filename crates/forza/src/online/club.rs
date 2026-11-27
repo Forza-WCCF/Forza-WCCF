@@ -30,7 +30,10 @@
 //! ([`Store::import_public`]). Past [`MAX_PUBLIC_GUESTS`] the oldest copy whose card is not on the game server makes
 //! room, so asking for copies keeps none of them: only players logged in there are never evicted.
 
-use super::gamesvr::{BLOCK, Store, TAIL, get_bits, next_id, now, put, put_bits, u32_at};
+use super::gamesvr::{
+    BLOCK, MAX_PURCHASE_LEN, MAX_PURCHASES, Store, TAIL, get_bits, next_id, now, put, put_bits,
+    u32_at,
+};
 use crate::service::{Handle, Log};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -254,7 +257,7 @@ impl Club {
         if self.aime == 0 {
             return Err("Aime id 0".into());
         }
-        if self.coaches.len() > 32 || self.purchases.len() > 1000 {
+        if self.coaches.len() > 32 || self.purchases.len() > MAX_PURCHASES {
             return Err("too many records".into());
         }
         let mut ids = std::collections::HashSet::new();
@@ -293,7 +296,7 @@ impl Club {
             }
         }
         for p in &self.purchases {
-            if !(16..=64).contains(&p.payload.len()) {
+            if !(16..=MAX_PURCHASE_LEN).contains(&p.payload.len()) {
                 return Err(format!("a purchase of {} bytes", p.payload.len()));
             }
             if u32_at(&p.payload, 4) != self.aime {

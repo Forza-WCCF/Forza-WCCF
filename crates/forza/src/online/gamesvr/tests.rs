@@ -1222,6 +1222,7 @@ fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
         285 => (24, 20),
         287 | 289 => (28, 24),
         309 => (3368, 0),
+        315 => (24, 0),
         _ => (600, 0),
     };
     let mut r = vec![0u8; len];
@@ -1238,7 +1239,12 @@ fn fixture(cmd: u16, ids: [u32; 3]) -> Vec<u8> {
             r[3100..3104].copy_from_slice(&[12, 0, 0, 12]);
         }
         279 => r[12] = 1,
-        309 => r[8..3080].fill(0x5A),
+        309 => {
+            r[8..3080].fill(0x5A);
+            for bit in BLOCK_VERSIONS {
+                put_bits(&mut r[8..8 + BLOCK], bit, 32, 12);
+            }
+        }
         289 => put(&mut r, 16, 1),
         _ => {}
     }
@@ -1934,16 +1940,107 @@ fn purchases_are_stored_and_applied_to_286_and_276() {
     assert!(why.is_some() && u32_at(&b, 4) == 1);
 }
 
+/// A 315 is at most 64 bytes, a repeat of an item adds no row (and moves it to the newest, so the last uniform bought
+/// still wins), and an Aime id holds at most 1,000 items: what a club copy takes, so its copy back still checks.
+#[test]
+fn buy_is_bounded_and_copy_back_still_checks() {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let buy = |cat: u32, item: u32, len: usize| {
+        let mut r = req(315, [5, cat, item]);
+        r.resize(len, 0);
+        let (b, why) = ask_store(&store, 315, &r);
+        (u32_at(&b, 4), why)
+    };
+    let rows = || -> u32 {
+        let st = store.lock().unwrap();
+        st.0.query_row("SELECT count(*) FROM purchases", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(buy(4, 7, 65).0, 1, "a 65-byte 315 is refused");
+    assert_eq!(rows(), 0);
+    assert_eq!(buy(4, 7, 24), (0, None));
+    assert_eq!(buy(4, 7, 64), (0, None), "a repeat answers OK");
+    assert_eq!(rows(), 1, "and adds no row");
+    let club = new_club(&store);
+    let uniform = || ask_store(&store, 285, &req(285, club)).0[700];
+    for item in [3, 4, 3] {
+        assert_eq!(buy(1, item, 24).0, 0);
+    }
+    assert_eq!((uniform(), rows()), (3, 3), "the repeat is the newest");
+    for item in 1000..1000 + MAX_PURCHASES as u32 - 3 {
+        assert_eq!(buy(5, item, 24).0, 0, "item {item}");
+    }
+    assert_eq!(rows(), MAX_PURCHASES as u32);
+    let (code, why) = buy(5, 9, 24);
+    assert!(code == 1 && why.is_some(), "the 1,001st item is refused");
+    assert_eq!(buy(4, 7, 24), (0, None), "a repeat still answers OK");
+    assert_eq!(rows(), MAX_PURCHASES as u32);
+    let st = store.lock().unwrap();
+    super::super::club::export(&st.0, 5)
+        .unwrap()
+        .check()
+        .unwrap();
+}
+
 /// A 311 request: slot 1 and an area id of 0.
 const SLOT: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
-/// A synthetic 309: every byte a function of its offset, shop id 7.
+/// A synthetic 309: every byte a function of its offset, shop id 7, the block's version fields 12 and a NUL ending
+/// the shop name.
 fn upload_309(seed: usize) -> Vec<u8> {
     let mut p: Vec<u8> = (0..3368)
         .map(|i| ((i * 13 + seed) % 251) as u8 + 1)
         .collect();
     put(&mut p, 4, 7);
+    for bit in BLOCK_VERSIONS {
+        put_bits(&mut p[8..8 + BLOCK], bit, 32, 12);
+    }
+    p[3221] = 0;
     p
+}
+
+/// Uploads from any number of shops keep one row, cut to 3,368 bytes; a 309 whose block is not a current save or
+/// whose shop name has no NUL is refused and keeps the last good one; a server with VS answers the CPU team.
+#[test]
+fn best_eleven_keeps_one_checked_row() {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let rows = || -> (u32, i64) {
+        let st = store.lock().unwrap();
+        st.0.query_row(
+            "SELECT count(*), coalesce(max(length(payload)), 0) FROM requests WHERE cmd = 309",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+    };
+    for shop in 1..50 {
+        let mut p = upload_309(shop as usize);
+        put(&mut p, 4, shop);
+        p.resize(8000, 0xAA);
+        assert_eq!(ask_store(&store, 309, &p).1, None);
+    }
+    assert_eq!(rows(), (1, 3368), "one row, trimmed");
+    let good = ask_store(&store, 311, &SLOT).0;
+    assert_eq!(u32_at(&good, 4), 0);
+    let mut old = upload_309(60);
+    put_bits(&mut old[8..8 + BLOCK], BLOCK_VERSIONS[1], 32, 10);
+    let mut unnamed = upload_309(61);
+    unnamed[3194..3222].fill(b'A');
+    for bad in [old, unnamed] {
+        let (b, why) = ask_store(&store, 309, &bad);
+        assert!(why.is_some() && u32_at(&b, 4) == 1);
+    }
+    assert_eq!(
+        ask_store(&store, 311, &SLOT).0,
+        good,
+        "the last good one stays"
+    );
+    // with VS (`gt`): errCode 1, the CPU team
+    let log: Log = Arc::new(|_: &str| {});
+    let mut body = vec![0u8; 3352];
+    put(&mut body, 4, 1);
+    club(311, &SLOT, &mut body, &store, None, &[], true, &log).unwrap();
+    assert_eq!((u32_at(&body, 4), &body[152..160]), (1, &[0u8; 8][..]));
 }
 
 #[test]
@@ -2021,6 +2118,77 @@ fn oversized_header_closes_and_per_ip_limit_holds() {
             .starts_with("req_")),
         "dump off"
     );
+}
+
+/// A game server on loopback with `o`, and a link to it that answers in 5 s.
+fn serve(o: Options) -> (Handle, impl Fn() -> std::net::TcpStream, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let svc = spawn_opts(l, dir.path().into(), Arc::new(|_| {}), o).unwrap();
+    let link = move || {
+        let c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        c
+    };
+    (svc, link, dir)
+}
+
+/// `n` keep-alives (18) in one write, then their `n` answers read back.
+fn echoes(c: &mut std::net::TcpStream, n: u16) {
+    use std::io::Read;
+    let mut out = Vec::new();
+    for seq in 0..n {
+        out.extend_from_slice(&header(18, seq, 0, 4, 0));
+        out.extend_from_slice(&[1, 0, 0, 0]);
+    }
+    c.write_all(&out).unwrap();
+    let mut back = vec![0u8; 44 * usize::from(n)];
+    c.read_exact(&mut back).unwrap();
+    assert_eq!(
+        u16_at(&back[44 * (usize::from(n) - 1)..], 10),
+        n - 1,
+        "the last one answered"
+    );
+}
+
+/// 250 frames sent at once are all answered, but at 100 a second: the link waits twice.
+#[test]
+fn a_flood_is_slowed_not_dropped() {
+    let (_svc, link, _dir) = serve(Options {
+        dump: false,
+        ..Options::default()
+    });
+    let mut c = link();
+    let t = Instant::now();
+    echoes(&mut c, 250);
+    let took = t.elapsed();
+    assert!(took >= Duration::from_millis(1800), "{took:?}");
+    // a client at its own pace waits for nothing
+    std::thread::sleep(Duration::from_secs(1));
+    let t = Instant::now();
+    echoes(&mut c, 20);
+    assert!(t.elapsed() < Duration::from_millis(500));
+}
+
+/// Past `max_open` connections in all (from any addresses) the next one is closed at once; a closed one frees its
+/// place.
+#[test]
+fn the_game_server_refuses_past_its_connection_cap() {
+    use std::io::Read;
+    let (_svc, link, _dir) = serve(Options {
+        dump: false,
+        max_open: 2,
+        ..Options::default()
+    });
+    let (mut a, mut b) = (link(), link());
+    echoes(&mut a, 1);
+    echoes(&mut b, 1);
+    let mut c = link();
+    assert_eq!(c.read(&mut [0u8; 8]).unwrap(), 0, "over the cap");
+    drop(a);
+    std::thread::sleep(Duration::from_millis(300));
+    echoes(&mut link(), 1);
 }
 
 #[test]

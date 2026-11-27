@@ -325,6 +325,8 @@ fn start_gmsvr(
         skip_tutorial: g.skip_tutorial,
         dump: g.dump,
         max_per_ip: 8,
+        // what one server's thread and socket budget holds; the cap keeps a flood off MemoryMax
+        max_open: 512,
         vs: g.vs(),
         matcher,
         sessions,

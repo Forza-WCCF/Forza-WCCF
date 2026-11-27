@@ -956,6 +956,18 @@ fn gamesvr_best_eleven_survives_restart() {
     let dir = scratch("gamesvr_be11");
     let mut p: Vec<u8> = (0..3368).map(|i| (i * 7 % 251) as u8 + 1).collect();
     le(&mut p, 0, 1); // slot
+    // a current save: the block's three version fields (bits 0, 20,736, 21,538, MSB first) are 12; a NUL-ended name
+    for bit in [0, 20736, 21538] {
+        for i in 0..32 {
+            let (at, mask) = (8 + (bit + i) / 8, 0x80u8 >> ((bit + i) % 8));
+            p[at] = if (12u32 >> (31 - i)) & 1 == 1 {
+                p[at] | mask
+            } else {
+                p[at] & !mask
+            };
+        }
+    }
+    p[3221] = 0;
     let want = |a: &[u8]| {
         assert_eq!(a.len(), 3352);
         assert_eq!(word(a, 4), 0, "BEST_ELEVEN errCode");

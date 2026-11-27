@@ -19,7 +19,7 @@ use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
@@ -307,6 +307,11 @@ fn apply_to_save_data(body: &mut [u8], bought: &[(u32, u32)]) {
         body[at as usize] = 1;
     }
 }
+
+/// Distinct (category, item) purchases kept per Aime id: what a club copy takes ([`super::club::Club::check`]).
+pub(super) const MAX_PURCHASES: usize = 1000;
+/// The longest BUY_SHOP_ITEM 315 kept (the client's is 24 bytes; a club copy takes 16..=64).
+pub(super) const MAX_PURCHASE_LEN: usize = 64;
 
 /// What the control shows when it has no team ranking: "NO ENTRY" in every name of answer 234, everything else 0.
 const NO_ENTRY: &[u8] = b"NO ENTRY\0";
@@ -651,6 +656,32 @@ fn best_eleven_answer(body: &mut [u8], req: &[u8]) {
     );
     body[152..152 + BLOCK].copy_from_slice(&req[8..8 + BLOCK]);
     body[3224..3352].copy_from_slice(&req[3232..3360]);
+}
+
+/// A BEST_ELEVEN 309 upload: +4 shop id, +8 the team's save block, +3,194 its shop name.
+const BEST_ELEVEN_LEN: usize = 3368;
+/// The block's three version fields (bits; the skip club writes the same), each 12 in a current save.
+const BLOCK_VERSIONS: [usize; 3] = [0, 20736, 21538];
+
+/// Whether a 309 (at least [`BEST_ELEVEN_LEN`] bytes) looks like a current save the client can load: the block's
+/// version fields and a NUL-ended shop name. Err names the first field wrong.
+fn best_eleven_ok(req: &[u8]) -> Result<(), String> {
+    let Some(block) = req.get(8..8 + BLOCK) else {
+        return Err(format!("{} bytes, want {BEST_ELEVEN_LEN}", req.len()));
+    };
+    if let Some(bit) = BLOCK_VERSIONS
+        .into_iter()
+        .find(|&b| get_bits(block, b, 32) != 12)
+    {
+        return Err(format!(
+            "block version at bit {bit}: {}",
+            get_bits(block, bit, 32)
+        ));
+    }
+    if !req[3194..3222].contains(&0) {
+        return Err("shop name without a NUL".into());
+    }
+    Ok(())
 }
 
 /// Fills a 6,176-byte SAVE_DATA answer (slot already at +0) with a stored block: +8 block, +3,080 version,
@@ -1218,34 +1249,55 @@ impl Store {
         Ok((n == 1).then_some((class, i as u32 + 1, record, None)))
     }
 
-    /// Keeps the latest whole 309 under (0, shop id).
-    fn keep_best_eleven(&self, shop: u32, req: &[u8]) -> rusqlite::Result<()> {
-        self.0.execute(
-            "INSERT OR REPLACE INTO requests VALUES (0, ?1, 309, ?2, ?3)",
-            params![shop, req, now()],
+    /// Keeps the latest 309 ([`BEST_ELEVEN_LEN`] bytes) as the one row (0, 0); the rows older servers kept per shop
+    /// id go.
+    fn keep_best_eleven(&mut self, req: &[u8]) -> rusqlite::Result<()> {
+        let tx = self.0.transaction()?;
+        tx.execute("DELETE FROM requests WHERE aime_id = 0 AND cmd = 309", [])?;
+        tx.execute(
+            "INSERT INTO requests VALUES (0, 0, 309, ?1, ?2)",
+            params![&req[..BEST_ELEVEN_LEN], now()],
         )?;
-        Ok(())
+        tx.commit()
     }
 
-    /// The newest stored 309 of any shop. This stand-in serves one shop, so "the same shop's last 309" (project
-    /// decision D3, default) is the newest one; on a server with several shops a rule per area replaces this.
+    /// The newest stored 309 that passes [`best_eleven_ok`]. This stand-in serves one shop, so "the same shop's last
+    /// 309" (project decision D3, default) is the newest one.
     fn last_best_eleven(&self) -> rusqlite::Result<Option<Vec<u8>>> {
-        self.0
+        Ok(self
+            .0
             .query_row(
                 "SELECT payload FROM requests WHERE cmd = 309 AND aime_id = 0 ORDER BY updated DESC, coach_id DESC LIMIT 1",
                 [],
-                |r| r.get(0),
+                |r| r.get::<_, Vec<u8>>(0),
             )
-            .optional()
+            .optional()?
+            .filter(|p| best_eleven_ok(p).is_ok()))
     }
 
-    /// Keeps a BUY_SHOP_ITEM request whole; Ok only once the insert has committed.
-    fn buy(&self, aime: u32, req: &[u8]) -> rusqlite::Result<()> {
-        self.0.execute(
+    /// Keeps a BUY_SHOP_ITEM request whole as the newest row of its (category, item): a repeat replaces the earlier
+    /// row (a purchase only sets a flag or a category's choice, and the last of a category wins, [`apply_to_item_list`]),
+    /// so it adds none. Ok(false) when `aime` already holds [`MAX_PURCHASES`] other items; Ok only once committed.
+    fn buy(&mut self, aime: u32, req: &[u8]) -> rusqlite::Result<bool> {
+        let tx = self.0.transaction()?;
+        let repeat = tx.execute(
+            "DELETE FROM purchases WHERE aime_id = ?1 AND substr(payload, 9, 8) = substr(?2, 9, 8)",
+            params![aime, req],
+        )?;
+        let n: u32 = tx.query_row(
+            "SELECT count(*) FROM purchases WHERE aime_id = ?1",
+            [aime],
+            |r| r.get(0),
+        )?;
+        if repeat == 0 && n as usize >= MAX_PURCHASES {
+            return Ok(false);
+        }
+        tx.execute(
             "INSERT INTO purchases (aime_id, at, payload) VALUES (?1, ?2, ?3)",
             params![aime, now(), req],
         )?;
-        Ok(())
+        tx.commit()?;
+        Ok(true)
     }
 
     /// The (category, item) of every purchase of `aime` (request +8 and +12), oldest first.
@@ -1310,7 +1362,7 @@ fn club(
         // BUY_SHOP_ITEM: ids, category and item; the replay records are 20 bytes, so no revision check
         315 => (16, None),
         // BEST_ELEVEN upload (the control's, no revision) and download (areaId at +4, not read)
-        309 => (3368, None),
+        309 => (BEST_ELEVEN_LEN, None),
         311 => (0, None),
         _ => return Ok(()),
     };
@@ -1378,12 +1430,14 @@ fn club(
         return Ok(());
     }
     match cmd {
-        // +4 is the shop id here, not an Aime id
         309 => {
-            st.keep_best_eleven(aime, req).map_err(db)?;
+            best_eleven_ok(req)?;
+            st.keep_best_eleven(req).map_err(db)?;
             return Ok(());
         }
-        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team)
+        // errCode 0 with the newest 309 re-packed; none stored keeps the errCode 1 set by `answer` (CPU team). A
+        // server with VS serves arcades across the internet: one arcade's upload never goes to another's clients
+        311 if gt => return Ok(()),
         311 => {
             if let Some(p) = st.last_best_eleven().map_err(db)? {
                 put(body, 4, 0);
@@ -1563,7 +1617,12 @@ fn club(
         315 => {
             // BUY_SHOP_ITEM: +8 category, +12 item; kept whole, errCode 0 only once committed (a store error is
             // errCode 1 and the client keeps the item queued and resends it)
-            st.buy(aime, req).map_err(db)?;
+            if req.len() > MAX_PURCHASE_LEN {
+                return Err(format!("{} bytes, at most {MAX_PURCHASE_LEN}", req.len()));
+            }
+            if !st.buy(aime, req).map_err(db)? {
+                return Err(format!("{MAX_PURCHASES} items bought already"));
+            }
         }
         287 => {
             let new = st
@@ -1813,7 +1872,7 @@ impl Vs {
                 }
             }
             243 => {
-                self.matcher.enter(payload, t);
+                self.matcher.enter(payload, peer, t);
             }
             245 => {
                 if let Some(m) = self.matcher.poll(payload, t) {
@@ -1878,6 +1937,8 @@ pub struct Options {
     pub dump: bool,
     /// Concurrent connections per peer IP; 0 = no limit
     pub max_per_ip: usize,
+    /// Concurrent connections in all; 0 = no limit
+    pub max_open: usize,
     /// Direct VS over the internet (M3); None keeps the local stand-in's behaviour
     pub vs: Option<VsConfig>,
     /// The matcher VS uses, when another service shares it (`forza-server all`: the desk lists its rooms); None =
@@ -1900,6 +1961,7 @@ impl Default for Options {
             skip_tutorial: false,
             dump: true,
             max_per_ip: 0,
+            max_open: 0,
             vs: None,
             matcher: None,
             sessions: None,
@@ -1907,6 +1969,9 @@ impl Default for Options {
         }
     }
 }
+
+/// Frames a connection may send in a second before it is made to wait (the rest of that second).
+pub const MAX_RATE: u32 = 100;
 
 /// Largest legal frame: the biggest answer or request payload plus the 40-byte header.
 pub const MAX_FRAME: usize = 33600 + 40;
@@ -1966,6 +2031,7 @@ pub fn spawn_opts(
         skip_tutorial,
         dump,
         max_per_ip,
+        max_open,
         vs,
         matcher,
         sessions,
@@ -2003,6 +2069,12 @@ pub fn spawn_opts(
         }
         let _slot = {
             let mut m = peers.lock().unwrap_or_else(PoisonError::into_inner);
+            if max_open > 0 && m.values().sum::<usize>() >= max_open {
+                log(&format!(
+                    "refused {peer}: {max_open} connections open in all"
+                ));
+                return;
+            }
             let n = m.entry(peer.ip()).or_insert(0);
             if max_per_ip > 0 && *n >= max_per_ip {
                 log(&format!("refused {peer}: {max_per_ip} connections already"));
@@ -2016,6 +2088,8 @@ pub fn spawn_opts(
         // the header on the stack, one payload buffer per link (it grows to at most MAX_FRAME - 40 bytes)
         let (mut head, mut have) = ([0u8; 40], 0);
         let mut payload: Vec<u8> = Vec::new();
+        // frames in the current second (since .0): past MAX_RATE the link waits the second out
+        let mut rate = (Instant::now(), 0u32);
         loop {
             match fill(&mut conn, &mut head[have..], &flag) {
                 Ok(true) => {}
@@ -2054,6 +2128,15 @@ pub fn spawn_opts(
                     log(&format!("recv error {e}"));
                     break;
                 }
+            }
+            // a flood is slowed, never dropped: a real control sends a few frames a second
+            if rate.0.elapsed() >= Duration::from_secs(1) {
+                rate = (Instant::now(), 0);
+            }
+            rate.1 += 1;
+            if rate.1 > MAX_RATE {
+                std::thread::sleep(Duration::from_secs(1).saturating_sub(rate.0.elapsed()));
+                rate = (Instant::now(), 1);
             }
             let (cmd, seq) = (
                 u16::from_le_bytes([head[8], head[9]]),

@@ -74,6 +74,10 @@ impl Seat {
 /// laptop asleep) off the lobby count until the TCP stack reaps them.
 pub const IDLE: Duration = Duration::from_secs(5 * 60);
 
+/// Seats one connection holds: an arcade's control relays at most 8 terminals; a 271 on another slot past them is
+/// answered but not counted.
+pub const MAX_SEATS: usize = 8;
+
 #[derive(Debug)]
 struct Conn {
     /// The last answered request.
@@ -234,7 +238,7 @@ impl Session {
                         aime,
                         ..Seat::default()
                     };
-                } else {
+                } else if seats.contains_key(&slot) || seats.len() < MAX_SEATS {
                     seats.insert(
                         slot,
                         Seat {
@@ -353,6 +357,21 @@ mod tests {
             r[at..at + 4].copy_from_slice(&v.to_le_bytes());
         }
         r
+    }
+
+    /// Card-ins on ever new slots of one connection hold 8 seats; a held slot still takes a new card.
+    #[test]
+    fn a_connection_holds_eight_seats() {
+        let all = Arc::new(Sessions::default());
+        let mut a = all.open("192.0.2.1:5000".parse().unwrap(), Arc::new(|_: &str| {}));
+        let login = |slot, aime| req(20, &[(0, slot), (4, aime), (16, 47565)]);
+        for slot in 0..1000 {
+            a.request(271, &login(slot, 1000 + slot), None);
+        }
+        assert_eq!(all.cards(), MAX_SEATS);
+        assert_eq!(a.request(271, &login(3, 5), None).len(), 1, "a held slot");
+        assert!(all.holds(5) && !all.holds(1003));
+        assert_eq!(all.cards(), MAX_SEATS);
     }
 
     #[test]
