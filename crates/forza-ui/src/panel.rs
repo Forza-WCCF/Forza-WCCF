@@ -56,6 +56,9 @@ const BOARD_EXTRA: f32 = 101.0;
 /// 22-point rects), [`FOOT_GAP`] 8 and the hint's line. Its 24 points take 116, 4 past this; 112 holds a 20-point
 /// line, the drawn hint (17) inside the board's 16-point margin at 1440x900.
 const BOARD_EXTRA_1718: f32 = 112.0;
+/// The 2017-18 docked board with its bench under the pitch fills the strip's height, and its hint wraps to three lines
+/// (English, Italian; Japanese two): this holds the two lines past [`BOARD_EXTRA_1718`]'s one.
+const HINT_WRAP_1718: f32 = 40.0;
 /// The 2010-11 pop-out board's window lays its bench beside the pitch (a column, [`board::COLUMN_ASPECT`]) when its
 /// room is at least this wide for its height (3:4 and wider), under the pitch when narrower (9:16).
 pub const BENCH_BESIDE: f32 = 2.0 / 3.0;
@@ -241,7 +244,7 @@ pub fn docked_mats(board: Rect) -> [board::Mat; 2] {
     let room = board.height() - BOARD_EXTRA_1718;
     let top = |w: f32| pos2(r.center().x - w / 2.0, r.top() + BOARD_HEAD);
     let w = r.width().min(room / board::COLUMN_ASPECT);
-    let below = r.width().min(room / BOARD_PER_W);
+    let below = r.width().min((room - HINT_WRAP_1718) / BOARD_PER_W);
     let pitch = board::pitch_rect(top(below), below);
     [
         board::Mat::column(top(w), w),
@@ -3031,6 +3034,31 @@ fn deck_label_rect(rect: Rect, side: Dir, size: egui::Vec2, plate: Rect, k: f32)
     )
 }
 
+/// 2017-18: PRESS's name printed in its square (the arrows round it leave no side free), above its keycap when one
+/// shows; the name and where it sits. `k`: the print's size ([`deck_label_parts`]).
+fn press_name(
+    p: &egui::Painter,
+    rect: Rect,
+    name: &str,
+    cap: bool,
+    k: f32,
+) -> (std::sync::Arc<egui::Galley>, Rect) {
+    let g = widgets::fit(
+        p,
+        name,
+        theme::display(11.0 * k),
+        theme::TEXT,
+        rect.width() - 4.0 * k,
+    );
+    let bottom = if cap {
+        rect.bottom() - 4.0 * k - KEYCAP_H * k
+    } else {
+        rect.bottom()
+    };
+    let at = Rect::from_center_size(pos2(rect.center().x, (rect.top() + bottom) / 2.0), g.size());
+    (g, at)
+}
+
 /// The machine plate's one key, CARD, centred (2017-18 has no card and no machine plate).
 fn card_key(area: Rect, s: f32, stack: bool) -> Rect {
     Rect::from_center_size(
@@ -3183,7 +3211,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         // a name printed beside the button is not printed in it too
         let inside = it.label.is_none();
-        put(
+        let resp = put(
             ui,
             it.rect,
             it.key,
@@ -3193,6 +3221,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             lit,
             inside,
         );
+        // 2017-18: the right-click hold ([`latch_click`]) is named on the two buttons it works on
+        if !both && matches!(it.kind, Cab::KeyPlayer | Cab::Keeper) {
+            let hint = tr!(lang, "cab.hold_hint");
+            // a button reached by Tab has no hover: its focus shows the line too
+            if resp.has_focus() {
+                resp.show_tooltip_text(hint);
+            } else {
+                resp.on_hover_text(hint);
+            }
+        }
         if on {
             let p = ui.painter();
             p.circle_stroke(
@@ -3257,6 +3295,16 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
                     vec2(cap_w, KEYCAP_H * k),
                 );
                 paint_keycap(p, r, &cap, k);
+            }
+            if !both {
+                let (name, at) = press_name(p, it.rect, &tr!(lang, it.key), cap_w > 0.0, k);
+                // a dark shadow keeps the name readable on the red face, lit or not, and on the black rim
+                p.galley_with_override_text_color(
+                    at.min + vec2(1.0, 1.0),
+                    name.clone(),
+                    Color32::BLACK,
+                );
+                p.galley(at.min, name, theme::TEXT);
             }
         }
     }
@@ -3849,8 +3897,14 @@ fn board_foot(b: &mut Ui, st: &mut PanelState, lang: Lang) -> Option<(Ui, Rect)>
             .truncate(),
         );
     } else if !st.desk {
+        // 2017-18 also boxes and moves groups of pitch cards ([`board::group_moves`])
+        let key = if st.edition == Edition::E1718 {
+            "board.hint_1718"
+        } else {
+            "board.hint"
+        };
         b.label(
-            egui::RichText::new(tr!(lang, "board.hint"))
+            egui::RichText::new(tr!(lang, key))
                 .font(theme::body(HINT))
                 .color(theme::TEXT_DIM),
         );
@@ -4407,6 +4461,14 @@ fn catalogue(ui: &mut Ui, st: &mut PanelState, lang: Lang) {
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                // 2017-18: what the sliders do, in view without hover (a touch screen has none)
+                if e1718 {
+                    ui.label(
+                        egui::RichText::new(tr!(lang, "cat.ranges_help"))
+                            .font(theme::body(HINT))
+                            .color(theme::TEXT_DIM),
+                    );
+                }
                 let w = (ui.available_width() - 24.0) / 2.0;
                 egui::Grid::new("ranges")
                     .num_columns(2)
@@ -5727,8 +5789,8 @@ mod tests {
         assert_eq!(latch_kept(on, false, false), None);
     }
 
-    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), the pad
-    /// is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
+    /// The 2017-18 tactic pad: CENTRAL and COUNTER print their names right of their arrows (centred on them), PRESS
+    /// in its square, the pad is drawn bigger than the art's base size, and no button or label (name and keycap, as drawn with and without
     /// Alt) overlaps another or leaves its plate, in EN, IT and JA, in the row and stacked.
     #[test]
     fn the_pad_names_sit_beside_their_arrows() {
@@ -5748,6 +5810,19 @@ mod tests {
                     let items = deck_layout_for(area, false, 1.0, stack);
                     let at = |a: &str| items.iter().find(|i| i.action == a).unwrap().rect;
                     assert!(at("PRESS").width() > 40.0, "the pad is drawn bigger");
+                    // PRESS prints its name in its square, above its keycap when one shows
+                    let press = at("PRESS");
+                    let (_, name) =
+                        press_name(&p, press, &tr!(lang, "cab.press"), !cap.is_empty(), 1.0);
+                    let why = format!("{lang:?} cap={cap:?} stack={stack} PRESS");
+                    assert!(
+                        press.shrink(1.5).contains_rect(name),
+                        "{why}: {name:?} leaves {press:?}"
+                    );
+                    if !cap.is_empty() {
+                        let cap_top = press.bottom() - 4.0 - KEYCAP_H;
+                        assert!(name.bottom() <= cap_top + 0.5, "{why}: over its keycap");
+                    }
                     // every button and every printed label, each with its plate
                     let mut boxes = Vec::new();
                     for it in &items {

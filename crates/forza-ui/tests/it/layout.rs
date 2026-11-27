@@ -533,7 +533,11 @@ fn board_reset_lineup_offered_outside_a_match() {
             why.is_some(),
             "{why:?}"
         );
-        let key = if same { why.unwrap() } else { "board.hint" };
+        let key = if same {
+            why.unwrap()
+        } else {
+            "board.hint_1718"
+        };
         let line = forza_ui::text(Lang::En, key, &[("at", "")]);
         assert!(h.query_by_label(&line).is_some(), "{key} under the board");
         // the drag hint's place: the greyed button's reason stays on its hover
@@ -616,8 +620,8 @@ fn board_reset_reason_clear_of_the_buttons() {
 }
 
 /// The hint under the game window's board keeps a clear gap under its row of buttons and stays inside the board, at
-/// the windows the panel's layout test covers and the game window players run (1972x1080), in English, Italian and
-/// Japanese. Laid out only: no GPU.
+/// the windows the panel's layout test covers and the game window players run (1972x1080), with the bench at the
+/// pitch's right and under it, in English, Italian and Japanese. Laid out only: no GPU.
 #[test]
 fn board_hint_clear_of_the_buttons() {
     const GAP: f32 = 8.0;
@@ -634,8 +638,12 @@ fn board_hint_clear_of_the_buttons() {
     ] {
         // the sheet such a window shows, in points
         let size = Vec2::new(w, h) / panel::scale(w, h, 96.0);
-        for lang in Lang::ALL {
+        for (lang, bench) in Lang::ALL
+            .into_iter()
+            .flat_map(|l| [(l, None), (l, Some(false))])
+        {
             let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            st.file.bench = bench; // SETTINGS' BENCH POSITION: RIGHT (the default) and BELOW
             st.before_match = Some(forza::cards::table_after(&[], &st.board));
             st.reset_ready = true; // RESET LINEUP lit: the hint, not its reason, under the buttons
             let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
@@ -645,11 +653,11 @@ fn board_hint_clear_of_the_buttons() {
                 .map(|k| at(k).bottom())
                 .into_iter()
                 .fold(f32::MIN, f32::max);
-            let hint = at("board.hint");
+            let hint = at("board.hint_1718");
             // the board strip keeps a 16-point margin inside the board's column
             let board =
                 panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
-            let case = format!("{size:?} {}", lang.code());
+            let case = format!("{size:?} {} bench {bench:?}", lang.code());
             assert!(
                 hint.top() >= buttons + GAP - 0.5,
                 "{case}: the hint at {} sits {} under the buttons",
@@ -662,6 +670,103 @@ fn board_hint_clear_of_the_buttons() {
                 hint.bottom(),
                 board.bottom()
             );
+        }
+    }
+}
+
+/// On the 2017-18 deck, KEY PLAYER and KEEPER say on hover and on keyboard focus that a right-click holds them down;
+/// SHOOT does not (a right-click does not hold it), in English, Italian and Japanese. Laid out only: no GPU.
+#[test]
+fn the_deck_names_the_right_click_hold() {
+    for (lang, focus) in Lang::ALL.into_iter().flat_map(|l| [(l, false), (l, true)]) {
+        let hint = forza_ui::text(lang, "cab.hold_hint", &[]);
+        for (key, held) in [
+            ("cab.key_player", true),
+            ("cab.keeper", true),
+            ("cab.shoot", false),
+        ] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+                panel::show(ui, &mut st)
+            });
+            h.run_steps(4);
+            let label = forza_ui::text(lang, key, &[]);
+            let button = h.get_by_label(&label);
+            if focus {
+                button.focus();
+            } else {
+                button.hover();
+            }
+            h.run_steps(12);
+            assert_eq!(
+                h.query_by_label(&hint).is_some(),
+                held,
+                "{} {key} focus {focus}",
+                lang.code()
+            );
+        }
+    }
+}
+
+/// The 2017-18 tactic pad's PRESS prints its name inside its own square, as `panel::show` paints it, at the panel's size
+/// and a 1280x800 window, in English, Italian and Japanese. Laid out only: no GPU.
+#[test]
+fn the_pad_paints_press_in_its_square() {
+    for size in [panel::SIZE, Vec2::new(1280.0, 800.0)] {
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(4);
+            let name = forza_ui::text(lang, "cab.press", &[]);
+            let press = h.get_by_label(&name).rect();
+            let painted: Vec<egui::Rect> = h
+                .output()
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.text() == name => {
+                        Some(t.galley.rect.translate(t.pos.to_vec2()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let case = format!("{size:?} {}", lang.code());
+            assert!(!painted.is_empty(), "{case}: {name:?} is not painted");
+            for r in painted {
+                assert!(
+                    press.expand(1.5).contains_rect(r),
+                    "{case}: {r:?} leaves PRESS {press:?}"
+                );
+            }
+        }
+    }
+}
+
+/// FILTER BY STATS opened on 2017-18 says what its sliders do, in view without hover: the line sits under the
+/// filters and inside the CARDS page, left of the board, at the panel's size and a 1280x800 window, in English, Italian and
+/// Japanese. Laid out only: no GPU.
+#[test]
+fn the_stat_ranges_explain_themselves_without_hover() {
+    for size in [panel::SIZE, Vec2::new(1280.0, 800.0)] {
+        let board = panel::layout(egui::Rect::from_min_size(egui::Pos2::ZERO, size), false).board;
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Catalogue);
+            st.catalogue.ranges_open = true;
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(6);
+            let case = format!("{size:?} {}", lang.code());
+            let at = |key: &str| h.get_by_label(&forza_ui::text(lang, key, &[])).rect();
+            let help = at("cat.ranges_help");
+            let search = h.get_by_role(egui::accesskit::Role::TextInput).rect();
+            assert!(
+                help.top() >= search.bottom(),
+                "{case}: {help:?} not under the filters"
+            );
+            assert!(
+                help.left() >= search.left() - 0.5 && help.right() <= board.left() - 16.0,
+                "{case}: {help:?} leaves the page (search {search:?}, board {board:?})"
+            );
+            assert!(help.bottom() <= size.y, "{case}: {help:?} below the window");
         }
     }
 }
