@@ -968,6 +968,38 @@ fn lan_name(arcade: String) -> String {
     }
 }
 
+/// A club still marked out settled ([`club::leftover`]), in words for the player when there is something to tell.
+fn leftover_note(dir: &Path) -> Option<Text> {
+    match club::leftover(dir) {
+        Ok(Some((kept, home))) => Some(leftover_text(&kept, home)),
+        Ok(None) => None,
+        Err(e) => Some(Text::key("launcher.run_marker_unread").arg("error", e)),
+    }
+}
+
+/// Whether CLEAR BAD ENDINGS settles a club still marked out first (no trip on: the marker is a crash's, the club is
+/// home). Not on a VS start: its bring re-joins with that marker first (#437); the bad endings then stay this once.
+fn settles_at_card_steps(mode: &Mode, club_on: bool) -> bool {
+    !club_on && !matches!(mode, Mode::Vs(_))
+}
+
+/// #437, before a bring: a re-join of the arcade the club is still out in takes its newer copy home, then a club left
+/// out is settled. -> the guest to bring and what to tell. `Err` (no card, a re-join that could not ask): the marker
+/// stays for the next start, as a bring would send the older home club over the arcade's copy.
+fn before_bring(guest: Option<club::Guest>, dir: &Path, log: &Log) -> Result<(club::Guest, Vec<Text>), Text> {
+    let Some(guest) = guest else {
+        return Err(Text::key("launcher.run_no_card"));
+    };
+    let mut said = Vec::new();
+    match guest.rejoin(log) {
+        club::Rejoin::Pulled => said.push(Text::key("launcher.club_rejoin")),
+        club::Rejoin::Skip => {}
+        club::Rejoin::Failed(why) => return Err(Text::key("launcher.club_rejoin_failed").arg("error", why)),
+    }
+    said.extend(leftover_note(dir));
+    Ok((guest, said))
+}
+
 fn file_log(path: PathBuf) -> Log {
     let t0 = Instant::now();
     // a stand-in's log is opened again inside one session (a text switch twice): no RESTART line, which only the
@@ -1438,8 +1470,8 @@ impl Run<'_> {
                 let done = if matches!(self.mode, Mode::Remote(..)) {
                     "the club is on another PC's server - clear its bad endings there".to_owned()
                 } else if steps["card_fix"].eq_ignore_ascii_case("bad_endings") {
-                    if self.club.is_none() {
-                        self.club_leftover(&dir); // no trip on: an out marker is a crash's, the club is home
+                    if settles_at_card_steps(&self.mode, self.club.is_some()) {
+                        self.club_leftover(&dir);
                     }
                     club::clear_bad_endings(&dir).unwrap_or_else(|e| format!("bad endings not cleared ({e})"))
                 } else {
@@ -2433,7 +2465,9 @@ impl Run<'_> {
     fn start_gamesvr(&mut self, steps: u32) -> Result<(), Failed> {
         // a new run: nothing of the last one until this one picks its cup
         remember_cup(None);
-        if !matches!(self.mode, Mode::Remote(..)) {
+        // a guest's run (Remote) and an online one that brings the club (Vs) settle a club left out at the bring, after a
+        // re-join takes the arcade's newer copy (#437)
+        if !matches!(self.mode, Mode::Remote(..) | Mode::Vs(_)) {
             self.club_leftover(&self.kit.save().join("gamesvr"));
         }
         if matches!(self.mode, Mode::Remote(..)) {
@@ -2507,6 +2541,8 @@ impl Run<'_> {
                 self.visit.club = None;
                 self.bring_club(choices::resolve(&server, self.p.seat_port), 1, &server)
                     .map_err(|why| Failed(Text::key("launcher.run_vs_club_refused").part("why", why)))?;
+            } else {
+                self.club_leftover(&self.kit.save().join("gamesvr"));
             }
             conf::set_game_server(&ctrl_conf, &t.host, t.port, true)?;
             self.tell(
@@ -2555,10 +2591,8 @@ impl Run<'_> {
     /// A club still marked out in an arcade (the last trip ended before it came home): the home copy stays, the arcade's
     /// last copy goes to backups, and the player is told once.
     fn club_leftover(&self, dir: &Path) {
-        match club::leftover(dir) {
-            Ok(Some((kept, home))) => self.tell("  ", &leftover_text(&kept, home)),
-            Ok(None) => {}
-            Err(e) => self.tell("  ", &Text::key("launcher.run_marker_unread").arg("error", e)),
+        if let Some(t) = leftover_note(dir) {
+            self.tell("  ", &t);
         }
     }
 
@@ -2568,7 +2602,6 @@ impl Run<'_> {
     fn bring_club(&mut self, desk: Option<SocketAddr>, seat: u8, arcade: &str) -> Result<(), Text> {
         let save = self.kit.save();
         let dir = save.join("gamesvr");
-        self.club_leftover(&dir);
         // a first run: the card the reader will read, made now so its club (none yet) comes along too
         aime::ensure_card(&save.join("seat1_aime.txt"));
         let code = fs::read_to_string(save.join("seat1_aime.txt"))
@@ -2578,20 +2611,23 @@ impl Run<'_> {
         let home = code
             .as_ref()
             .map(|c| aimedb::Db::open(save.join("aimedb.json")).map(|db| db.home_id(c)));
-        let (Some(code), Some(Ok(home)), Some(desk)) = (code, home, desk) else {
-            return Err(Text::key("launcher.run_no_card"));
+        let guest = match (code, home, desk) {
+            (Some(code), Some(Ok(home)), Some(desk)) => Some(club::Guest {
+                desk,
+                seat,
+                arcade_aime: aimedb::hash_id(&code) as u32,
+                code,
+                home_aime: home as u32,
+                dir: dir.clone(),
+                arcade: arcade.to_owned(),
+                poll: club::POLL,
+            }),
+            _ => None,
         };
-        let guest = club::Guest {
-            desk,
-            seat,
-            arcade_aime: aimedb::hash_id(&code) as u32,
-            code,
-            home_aime: home as u32,
-            dir,
-            arcade: arcade.to_owned(),
-            poll: club::POLL,
-        };
-        match guest.bring(file_log(self.logs().join("club_trip.txt"))) {
+        let log = file_log(self.logs().join("club_trip.txt"));
+        let (guest, said) = before_bring(guest, &dir, &log)?;
+        said.iter().for_each(|t| self.tell("  ", t));
+        match guest.bring(log) {
             Ok(trip) => {
                 self.visit.club = Some(trip.progress());
                 self.club = Some(trip);
@@ -3525,6 +3561,59 @@ mod tests {
             "{differs:?}"
         );
         assert!(differs.en().contains("club-shop-1.json"), "{}", differs.en());
+    }
+
+    /// A 2017-18 card step (CLEAR BAD ENDINGS) never settles a club marked out on a start that brings the club: an
+    /// online (VS) start re-joins with that marker first (#437); a local one settles it, a guest's skips the step.
+    #[test]
+    fn clear_bad_endings_leaves_a_vs_starts_marker_to_the_rejoin() {
+        use super::{Mode, settles_at_card_steps};
+        assert!(settles_at_card_steps(&Mode::Local, false));
+        assert!(!settles_at_card_steps(&Mode::Local, true), "a trip on");
+        assert!(!settles_at_card_steps(&Mode::Vs(String::new()), false));
+    }
+
+    /// #437: no card, or an arcade that does not answer the re-join, leaves the marker for the next try; a bring then
+    /// would send the older home club over the arcade's copy (a newer one would be set aside there).
+    #[test]
+    fn a_bring_keeps_the_marker_until_the_rejoin_could_ask() {
+        let d = crate::scratch();
+        let dir = d.path().join("gamesvr");
+        fs::create_dir_all(&dir).unwrap();
+        let out = forza::online::club::Out {
+            arcade: "test arcade".into(),
+            since: 1000,
+            seat: 2,
+            home_aime: 1,
+            arcade_aime: 50,
+            link: Default::default(),
+            home_stamp: String::new(),
+            host_stamp: String::new(),
+            back_stamp: String::new(),
+            back: 0,
+        };
+        let marker = dir.join("club_out.json");
+        fs::write(&marker, serde_json::to_vec(&out).unwrap()).unwrap();
+        let log: super::Log = std::sync::Arc::new(|_: &str| {});
+        assert!(super::before_bring(None, &dir, &log).is_err());
+        assert!(marker.exists(), "no card: the marker stays");
+        // a port nothing listens on
+        let desk = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let guest = forza::online::club::Guest {
+            desk,
+            seat: 2,
+            code: "01234567890123456789".into(),
+            home_aime: 1,
+            arcade_aime: 50,
+            dir: dir.clone(),
+            arcade: "test arcade".into(),
+            poll: forza::online::club::POLL,
+        };
+        assert!(super::before_bring(Some(guest), &dir, &log).is_err());
+        assert!(marker.exists(), "the arcade did not answer: the marker stays");
     }
 
     /// LAN search answers carry the arcade's name, as its ARCADES row does (2026-11-06: they showed the PC's).

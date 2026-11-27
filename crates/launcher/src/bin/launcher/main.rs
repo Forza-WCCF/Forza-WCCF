@@ -1455,6 +1455,9 @@ impl App {
                     .map_or(RELEASES_PAGE, |r| r.page.as_str());
                 ctx.open_url(egui::OpenUrl::new_tab(page));
             }
+            // #434: the club question before the lobby claims a seat or a room's countdown, or a hosted arcade opens; the
+            // same button again after it
+            Action::Lobby(a) if claims_a_start(&a) && self.club_question() => {}
             Action::Lobby(LobbyAction::HostArcade) => {
                 if !self.st.busy && !self.st.running {
                     // the room goes on the club server the box names now (the run reads the setting), checked as PLAY does
@@ -1524,8 +1527,6 @@ impl App {
             // room) after it, never under its match (run::rules::stop_server_too, and host_arcade's stop once the seat's
             // run has ended)
             Action::Lobby(LobbyAction::Leave) if self.st.lobby.hosting => stop_game(),
-            // #434: the club question before the lobby claims a seat or a room's countdown; JOIN again after it
-            Action::Lobby(a) if claims_a_start(&a) && self.club_question() => {}
             Action::Lobby(a) => self.online.act(a, &mut self.st, &kit.settings_file()),
             Action::Rejoin => self.online.rejoin(),
             Action::Report => self.open_report(&kit, false),
@@ -1720,11 +1721,17 @@ fn asks_first(offer: bool, asked: &mut bool) -> bool {
     ask
 }
 
-/// A lobby choice that claims a seat or a room (whose countdown starts the run): asked about the club first (#434).
+/// A lobby choice that claims a seat or a room (whose countdown starts the run), or opens a hosted arcade (HOST
+/// ARCADE, on the internet or the LAN): asked about the club first (#434).
 fn claims_a_start(a: &LobbyAction) -> bool {
     matches!(
         a,
-        LobbyAction::Join(_) | LobbyAction::JoinCode(_) | LobbyAction::QuickMatch | LobbyAction::HostVs
+        LobbyAction::Join(_)
+            | LobbyAction::JoinCode(_)
+            | LobbyAction::QuickMatch
+            | LobbyAction::HostVs
+            | LobbyAction::HostArcade
+            | LobbyAction::HostLan
     )
 }
 
@@ -2346,8 +2353,9 @@ mod tests {
         );
     }
 
-    /// #434: a coded JOIN (or any lobby choice that claims a seat or a room) asks before the lobby sees it, so nothing
-    /// is claimed while the question is open and `held.played` is never set for a start the question stops.
+    /// #434: a coded JOIN (or any lobby choice that claims a seat or a room, or HOST ARCADE) asks before the lobby or the
+    /// host sees it, so nothing is claimed or opened while the question is open and `held.played` is never set for a
+    /// start the question stops.
     #[test]
     fn a_lobby_start_asks_before_it_claims() {
         for a in [
@@ -2355,6 +2363,8 @@ mod tests {
             LobbyAction::Join("r1".into()),
             LobbyAction::QuickMatch,
             LobbyAction::HostVs,
+            LobbyAction::HostArcade,
+            LobbyAction::HostLan,
         ] {
             assert!(claims_a_start(&a), "{a:?}");
         }
@@ -2373,6 +2383,13 @@ mod tests {
             .expect("the gate");
         let lobby = code[act..].find("self.online.act(a,").unwrap();
         assert!(gate < lobby, "asked before the lobby claims");
+        // HOST ARCADE (internet or LAN) asks before it opens the room (#434)
+        for host in [
+            "Action::Lobby(LobbyAction::HostArcade) =>",
+            "Action::Lobby(LobbyAction::HostLan) =>",
+        ] {
+            assert!(gate < code[act..].find(host).unwrap(), "asked before {host}");
+        }
     }
 
     #[test]
