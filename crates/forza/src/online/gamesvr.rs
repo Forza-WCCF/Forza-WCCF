@@ -572,7 +572,9 @@ type Granted = (u8, u32, i32, Option<u16>);
 /// The client sets these from the answer even when zero (sub_81AC50 applies them, sub_817F10 writes the 277), so a
 /// span left out puts that state back to its default at every card-in. 3,100..3,556 is the club's league state
 /// (SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played, results, W/D/L; a
-/// zero state puts a club back into league 2, sub_83D4C0); 3,674..4,154 the 16 player records of 30 bytes (experience,
+/// zero state puts a club back into league 2, sub_83D4C0); 3,624 the coach's 50 items (NO_SAVE_COACH_ITEM, the
+/// inventory itself, not this play's new ones: the client packs and sorts its 90 slots into the first 50, sub_64A3B0,
+/// and the 277 sends those 50, sub_817F10 0x819867; 0 emptied it at every card-in); 3,674..4,154 the 16 player records of 30 bytes (experience,
 /// level, confidence, form); 6,094 the manager level; the rest is the server-side summary the notes list
 /// (docs/research/ONLINE-2017-18.md, SAVE_DATA). 4,154..4,164 is the club report in the 276's own order (MOM and
 /// worst player, report lines, previous cup and round, enemy region, evaluation; the 277 orders them report, cup,
@@ -582,9 +584,10 @@ type Granted = (u8, u32, i32, Option<u16>);
 /// read). 6,096 the club ranking points (STATIC, DYNAMIC: sub_84A8F0 from the 277's +8,512, sub_84AC10), 6,104 the
 /// four trophy counts and 6,126 the two favourite cards (ids, rates); its rank, results, prize-info and penalty flags
 /// stay 0. Spans do not overlap and stay inside both messages.
-pub const TAIL_SPANS: [(usize, usize, usize); 19] = [
+pub const TAIL_SPANS: [(usize, usize, usize); 20] = [
     (3100, 5480, 456),
     (3556, 5944, 60),
+    (3624, 6005, 50),
     (3674, 6068, 480),
     (4154, 6556, 2),
     (4156, 6548, 4),
