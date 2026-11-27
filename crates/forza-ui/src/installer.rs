@@ -188,6 +188,8 @@ pub struct InstallerState {
     pub package_check: Option<PackageCheck>,
     /// Editions already installed in the folder.
     pub installed: Vec<Edition>,
+    /// Editions whose game folder is in the folder, whole or not: INSTALL from a disc stops on each.
+    pub occupied: Vec<Edition>,
     /// Use the installed `edition` instead of a disc image.
     pub reuse: bool,
     pub edition: Edition,
@@ -235,6 +237,7 @@ impl InstallerState {
             key_check: None,
             package_check: None,
             installed: vec![],
+            occupied: vec![],
             reuse: false,
             edition: Edition::E1011,
             options: [true, true, false, true],
@@ -1014,16 +1017,18 @@ fn files_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option
             widgets::badge(ui, e);
         }
     });
-    // INSTALL from a disc stops on an edition already in the folder: say so before it is pressed
+    // INSTALL from a disc stops on any game folder of its edition already in the folder: say so before it is pressed,
+    // and offer its files only when they are a whole install
     if let Some(e) = st
         .detected
-        .filter(|e| !st.reuse && st.installed.contains(e))
+        .filter(|e| !st.reuse && (st.installed.contains(e) || st.occupied.contains(e)))
     {
-        status_line(
-            ui,
-            Tone::Notice,
-            &tr!(lang, "installer.already_here", edition = e.label()),
-        );
+        let key = if st.installed.contains(&e) {
+            "installer.already_here"
+        } else {
+            "installer.partial_here"
+        };
+        status_line(ui, Tone::Notice, &tr!(lang, key, edition = e.label()));
     }
     if st.reuse {
         status_line(

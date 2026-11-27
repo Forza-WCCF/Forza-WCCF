@@ -369,6 +369,36 @@ fn installer_files_warns_of_an_edition_already_installed() {
     }
 }
 
+/// A game folder of the disc's edition that is not a whole install (files missing, quarantined) also stops INSTALL:
+/// the Files page says so, without the already-installed line that offers to use its files (#438).
+#[test]
+fn installer_files_warns_of_an_incomplete_game_folder() {
+    use forza_ui::theme::Edition::{E1011, E1718};
+    for lang in Lang::ALL {
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Files);
+        (st.detected, st.installed, st.occupied) = (Some(E1718), vec![E1011], vec![E1011, E1718]);
+        let partial = forza_ui::text(
+            lang,
+            "installer.partial_here",
+            &[("edition", E1718.label())],
+        );
+        let whole = forza_ui::text(
+            lang,
+            "installer.already_here",
+            &[("edition", E1718.label())],
+        );
+        let mut h = harness(installer::SIZE, 1.0, E1718, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        assert!(h.query_by_label(&partial).is_some(), "{lang:?}: no notice");
+        assert!(
+            h.query_by_label(&whole).is_none(),
+            "{lang:?}: offers its files"
+        );
+    }
+}
+
 /// The installer's language switch sits left of minimize and close, clear of the page title, on every page, in every
 /// language and at the window's default and smallest size (main.rs `with_min_inner_size`), and a click on a language
 /// turns all the window's text to it on that frame (#438).

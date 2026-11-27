@@ -189,6 +189,14 @@ impl App {
             .filter(|d| install::game_present(&dest, d.edition.game_id()))
             .map(|d| d.edition)
             .collect();
+        // as install::resolve's GameFolderExists: any game folder, whole or not
+        st.occupied = disc::DISCS
+            .iter()
+            .filter(|d| {
+                install::version_paths(&dest, d.edition.game_id()).is_ok_and(|(_, g)| g.exists())
+            })
+            .map(|d| d.edition)
+            .collect();
         if st.installed.is_empty() {
             st.reuse = false;
         } else if !st.installed.contains(&st.edition)
@@ -1102,6 +1110,20 @@ mod tests {
             app.st.error,
             Some(text(Lang::Ja, "installer.err_folder", &[]))
         );
+    }
+
+    /// A game folder with files missing is no install to use, but INSTALL from a disc stops on it all the same.
+    #[test]
+    fn an_incomplete_game_folder_is_occupied_not_installed() {
+        let dir =
+            std::env::temp_dir().join(format!("installer-partial-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(r"2017-2018").join(install::GAME_DIR)).unwrap();
+        let mut app = App::new();
+        app.st.folder = dir.display().to_string();
+        app.refresh();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(app.st.installed, vec![]);
+        assert_eq!(app.st.occupied, vec![Edition::E1718]);
     }
 
     /// The window must not probe the folder, the disc and the drive on every repaint (on a drive that went away, each
