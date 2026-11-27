@@ -376,11 +376,12 @@ fn swap_self<'a>(
 /// next start.  [`tidy`] removes the second name once the old one has exited.  A scanner holding the fresh copy gets
 /// the rename tried again for up to 1 s.
 fn replace_running(me: &Path, new: &Path) -> io::Result<()> {
-    replace_until(me, new, &mut || true)
+    replace_until(me, new, None, &mut || true)
 }
 
-/// [`replace_running`], asking `go` before each step: a test stops there as a kill would, with nothing undone.
-fn replace_until(me: &Path, new: &Path, go: &mut dyn FnMut() -> bool) -> io::Result<()> {
+/// [`replace_running`], the copy checked against the SHA-256 `want` before it goes in, asking `go` before each step: a
+/// test stops there as a kill would, with nothing undone.
+fn replace_until(me: &Path, new: &Path, want: Option<&str>, go: &mut dyn FnMut() -> bool) -> io::Result<()> {
     let (Some(dir), Some(stem)) = (me.parent(), me.file_stem().and_then(OsStr::to_str)) else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, me.display().to_string()));
     };
@@ -401,6 +402,13 @@ fn replace_until(me: &Path, new: &Path, go: &mut dyn FnMut() -> bool) -> io::Res
         .and_then(|mut to| {
             io::copy(&mut fs::File::open(new)?, &mut to)?;
             to.sync_all()
+        })
+        .and_then(|()| match want {
+            Some(w) if forza::apply::sha256_of(&temp)? != w => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} is not the Launcher.exe files.sha256 lists", new.display()),
+            )),
+            _ => Ok(()),
         })
         .and_then(|()| step())
         .and_then(|()| {
@@ -531,27 +539,57 @@ fn tidy_beside(me: &Path) -> Vec<String> {
 }
 
 /// The Launcher.exe swap an update killed before it (the PC went off, the process was ended) left undone: the kit
-/// folder's files.sha256 already lists another Launcher.exe than `me`, and the copy data\update\kit holds is that one.
-/// It goes in as an update swaps it; the running old one carries on until the next start (#361).  None: nothing to do,
-/// or another program from the kit folder runs (its update may still be copying).
+/// folder's files.sha256 already lists another Launcher.exe than `me`, the copy data\update\kit holds is that one, and
+/// every other file listed is in the kit folder as listed.  It goes in as an update swaps it, with the spare
+/// Launcher.exe.old, and data\update goes; the running old one carries on until the next start (#361).  None: nothing
+/// to do, or another program from the kit folder runs (its update may still be copying).  An error: a kit folder the
+/// copy left half way, with the old Launcher.exe kept.
 fn finish_swap(me: &Path) -> Option<io::Result<()>> {
     let dir = me.parent()?;
+    if !me.file_name()?.eq_ignore_ascii_case("Launcher.exe") {
+        return None; // a renamed copy is not the kit's Launcher
+    }
     let list = fs::read_to_string(dir.join("files.sha256")).ok()?;
-    let want = list.lines().find_map(|l| {
-        let (hash, f) = l.trim().trim_start_matches('\u{feff}').split_once("  ")?;
-        f.eq_ignore_ascii_case("Launcher.exe")
-            .then(|| hash.to_ascii_lowercase())
-    })?;
-    let staged = fs::read_dir(dir.join("data").join("update").join("kit"))
+    let listed: Vec<(String, &str)> = list
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .filter_map(|l| l.trim().split_once("  ").map(|(h, f)| (h.to_ascii_lowercase(), f)))
+        .collect();
+    let launcher = |f: &str| f.eq_ignore_ascii_case("Launcher.exe");
+    let want = &listed.iter().find(|(_, f)| launcher(f))?.0;
+    let work = dir.join("data").join("update");
+    let staged = fs::read_dir(work.join("kit"))
         .ok()?
         .flatten()
         .map(|e| e.path().join("Launcher.exe"))
         .find(|p| p.is_file())?;
     let sha = |p: &Path| forza::apply::sha256_of(p).ok();
-    if sha(me)? == want || sha(&staged)? != want || forza::procs::running_from(dir).is_some() {
+    if sha(me)? == *want || sha(&staged)? != *want || forza::procs::running_from(dir).is_some() {
         return None;
     }
-    Some(replace_running(me, &staged))
+    // a kill during the copy leaves the new files.sha256 over a half-copied kit: the new Launcher goes only onto the
+    // whole new kit (data\ is the player's, an update leaves it)
+    let data = |f: &str| f.split('\\').next().is_some_and(|c| c.eq_ignore_ascii_case("data"));
+    let off: Vec<&str> = listed
+        .iter()
+        .filter(|(h, f)| !launcher(f) && !data(f) && sha(&dir.join(f)).as_ref() != Some(h))
+        .map(|(_, f)| *f)
+        .collect();
+    if let Some(first) = off.first() {
+        let e = format!(
+            "{} kit files are not the listed ones ({first}, ...): the old Launcher.exe stays",
+            off.len()
+        );
+        return Some(Err(io::Error::other(e)));
+    }
+    let done = swap_self(me, &me.with_extension("exe.old"), || {
+        replace_until(me, &staged, Some(want.as_str()), &mut || true)
+    })
+    .map_err(|(_, e)| e);
+    if done.is_ok() {
+        let _ = fs::remove_dir_all(&work);
+    }
+    Some(done)
 }
 
 /// What a swap leaves next to Launcher.exe: `.Launcher.<pid>.__relocated__.exe`, the old Launcher.exe itself, and
@@ -1303,7 +1341,7 @@ mod tests {
             fs::write(t.path().join("files.sha256"), listed).unwrap();
             let running = as_running(&me);
             let mut steps = 0;
-            let r = replace_until(&me, &new, &mut || {
+            let r = replace_until(&me, &new, None, &mut || {
                 steps += 1;
                 steps <= at
             });
@@ -1319,6 +1357,95 @@ mod tests {
             assert_eq!(fs::read(&me).unwrap(), b"the new launcher", "{at}: {lines:?}");
             drop(next);
         }
+    }
+
+    /// A kill during the copy leaves the new files.sha256 over a half-copied kit: the next start leaves the old
+    /// Launcher.exe and says why, and swaps only once the kit folder is the listed one; data\update then goes (#361).
+    #[test]
+    fn a_kill_during_the_copy_leaves_the_old_launcher_on_a_half_copied_kit() {
+        let t = crate::scratch();
+        let me = t.path().join("Launcher.exe");
+        let script = t.path().join(r"scripts\run.cmd");
+        let staged = stage(t.path(), b"the running launcher", b"the new launcher");
+        fs::write(&script, b"the old script").unwrap();
+        let listed = format!(
+            "{}  Launcher.exe\r\n{}  scripts\\run.cmd\r\n",
+            sum(b"the new launcher"),
+            sum(b"the new script")
+        );
+        fs::write(t.path().join("files.sha256"), listed).unwrap();
+        let lines = tidy_beside(&me).join("; ");
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+        assert!(lines.contains(r"scripts\run.cmd"), "{lines}");
+        fs::write(&script, b"the new script").unwrap();
+        // a renamed copy of the Launcher is not the kit's Launcher.exe: it stays as it is
+        let copy = t.path().join("Launcher - Copy.exe");
+        fs::write(&copy, b"the running launcher").unwrap();
+        tidy_beside(&copy);
+        assert_eq!(fs::read(&copy).unwrap(), b"the running launcher");
+        tidy_beside(&me);
+        assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+        assert!(
+            !staged.exists() && !t.path().join(r"data\update").exists(),
+            "data\\update goes after the swap"
+        );
+    }
+
+    /// While another program from the kit folder runs (its update may still be copying), the start finishes no swap.
+    #[test]
+    fn no_swap_is_finished_while_a_program_from_the_kit_folder_runs() {
+        let t = crate::scratch();
+        let me = t.path().join("Launcher.exe");
+        stage(t.path(), b"the running launcher", b"the new launcher");
+        fs::write(
+            t.path().join("files.sha256"),
+            format!("{}  Launcher.exe\r\n", sum(b"the new launcher")),
+        )
+        .unwrap();
+        let other = t.path().join("other.exe");
+        fs::copy(r"C:\Windows\System32\cmd.exe", &other).unwrap();
+        let mut run = std::process::Command::new(&other)
+            .args(["/d", "/q", "/k"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        tidy_beside(&me);
+        let held = fs::read(&me).unwrap();
+        run.kill().unwrap();
+        run.wait().unwrap();
+        assert_eq!(held, b"the running launcher");
+        tidy_beside(&me);
+        assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+    }
+
+    /// A copy that is not the listed Launcher.exe (changed after its check) does not go in, and no temp copy is left.
+    #[test]
+    fn a_copy_other_than_the_listed_one_stays_out() {
+        let t = crate::scratch();
+        let (me, new) = (t.path().join("Launcher.exe"), t.path().join("unzipped.exe"));
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&new, b"another launcher").unwrap();
+        let e = replace_until(&me, &new, Some(&sum(b"the new launcher")), &mut || true).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+        assert!(!left_by_swap(t.path(), "__temp__.exe").exists());
+    }
+
+    /// A kit folder `dir` whose Launcher.exe is `old` and whose data\update\kit holds `new`: that copy's path.
+    fn stage(dir: &Path, old: &[u8], new: &[u8]) -> PathBuf {
+        let staged = dir.join(r"data\update\kit\Forza-WCCF-2017-18\Launcher.exe");
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        fs::create_dir_all(dir.join("scripts")).unwrap();
+        fs::write(dir.join("Launcher.exe"), old).unwrap();
+        fs::write(&staged, new).unwrap();
+        staged
+    }
+
+    /// The bytes' SHA-256 as files.sha256 spells it.
+    fn sum(b: &[u8]) -> String {
+        Sha256::digest(b).iter().map(|b| format!("{b:02x}")).collect()
     }
 
     /// `p`, an exe, held as Windows holds a running program's file: mapped as an image.  Closed when dropped.
