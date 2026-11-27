@@ -19,7 +19,7 @@ use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The secretaries' unlock bytes in answer 238: GAME_CTRL bytes 1176..1211, the block starting at +16 (+8 and +12
@@ -1967,6 +1967,9 @@ impl Default for Options {
     }
 }
 
+/// Frames a connection may send in a second before it is made to wait (the rest of that second).
+pub const MAX_RATE: u32 = 100;
+
 /// Largest legal frame: the biggest answer or request payload plus the 40-byte header.
 pub const MAX_FRAME: usize = 33600 + 40;
 
@@ -2075,6 +2078,8 @@ pub fn spawn_opts(
         // the header on the stack, one payload buffer per link (it grows to at most MAX_FRAME - 40 bytes)
         let (mut head, mut have) = ([0u8; 40], 0);
         let mut payload: Vec<u8> = Vec::new();
+        // frames in the current second (since .0): past MAX_RATE the link waits the second out
+        let mut rate = (Instant::now(), 0u32);
         loop {
             match fill(&mut conn, &mut head[have..], &flag) {
                 Ok(true) => {}
@@ -2113,6 +2118,15 @@ pub fn spawn_opts(
                     log(&format!("recv error {e}"));
                     break;
                 }
+            }
+            // a flood is slowed, never dropped: a real control sends a few frames a second
+            if rate.0.elapsed() >= Duration::from_secs(1) {
+                rate = (Instant::now(), 0);
+            }
+            rate.1 += 1;
+            if rate.1 > MAX_RATE {
+                std::thread::sleep(Duration::from_secs(1).saturating_sub(rate.0.elapsed()));
+                rate = (Instant::now(), 1);
             }
             let (cmd, seq) = (
                 u16::from_le_bytes([head[8], head[9]]),

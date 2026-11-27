@@ -2120,6 +2120,57 @@ fn oversized_header_closes_and_per_ip_limit_holds() {
     );
 }
 
+/// A game server on loopback with `o`, and a link to it that answers in 5 s.
+fn serve(o: Options) -> (Handle, impl Fn() -> std::net::TcpStream, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let svc = spawn_opts(l, dir.path().into(), Arc::new(|_| {}), o).unwrap();
+    let link = move || {
+        let c = std::net::TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        c
+    };
+    (svc, link, dir)
+}
+
+/// `n` keep-alives (18) in one write, then their `n` answers read back.
+fn echoes(c: &mut std::net::TcpStream, n: u16) {
+    use std::io::Read;
+    let mut out = Vec::new();
+    for seq in 0..n {
+        out.extend_from_slice(&header(18, seq, 0, 4, 0));
+        out.extend_from_slice(&[1, 0, 0, 0]);
+    }
+    c.write_all(&out).unwrap();
+    let mut back = vec![0u8; 44 * usize::from(n)];
+    c.read_exact(&mut back).unwrap();
+    assert_eq!(
+        u16_at(&back[44 * (usize::from(n) - 1)..], 10),
+        n - 1,
+        "the last one answered"
+    );
+}
+
+/// 250 frames sent at once are all answered, but at 100 a second: the link waits twice.
+#[test]
+fn a_flood_is_slowed_not_dropped() {
+    let (_svc, link, _dir) = serve(Options {
+        dump: false,
+        ..Options::default()
+    });
+    let mut c = link();
+    let t = Instant::now();
+    echoes(&mut c, 250);
+    let took = t.elapsed();
+    assert!(took >= Duration::from_millis(1800), "{took:?}");
+    // a client at its own pace waits for nothing
+    std::thread::sleep(Duration::from_secs(1));
+    let t = Instant::now();
+    echoes(&mut c, 20);
+    assert!(t.elapsed() < Duration::from_millis(500));
+}
+
 #[test]
 fn raw_files_are_bounded() {
     let dir = tempfile::tempdir().unwrap();
