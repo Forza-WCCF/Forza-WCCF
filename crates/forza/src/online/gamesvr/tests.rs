@@ -1377,6 +1377,68 @@ fn the_save_answer_keeps_the_kickers() {
     assert_eq!(u32_at(&a, 3088), sum32(&z), "C2 covers the ids");
 }
 
+/// A card-in answer after a 277 holding `set` (277 offset, bytes); `None`: a club with no stored 277 (a save from
+/// before the `requests` table).
+fn card_in_after(set: Option<&[(usize, &[u8])]>) -> Vec<u8> {
+    let store = Mutex::new(Store::open(Path::new(":memory:")).unwrap());
+    let [aime, club, card] = new_club(&store);
+    let mut save = fixture(277, [aime, club, card]);
+    for &(at, v) in set.unwrap_or_default() {
+        save[at..at + v.len()].copy_from_slice(v);
+    }
+    assert_eq!(u32_at(&ask_store(&store, 277, &save).0, 4), 0);
+    if set.is_none() {
+        let st = store.lock().unwrap();
+        st.0.execute_batch("DELETE FROM requests").unwrap();
+    }
+    let (a, why) = ask_store(&store, 275, &req(275, [aime, club, card]));
+    assert_eq!((a.len(), u32_at(&a, 4), why), (6176, 0, None));
+    let mut z = a.clone();
+    put(&mut z, 3088, 0);
+    assert_eq!(u32_at(&a, 3088), sum32(&z), "C2 covers the restored tail");
+    a
+}
+
+/// #449: the chosen title (u16), training wear and flag (u16) at 276 +6,016 come from the 277's +8,352; 0 cleared
+/// them at every card-in.
+#[test]
+fn the_save_answer_keeps_title_wear_and_flag() {
+    let a = card_in_after(Some(&[(8352, &[162, 1, 7, 0, 33, 1])]));
+    assert_eq!(&a[6016..6022], &[162, 1, 7, 0, 33, 1]);
+}
+
+/// #449: the total rematch count (u16) is read at 276 +6,148, not +6,138 where the old span put it.
+#[test]
+fn the_save_answer_keeps_the_total_rematch_count() {
+    let a = card_in_after(Some(&[(8532, &[3, 4, 0x34, 0x12, 1, 0, 0, 0, 2, 0, 0, 0])]));
+    assert_eq!(&a[6148..6150], &[0x34, 0x12]);
+    assert_eq!(&a[6136..6140], &[3, 4, 0, 0], "serial count and incentive");
+    assert_eq!(
+        &a[6140..6148],
+        &[1, 0, 0, 0, 2, 0, 0, 0],
+        "both GT counters"
+    );
+}
+
+/// #449: MOM and worst player (276 +4,154/+4,155) are the 277's +6,556/+6,557, or 16 (no player) with no 277.
+#[test]
+fn the_save_answer_keeps_mom_and_worst_player() {
+    let a = card_in_after(Some(&[(6556, &[13, 2])]));
+    assert_eq!(&a[MOM_WORST_276..MOM_WORST_276 + 2], &[13, 2]);
+    let a = card_in_after(None);
+    assert_eq!(&a[MOM_WORST_276..MOM_WORST_276 + 2], &[NO_PLAYER; 2]);
+}
+
+/// #449: the club report reaches the 276 in the client's order. The old span (4158, 6552, 6) sent the evaluation
+/// points as the previous cup id (max 59) and the MOM index as the enemy region (max 6).
+#[test]
+fn the_save_answer_keeps_the_club_report_in_place() {
+    // 277: report lines 1..4, cup 21, round 22, evaluation 75, region 5, MOM 13, worst 2
+    let a = card_in_after(Some(&[(6548, &[1, 2, 3, 4, 21, 22, 75, 5, 13, 2])]));
+    assert_eq!(&a[4154..4164], &[13, 2, 1, 2, 3, 4, 21, 22, 5, 75]);
+    assert_ne!(a[4160], 75, "evaluation points are not the previous cup id");
+}
+
 /// The team ranking answer 234 is the control's own "no ranking" block (control constructor 0x440844): "NO
 /// ENTRY" in the champion's three names and both names of the 8 rows, every other byte 0, the request not echoed.
 #[test]
