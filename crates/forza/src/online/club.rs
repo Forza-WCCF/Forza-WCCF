@@ -1695,6 +1695,7 @@ impl Guest {
             }
             return Took::Kept;
         }
+        let before = std::fs::read(last_file(&self.dir)).ok();
         if let Err(e) = write_atomic(&last_file(&self.dir), &pulled) {
             log(&format!(
                 "club copy-back: cannot keep the pulled copy ({e})"
@@ -1736,6 +1737,11 @@ impl Guest {
             }
             Err(e) => {
                 log(&format!("club copy-back failed: {e}"));
+                // the last copy back as it was: one home club newer than it would read as Differs and skip a retry
+                let _ = match before {
+                    Some(b) => write_atomic(&last_file(&self.dir), &b),
+                    None => std::fs::remove_file(last_file(&self.dir)),
+                };
                 Took::Failed(e)
             }
         }
