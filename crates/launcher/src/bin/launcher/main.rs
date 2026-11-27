@@ -116,6 +116,8 @@ struct Shared {
     host_guests: Option<Arc<AtomicUsize>>,
     // the LAN fold: the arcades the last search found (forza::online::lan)
     lan_found: Option<Vec<forza::online::lan::Found>>,
+    // why the job's step failed or its start was refused (run::Ui::cause): the status line names it
+    cause: Option<String>,
 }
 
 static SHARED: Mutex<Shared> = Mutex::new(Shared {
@@ -141,6 +143,7 @@ static SHARED: Mutex<Shared> = Mutex::new(Shared {
     host_room: None,
     host_guests: None,
     lan_found: None,
+    cause: None,
 });
 
 /// The game is up in this process (its run is supervised here): the window is minimized, closing it asks the run to stop.
@@ -243,7 +246,19 @@ fn setup_step(rc: i32) -> Result<(), String> {
     match rc {
         0 => Ok(()),
         launcher::setup::RUNNING => Err(t("launcher.msg_game_running")),
-        _ => Err(t("launcher.msg_failed")),
+        _ => Err(failed_status("launcher.msg_failed", "launcher.msg_failed_why")),
+    }
+}
+
+/// A failed job's status line: `why_key` with the cause the job's lines gave (`Shared::cause`), else `plain`.
+fn failed_status(plain: &str, why_key: &str) -> String {
+    with_cause(plain, why_key, shared().cause.as_deref())
+}
+
+fn with_cause(plain: &str, why_key: &str, cause: Option<&str>) -> String {
+    match cause.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(why) => tf(why_key, &[("why", why)]),
+        None => t(plain),
     }
 }
 
@@ -364,6 +379,7 @@ fn start(steps: Vec<Step>) -> bool {
         s.began = Some(Instant::now());
         s.stage_at = s.began;
         s.timed = [0.0; 6];
+        s.cause = None;
     }
     poke();
     thread::spawn(move || {
@@ -405,7 +421,7 @@ fn start(steps: Vec<Step>) -> bool {
                     say(t("launcher.msg_making_pictures"), 0);
                     run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
                         .then_some(())
-                        .ok_or_else(|| t("launcher.msg_failed"))
+                        .ok_or_else(|| failed_status("launcher.msg_failed", "launcher.msg_failed_why"))
                 }
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -440,7 +456,9 @@ fn start(steps: Vec<Step>) -> bool {
             (Ok(()), None, Some(4)) => t("launcher.msg_unguarded"),
             (Ok(()), None, Some(5)) => t("launcher.msg_not_guarded"),
             (Ok(()), None, Some(rc)) if i32::from(rc) == run::WENT_WRONG => t("launcher.msg_went_wrong"),
-            (Ok(()), None, Some(rc)) if rc != 0 => t("launcher.msg_start_failed"),
+            (Ok(()), None, Some(rc)) if rc != 0 => {
+                failed_status("launcher.msg_start_failed", "launcher.msg_start_failed_why")
+            }
             (Ok(()), None, _) => t("launcher.msg_done"),
         };
         log(&status);
@@ -557,6 +575,10 @@ impl run::Ui for ServerUi {
             poke();
         }
     }
+
+    fn cause(&self, why: &str) {
+        shared().cause = Some(why.to_owned());
+    }
 }
 
 /// The run's lines go to OUTPUT (its "N/M" steps move the bar); its question - stop anyway, after the card rule
@@ -590,6 +612,10 @@ impl run::Ui for WindowUi {
     fn ask(&self, question: &str) -> bool {
         // no owner (any thread may ask), kept in front of the game
         message(question, MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) == IDYES
+    }
+
+    fn cause(&self, why: &str) {
+        shared().cause = Some(why.to_owned());
     }
 
     fn report(&self) {
@@ -2405,6 +2431,25 @@ mod tests {
             "the game has it already"
         );
         assert_eq!(language_note(Edition::E1011, "it", "en"), None);
+    }
+
+    /// A failed setup or start names its cause in the status line (#438), not only "See DETAILS".
+    #[test]
+    fn a_failure_names_its_cause() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        let (plain, why) = ("launcher.msg_start_failed", "launcher.msg_start_failed_why");
+        let said = with_cause(plain, why, Some("Port 8080 is taken."));
+        assert_eq!(said, tf(why, &[("why", "Port 8080 is taken.")]));
+        assert!(
+            said.contains("Port 8080 is taken.") && !said.contains("DETAILS"),
+            "{said}"
+        );
+        assert_eq!(with_cause(plain, why, None), t(plain));
+        assert_eq!(
+            with_cause(plain, why, Some("  ")),
+            t(plain),
+            "an empty cause says nothing"
+        );
     }
 
     #[test]

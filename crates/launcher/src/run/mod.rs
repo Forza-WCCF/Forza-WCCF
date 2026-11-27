@@ -181,6 +181,18 @@ pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
         &format!("{lead}{}", text.get(ui.lang())),
         &format!("{lead}{}", text.en()),
     );
+    if lead == FAIL {
+        ui.cause(&text.get(ui.lang()));
+    }
+}
+
+/// The lead of a step's failure line: its words are the cause the window's status line names ([`Ui::cause`]).
+pub const FAIL: &str = "  FAIL  ";
+
+/// A start refused before anything of it began: the line, and the cause for the status line.
+fn refused(ui: &dyn Ui, text: &Text) {
+    tell(ui, "", text);
+    ui.cause(&text.get(ui.lang()));
 }
 
 /// A line of forza's setup, game text or card pictures ([`forza::Line`]) to `ui` after `lead`, as [`tell`] does.
@@ -189,6 +201,9 @@ pub fn tell_line(ui: &dyn Ui, lead: &str, line: &forza::Line) {
         &format!("{lead}{}", forza_ui::line(ui.lang(), line)),
         &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, line)),
     );
+    if lead == FAIL {
+        ui.cause(&forza_ui::line(ui.lang(), line));
+    }
 }
 
 /// A `Ui` over a closure that gets each line as shown and in English (setup's lines into a log file and the run's box).
@@ -219,6 +234,8 @@ pub trait Ui {
     fn ask(&self, _question: &str) -> bool {
         false
     }
+    /// Why the step failed or the start was refused, in the player's language (the window's status line names it).
+    fn cause(&self, _why: &str) {}
     fn running(&self, _up: bool) {}
     /// The start is about to make the card pictures (a while): the window's status line.
     fn updating_pictures(&self) {}
@@ -1190,7 +1207,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     let edition = kit.edition();
     let arcade = rules::arcade_1718_on(&kit.settings());
     if rules::online_refused(edition, &mode, arcade) {
-        tell(ui, "", &Text::key("launcher.run_online_1718"));
+        refused(ui, &Text::key("launcher.run_online_1718"));
         return Err(REFUSED);
     }
     if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
@@ -1200,16 +1217,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
     let missing = kit.missing_programs();
     if !mode.is_server() && !missing.is_empty() {
-        tell(
+        refused(
             ui,
-            "",
             &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
         );
         return Err(REFUSED);
     }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
-        tell(ui, "", &Text::key("launcher.run_busy"));
+        refused(ui, &Text::key("launcher.run_busy"));
         return Err(REFUSED);
     };
     let check = || guard::check(&game, &seat, p.client(), p.control(), p.matcher());
@@ -1255,14 +1271,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         } else {
             Text::Raw(names.join(", "))
         };
-        tell(ui, "", &Text::key("launcher.run_already").part("names", names));
+        refused(ui, &Text::key("launcher.run_already").part("names", names));
         return Err(REFUSED);
     };
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
             let why = Text::key("launcher.run_no_job").arg("error", e);
-            tell(ui, "", &Text::key("launcher.run_failed").part("why", why));
+            tell(ui, "", &Text::key("launcher.run_failed").part("why", why.clone()));
+            ui.cause(&why.get(ui.lang()));
             return Err(FAILED);
         }
     };
@@ -1369,6 +1386,7 @@ impl Run<'_> {
 
     /// A start step's failure: said, then "Stopping.".
     fn failed(&self, f: Failed) {
+        self.ui.cause(&f.0.get(self.ui.lang()));
         self.tell("", &Text::key("launcher.run_failed").part("why", f.0));
         self.tell("", &Text::key("launcher.run_stopping"));
     }

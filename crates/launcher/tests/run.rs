@@ -26,6 +26,7 @@ struct Said {
     logged: Mutex<Vec<String>>,
     up: AtomicBool,
     lang: Option<forza_ui::Lang>,
+    cause: Mutex<Option<String>>,
 }
 
 /// A `Ui` that drops every line.
@@ -48,11 +49,19 @@ impl Ui for Said {
     fn running(&self, up: bool) {
         self.up.store(up, Ordering::Relaxed);
     }
+    fn cause(&self, why: &str) {
+        *self.cause.lock().unwrap() = Some(why.to_owned());
+    }
 }
 
 impl Said {
     fn text(&self) -> String {
         self.lines.lock().unwrap().join("\n")
+    }
+
+    /// The last cause the run gave (the window's status line names it).
+    fn last_cause(&self) -> String {
+        self.cause.lock().unwrap().clone().unwrap_or_default()
     }
 }
 
@@ -399,6 +408,10 @@ fn a_start_and_setup_wait_their_turn() {
         free.wait(); // before the assertions: a failed one must not leave the thread waiting
         assert_eq!(rc, run::REFUSED, "{}", ui.text());
         assert!(ui.text().contains("another Launcher window"), "{}", ui.text());
+        assert!(
+            ui.last_cause().contains("another Launcher window"),
+            "the refusal is the cause"
+        );
         assert_pictures_untouched(&cards, &ui);
         assert!(!on);
         assert_eq!(setup, launcher::setup::RUNNING);
@@ -426,6 +439,7 @@ fn the_pictures_wait_their_turn() {
         });
     }
     assert!(ui.text().contains("Close its window"), "{}", ui.text());
+    assert!(ui.last_cause().contains("Close its window"), "a FAIL line is the cause");
     assert_pictures_untouched(&cards, &ui);
 }
 
@@ -597,6 +611,11 @@ fn a_seat_that_crashes_at_the_start_stops_everything() {
         "{said}"
     );
     assert!(said.contains("Stopping."), "{said}");
+    assert_eq!(
+        ui.last_cause(),
+        "seat 1's window did not come up - see data\\logs\\run_seat1.txt",
+        "the failure's reason, not \"Stopping.\""
+    );
     let log = fs::read_to_string(kit.logs().join("run_seat1.txt")).unwrap();
     assert!(
         log.contains("SECOND-chance / FATAL"),
