@@ -362,7 +362,7 @@ pub fn kit_setup(
     use crate::Edition::{E1011, E1718};
     let Some(game) = find_edition_game(ed, folder) else {
         say(
-            "",
+            "  FAIL  ",
             &if folder.trim().is_empty() {
                 Line::key("setup.no_folder")
             } else {

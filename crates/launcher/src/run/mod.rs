@@ -181,6 +181,18 @@ pub fn tell(ui: &dyn Ui, lead: &str, text: &Text) {
         &format!("{lead}{}", text.get(ui.lang())),
         &format!("{lead}{}", text.en()),
     );
+    if lead == FAIL {
+        ui.cause(&text.get(ui.lang()));
+    }
+}
+
+/// The lead of a step's failure line: its words are the cause the window's status line names ([`Ui::cause`]).
+pub const FAIL: &str = "  FAIL  ";
+
+/// A start refused before anything of it began: the line, and the cause for the status line.
+fn refused(ui: &dyn Ui, text: &Text) {
+    tell(ui, "", text);
+    ui.cause(&text.get(ui.lang()));
 }
 
 /// A line of forza's setup, game text or card pictures ([`forza::Line`]) to `ui` after `lead`, as [`tell`] does.
@@ -189,6 +201,9 @@ pub fn tell_line(ui: &dyn Ui, lead: &str, line: &forza::Line) {
         &format!("{lead}{}", forza_ui::line(ui.lang(), line)),
         &format!("{lead}{}", forza_ui::line(forza_ui::Lang::En, line)),
     );
+    if lead == FAIL {
+        ui.cause(&forza_ui::line(ui.lang(), line));
+    }
 }
 
 /// A `Ui` over a closure that gets each line as shown and in English (setup's lines into a log file and the run's box).
@@ -219,6 +234,8 @@ pub trait Ui {
     fn ask(&self, _question: &str) -> bool {
         false
     }
+    /// Why the step failed or the start was refused, in the player's language (the window's status line names it).
+    fn cause(&self, _why: &str) {}
     fn running(&self, _up: bool) {}
     /// The start is about to make the card pictures (a while): the window's status line.
     fn updating_pictures(&self) {}
@@ -817,14 +834,19 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         tell(ui, "  FAIL  ", &Text::key("launcher.run_pictures_busy"));
         return false;
     };
-    pictures_held(kit, p, ui)
+    let Err(why) = pictures_held(kit, p, ui) else {
+        return true;
+    };
+    tell(ui, "  ", &why);
+    ui.cause(&why.get(ui.lang()));
+    false
 }
 
-/// [`make_pictures`] inside a start, which holds the admission and is on.
-fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
+/// [`make_pictures`] inside a start, which holds the admission and is on (and goes on without them: no cause); Err
+/// says why they are not in place.
+fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> Result<(), Text> {
     let Some(game) = game_folder(kit, p) else {
-        tell(ui, "  ", &Text::key("launcher.run_pictures_no_game"));
-        return false;
+        return Err(Text::key("launcher.run_pictures_no_game"));
     };
     let ed = match kit.edition() {
         Edition::E1011 => "1011",
@@ -835,13 +857,8 @@ fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         tell(ui, "  ", &Text::key("launcher.run_no_hq_pack"));
     }
     let say = |lead: &str, l: &forza::Line| tell_line(ui, lead, l);
-    match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
-        Ok(()) => true,
-        Err(e) => {
-            tell(ui, "  ", &Text::key("launcher.run_pictures_failed").arg("error", e));
-            false
-        }
-    }
+    forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say)
+        .map_err(|e| Text::key("launcher.run_pictures_failed").arg("error", e))
 }
 
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.
@@ -1190,7 +1207,7 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     let edition = kit.edition();
     let arcade = rules::arcade_1718_on(&kit.settings());
     if rules::online_refused(edition, &mode, arcade) {
-        tell(ui, "", &Text::key("launcher.run_online_1718"));
+        refused(ui, &Text::key("launcher.run_online_1718"));
         return Err(REFUSED);
     }
     if edition == Edition::E1011 && !seat.join(".wccf-kit").is_file() {
@@ -1200,16 +1217,15 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     // an antivirus quarantining them leaves the game without its card table and panel; a server-only run needs neither
     let missing = kit.missing_programs();
     if !mode.is_server() && !missing.is_empty() {
-        tell(
+        refused(
             ui,
-            "",
             &Text::key("launcher.run_no_program").arg("files", missing.join(", ")),
         );
         return Err(REFUSED);
     }
     // held to the end of the start: see Admission
     let Some(_admitted) = admit(kit) else {
-        tell(ui, "", &Text::key("launcher.run_busy"));
+        refused(ui, &Text::key("launcher.run_busy"));
         return Err(REFUSED);
     };
     let check = || guard::check(&game, &seat, p.client(), p.control(), p.matcher());
@@ -1255,12 +1271,13 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
         } else {
             Text::Raw(names.join(", "))
         };
-        tell(ui, "", &Text::key("launcher.run_already").part("names", names));
+        refused(ui, &Text::key("launcher.run_already").part("names", names));
         return Err(REFUSED);
     };
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
+            ui.cause(&e.to_string()); // the status line says "Could not start" already
             let why = Text::key("launcher.run_no_job").arg("error", e);
             tell(ui, "", &Text::key("launcher.run_failed").part("why", why));
             return Err(FAILED);
@@ -1369,6 +1386,7 @@ impl Run<'_> {
 
     /// A start step's failure: said, then "Stopping.".
     fn failed(&self, f: Failed) {
+        self.ui.cause(&f.0.get(self.ui.lang()));
         self.tell("", &Text::key("launcher.run_failed").part("why", f.0));
         self.tell("", &Text::key("launcher.run_stopping"));
     }
@@ -1841,7 +1859,8 @@ impl Run<'_> {
         if !self.beside_server && pictures_due(kit, p) {
             self.ui.updating_pictures();
             self.tell("", &Text::key("launcher.msg_updating_pictures"));
-            if !pictures_held(kit, p, self.ui) {
+            if let Err(why) = pictures_held(kit, p, self.ui) {
+                self.tell("  ", &why);
                 self.tell("  ", &Text::key("launcher.run_pictures_as_is"));
             }
         }
