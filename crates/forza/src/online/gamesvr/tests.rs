@@ -1420,6 +1420,17 @@ fn the_save_answer_keeps_the_total_rematch_count() {
     );
 }
 
+/// #316: the club ranking points, trophies and favourite cards (276 +6,096..+6,135) come from the 277's +8,512;
+/// rank, results and the prize-info and penalty flags stay 0.
+#[test]
+fn the_save_answer_keeps_the_ranking_points() {
+    let up: Vec<u8> = (1..=20).collect();
+    let a = card_in_after(Some(&[(8512, &up)]));
+    assert_eq!(&a[6096..6108], &up[..12], "points and trophies");
+    assert_eq!(&a[6126..6132], &up[12..18], "favourite cards");
+    assert!(a[6108..6126].iter().chain(&a[6132..6136]).all(|b| *b == 0));
+}
+
 /// #449: MOM and worst player (276 +4,154/+4,155) are the 277's +6,556/+6,557, or 16 (no player) with no 277.
 #[test]
 fn the_save_answer_keeps_mom_and_worst_player() {
@@ -1873,9 +1884,29 @@ fn purchases_are_stored_and_applied_to_286_and_276() {
     );
     let i = ask_store(&store, 285, &req(285, [5, club, card])).0;
     assert_eq!((i[700], i[701], i[42], i[93]), (3, 3, 9, 0));
+    // #316: an SE set k plays ShootSe row 161 + 3k (its first shoot button), not row k
+    buy(&store, 2, 4);
+    assert_eq!(
+        ask_store(&store, 285, &req(285, [5, club, card])).0[93],
+        173
+    );
+    buy(&store, 2, 0);
+    assert_eq!(
+        ask_store(&store, 285, &req(285, [5, club, card])).0[93],
+        161
+    );
+    // the last set, 13, is row 200; sets past it (and 256, which must not wrap to set 0) leave +93 alone
+    for item in [13, 14, 100, 256] {
+        buy(&store, 2, item);
+        assert_eq!(
+            ask_store(&store, 285, &req(285, [5, club, card])).0[93],
+            200,
+            "set {item}"
+        );
+    }
     // another Aime id has nothing
     let i = ask_store(&store, 285, &req(285, [6, club, card])).0;
-    assert_eq!((i[700], i[42]), (0, 0));
+    assert_eq!((i[700], i[42], i[93]), (0, 0, 0));
     // a later uniform replaces the earlier one
     buy(&store, 1, 4);
     assert_eq!(ask_store(&store, 285, &req(285, [5, club, card])).0[700], 4);
