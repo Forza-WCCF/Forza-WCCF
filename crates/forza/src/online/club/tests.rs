@@ -1306,6 +1306,9 @@ fn a_rejoin_takes_the_arcades_newer_copy_first() {
     down.store(true, Ordering::Relaxed);
     drop(trip);
     assert!(out_file(&dir).exists());
+    // the arcade does not answer: the marker stays for the next try, so no bring sends the home club over its copy
+    assert!(matches!(guest(at, &dir, 2).rejoin(&log), Rejoin::Failed(_)));
+    assert!(out_file(&dir).exists());
     // a match saved at the arcade after the last copy-back
     let host = Mutex::new(Store::open(&host_db).unwrap());
     let there = host.lock().unwrap().guest_club(50, &token(CODE)).unwrap();
@@ -1322,10 +1325,35 @@ fn a_rejoin_takes_the_arcades_newer_copy_first() {
 
     let mut elsewhere = guest(at, &dir, 2);
     elsewhere.arcade = "another arcade".into();
-    assert!(!elsewhere.rejoin(&log), "another arcade takes nothing");
+    assert_eq!(
+        elsewhere.rejoin(&log),
+        Rejoin::Skip,
+        "another arcade takes nothing"
+    );
     assert!(out_file(&dir).exists());
 
-    assert!(guest(at, &dir, 2).rejoin(&log), "the newer copy came home");
+    // a differing last copy the player is asked about (#436) stays the player's choice, the arcade's newer copy there
+    let last = std::fs::read(last_file(&dir)).unwrap();
+    let (link, mut asked): (Link, Club) = serde_json::from_slice(&last).unwrap();
+    asked.coaches[0].play_count += 1;
+    std::fs::write(
+        last_file(&dir),
+        serde_json::to_vec(&(&link, &asked)).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(left(&dir), Ok(Some(Left::Differs(_)))));
+    let n = backups(&dir, "club-1").len();
+    assert_eq!(guest(at, &dir, 2).rejoin(&log), Rejoin::Skip);
+    assert_eq!(home.club(1).unwrap(), sent, "nothing taken");
+    assert_eq!(backups(&dir, "club-1").len(), n, "nor backed up");
+    assert!(out_file(&dir).exists());
+    std::fs::write(last_file(&dir), &last).unwrap();
+
+    assert_eq!(
+        guest(at, &dir, 2).rejoin(&log),
+        Rejoin::Pulled,
+        "the newer copy came home"
+    );
     let got = home.club(1).unwrap();
     assert_eq!(got.coaches[0].play_count, 8, "with the match");
     assert_eq!(
@@ -1333,6 +1361,7 @@ fn a_rejoin_takes_the_arcades_newer_copy_first() {
         sent.coaches[0].save.as_ref().unwrap().block[2000] ^ 1
     );
     let saved = backups(&dir, "club-1");
+    assert_eq!(saved.len(), n + 1, "one backup, by the re-join");
     assert!(
         saved
             .iter()
@@ -1363,11 +1392,14 @@ fn a_rejoin_takes_the_arcades_newer_copy_first() {
     );
     drop(trip);
 
-    // a differing copy the player is asked about stays the player's choice
+    // the arcade dropped its copy (it restarted): nothing taken, no backup besides the bring's own, the marker left
+    // to leftover
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().join("gamesvr");
     let (home_club, _) = left_out(&dir);
-    assert!(!guest(at, &dir, 2).rejoin(&log));
+    std::fs::remove_file(last_file(&dir)).unwrap();
+    assert_eq!(guest(at, &dir, 2).rejoin(&log), Rejoin::Skip);
+    assert!(backups(&dir, "club-1").is_empty());
     assert!(out_file(&dir).exists());
     let store = Store::open(&dir.join("gamesvr.db")).unwrap();
     assert_eq!(store.club(1).unwrap(), home_club);

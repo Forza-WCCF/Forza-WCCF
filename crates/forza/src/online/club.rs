@@ -501,12 +501,15 @@ fn set_aside(tx: &Connection, aime: u32, what: &str) -> Result<(), String> {
     .map_err(|e| format!("backup: {e}"))
 }
 
+/// The desk's answer for a card whose club it does not hold (never brought, or the arcade restarted).
+const NOT_BROUGHT: &str = "no club of this card was brought here";
+
 /// The rows of `aime` the desk imported for the guest holding `token`; `Err` for any other Aime id or token.
 fn owned(db: &Connection, aime: u32, token: &str) -> Result<(), String> {
     match guest_token(db, aime).map_err(db_err)? {
         Some(t) if t == token => Ok(()),
         Some(_) => Err("another player's club for this card is in this arcade".into()),
-        None => Err("no club of this card was brought here".into()),
+        None => Err(NOT_BROUGHT.into()),
     }
 }
 
@@ -1105,6 +1108,26 @@ fn settle(dir: &Path) -> io::Result<Option<(PathBuf, Option<i64>)>> {
     Ok(Some((kept, home)))
 }
 
+/// What became of a host copy offered home ([`Guest::take_copy`]).
+enum Took {
+    Home,
+    /// Refused or the home club changed meanwhile: set aside, the home club stays.
+    Kept,
+    Failed(String),
+}
+
+/// What [`Guest::rejoin`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Rejoin {
+    /// The arcade's newer copy came home: the marker and the last copy went as at a start.
+    Pulled,
+    /// Nothing to take: [`leftover`] settles the marker as at any start.
+    Skip,
+    /// The arcade's copy could not be asked for or written home: the marker stays and no bring follows (it would
+    /// send the older home club over the arcade's copy).
+    Failed(String),
+}
+
 /// What a club still marked out left (read only, [`left`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Left {
@@ -1488,16 +1511,16 @@ impl Guest {
 
     /// Re-join (#437), before [`leftover`] and [`Guest::bring`]: a club still marked out in this same arcade, its last
     /// copy home, takes the arcade's newer copy first (the home club backed up), so the bring carries every match
-    /// saved there and the desk sets none aside. True when a newer copy came home (the marker and the last copy then
-    /// go as at a start); false leaves all to [`leftover`]: another arcade, a differing copy the player is asked about
-    /// ([`left`]), a copy the desk no longer holds or that fails the checks.
-    pub fn rejoin(&self, log: &Log) -> bool {
+    /// saved there and the desk sets none aside. [`Rejoin::Skip`] leaves all to [`leftover`]: another arcade, a
+    /// differing copy the player is asked about ([`left`]), nothing newer, a copy the desk no longer holds or that
+    /// fails the checks.
+    pub fn rejoin(&self, log: &Log) -> Rejoin {
         let p = match read_left(&self.dir) {
             Ok(Some(p)) => p,
-            Ok(None) => return false,
+            Ok(None) => return Rejoin::Skip,
             Err(e) => {
                 log(&format!("re-join: the arcade's copy not asked for ({e})"));
-                return false;
+                return Rejoin::Skip;
             }
         };
         let mut out = p.out.clone();
@@ -1505,7 +1528,20 @@ impl Guest {
             != (self.arcade.as_str(), self.arcade_aime, self.home_aime)
             || matches!(p.left(None), Left::Differs(_))
         {
-            return false;
+            return Rejoin::Skip;
+        }
+        let (stamp, host) = match fetch(self.desk, self.arcade_aime, &self.code, "") {
+            Ok(Some(got)) => got,
+            Ok(None) => return Rejoin::Skip,
+            // the arcade restarted: its copy is gone, the bring makes a new one
+            Err(e) if e == NOT_BROUGHT => return Rejoin::Skip,
+            Err(e) => {
+                log(&format!("re-join: the arcade's copy not asked for ({e})"));
+                return Rejoin::Failed(format!("re-join: {e}"));
+            }
+        };
+        if stamp == out.back_stamp {
+            return Rejoin::Skip;
         }
         let saved = Store::open(&self.dir.join("gamesvr.db"))
             .and_then(|s| Ok((s.club(self.home_aime)?, s)))
@@ -1522,20 +1558,20 @@ impl Guest {
                 s
             }
             Err(e) => {
-                log(&format!("re-join: the arcade's copy not asked for ({e})"));
-                return false;
+                log(&format!("re-join: the home club not backed up ({e})"));
+                return Rejoin::Failed(format!("re-join: {e}"));
             }
         };
-        let before = out.back_stamp.clone();
-        let progress = Mutex::new(Progress::default());
-        if !self.pull(&mut out, &mut store, true, log, &progress) || out.back_stamp == before {
-            return false;
+        match self.take_copy(&mut out, &mut store, stamp, host, log) {
+            Took::Home => {}
+            Took::Kept => return Rejoin::Skip,
+            Took::Failed(e) => return Rejoin::Failed(format!("re-join: {e}")),
         }
         log("re-join: the arcade's newer copy of the club is home");
         if let Err(e) = settle(&self.dir) {
             log(&format!("re-join: the marker stays ({e})"));
         }
-        true
+        Rejoin::Pulled
     }
 
     fn mark(&self, out: &Out) -> io::Result<()> {
@@ -1619,6 +1655,19 @@ impl Guest {
         if stamp == out.back_stamp {
             return true;
         }
+        matches!(self.take_copy(out, store, stamp, host, log), Took::Home)
+    }
+
+    /// The host's copy `host` (stamp `stamp`, newer than the last one home) written home when sound and the home
+    /// club did not change meanwhile; else set aside in `backups`.
+    fn take_copy(
+        &self,
+        out: &mut Out,
+        store: &mut Store,
+        stamp: String,
+        host: Club,
+        log: &Log,
+    ) -> Took {
         let pulled = serde_json::to_vec(&(&out.link, &host)).unwrap_or_default();
         if let Err(why) = sound(self.arcade_aime, &out.link, &host) {
             // asked again only once the host's copy changes; the home club and the last good copy stay
@@ -1633,7 +1682,7 @@ impl Guest {
                     "club copy-back refused ({why}): the home club stays; backup failed ({e})"
                 )),
             }
-            return false;
+            return Took::Kept;
         }
         if let Err(e) = write_atomic(&last_file(&self.dir), &pulled) {
             log(&format!(
@@ -1657,7 +1706,7 @@ impl Guest {
                 if let Ok(home) = store.club(self.home_aime) {
                     log(&format!("club copy-back, home after: {}", home.summary()));
                 }
-                true
+                Took::Home
             }
             Ok(None) => {
                 out.host_stamp = stamp;
@@ -1672,11 +1721,11 @@ impl Guest {
                         "club copy-back: the home club changed meanwhile; backup failed ({e})"
                     )),
                 }
-                false
+                Took::Kept
             }
             Err(e) => {
                 log(&format!("club copy-back failed: {e}"));
-                false
+                Took::Failed(e)
             }
         }
     }
