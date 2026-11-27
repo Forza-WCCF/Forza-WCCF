@@ -1937,6 +1937,8 @@ pub struct Options {
     pub dump: bool,
     /// Concurrent connections per peer IP; 0 = no limit
     pub max_per_ip: usize,
+    /// Concurrent connections in all; 0 = no limit
+    pub max_open: usize,
     /// Direct VS over the internet (M3); None keeps the local stand-in's behaviour
     pub vs: Option<VsConfig>,
     /// The matcher VS uses, when another service shares it (`forza-server all`: the desk lists its rooms); None =
@@ -1959,6 +1961,7 @@ impl Default for Options {
             skip_tutorial: false,
             dump: true,
             max_per_ip: 0,
+            max_open: 0,
             vs: None,
             matcher: None,
             sessions: None,
@@ -2028,6 +2031,7 @@ pub fn spawn_opts(
         skip_tutorial,
         dump,
         max_per_ip,
+        max_open,
         vs,
         matcher,
         sessions,
@@ -2065,6 +2069,12 @@ pub fn spawn_opts(
         }
         let _slot = {
             let mut m = peers.lock().unwrap_or_else(PoisonError::into_inner);
+            if max_open > 0 && m.values().sum::<usize>() >= max_open {
+                log(&format!(
+                    "refused {peer}: {max_open} connections open in all"
+                ));
+                return;
+            }
             let n = m.entry(peer.ip()).or_insert(0);
             if max_per_ip > 0 && *n >= max_per_ip {
                 log(&format!("refused {peer}: {max_per_ip} connections already"));

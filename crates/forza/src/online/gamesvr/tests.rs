@@ -2171,6 +2171,26 @@ fn a_flood_is_slowed_not_dropped() {
     assert!(t.elapsed() < Duration::from_millis(500));
 }
 
+/// Past `max_open` connections in all (from any addresses) the next one is closed at once; a closed one frees its
+/// place.
+#[test]
+fn the_game_server_refuses_past_its_connection_cap() {
+    use std::io::Read;
+    let (_svc, link, _dir) = serve(Options {
+        dump: false,
+        max_open: 2,
+        ..Options::default()
+    });
+    let (mut a, mut b) = (link(), link());
+    echoes(&mut a, 1);
+    echoes(&mut b, 1);
+    let mut c = link();
+    assert_eq!(c.read(&mut [0u8; 8]).unwrap(), 0, "over the cap");
+    drop(a);
+    std::thread::sleep(Duration::from_millis(300));
+    echoes(&mut link(), 1);
+}
+
 #[test]
 fn raw_files_are_bounded() {
     let dir = tempfile::tempdir().unwrap();
