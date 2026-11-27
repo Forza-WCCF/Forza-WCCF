@@ -629,7 +629,11 @@ fn welcome(ui: &mut Ui, lang: Lang) {
         );
     });
     ui.add_space(2.0);
-    for key in ["installer.welcome_note", "installer.smartscreen"] {
+    for key in [
+        "installer.welcome_reuse",
+        "installer.welcome_note",
+        "installer.smartscreen",
+    ] {
         ui.label(
             egui::RichText::new(tr!(lang, key))
                 .font(theme::body(12.0))

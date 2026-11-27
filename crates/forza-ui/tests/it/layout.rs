@@ -320,6 +320,24 @@ fn installer_files_rows_fit() {
     );
 }
 
+/// The Welcome page says, in every language, that step 3 can use game files already in the folder (#438).
+#[test]
+fn installer_welcome_names_the_reuse_of_game_files() {
+    for lang in Lang::ALL {
+        let mut st = installer::InstallerState::sample(lang, installer::Page::Welcome);
+        let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+            installer::show(ui, &mut st);
+        });
+        h.run_steps(4);
+        let line = forza_ui::text(lang, "installer.welcome_reuse", &[]);
+        let r = h.get_by_label(&line).rect();
+        assert!(
+            r.bottom() <= installer::SIZE.y - installer::FOOTER_H,
+            "{lang:?}: the line at {r:?} is under the footer"
+        );
+    }
+}
+
 /// The Files page warns before INSTALL when the disc image's edition is already in the folder, and only then (#438).
 #[test]
 fn installer_files_warns_of_an_edition_already_installed() {
