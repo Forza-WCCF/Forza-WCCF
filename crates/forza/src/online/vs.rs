@@ -28,6 +28,8 @@ pub const WINDOW_SECS: u32 = 40;
 /// Waiting 243 entries in all, and from one address (an arcade's seats; a vslink PC has one).
 const MAX_ENTRIES: usize = 256;
 const MAX_ENTRIES_PER_PEER: usize = 8;
+/// vslink PCs, token registrations, room tickets and engine tokens each kept at once ([`Links`]).
+const MAX_LINKS: usize = 1024;
 /// An entry lives this long after its 243 or its last 245: the control polls every 10 s, [`POLLS`] times (there is no
 /// other cancel message).
 const ENTRY_TTL: Duration = Duration::from_secs(10 * POLLS as u64 + 20);
@@ -292,15 +294,26 @@ impl Matcher {
         now: Instant,
     ) -> bool {
         let mut l = self.links();
+        l.capable.retain(|_, t| now.duration_since(*t) < LINK_TTL);
+        l.tickets
+            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        l.engines
+            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        // full: a new PC or EndpointId is not kept (it plays as a PC without vslink); known ones stay served
+        let adds = |has: bool, len: usize, text: Option<&str>| {
+            !has && len >= MAX_LINKS && text.is_some_and(|t| !t.is_empty())
+        };
+        if adds(l.capable.contains_key(&ip), l.capable.len(), Some("ip"))
+            || adds(l.tickets.contains_key(&id), l.tickets.len(), ticket)
+            || adds(l.engines.contains_key(&id), l.engines.len(), dmath)
+        {
+            return false;
+        }
         l.capable.insert(ip, now);
         // vslink registers a seat's token once per run: its hellos keep the registration (room, engine) alive
         for (_, at) in l.ids.values_mut().filter(|(r, _)| *r == id) {
             *at = now;
         }
-        l.tickets
-            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
-        l.engines
-            .retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
         match dmath.filter(|d| !d.is_empty()) {
             Some(d) => l.engines.insert(id, (d.to_owned(), now)),
             None => l.engines.remove(&id),
@@ -338,10 +351,14 @@ impl Matcher {
         l.capable.contains_key(&ip)
     }
 
-    /// A 902: token (ip in memory order, port) -> EndpointId. First wins until the TTL; false on a collision.
+    /// A 902: token (ip in memory order, port) -> EndpointId. First wins until the TTL; false on a collision, or a new
+    /// token while [`MAX_LINKS`] are kept.
     pub fn register(&self, ip: u32, port: u16, id: [u8; 32], now: Instant) -> bool {
         let mut l = self.links();
         l.ids.retain(|_, (_, t)| now.duration_since(*t) < LINK_TTL);
+        if !l.ids.contains_key(&(ip, port)) && l.ids.len() >= MAX_LINKS {
+            return false;
+        }
         l.ids.entry((ip, port)).or_insert((id, now)).0 == id
     }
 
@@ -612,6 +629,41 @@ mod tests {
             "a freed place"
         );
         assert_eq!(m.waiting(), MAX_ENTRIES);
+    }
+
+    /// Hellos (900) and token registrations (902) from ever new ids keep at most 1,024 of each; the PCs already
+    /// known keep working, and an expired one frees its place.
+    #[test]
+    fn registrations_are_capped() {
+        let m = Matcher::default();
+        let t = Instant::now();
+        let id = |n: u32| {
+            let mut i = [0u8; 32];
+            i[..4].copy_from_slice(&n.to_le_bytes());
+            i
+        };
+        let ip = |n: u32| IpAddr::from(n.to_be_bytes());
+        for n in 0..5000 {
+            m.hello(ip(n), id(n), Some("t"), Some("d"), t);
+            m.register(n, 1, id(n), t);
+        }
+        let sizes = |m: &Matcher| {
+            let l = m.links();
+            [
+                l.capable.len(),
+                l.ids.len(),
+                l.tickets.len(),
+                l.engines.len(),
+            ]
+        };
+        assert_eq!(sizes(&m), [MAX_LINKS; 4]);
+        assert!(m.capable(ip(5), t) && !m.capable(ip(4999), t));
+        assert!(m.register(5, 1, id(5), t), "a known token");
+        assert!(!m.register(4999, 1, id(4999), t), "a new one while full");
+        let later = t + LINK_TTL;
+        m.hello(ip(6000), id(6000), None, None, later);
+        assert!(m.capable(ip(6000), later), "expired places are free again");
+        assert!(m.register(6000, 1, id(6000), later));
     }
 
     #[test]
