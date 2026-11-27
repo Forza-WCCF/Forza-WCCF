@@ -1353,7 +1353,15 @@ mod tests {
             io::ErrorKind::PermissionDenied,
             "Windows keeps a running exe's name"
         );
-        replace_running(&me, &new).unwrap();
+        let (mut steps, mut both) = (0, false);
+        replace_until(&me, &new, None, &mut || {
+            steps += 1;
+            // before the rename: Launcher.exe and its second name, the same running file
+            both |= steps == 3 && fs::read(&me).ok() == fs::read(left_by_swap(t.path(), "__relocated__.exe")).ok();
+            true
+        })
+        .unwrap();
+        assert!(both, "the second name is there before the one rename");
         assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
         let away = left_by_swap(t.path(), "__relocated__.exe");
         assert!(away.is_file(), "the running one keeps its second name");
@@ -1384,6 +1392,13 @@ mod tests {
                 steps <= at
             });
             assert_eq!(r.is_ok(), at == 3, "{at}: {r:?}");
+            if at == 2 {
+                let away = left_by_swap(t.path(), "__relocated__.exe");
+                assert!(
+                    fs::read(&away).is_ok_and(|b| b == old),
+                    "the second name, beside Launcher.exe"
+                );
+            }
             assert_eq!(
                 fs::read(&me).unwrap() == old,
                 at < 3,
