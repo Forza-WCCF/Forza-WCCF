@@ -1895,9 +1895,18 @@ fn purchases_are_stored_and_applied_to_286_and_276() {
         ask_store(&store, 285, &req(285, [5, club, card])).0[93],
         161
     );
+    // the last set, 13, is row 200; sets past it (and 256, which must not wrap to set 0) leave +93 alone
+    for item in [13, 14, 100, 256] {
+        buy(&store, 2, item);
+        assert_eq!(
+            ask_store(&store, 285, &req(285, [5, club, card])).0[93],
+            200,
+            "set {item}"
+        );
+    }
     // another Aime id has nothing
     let i = ask_store(&store, 285, &req(285, [6, club, card])).0;
-    assert_eq!((i[700], i[42]), (0, 0));
+    assert_eq!((i[700], i[42], i[93]), (0, 0, 0));
     // a later uniform replaces the earlier one
     buy(&store, 1, 4);
     assert_eq!(ask_store(&store, 285, &req(285, [5, club, card])).0[700], 4);
