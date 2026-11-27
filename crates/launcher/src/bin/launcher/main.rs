@@ -246,20 +246,34 @@ fn setup_step(rc: i32) -> Result<(), String> {
     match rc {
         0 => Ok(()),
         launcher::setup::RUNNING => Err(t("launcher.msg_game_running")),
-        _ => Err(failed_status("launcher.msg_failed", "launcher.msg_failed_why")),
+        _ => Err(failed_status("launcher.msg_failed", Some("launcher.msg_failed_why"))),
     }
 }
 
-/// A failed job's status line: `why_key` with the cause the job's lines gave (`Shared::cause`), else `plain`.
-fn failed_status(plain: &str, why_key: &str) -> String {
+/// A failed job's status line: the cause the job's lines gave (`Shared::cause`) in `why_key` (none: a refusal's own
+/// sentence, alone), else `plain`.
+fn failed_status(plain: &str, why_key: Option<&str>) -> String {
     with_cause(plain, why_key, shared().cause.as_deref())
 }
 
-fn with_cause(plain: &str, why_key: &str, cause: Option<&str>) -> String {
-    match cause.map(str::trim).filter(|c| !c.is_empty()) {
-        Some(why) => tf(why_key, &[("why", why)]),
+fn with_cause(plain: &str, why_key: Option<&str>, cause: Option<&str>) -> String {
+    match cause.map(one_line).filter(|c| !c.is_empty()) {
+        Some(why) => why_key.map_or_else(|| why.clone(), |k| tf(k, &[("why", &why)])),
         None => t(plain),
     }
+}
+
+/// The longest cause the status line shows (about two lines); DETAILS has all of it.
+const CAUSE_MAX: usize = 150;
+
+/// A cause as one line of at most [`CAUSE_MAX`] characters: a raw error may span lines or carry long hashes.
+fn one_line(cause: &str) -> String {
+    let line = cause.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= CAUSE_MAX {
+        return line;
+    }
+    let cut: String = line.chars().take(CAUSE_MAX - 1).collect();
+    format!("{}…", cut.trim_end())
 }
 
 /// "  4/6 cabinet (...)" -> 4 of 6.
@@ -421,7 +435,7 @@ fn start(steps: Vec<Step>) -> bool {
                     say(t("launcher.msg_making_pictures"), 0);
                     run::make_pictures(&kit, &Params::of(&kit), &WindowUi)
                         .then_some(())
-                        .ok_or_else(|| failed_status("launcher.msg_failed", "launcher.msg_failed_why"))
+                        .ok_or_else(|| failed_status("launcher.msg_failed", Some("launcher.msg_failed_why")))
                 }
                 Step::Game(args) => {
                     let words: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -456,8 +470,11 @@ fn start(steps: Vec<Step>) -> bool {
             (Ok(()), None, Some(4)) => t("launcher.msg_unguarded"),
             (Ok(()), None, Some(5)) => t("launcher.msg_not_guarded"),
             (Ok(()), None, Some(rc)) if i32::from(rc) == run::WENT_WRONG => t("launcher.msg_went_wrong"),
+            (Ok(()), None, Some(rc)) if i32::from(rc) == run::REFUSED => {
+                failed_status("launcher.msg_start_failed", None)
+            }
             (Ok(()), None, Some(rc)) if rc != 0 => {
-                failed_status("launcher.msg_start_failed", "launcher.msg_start_failed_why")
+                failed_status("launcher.msg_start_failed", Some("launcher.msg_start_failed_why"))
             }
             (Ok(()), None, _) => t("launcher.msg_done"),
         };
@@ -2436,9 +2453,9 @@ mod tests {
     #[test]
     fn a_failure_names_its_cause() {
         let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        let (plain, why) = ("launcher.msg_start_failed", "launcher.msg_start_failed_why");
+        let (plain, why) = ("launcher.msg_start_failed", Some("launcher.msg_start_failed_why"));
         let said = with_cause(plain, why, Some("Port 8080 is taken."));
-        assert_eq!(said, tf(why, &[("why", "Port 8080 is taken.")]));
+        assert_eq!(said, tf(why.unwrap(), &[("why", "Port 8080 is taken.")]));
         assert!(
             said.contains("Port 8080 is taken.") && !said.contains("DETAILS"),
             "{said}"
@@ -2449,6 +2466,22 @@ mod tests {
             t(plain),
             "an empty cause says nothing"
         );
+        // a refusal is its own sentence: not "Could not start: Not started: ..."
+        let busy = ui_text(text::lang(), "launcher.run_busy", &[]);
+        assert_eq!(with_cause(plain, None, Some(&busy)), busy);
+        // a raw error (setup's hash mismatch) stays one short line in the footer
+        let raw = format!(
+            "sha256 mismatch for client_Release.exe:\n  expected {}\n  got {}",
+            "a".repeat(64),
+            "b".repeat(64)
+        );
+        let said = with_cause(plain, None, Some(&raw));
+        assert_eq!(said.chars().count(), CAUSE_MAX, "{said}");
+        assert!(
+            said.starts_with("sha256 mismatch for client_Release.exe: expected aaa") && said.ends_with('…'),
+            "{said}"
+        );
+        assert_eq!(one_line("  Port\r\n 8080 "), "Port 8080");
     }
 
     #[test]

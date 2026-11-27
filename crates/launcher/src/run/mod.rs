@@ -1277,9 +1277,9 @@ pub fn start<'a>(kit: &'a Kit, p: &'a Params, mode: Mode, debug: bool, ui: &'a d
     let job = match Job::new() {
         Ok(j) => Arc::new(j),
         Err(e) => {
+            ui.cause(&e.to_string()); // the status line says "Could not start" already
             let why = Text::key("launcher.run_no_job").arg("error", e);
-            tell(ui, "", &Text::key("launcher.run_failed").part("why", why.clone()));
-            ui.cause(&why.get(ui.lang()));
+            tell(ui, "", &Text::key("launcher.run_failed").part("why", why));
             return Err(FAILED);
         }
     };
