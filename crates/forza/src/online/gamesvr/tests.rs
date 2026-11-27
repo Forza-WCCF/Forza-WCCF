@@ -1407,6 +1407,19 @@ fn the_save_answer_keeps_title_wear_and_flag() {
     assert_eq!(&a[6016..6022], &[162, 1, 7, 0, 33, 1]);
 }
 
+/// #449: the coach's 50 items (276 +3,624) come from the 277's +6,005; 0 emptied the list at every card-in.
+#[test]
+fn the_save_answer_keeps_the_coach_items() {
+    let items: Vec<u8> = (1..=50).collect();
+    let a = card_in_after(Some(&[(6005, &items)]));
+    assert_eq!(&a[3624..3674], &items[..]);
+    assert_eq!(
+        &a[3616..3624],
+        &[0; 8],
+        "the Universal Cup rank and points stay 0"
+    );
+}
+
 /// #449: the total rematch count (u16) is read at 276 +6,148, not +6,138 where the old span put it.
 #[test]
 fn the_save_answer_keeps_the_total_rematch_count() {
