@@ -17,7 +17,7 @@ use std::{env, mem, ptr, thread};
 use forza::standins::io_board::{CARD_BIT, Shared};
 use forza::standins::scenes::Names;
 use launcher::Kit;
-use launcher::run::{self, Kind, Params, Ui};
+use launcher::run::{self, Kind, Params, Text, Ui};
 
 /// What the run said (as shown, and the English its logs get), and whether the game is up; `lang` None: English.
 #[derive(Default)]
@@ -965,17 +965,17 @@ fn record_1718(top: &Path) {
 }
 
 /// Setup's stand-in for a start (`Params::setup_1718`): it changes nothing; each run is a line in `top\set_ups.txt`.
-fn set_up_nothing(_kit: &Path, game: &Path) -> Result<(), String> {
+fn set_up_nothing(_kit: &Path, game: &Path) -> Result<(), Text> {
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(game.parent().unwrap().join("set_ups.txt"))
-        .map_err(|e| e.to_string())?;
-    writeln!(f, "set up").map_err(|e| e.to_string())
+        .map_err(|e| Text::from(e.to_string()))?;
+    writeln!(f, "set up").map_err(|e| e.to_string().into())
 }
 
 /// [`set_up_nothing`], then seat 1's guarded client and the record made again, as setup makes them.
-fn set_up_again(kit: &Path, game: &Path) -> Result<(), String> {
+fn set_up_again(kit: &Path, game: &Path) -> Result<(), Text> {
     set_up_nothing(kit, game)?;
     let top = game.parent().unwrap();
     guarded_copy(&top.join(r"seat1\standin_client.exe"));
@@ -1100,7 +1100,7 @@ fn a_2017_18_runtime_an_older_setup_made_is_set_up_again_or_not_started() {
     let before = fs::read(&path).unwrap();
     let ui = Said::default();
     let mut p = params("stale", Shared::new());
-    p.setup_1718 = |_, _| Err("no original game programs here".into());
+    p.setup_1718 = |_, _| Err(Text::Raw("no original game programs here".into()));
     let rc = run::command(&kit, &p, &["local".into()], &ui);
     let said = ui.text();
     assert_eq!(rc, run::NOT_GUARDED, "{said}");

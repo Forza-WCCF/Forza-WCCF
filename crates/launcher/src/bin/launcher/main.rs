@@ -2484,6 +2484,27 @@ mod tests {
         assert_eq!(one_line("  Port\r\n 8080 "), "Port 8080");
     }
 
+    /// A setup failure's cause is in the player's language (#438), the path and Windows' error kept as they are.
+    #[test]
+    fn a_setup_failure_is_said_in_italian() {
+        let _globals = text::TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+        // SAFETY: the tests that read the language hold TEST_LOCK; Windows locks its environment block per call.
+        unsafe { std::env::set_var("WCCF_KIT_LANG", "it") };
+        text::choose(None);
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("WCCF_KIT_LANG") };
+        let top = tempfile::tempdir().unwrap();
+        let game = top.path().join("game"); // not there: setup's first write fails
+        let why = launcher::setup::setup_1718(top.path(), &game).unwrap_err();
+        shared().cause = Some(why.get(text::lang()));
+        let said = setup_step(1).unwrap_err();
+        shared().cause = None;
+        text::set(Lang::En);
+        assert!(said.starts_with("Non riuscito: impossibile usare "), "{said}");
+        assert!(said.contains(&game.display().to_string()), "{said}");
+        assert!(why.en().starts_with("could not use "), "the log keeps the English");
+    }
+
     #[test]
     fn game_text_follows_language() {
         assert_eq!(game_text_for(Lang::En, None), "en");

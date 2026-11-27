@@ -84,7 +84,7 @@ pub(crate) fn again(
     kit: &Kit,
     game: &Path,
     why: &Text,
-    set_up: fn(&Path, &Path) -> Result<(), String>,
+    set_up: fn(&Path, &Path) -> Result<(), Text>,
     ui: &dyn Ui,
 ) -> bool {
     tell(ui, "", why);
@@ -100,7 +100,7 @@ pub(crate) fn again(
             tell(
                 ui,
                 "  FAIL  ",
-                &Text::key("launcher.run_setup_again_failed").arg("why", e),
+                &Text::key("launcher.run_setup_again_failed").part("why", e),
             );
             false
         }
@@ -110,17 +110,17 @@ pub(crate) fn again(
 /// What a start's [`again`] runs for the game: setup's game part, as SET UP runs it (`e1718::setup_game`).  The card
 /// catalogue is the panel's card browser only, so it is not part of it: a start makes it after this (see
 /// `run::start`), and a build that fails is its note, never a refusal.
-pub(crate) fn setup_1718(kit: &Path, game: &Path) -> Result<(), String> {
+pub fn setup_1718(kit: &Path, game: &Path) -> Result<(), Text> {
     e1718::setup_game(kit, game, &e1718::Spec::game())
         .map(drop)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.0.into())
 }
 
 /// The card catalogue of the game (`overlay\catalogue.tsv`, `e1718::setup_catalogue`): made from the game when the
 /// play folder has none, kept as it is when it has one (an older kit set the folder up before the catalogue existed).
 /// A start makes it too, when the folder it copied lacks it.
-pub(crate) fn catalogue_1718(kit: &Path, game: &Path) -> Result<(), String> {
-    e1718::setup_catalogue(kit, game, false, &|_: &str, _: &forza::Line| {}).map_err(|e| e.to_string())
+pub(crate) fn catalogue_1718(kit: &Path, game: &Path) -> Result<(), forza::Line> {
+    e1718::setup_catalogue(kit, game, false, &|_: &str, _: &forza::Line| {}).map_err(|e| e.0)
 }
 
 /// The game's text into `lang`: "en" English, "it" Italian, "" the original Japanese.
@@ -175,9 +175,9 @@ mod tests {
         // no catalogue, and no game files to make one from: the build is tried (not skipped as already made), and its
         // failure is only the start's note, never a refusal
         let err = catalogue_1718(kit.path(), &game).unwrap_err();
-        assert!(err.contains("catalogue"), "{err}");
+        assert_eq!(err, forza::Line::key("setup.err_catalogue"));
         let cat = overlay.join("catalogue.tsv");
-        assert!(!cat.exists(), "a failed build leaves no file: {err}");
+        assert!(!cat.exists(), "a failed build leaves no file: {err:?}");
         std::fs::write(&cat, "card_no\tname\n").unwrap();
         catalogue_1718(kit.path(), &game).unwrap();
         assert_eq!(
