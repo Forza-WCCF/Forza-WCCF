@@ -708,6 +708,40 @@ fn the_deck_names_the_right_click_hold() {
     }
 }
 
+/// The 2017-18 tactic pad's PRESS prints its name inside its own square, as `panel::show` paints it, at the panel's size
+/// and a 1280x800 window, in English, Italian and Japanese. Laid out only: no GPU.
+#[test]
+fn the_pad_paints_press_in_its_square() {
+    for size in [panel::SIZE, Vec2::new(1280.0, 800.0)] {
+        for lang in Lang::ALL {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            let mut h = harness(size, 1.0, Edition::E1718, |ui| panel::show(ui, &mut st));
+            h.run_steps(4);
+            let name = forza_ui::text(lang, "cab.press", &[]);
+            let press = h.get_by_label(&name).rect();
+            let painted: Vec<egui::Rect> = h
+                .output()
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.text() == name => {
+                        Some(t.galley.rect.translate(t.pos.to_vec2()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let case = format!("{size:?} {}", lang.code());
+            assert!(!painted.is_empty(), "{case}: {name:?} is not painted");
+            for r in painted {
+                assert!(
+                    press.expand(1.5).contains_rect(r),
+                    "{case}: {r:?} leaves PRESS {press:?}"
+                );
+            }
+        }
+    }
+}
+
 /// FILTER BY STATS opened on 2017-18 says what its sliders do, in view without hover: the line sits under the
 /// filters and inside the CARDS page, left of the board, at the panel's size and a 1280x800 window, in English, Italian and
 /// Japanese. Laid out only: no GPU.
