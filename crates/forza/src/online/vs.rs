@@ -500,6 +500,91 @@ pub fn reflect(pkt: &[u8], src: SocketAddrV4) -> Reflect {
 const PROBED_FOR: Duration = Duration::from_secs(60);
 /// Relay packets per second per source (lock-step play needs ~60 plus pings).
 const RELAY_RATE: u32 = 300;
+/// Sources the reflect service remembers at once (probed, and relaying): spoofed sources past it get no state.
+const MAX_SOURCES: usize = 16_384;
+/// New probe sources logged per minute; the rest are counted in one line.
+const PROBE_LINES: u32 = 20;
+
+/// The reflect service's state between datagrams: who probed (relay goes only between fresh probers) and each
+/// relaying source's packets this second. Both maps are swept once a second and capped at [`MAX_SOURCES`].
+#[derive(Default)]
+struct Reflector {
+    probed: HashMap<SocketAddrV4, Instant>,
+    rate: HashMap<SocketAddrV4, (Instant, u32)>,
+    swept: Option<Instant>,
+    /// Probe lines this minute (since .0), and the new sources not logged.
+    said: (Option<Instant>, u32, u32),
+}
+
+impl Reflector {
+    /// What to send for one datagram: [`reflect`]'s answer, with a relay only between fresh probers within
+    /// [`RELAY_RATE`].
+    fn step(&mut self, pkt: &[u8], src: SocketAddrV4, now: Instant, log: &Log) -> Reflect {
+        if self
+            .swept
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1))
+        {
+            self.swept = Some(now);
+            self.probed
+                .retain(|_, t| now.duration_since(*t) < PROBED_FOR);
+            self.rate
+                .retain(|_, (t, _)| now.duration_since(*t) < Duration::from_secs(1));
+        }
+        match reflect(pkt, src) {
+            Reflect::Echo(r) => {
+                if !self.probed.contains_key(&src) {
+                    if self.probed.len() >= MAX_SOURCES {
+                        return Reflect::Echo(r);
+                    }
+                    self.said_new(src, now, log);
+                }
+                self.probed.insert(src, now);
+                Reflect::Echo(r)
+            }
+            Reflect::Relay(dst) => {
+                let fresh = |a: &SocketAddrV4| {
+                    self.probed
+                        .get(a)
+                        .is_some_and(|t| now.duration_since(*t) < PROBED_FOR)
+                };
+                // only a prober has a rate entry, so the map is no bigger than `probed`
+                if !fresh(&src) || !fresh(&dst) {
+                    return Reflect::Ignore;
+                }
+                let r = self.rate.entry(src).or_insert((now, 0));
+                if now.duration_since(r.0) >= Duration::from_secs(1) {
+                    *r = (now, 0);
+                }
+                r.1 += 1;
+                if r.1 <= RELAY_RATE {
+                    Reflect::Relay(dst)
+                } else {
+                    Reflect::Ignore
+                }
+            }
+            Reflect::Ignore => Reflect::Ignore,
+        }
+    }
+
+    /// The "probe from" line, at most [`PROBE_LINES`] a minute; the next minute's first line says how many went unsaid.
+    fn said_new(&mut self, src: SocketAddrV4, now: Instant, log: &Log) {
+        let (since, lines, unsaid) = &mut self.said;
+        if since.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(60)) {
+            if *unsaid > 0 {
+                log(&format!(
+                    "reflect: {unsaid} more new probe source(s) not logged"
+                ));
+            }
+            (*since, *lines, *unsaid) = (Some(now), 0, 0);
+        }
+        if *lines < PROBE_LINES {
+            *lines += 1;
+            log(&format!("reflect: probe from {src}"));
+        } else {
+            *unsaid += 1;
+        }
+    }
+}
 
 /// Serves the reflect echo and relay on `sock`. Stops when the handle is dropped.
 pub fn spawn_reflect(sock: UdpSocket, log: Log) -> io::Result<Handle> {
@@ -508,36 +593,17 @@ pub fn spawn_reflect(sock: UdpSocket, log: Log) -> io::Result<Handle> {
     let flag = stop.clone();
     let thread = std::thread::spawn(move || {
         let mut buf = [0u8; 2048];
-        let mut probed: HashMap<SocketAddrV4, Instant> = HashMap::new();
-        let mut rate: HashMap<SocketAddrV4, (Instant, u32)> = HashMap::new();
+        let mut state = Reflector::default();
         while !flag.load(std::sync::atomic::Ordering::Relaxed) {
             let Ok((n, SocketAddr::V4(src))) = sock.recv_from(&mut buf) else {
                 continue;
             };
-            let now = Instant::now();
-            match reflect(&buf[..n], src) {
+            match state.step(&buf[..n], src, Instant::now(), &log) {
                 Reflect::Echo(r) => {
-                    if probed.insert(src, now).is_none() {
-                        log(&format!("reflect: probe from {src}"));
-                    }
                     let _ = sock.send_to(&r, src);
-                    probed.retain(|_, t| now.duration_since(*t) < PROBED_FOR);
-                    rate.retain(|_, (t, _)| now.duration_since(*t) < Duration::from_secs(1));
                 }
                 Reflect::Relay(dst) => {
-                    let fresh = |a: &SocketAddrV4| {
-                        probed
-                            .get(a)
-                            .is_some_and(|t| now.duration_since(*t) < PROBED_FOR)
-                    };
-                    let r = rate.entry(src).or_insert((now, 0));
-                    if now.duration_since(r.0) >= Duration::from_secs(1) {
-                        *r = (now, 0);
-                    }
-                    r.1 += 1;
-                    if r.1 <= RELAY_RATE && fresh(&src) && fresh(&dst) {
-                        let _ = sock.send_to(&buf[..n], dst);
-                    }
+                    let _ = sock.send_to(&buf[..n], dst);
                 }
                 Reflect::Ignore => {}
             }
@@ -664,6 +730,44 @@ mod tests {
         m.hello(ip(6000), id(6000), None, None, later);
         assert!(m.capable(ip(6000), later), "expired places are free again");
         assert!(m.register(6000, 1, id(6000), later));
+    }
+
+    /// A flood from ever new (spoofed) sources keeps no more than MAX_SOURCES probers, no rate entry for a source
+    /// that never probed, 20 probe lines a minute plus one count; a minute later the sweep empties both maps, and two
+    /// real probers still relay.
+    #[test]
+    fn the_reflect_state_is_bounded() {
+        let said: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log: Log = {
+            let said = said.clone();
+            Arc::new(move |l: &str| said.lock().unwrap().push(l.to_owned()))
+        };
+        let mut probe = vec![0u8; 52];
+        probe[..8].copy_from_slice(&MAGIC);
+        probe[8] = 1;
+        let relay = |to: SocketAddrV4| {
+            let mut p = probe.clone();
+            p[8] = 2;
+            p[44..48].copy_from_slice(&to.ip().octets());
+            p[50..52].copy_from_slice(&to.port().to_le_bytes());
+            p
+        };
+        let src = |n: u32| SocketAddrV4::new(Ipv4Addr::from(n), 1);
+        let (mut r, t) = (Reflector::default(), Instant::now());
+        for n in 0..50_000 {
+            assert!(matches!(r.step(&probe, src(n), t, &log), Reflect::Echo(_)));
+            r.step(&relay(src(0)), src(1_000_000 + n), t, &log);
+        }
+        assert_eq!((r.probed.len(), r.rate.len()), (MAX_SOURCES, 0));
+        assert_eq!(said.lock().unwrap().len(), PROBE_LINES as usize);
+        let later = t + PROBED_FOR;
+        let (a, b) = (src(7_000_000), src(7_000_001));
+        r.step(&probe, a, later, &log);
+        assert_eq!(r.probed.len(), 1, "swept");
+        r.step(&probe, b, later, &log);
+        assert_eq!(r.step(&relay(b), a, later, &log), Reflect::Relay(b));
+        assert_eq!(r.rate.len(), 1);
+        assert!(said.lock().unwrap()[PROBE_LINES as usize].contains("not logged"));
     }
 
     #[test]
