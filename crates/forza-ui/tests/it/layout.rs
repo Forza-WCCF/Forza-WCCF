@@ -674,11 +674,11 @@ fn board_hint_clear_of_the_buttons() {
     }
 }
 
-/// On the 2017-18 deck, KEY PLAYER and KEEPER say on hover that a right-click holds them down; SHOOT does not (a
-/// right-click does not hold it), in English, Italian and Japanese. Laid out only: no GPU.
+/// On the 2017-18 deck, KEY PLAYER and KEEPER say on hover and on keyboard focus that a right-click holds them down;
+/// SHOOT does not (a right-click does not hold it), in English, Italian and Japanese. Laid out only: no GPU.
 #[test]
 fn the_deck_names_the_right_click_hold() {
-    for lang in Lang::ALL {
+    for (lang, focus) in Lang::ALL.into_iter().flat_map(|l| [(l, false), (l, true)]) {
         let hint = forza_ui::text(lang, "cab.hold_hint", &[]);
         for (key, held) in [
             ("cab.key_player", true),
@@ -690,12 +690,18 @@ fn the_deck_names_the_right_click_hold() {
                 panel::show(ui, &mut st)
             });
             h.run_steps(4);
-            h.get_by_label(&forza_ui::text(lang, key, &[])).hover();
+            let label = forza_ui::text(lang, key, &[]);
+            let button = h.get_by_label(&label);
+            if focus {
+                button.focus();
+            } else {
+                button.hover();
+            }
             h.run_steps(12);
             assert_eq!(
                 h.query_by_label(&hint).is_some(),
                 held,
-                "{} {key}",
+                "{} {key} focus {focus}",
                 lang.code()
             );
         }

@@ -3223,7 +3223,13 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         );
         // 2017-18: the right-click hold ([`latch_click`]) is named on the two buttons it works on
         if !both && matches!(it.kind, Cab::KeyPlayer | Cab::Keeper) {
-            resp.on_hover_text(tr!(lang, "cab.hold_hint"));
+            let hint = tr!(lang, "cab.hold_hint");
+            // a button reached by Tab has no hover: its focus shows the line too
+            if resp.has_focus() {
+                resp.show_tooltip_text(hint);
+            } else {
+                resp.on_hover_text(hint);
+            }
         }
         if on {
             let p = ui.painter();
