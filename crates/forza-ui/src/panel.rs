@@ -3208,7 +3208,7 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
         let lit = on || it.tactic.is_some_and(|i| st.tactics[i]);
         // a name printed beside the button is not printed in it too
         let inside = it.label.is_none();
-        put(
+        let resp = put(
             ui,
             it.rect,
             it.key,
@@ -3218,6 +3218,10 @@ fn cabinet_deck(ui: &mut Ui, st: &mut PanelState, area: Rect, lang: Lang, s: f32
             lit,
             inside,
         );
+        // 2017-18: the right-click hold ([`latch_click`]) is named on the two buttons it works on
+        if !both && matches!(it.kind, Cab::KeyPlayer | Cab::Keeper) {
+            resp.on_hover_text(tr!(lang, "cab.hold_hint"));
+        }
         if on {
             let p = ui.painter();
             p.circle_stroke(

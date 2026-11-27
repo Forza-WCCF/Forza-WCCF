@@ -670,6 +670,34 @@ fn board_hint_clear_of_the_buttons() {
     }
 }
 
+/// On the 2017-18 deck, KEY PLAYER and KEEPER say on hover that a right-click holds them down; SHOOT does not (a
+/// right-click does not hold it), in English, Italian and Japanese. Laid out only: no GPU.
+#[test]
+fn the_deck_names_the_right_click_hold() {
+    for lang in Lang::ALL {
+        let hint = forza_ui::text(lang, "cab.hold_hint", &[]);
+        for (key, held) in [
+            ("cab.key_player", true),
+            ("cab.keeper", true),
+            ("cab.shoot", false),
+        ] {
+            let mut st = panel::PanelState::sample(Edition::E1718, lang, panel::Page::Game);
+            let mut h = harness(panel::SIZE, 1.0, Edition::E1718, |ui| {
+                panel::show(ui, &mut st)
+            });
+            h.run_steps(4);
+            h.get_by_label(&forza_ui::text(lang, key, &[])).hover();
+            h.run_steps(12);
+            assert_eq!(
+                h.query_by_label(&hint).is_some(),
+                held,
+                "{} {key}",
+                lang.code()
+            );
+        }
+    }
+}
+
 /// The board's row of buttons (POP OUT, RESET LINEUP, FORMATIONS) on the docked board at the divider's least width:
 /// no two buttons overlap or crowd each other and all stay inside the board's 16-point margin, in English, Italian
 /// and Japanese (the Italian labels are the longest). The divider's ◀▶ handle sits on that row, on the board's edge,

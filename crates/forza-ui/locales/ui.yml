@@ -305,6 +305,7 @@ cab.start: {en: "START", it: "START", ja: "スタート"}
 cab.card: {en: "CARD", it: "CARTA", ja: "カード"}
 cab.coin: {en: "COIN", it: "GETTONE", ja: "コイン"}
 cab.held: {en: "HELD", it: "TENUTO", ja: "ホールド"}
+cab.hold_hint: {en: "A right-click holds this button down while you move cards; a click lets it go.", it: "Il clic destro tiene premuto questo pulsante mentre sposti le carte; un clic lo rilascia.", ja: "右クリックすると、カードを動かす間このボタンを押したままにします。クリックで離します。"}
 
 # ---- panel ----
 panel.f11: {en: "F11 switches between window and full screen.", it: "F11 alterna finestra e schermo intero.", ja: "F11 でウィンドウと全画面を切り替えます。"}
