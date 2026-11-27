@@ -182,9 +182,14 @@ as clean because an earlier scan did. What helps:
   `-DisableRemediation`), and read it file by file: the two big files are what moves, the five small programs have
   stayed clean;
 - a flagged file of ours is rebuilt for size, not for a new hash: `[profile.release.package.…] opt-level = "z"` with
-  `codegen-units = 1` took 0.6.0's `FPR_Emu.exe` off the list (#134, `av-oracle-20261101/`), and the same override
-  covers `launcher` and `forza-panel` since 0.6.2 and `wccf-installer` since 0.6.3. Fresh bytes of a flagged file stayed flagged (the 0.6.0 bisect), so
-  the shape is the only lever measured to work.
+  `codegen-units = 1` took 0.6.0's `FPR_Emu.exe` off the list (#134, `av-oracle-20261101/`), and an `opt-level = "z"`
+  override covers `launcher` and `forza-panel` since 0.6.2 and `wccf-installer` since 0.6.3, each with its own
+  measured codegen-units (`Cargo.toml`: `launcher` 4, `forza-panel` 8). Fresh bytes of a flagged file stayed flagged
+  (the 0.6.0 bisect), so the shape is the only lever measured to work;
+- the release builds pin MSVC with `VCToolsVersion: 14.44.35207` (`release.yml` jobs `build` and `installer`): a new
+  runner image's newest toolset reshapes every C and CRT-bearing file (14.52 made 0.7.5's `Launcher.exe` read
+  `Wacatac.B!ml`); check `COMPILER=msvc-1944` in `strings Launcher.exe`, and when the image drops 14.44, measure the
+  next toolset on a runner dispatch before moving the pin.
 
 Obfuscation and packing raise the verdict instead of lowering it (Microsoft says so outright), and signing without a
 paid certificate leaves `!ml` verdicts untouched: `E:\wccf\wccf-builds\codesign-20261101\OPTIONS.md`.

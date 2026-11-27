@@ -93,6 +93,9 @@ jobs:
     env:
       # empty on a tag push: cargo xtask then takes the tag; set, it wins over git (xtask/src/main.rs version())
       FORZA_VERSION: ${{ inputs.version }}
+      # not the image's newest MSVC (14.52 on the 11-23 image: Launcher.exe read Trojan:Win32/Wacatac.B!ml in 0.7.5);
+      # cc reads it through find-msvc-tools and so does rustc's linker lookup. Measured clean on the runner 2026-11-15
+      VCToolsVersion: 14.44.35207
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,6 +144,9 @@ jobs:
     env:
       # empty on a tag push: cargo xtask then takes the tag; set, it wins over git (xtask/src/main.rs version())
       FORZA_VERSION: ${{ inputs.version }}
+      # not the image's newest MSVC (14.52 on the 11-23 image: Launcher.exe read Trojan:Win32/Wacatac.B!ml in 0.7.5);
+      # cc reads it through find-msvc-tools and so does rustc's linker lookup. Measured clean on the runner 2026-11-15
+      VCToolsVersion: 14.44.35207
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
