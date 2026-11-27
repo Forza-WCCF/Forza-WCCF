@@ -834,14 +834,19 @@ pub fn make_pictures(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         tell(ui, "  FAIL  ", &Text::key("launcher.run_pictures_busy"));
         return false;
     };
-    pictures_held(kit, p, ui)
+    let Err(why) = pictures_held(kit, p, ui) else {
+        return true;
+    };
+    tell(ui, "  ", &why);
+    ui.cause(&why.get(ui.lang()));
+    false
 }
 
-/// [`make_pictures`] inside a start, which holds the admission and is on.
-fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
+/// [`make_pictures`] inside a start, which holds the admission and is on (and goes on without them: no cause); Err
+/// says why they are not in place.
+fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> Result<(), Text> {
     let Some(game) = game_folder(kit, p) else {
-        tell(ui, "  ", &Text::key("launcher.run_pictures_no_game"));
-        return false;
+        return Err(Text::key("launcher.run_pictures_no_game"));
     };
     let ed = match kit.edition() {
         Edition::E1011 => "1011",
@@ -852,13 +857,8 @@ fn pictures_held(kit: &Kit, p: &Params, ui: &dyn Ui) -> bool {
         tell(ui, "  ", &Text::key("launcher.run_no_hq_pack"));
     }
     let say = |lead: &str, l: &forza::Line| tell_line(ui, lead, l);
-    match forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say) {
-        Ok(()) => true,
-        Err(e) => {
-            tell(ui, "  ", &Text::key("launcher.run_pictures_failed").arg("error", e));
-            false
-        }
-    }
+    forza::cards::pictures::ensure(&game, ed, &kit.cache().join("cards"), pack.as_deref(), &say)
+        .map_err(|e| Text::key("launcher.run_pictures_failed").arg("error", e))
 }
 
 /// The game's programs (by the run's names) running from the game folder and the folders beside it.
@@ -1859,7 +1859,8 @@ impl Run<'_> {
         if !self.beside_server && pictures_due(kit, p) {
             self.ui.updating_pictures();
             self.tell("", &Text::key("launcher.msg_updating_pictures"));
-            if !pictures_held(kit, p, self.ui) {
+            if let Err(why) = pictures_held(kit, p, self.ui) {
+                self.tell("  ", &why);
                 self.tell("  ", &Text::key("launcher.run_pictures_as_is"));
             }
         }

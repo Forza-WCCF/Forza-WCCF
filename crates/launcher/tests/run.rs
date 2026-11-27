@@ -340,6 +340,10 @@ fn a_setup_line_is_shown_translated_and_logged_in_english() {
     assert!(it.text().contains("nessun file di gioco"), "{}", it.text());
     assert!(!it.text().contains("no WCCF"), "{}", it.text());
     assert!(
+        it.last_cause().contains("nessun file di gioco"),
+        "the missing files are the cause"
+    );
+    assert!(
         it.logged
             .lock()
             .unwrap()
@@ -441,6 +445,18 @@ fn the_pictures_wait_their_turn() {
     assert!(ui.text().contains("Close its window"), "{}", ui.text());
     assert!(ui.last_cause().contains("Close its window"), "a FAIL line is the cause");
     assert_pictures_untouched(&cards, &ui);
+}
+
+/// Card pictures that cannot be made name why in the status line (#438): here no game is set up.
+#[test]
+fn pictures_without_a_game_say_why() {
+    let top = tempfile::Builder::new().prefix("wccf-run-").tempdir().unwrap();
+    let (kit, _) = scratch_kit(top.path());
+    let nowhere = serde_json::json!({ "game": top.path().join("no game here").display().to_string() });
+    fs::write(kit.dir().join(r"data\settings.json"), nowhere.to_string()).unwrap();
+    let ui = Said::default();
+    assert!(!run::make_pictures(&kit, &params("pics", Shared::new()), &ui));
+    assert!(ui.last_cause().contains("No game set up yet"), "{}", ui.text());
 }
 
 #[test]
