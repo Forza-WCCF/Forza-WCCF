@@ -25,3 +25,5 @@
 # Keep legacy runtime output out of source control too.
 /wccf-revival/
 /wccf-revival.partial/
+# A generated NTFS test volume with no game data (install/tests.rs ntfs_fixture).
+!/src/install/ntfs-fixture.zip

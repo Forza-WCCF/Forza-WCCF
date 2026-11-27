@@ -401,6 +401,71 @@ fn extract_never_replaces_a_game() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A 2 MiB NTFS volume with `client_Release.exe` ("exe") and `big.bin` (5000 bytes of `i % 251`, non-resident) in
+/// its root and no game data: `mkntfs -F -L fixture`, then `ntfscp` of both files; its `$UpCase` is zeroed (extract
+/// never compares names) so the zip stays small.
+fn ntfs_fixture() -> Vec<u8> {
+    let mut zip =
+        zip::ZipArchive::new(std::io::Cursor::new(include_bytes!("ntfs-fixture.zip"))).unwrap();
+    let mut img = Vec::new();
+    zip.by_name("ntfs.img")
+        .unwrap()
+        .read_to_end(&mut img)
+        .unwrap();
+    img
+}
+
+/// extract copies every file off the volume and renames `game.partial` to `game`; it refuses a volume that is not
+/// NTFS, one without `client_Release.exe`, a cancel and an existing game folder, and leaves no `game.partial`.
+#[test]
+fn extract_copies_the_volume_and_refuses_the_rest() {
+    let t = std::env::temp_dir().join(format!("extract-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&t);
+    fs::create_dir_all(&t).unwrap();
+    let game = t.join(GAME_DIR);
+    let img = ntfs_fixture();
+    let go = AtomicBool::new(false);
+    let refused = |img: &[u8], cancel: &AtomicBool| {
+        let e = extract(&mut std::io::Cursor::new(img), &game, cancel, &|_| {}).unwrap_err();
+        assert!(!game.with_extension("partial").exists(), "{e}");
+        e.downcast::<E>().unwrap()
+    };
+
+    extract(&mut std::io::Cursor::new(&img), &game, &go, &|_| {}).unwrap();
+    assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), b"exe");
+    let big: Vec<u8> = (0..5000).map(|i| (i % 251) as u8).collect();
+    assert_eq!(fs::read(game.join("big.bin")).unwrap(), big);
+    let mut names: Vec<_> = fs::read_dir(&game)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["big.bin", "client_Release.exe"]); // no $MFT or other metadata
+
+    assert_eq!(refused(&img, &go), E::GameFolderExists);
+    assert_eq!(fs::read(game.join("client_Release.exe")).unwrap(), b"exe");
+    fs::remove_dir_all(&game).unwrap();
+
+    assert_eq!(refused(&img, &AtomicBool::new(true)), E::Cancelled);
+    assert_eq!(refused(&vec![0; img.len()], &go), E::NotNtfsVolume);
+    // the same volume with the program renamed (index entry and record alike): not a game
+    let (from, to) = (utf16("client_Release.exe"), utf16("client_Releasf.exe"));
+    let mut renamed = img.clone();
+    let mut at = 0;
+    while let Some(i) = renamed[at..].windows(from.len()).position(|w| w == from) {
+        renamed[at + i..at + i + to.len()].copy_from_slice(&to);
+        at += i + to.len();
+    }
+    assert!(at > 0);
+    assert_eq!(refused(&renamed, &go), E::ExtractIncomplete);
+    assert!(!game.exists());
+    fs::remove_dir_all(&t).unwrap();
+}
+
+fn utf16(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+}
+
 /// The old flat install remains usable; installing the other edition gets its own root.
 #[test]
 fn legacy_flat_install_is_reused() {

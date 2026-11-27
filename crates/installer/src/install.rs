@@ -540,8 +540,8 @@ fn partial_tree(partial: &Path, fill: impl FnOnce() -> Result<()>) -> Result<()>
 }
 
 /// Extract into `game`.partial beside it, then rename: a cancelled run never leaves a half game folder.
-fn extract(
-    vol: &mut disc::Volume,
+fn extract<T: Read + Seek>(
+    vol: &mut T,
     game: &Path,
     cancel: &AtomicBool,
     emit: &dyn Fn(Event),
