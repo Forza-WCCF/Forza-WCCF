@@ -572,18 +572,36 @@ type Granted = (u8, u32, i32, Option<u16>);
 /// (SERVER_CLUB_RL_PRESENT_DIVISION at 277 +5,888 -> 276 +3,508, the season count, matches played, results, W/D/L; a
 /// zero state puts a club back into league 2, sub_83D4C0); 3,674..4,154 the 16 player records of 30 bytes (experience,
 /// level, confidence, form); 6,094 the manager level; the rest is the server-side summary the notes list
-/// (docs/research/ONLINE-2017-18.md, SAVE_DATA). Spans do not overlap and stay inside both messages.
-pub const TAIL_SPANS: [(usize, usize, usize); 9] = [
+/// (docs/research/ONLINE-2017-18.md, SAVE_DATA). 4,154..4,164 is the club report in the 276's own order (MOM and
+/// worst player, report lines, previous cup and round, enemy region, evaluation; the 277 orders them report, cup,
+/// round, evaluation, region, MOM, worst: sub_81AC50 0x81BC1C..0x81BCE8, sub_817F10 0x81A1C7..0x81A330); 6,016 the
+/// chosen title (u16), training wear and flag (u16), which the client clears when sent 0 (sub_816510 0x8165B0); 6,136
+/// serial rematches and incentive, 6,140 the two Grand Trophy counters, 6,148 the total rematch count (6,138 is not
+/// read). Spans do not overlap and stay inside both messages.
+pub const TAIL_SPANS: [(usize, usize, usize); 16] = [
     (3100, 5480, 456),
     (3556, 5944, 60),
     (3674, 6068, 480),
-    (4158, 6552, 6),
+    (4154, 6556, 2),
+    (4156, 6548, 4),
+    (4160, 6552, 2),
+    (4162, 6555, 1),
+    (4163, 6554, 1),
     (4164, 6559, 1792),
     (5956, 8358, 60),
+    (6016, 8352, 6),
     (6094, 3262, 2),
-    (6136, 8532, 12),
+    (6136, 8532, 2),
+    (6140, 8536, 8),
+    (6148, 8534, 2),
     (6152, 8544, 24),
 ];
+
+/// SAVE_DATA 276 +4,154/+4,155: SERVER_CLUB_MOM_PLAYER_INDEX and WORST_PLAYER_INDEX. With no stored 277 they get the
+/// row default 16 (no player); 0 names the first player.
+pub const MOM_WORST_276: usize = 4154;
+/// The client's "no player" index for [`MOM_WORST_276`].
+pub const NO_PLAYER: u8 = 16;
 
 /// SAVE_DATA 276 +6,088/+6,090/+6,092: the "net setting" FK, CK and PK card ids (u16). At card-in the client sets
 /// PLAYER_FK/CK/PK = (card no == id) for every player unless the id is 16,383 (sub_816510), so 0 cleared the kickers.
@@ -592,9 +610,10 @@ pub const NET_KICKERS_276: [usize; 3] = [6088, 6090, 6092];
 pub const NET_KICKER_KEEP: u16 = 16_383;
 
 /// Applies [`TAIL_SPANS`] from a stored 277 to a SAVE_DATA answer. No stored 277 (none since the club's last
-/// version) is skipped.
+/// version) leaves the summary 0 but the MOM and worst player ([`NO_PLAYER`]).
 fn restore_tail(body: &mut [u8], req: &[u8]) {
     if req.len() != 8572 {
+        body[MOM_WORST_276..MOM_WORST_276 + 2].fill(NO_PLAYER);
         return;
     }
     for (to, from, len) in TAIL_SPANS {
