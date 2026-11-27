@@ -369,44 +369,83 @@ fn swap_self<'a>(
     done
 }
 
-/// The running Launcher.exe `me` swapped for the new one `new` (#361).  The copy is written beside it and flushed first,
-/// so only two renames back to back leave the folder without a Launcher.exe.  A running exe can be renamed but not
-/// deleted: the old one stays as `.Launcher.<pid>.__relocated__.exe` until [`tidy`] removes it once it has exited.  When the
-/// second rename fails the old one is renamed back at once; a scanner holding the fresh copy gets the pair tried again
-/// for up to 1 s, so no try leaves the folder without a Launcher.exe for longer than the two renames.
+/// The running Launcher.exe `me` swapped for the new one `new` (#361).  The copy is written beside it and flushed first.
+/// Windows refuses to replace a running exe's last name, so the running one first gets a second name,
+/// `.Launcher.<pid>.__relocated__.exe` (a hard link); then one rename puts the copy in place of Launcher.exe.  A kill or
+/// a power loss at any point leaves a whole Launcher.exe, old or new, and [`finish_swap`] completes an old one at the
+/// next start.  [`tidy`] removes the second name once the old one has exited.  A scanner holding the fresh copy gets
+/// the rename tried again for up to 1 s.
 fn replace_running(me: &Path, new: &Path) -> io::Result<()> {
+    replace_until(me, new, &mut || true)
+}
+
+/// [`replace_running`], asking `go` before each step: a test stops there as a kill would, with nothing undone.
+fn replace_until(me: &Path, new: &Path, go: &mut dyn FnMut() -> bool) -> io::Result<()> {
     let (Some(dir), Some(stem)) = (me.parent(), me.file_stem().and_then(OsStr::to_str)) else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, me.display().to_string()));
     };
     let name = |end: &str| dir.join(format!(".{stem}.{}.{end}", std::process::id()));
     let (temp, away) = (name("__temp__.exe"), name("__relocated__.exe"));
-    let swapped = fs::File::create(&temp)
+    let mut killed = false;
+    let mut step = || {
+        killed = !go();
+        if killed {
+            Err(io::Error::other("killed"))
+        } else {
+            Ok(())
+        }
+    };
+    let mut linked = false;
+    let swapped = step()
+        .and_then(|()| fs::File::create(&temp))
         .and_then(|mut to| {
             io::copy(&mut fs::File::open(new)?, &mut to)?;
             to.sync_all()
         })
+        .and_then(|()| step())
+        .and_then(|()| {
+            let _ = fs::remove_file(&away);
+            // shortcut: a folder with no hard links (FAT32, exFAT) keeps the two renames and their gap; the spare
+            // Launcher.exe.old and the troubleshooting line cover it
+            linked = fs::hard_link(me, &away).is_ok();
+            step()
+        })
         .and_then(|()| {
             let mut tries = 20;
             loop {
-                fs::rename(me, &away)?;
-                let Err(e) = fs::rename(&temp, me) else {
+                let Err(e) = (if linked {
+                    fs::rename(&temp, me)
+                } else {
+                    two_renames(me, &temp, &away)
+                }) else {
                     return Ok(());
                 };
-                if fs::rename(&away, me).is_err() {
-                    return Err(e); // no Launcher.exe: `swap_self` puts the spare back
-                }
                 tries -= 1;
                 let busy = e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32 | 33));
-                if !busy || tries == 0 {
+                if !busy || tries == 0 || !me.is_file() {
                     return Err(e);
                 }
                 thread::sleep(Duration::from_millis(50));
             }
         });
-    if swapped.is_err() {
+    if swapped.is_err() && !killed {
         let _ = fs::remove_file(&temp);
+        if linked {
+            let _ = fs::remove_file(&away);
+        }
     }
     swapped
+}
+
+/// `me` renamed to `away` and `temp` to `me`; when the second fails the first is undone at once.  An error with no
+/// `me` left is `swap_self`'s to put the spare back.
+fn two_renames(me: &Path, temp: &Path, away: &Path) -> io::Result<()> {
+    fs::rename(me, away)?;
+    let Err(e) = fs::rename(temp, me) else {
+        return Ok(());
+    };
+    let _ = fs::rename(away, me);
+    Err(e)
 }
 
 /// The unzipped kit `top` over the kit folder `dir`, `replace` (the Launcher.exe swap) last; `work` (data\update) goes
@@ -432,8 +471,8 @@ fn install(top: &Path, dir: &Path, work: &Path, replace: impl FnOnce() -> Result
 /// unzipped by hand over an older one).
 pub fn tidy(kit: &Kit) {
     if let Ok(me) = env::current_exe() {
-        if let Some(e) = tidy_beside(&me) {
-            log(&format!("update: cannot remove {e}"));
+        for l in tidy_beside(&me) {
+            log(&format!("update: {l}"));
         }
         // the Launcher an update just replaced may still be closing: its renamed-away copy goes once it has exited
         if let Some(dir) = me.parent().map(Path::to_path_buf)
@@ -462,24 +501,57 @@ pub fn tidy(kit: &Kit) {
 }
 
 /// The swap's leftovers, the `Launcher.exe.old` beside `me`, the running Launcher.exe, and the
-/// `Launcher.exe.restore` a killed put-back left.  Returns why `Launcher.exe.old` could not go, unless a swap holds it.
-fn tidy_beside(me: &Path) -> Option<io::Error> {
+/// `Launcher.exe.restore` a killed put-back left; then [`finish_swap`].  Returns the lines for the log: why
+/// `Launcher.exe.old` could not go, and a swap finished or not.  While a swap holds the spare nothing more is done.
+fn tidy_beside(me: &Path) -> Vec<String> {
     if let Some(dir) = me.parent() {
         sweep_replaced(dir, me);
     }
     let mut old = me.as_os_str().to_owned();
     old.push(".old");
     let old = Path::new(&old);
+    let mut lines = Vec::new();
     match fs::remove_file(old) {
         // held without delete sharing (a sharing violation): a swap runs in another Launcher ([`swap_self`]), and its
         // put-back may be writing the restore copy
-        Err(e) if old.is_file() && matches!(e.raw_os_error(), Some(32 | 33)) => None,
+        Err(e) if old.is_file() && matches!(e.raw_os_error(), Some(32 | 33)) => return lines,
         r => {
             let _ = fs::remove_file(me.with_extension("exe.restore"));
-            let e = r.err().filter(|e| e.kind() != io::ErrorKind::NotFound)?;
-            Some(io::Error::new(e.kind(), format!("{}: {e}", old.display())))
+            if let Some(e) = r.err().filter(|e| e.kind() != io::ErrorKind::NotFound) {
+                lines.push(format!("cannot remove {}: {e}", old.display()));
+            }
         }
     }
+    match finish_swap(me) {
+        Some(Ok(())) => lines.push(format!("{} put in, the swap a stopped update left", me.display())),
+        Some(Err(e)) => lines.push(format!("cannot finish the swap a stopped update left: {e}")),
+        None => {}
+    }
+    lines
+}
+
+/// The Launcher.exe swap an update killed before it (the PC went off, the process was ended) left undone: the kit
+/// folder's files.sha256 already lists another Launcher.exe than `me`, and the copy data\update\kit holds is that one.
+/// It goes in as an update swaps it; the running old one carries on until the next start (#361).  None: nothing to do,
+/// or another program from the kit folder runs (its update may still be copying).
+fn finish_swap(me: &Path) -> Option<io::Result<()>> {
+    let dir = me.parent()?;
+    let list = fs::read_to_string(dir.join("files.sha256")).ok()?;
+    let want = list.lines().find_map(|l| {
+        let (hash, f) = l.trim().trim_start_matches('\u{feff}').split_once("  ")?;
+        f.eq_ignore_ascii_case("Launcher.exe")
+            .then(|| hash.to_ascii_lowercase())
+    })?;
+    let staged = fs::read_dir(dir.join("data").join("update").join("kit"))
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join("Launcher.exe"))
+        .find(|p| p.is_file())?;
+    let sha = |p: &Path| forza::apply::sha256_of(p).ok();
+    if sha(me)? == want || sha(&staged)? != want || forza::procs::running_from(dir).is_some() {
+        return None;
+    }
+    Some(replace_running(me, &staged))
 }
 
 /// What a swap leaves next to Launcher.exe: `.Launcher.<pid>.__relocated__.exe`, the old Launcher.exe itself, and
@@ -946,10 +1018,10 @@ mod tests {
             .share_mode(1) // as swap_self holds it
             .open(&kept)
             .unwrap();
-        assert!(tidy_beside(&me).is_none(), "a held spare is not a failure");
+        assert!(tidy_beside(&me).is_empty(), "a held spare is not a failure");
         assert!(restore.exists() && kept.exists(), "a swap runs: both stay");
         drop(held);
-        assert!(tidy_beside(&me).is_none());
+        assert!(tidy_beside(&me).is_empty());
         assert!(!restore.exists() && !kept.exists());
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
     }
@@ -964,8 +1036,8 @@ mod tests {
         fs::write(&me, b"the running launcher").unwrap();
         fs::write(&restore, b"half a launcher").unwrap();
         fs::create_dir(&kept).unwrap();
-        let e = tidy_beside(&me).expect("the failure on Launcher.exe.old");
-        assert!(e.to_string().contains("Launcher.exe.old"), "{e}");
+        let e = tidy_beside(&me).join("; ");
+        assert!(e.contains("Launcher.exe.old"), "{e}");
         assert!(!restore.exists());
     }
 
@@ -1025,16 +1097,15 @@ mod tests {
         assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
         assert_eq!(fs::read(&away).unwrap(), b"the running launcher");
         assert!(!temp.exists() && !kept.exists());
-        assert!(tidy_beside(&me).is_none());
+        assert!(tidy_beside(&me).is_empty());
         assert!(!away.exists());
         assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
     }
 
-    /// A second rename that fails (a scanner holds the fresh copy past the retries) renames the running Launcher.exe
-    /// back: the folder keeps it, no put-back from the spare is needed.  The copy was whole before Launcher.exe moved:
-    /// the window with no Launcher.exe is the two renames only (self_replace copied the new one after the move, #361).
+    /// A rename that fails (a scanner holds the fresh copy past the retries) leaves the running Launcher.exe in place
+    /// and drops its second name: no put-back from the spare is needed.  The copy was whole before the rename (#361).
     #[test]
-    fn a_failing_second_rename_renames_the_old_launcher_back() {
+    fn a_failing_rename_leaves_the_old_launcher_in_place() {
         use std::os::windows::fs::OpenOptionsExt;
         let t = crate::scratch();
         let (me, kept, new) = (
@@ -1075,7 +1146,7 @@ mod tests {
     }
 
     /// A scanner holding the fresh copy for a moment does not fail the swap, and while the pair is tried again the
-    /// folder keeps its Launcher.exe: the old one goes back between tries (#361).
+    /// folder keeps its Launcher.exe (#361).
     #[test]
     fn a_scanner_on_the_fresh_copy_keeps_launcher_exe_in_place_between_tries() {
         use std::os::windows::fs::OpenOptionsExt;
@@ -1124,7 +1195,8 @@ mod tests {
         assert!(!temp.exists() && me.exists());
     }
 
-    /// A Launcher.exe that cannot be moved away leaves it as it was and no temp copy.
+    /// A Launcher.exe that cannot be replaced (held with no delete sharing) stays as it was, with no temp copy and no
+    /// second name left.
     #[test]
     fn a_launcher_that_cannot_move_away_stays_and_the_copy_goes() {
         use std::os::windows::fs::OpenOptionsExt;
@@ -1135,7 +1207,7 @@ mod tests {
         let held = fs::OpenOptions::new().read(true).share_mode(1).open(&me).unwrap();
         let e = replace_running(&me, &new).unwrap_err();
         drop(held);
-        assert_eq!(e.raw_os_error(), Some(32), "the move away was refused: {e}");
+        assert!(matches!(e.raw_os_error(), Some(5 | 32)), "the replace was refused: {e}");
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
         assert!(!left_by_swap(t.path(), "__temp__.exe").exists());
         assert!(!left_by_swap(t.path(), "__relocated__.exe").exists());
@@ -1158,6 +1230,116 @@ mod tests {
         assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
         assert!(!left_by_swap(t.path(), "__temp__.exe").exists());
         assert!(!left_by_swap(t.path(), "__relocated__.exe").exists());
+    }
+
+    /// A Launcher killed during its update's swap leaves the old Launcher.exe in a kit folder whose files.sha256 already
+    /// lists the new one: the next start swaps in the checked copy data\update\kit still holds, and only that (#361).
+    #[test]
+    fn the_next_start_finishes_a_swap_a_kill_left_undone() {
+        let t = crate::scratch();
+        let me = t.path().join("Launcher.exe");
+        let staged = t.path().join(r"data\update\kit\Forza-WCCF-2017-18\Launcher.exe");
+        let list = t.path().join("files.sha256");
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&staged, b"half a new launcher").unwrap();
+        let sum = |b: &[u8]| Sha256::digest(b).iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let listed = format!("\u{feff}{}  Launcher.exe\r\n", sum(b"the new launcher"));
+        fs::write(&list, &listed).unwrap();
+        tidy_beside(&me);
+        assert_eq!(
+            fs::read(&me).unwrap(),
+            b"the running launcher",
+            "a copy that is not the listed one stays out"
+        );
+        fs::write(&staged, b"the new launcher").unwrap();
+        tidy_beside(&me);
+        assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+        // a kit folder whose list still names the running Launcher (killed before files.sha256 was copied) keeps it
+        fs::write(&me, b"the running launcher").unwrap();
+        fs::write(&list, format!("{}  launcher.exe\r\n", sum(b"the running launcher"))).unwrap();
+        tidy_beside(&me);
+        assert_eq!(fs::read(&me).unwrap(), b"the running launcher");
+    }
+
+    /// A running Launcher.exe (here a copy of this test program mapped as an exe image, as Windows holds a running
+    /// program's file) cannot have its name replaced, only renamed away; with its second name it can (#361).
+    #[test]
+    fn a_running_launcher_is_replaced_in_one_rename() {
+        let t = crate::scratch();
+        let (me, new) = (t.path().join("Launcher.exe"), t.path().join("unzipped.exe"));
+        fs::copy(env::current_exe().unwrap(), &me).unwrap();
+        fs::write(&new, b"the new launcher").unwrap();
+        let running = as_running(&me);
+        let e = fs::rename(&new, &me).unwrap_err();
+        assert_eq!(
+            e.kind(),
+            io::ErrorKind::PermissionDenied,
+            "Windows keeps a running exe's name"
+        );
+        replace_running(&me, &new).unwrap();
+        assert_eq!(fs::read(&me).unwrap(), b"the new launcher");
+        let away = left_by_swap(t.path(), "__relocated__.exe");
+        assert!(away.is_file(), "the running one keeps its second name");
+        drop(running);
+        sweep_replaced(t.path(), &me);
+        assert!(!away.exists(), "and the start after it has exited removes it");
+    }
+
+    /// A kill before each step of the swap (the copy, the second name, the rename) leaves a whole Launcher.exe, the
+    /// old one, and the next start, run by that old one, finishes the swap; with no kill the new one is in (#361).
+    #[test]
+    fn a_kill_between_any_two_swap_steps_leaves_a_launcher_the_next_start_finishes() {
+        for at in 0..=3 {
+            let t = crate::scratch();
+            let me = t.path().join("Launcher.exe");
+            let new = t.path().join(r"data\update\kit\Forza-WCCF-2017-18\Launcher.exe");
+            fs::create_dir_all(new.parent().unwrap()).unwrap();
+            fs::copy(env::current_exe().unwrap(), &me).unwrap();
+            let old = fs::read(&me).unwrap();
+            fs::write(&new, b"the new launcher").unwrap();
+            // the kit's files are in: its files.sha256 lists the new Launcher.exe
+            let listed = format!("{}  Launcher.exe\r\n", forza::apply::sha256_of(&new).unwrap());
+            fs::write(t.path().join("files.sha256"), listed).unwrap();
+            let running = as_running(&me);
+            let mut steps = 0;
+            let r = replace_until(&me, &new, &mut || {
+                steps += 1;
+                steps <= at
+            });
+            assert_eq!(r.is_ok(), at == 3, "{at}: {r:?}");
+            assert_eq!(
+                fs::read(&me).unwrap() == old,
+                at < 3,
+                "{at}: a whole Launcher.exe, the old one until the rename"
+            );
+            drop(running); // the Launcher killed
+            let next = (at < 3).then(|| as_running(&me)); // the old one starts again
+            let lines = tidy_beside(&me);
+            assert_eq!(fs::read(&me).unwrap(), b"the new launcher", "{at}: {lines:?}");
+            drop(next);
+        }
+    }
+
+    /// `p`, an exe, held as Windows holds a running program's file: mapped as an image.  Closed when dropped.
+    fn as_running(p: &Path) -> std::os::windows::io::OwnedHandle {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Memory::{CreateFileMappingW, PAGE_READONLY, SEC_IMAGE};
+        let file = fs::File::open(p).unwrap();
+        // SAFETY: a valid file handle, no attributes, no name; the section handle is checked before it is owned.
+        let section = unsafe {
+            CreateFileMappingW(
+                file.as_raw_handle(),
+                std::ptr::null(),
+                PAGE_READONLY | SEC_IMAGE,
+                0,
+                0,
+                std::ptr::null(),
+            )
+        };
+        assert!(!section.is_null(), "{}", io::Error::last_os_error());
+        // SAFETY: a fresh handle owned by nothing else.
+        unsafe { OwnedHandle::from_raw_handle(section) }
     }
 
     /// `p` as a file last written two minutes ago.
