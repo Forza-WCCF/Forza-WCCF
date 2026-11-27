@@ -351,6 +351,7 @@ pub fn show(ui: &mut Ui, st: &mut InstallerState) -> Option<Action> {
             );
             drag_area(ui, strip, "installer-drag-top", &mut out);
             window_corner(ui, win, &mut out);
+            language_picker(ui, win, &mut st.lang);
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.label(
                 egui::RichText::new(st.page.title(lang))
@@ -443,6 +444,23 @@ fn window_corner(ui: &mut Ui, win: Rect, out: &mut Option<Action>) {
         TitleAction::Minimize => _ = out.get_or_insert(Action::Minimize),
         TitleAction::Close => _ = out.get_or_insert(Action::Close),
         TitleAction::None => {}
+    }
+}
+
+/// The width of the language switch left of the window buttons, as in the Launcher's title bar.
+pub const LANG_W: f32 = 216.0;
+
+/// English, Italiano, 日本語 left of minimize and close: the window's text follows at once.
+fn language_picker(ui: &mut Ui, win: Rect, lang: &mut Lang) {
+    let r = Rect::from_min_size(
+        pos2(win.right() - 4.0 - 82.0 - 10.0 - LANG_W, win.top() + 3.0),
+        vec2(LANG_W, widgets::SEGMENTED_H),
+    );
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+    let mut i = Lang::ALL.iter().position(|l| l == lang).unwrap_or(0);
+    // each language in its own words, whatever the window's language
+    if widgets::segmented(&mut child, &mut i, &Lang::ALL.map(Lang::native), LANG_W) {
+        *lang = Lang::ALL[i];
     }
 }
 
@@ -992,7 +1010,10 @@ fn files_body(ui: &mut Ui, st: &mut InstallerState, lang: Lang, out: &mut Option
         }
     });
     // INSTALL from a disc stops on an edition already in the folder: say so before it is pressed
-    if let Some(e) = st.detected.filter(|e| !st.reuse && st.installed.contains(e)) {
+    if let Some(e) = st
+        .detected
+        .filter(|e| !st.reuse && st.installed.contains(e))
+    {
         status_line(
             ui,
             Tone::Notice,

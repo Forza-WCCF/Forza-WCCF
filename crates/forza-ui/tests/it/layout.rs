@@ -369,6 +369,68 @@ fn installer_files_warns_of_an_edition_already_installed() {
     }
 }
 
+/// The installer's language switch sits left of minimize and close, clear of the page title, on every page and in
+/// every language, and a click on a language turns the window's text to it (#438).
+#[test]
+fn installer_language_switch_fits_and_switches() {
+    use egui::accesskit::Role;
+    for lang in Lang::ALL {
+        for page in installer::Page::ALL {
+            let mut st = installer::InstallerState::sample(lang, page);
+            let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+                installer::show(ui, &mut st);
+            });
+            h.run_steps(4);
+            let seg: Vec<_> = Lang::ALL
+                .map(|l| {
+                    h.get_by_role_and_label(Role::RadioButton, l.native())
+                        .rect()
+                })
+                .into();
+            let (left, right) = (seg[0].left(), seg[2].right());
+            let title = forza_ui::text(lang, &format!("installer.{}", page_key(page)), &[]);
+            let title = h.get_by_label(&title).rect();
+            assert!(
+                left > title.right() + 8.0,
+                "{lang:?} {page:?}: the switch at {left} touches the title ending at {}",
+                title.right()
+            );
+            // the window buttons take the 82 points 4 from the right edge
+            assert!(
+                right <= installer::SIZE.x - 4.0 - 82.0 && seg[0].top() >= 0.0,
+                "{lang:?} {page:?}: the switch ends at {right}, over the window buttons"
+            );
+        }
+    }
+    let st = std::cell::RefCell::new(installer::InstallerState::sample(
+        Lang::En,
+        installer::Page::Welcome,
+    ));
+    let mut h = harness(installer::SIZE, 1.0, Edition::E1011, |ui| {
+        installer::show(ui, &mut st.borrow_mut());
+    });
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::RadioButton, "Italiano")
+        .click();
+    h.run_steps(2);
+    assert_eq!(st.borrow().lang, Lang::It);
+    let welcome = forza_ui::text(Lang::It, "installer.welcome_body", &[]);
+    assert!(
+        h.query_by_label(&welcome).is_some(),
+        "the page is in Italian"
+    );
+}
+
+fn page_key(page: installer::Page) -> &'static str {
+    match page {
+        installer::Page::Welcome => "welcome",
+        installer::Page::Where => "where",
+        installer::Page::Files => "files",
+        installer::Page::Installing => "installing",
+        installer::Page::Done => "done",
+    }
+}
+
 /// On hold since 2026-10-31: 2017-18 shows no PAUSE button on the page bar, no VS ROOMS tab and no HOST VS; 2010-11
 /// keeps its own. The arcade side (ARCADES tab, HOST ARCADE) stays.
 #[test]
