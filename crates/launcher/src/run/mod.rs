@@ -994,7 +994,7 @@ fn before_bring(guest: Option<club::Guest>, dir: &Path, log: &Log) -> Result<(cl
     match guest.rejoin(log) {
         club::Rejoin::Pulled => said.push(Text::key("launcher.club_rejoin")),
         club::Rejoin::Skip => {}
-        club::Rejoin::Failed(why) => return Err(Text::Raw(why)),
+        club::Rejoin::Failed(why) => return Err(Text::key("launcher.club_rejoin_failed").arg("error", why)),
     }
     said.extend(leftover_note(dir));
     Ok((guest, said))

@@ -1531,7 +1531,7 @@ impl Guest {
             }
             Err(e) => {
                 log(&format!("re-join: the marker could not be read ({e})"));
-                return Rejoin::Failed(format!("re-join: {e}"));
+                return Rejoin::Failed(e.to_string());
             }
         };
         let mut out = p.out.clone();
@@ -1548,7 +1548,7 @@ impl Guest {
             Err(e) if e == NOT_BROUGHT => return Rejoin::Skip,
             Err(e) => {
                 log(&format!("re-join: the arcade's copy not asked for ({e})"));
-                return Rejoin::Failed(format!("re-join: {e}"));
+                return Rejoin::Failed(e);
             }
         };
         if stamp == out.back_stamp {
@@ -1570,13 +1570,13 @@ impl Guest {
             }
             Err(e) => {
                 log(&format!("re-join: the home club not backed up ({e})"));
-                return Rejoin::Failed(format!("re-join: {e}"));
+                return Rejoin::Failed(e);
             }
         };
         match self.take_copy(&mut out, &mut store, stamp, host, log) {
             Took::Home => {}
             Took::Kept => return Rejoin::Skip,
-            Took::Failed(e) => return Rejoin::Failed(format!("re-join: {e}")),
+            Took::Failed(e) => return Rejoin::Failed(e),
         }
         log("re-join: the arcade's newer copy of the club is home");
         if let Err(e) = settle(&self.dir) {
